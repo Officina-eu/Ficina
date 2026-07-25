@@ -1,0 +1,42 @@
+# Releases build from tags only (ROADMAP Phase 0; release skill:
+# artifacts built from the tag by CI, never from a laptop).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build release artifacts from tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build server binaries
+        run: cargo build --release --workspace
+      - name: Build web application
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/ficina-smtp dist/
+          tar -C web -czf dist/ficina-web.tar.gz dist
+      - name: Draft GitHub release with artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            dist/ficina-smtp
+            dist/ficina-web.tar.gz

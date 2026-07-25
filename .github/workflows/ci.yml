@@ -1,0 +1,85 @@
+# The quality gate (.claude/skills/quality-gate/) run on every PR —
+# the exact commands, not approximations. A skipped step is a failed
+# gate.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  rust:
+    name: Rust quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (zero warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
+      # Tenant-isolation suite (quality-gate: `--test '*tenant*'`)
+      # activates when ficina-store lands (ROADMAP Phase 1, "Every
+      # store operation tenant-scoped"); today no storage code exists
+      # and the glob would match no test target. Recorded here so its
+      # absence is a visible decision, not an oversight.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Dependency audit
+        run: cargo audit
+
+  web:
+    name: Web quality gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Lint (zero warnings)
+        run: npm run lint
+      - name: Typecheck (strict)
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  compose-integration:
+    name: SMTP wire test against the composed stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Boot the Phase 0 working set
+        run: >
+          docker compose -f deploy/docker-compose.yml up -d --build --wait
+          --wait-timeout 300 postgres garage rspamd ficina-smtp
+      - name: Show service health
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml ps
+      - name: Wire test against the composed ficina-smtp
+        env:
+          FICINA_SMTP_TEST_ADDR: 127.0.0.1:2525
+        run: cargo test --package ficina-smtp --test smtp_wire
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v

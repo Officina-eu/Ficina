@@ -1,0 +1,16 @@
+# Rust
+/target/
+
+# Node
+node_modules/
+web/dist/
+
+# Environment — real values never enter the repo (see deploy/.env.example)
+.env
+.env.*
+!.env.example
+deploy/.env
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db

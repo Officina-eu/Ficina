@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/secrets/**)",
+      "Read(./deploy/**/*.key)",
+      "Bash(git push --force*)",
+      "Bash(rm -rf /*)",
+      "Bash(curl * | sh*)",
+      "Bash(curl * | bash*)"
+    ],
+    "additionalDirectories": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(echo \"$CLAUDE_TOOL_INPUT\" | grep -o '\"file_path\"[^,}]*' | head -1); case \"$f\" in *.rs*) cargo fmt --quiet 2>/dev/null; cargo clippy --quiet --message-format=short 2>&1 | grep -E '^(warning|error)' | head -20 ;; *.ts*|*.tsx*) npx prettier --write --log-level silent $(echo \"$f\" | sed 's/.*: *\"//;s/\"//') 2>/dev/null ;; esac; true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit' && { git diff --cached | grep -qE '(BEGIN (RSA|OPENSSH) PRIVATE KEY|password\\s*=\\s*\"[^\"]+\"|api[_-]?key\\s*=\\s*\"[^\"]+\")' && { echo 'BLOCKED: possible secret in staged diff' >&2; exit 2; }; }; true"
+          }
+        ]
+      }
+    ]
+  }
+}

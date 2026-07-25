@@ -1,0 +1,141 @@
+# Ficina engine set — pinned versions, sealed containers (ADR 0003).
+# Engines are configured, never patched (CLAUDE.md); upstream security
+# updates are a version bump here and in scripts/fetch-engines.sh via
+# its single source of truth: the image tags below.
+#
+# Pins verified against upstream registries on 2026-07-25:
+#   synapse   v1.157.1     (ghcr.io/element-hq/synapse)
+#   livekit   v1.13.4      (livekit/livekit-server)
+#   collabora 25.04.9.4.1  (collabora/code) — newest image whose
+#     source tag (cp-25.04.9-4) exists in CollaboraOnline/online;
+#     the 26.04 CODE images are ahead of public source tagging, and
+#     ../engines must be clonable at exactly the pinned version
+#   garage    v2.3.0       (dxflrs/garage)
+#   postgres  16.14        (library/postgres)
+#   rspamd    4.1.2        (rspamd/rspamd)
+#
+# Bring-up: `docker compose up -d --wait postgres garage rspamd ficina-smtp`
+# is the Phase 0 working set. Synapse needs a documented one-time
+# `generate` bootstrap; LiveKit and Collabora boot with the dev
+# placeholders from .env.example. Full tenant wiring for all three is
+# ROADMAP.md Phase 2 ("Chat & Meet", "Drive & Docs") — see README.md
+# in this directory for exactly what remains.
+
+name: ficina
+
+networks:
+  ficina:
+
+volumes:
+  pg_data:
+  garage_meta:
+  garage_data:
+  synapse_data:
+
+services:
+  postgres:
+    image: postgres:16.14
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ficina}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ficina-dev-only}
+      POSTGRES_DB: ${POSTGRES_DB:-ficina}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  garage:
+    image: dxflrs/garage:v2.3.0
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-b54d1a2e9c3f47a8b54d1a2e9c3f47a8b54d1a2e9c3f47a8b54d1a2e9c3f47a8}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-ficina-dev-admin-token}
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garage_meta:/var/lib/garage/meta
+      - garage_data:/var/lib/garage/data
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  rspamd:
+    image: rspamd/rspamd:4.1.2
+    networks: [ficina]
+    healthcheck:
+      # TCP probe of the controller port; the image is Debian-based so
+      # bash's /dev/tcp is available without extra tooling.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/11334'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  ficina-smtp:
+    build:
+      context: ..
+      dockerfile: core/ficina-smtp/Dockerfile
+    environment:
+      FICINA_SMTP_ADDR: 0.0.0.0:2525
+      FICINA_SMTP_HOSTNAME: ${FICINA_SMTP_HOSTNAME:-mx.ficina.test}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "2525:2525"
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ficina-smtp", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  synapse:
+    image: ghcr.io/element-hq/synapse:v1.157.1
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:-chat.ficina.test}
+      SYNAPSE_REPORT_STATS: "no"
+    volumes:
+      - synapse_data:/data
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  livekit:
+    image: livekit/livekit-server:v1.13.4
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7880/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  collabora:
+    image: collabora/code:25.04.9.4.1
+    environment:
+      username: ${COLLABORA_ADMIN_USER:-ficina-admin}
+      password: ${COLLABORA_ADMIN_PASSWORD:-ficina-dev-only}
+      aliasgroup1: ${COLLABORA_ALIASGROUP1:-http://drive\.ficina\.test:80}
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=true"
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9980'"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

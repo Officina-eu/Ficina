@@ -1,0 +1,10 @@
+[package]
+name = "ficina-control"
+description = "Ficina multi-tenant control plane (placeholder — Phase 2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

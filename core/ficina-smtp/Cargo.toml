@@ -1,0 +1,16 @@
+[package]
+name = "ficina-smtp"
+description = "Ficina mail transfer and submission: SMTP receiving, queueing, routing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

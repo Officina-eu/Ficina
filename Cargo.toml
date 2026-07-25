@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["core/ficina-smtp", "control", "migrate"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLAUDE.md law 2 enforced by the compiler: stubs and swallowed panics
+# cannot merge because they cannot compile under `clippy -D warnings`.
+[workspace.lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
