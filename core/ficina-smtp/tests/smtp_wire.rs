@@ -23,7 +23,8 @@ const TEST_HOSTNAME: &str = "mx.ficina.test";
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Address to test against: external if `FICINA_SMTP_TEST_ADDR` is
-/// set, otherwise a freshly spawned in-process server.
+/// set, otherwise a freshly spawned in-process server with a
+/// throwaway spool.
 async fn target_addr() -> SocketAddr {
     if let Ok(external) = std::env::var("FICINA_SMTP_TEST_ADDR") {
         return external
@@ -34,12 +35,20 @@ async fn target_addr() -> SocketAddr {
         .await
         .expect("bind ephemeral port");
     let addr = listener.local_addr().expect("local addr");
+    let spool_dir = tempfile::tempdir().expect("temp spool dir");
     let config = Arc::new(SmtpConfig {
         bind_addr: addr,
         hostname: TEST_HOSTNAME.to_owned(),
+        spool_dir: spool_dir.path().to_path_buf(),
+        max_message_size: 25 * 1024 * 1024,
+        max_rcpt: 100,
+        max_connections: 256,
     });
+    let spool = Arc::new(ficina_smtp::spool::Spool::new(spool_dir.path()).expect("spool init"));
     tokio::spawn(async move {
-        let _ = server::serve(listener, config).await;
+        // Keep the tempdir alive for the server's lifetime.
+        let _spool_dir = spool_dir;
+        let _ = server::serve(listener, config, spool).await;
     });
     addr
 }

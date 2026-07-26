@@ -2,4 +2,34 @@
 
 Client quirks and RFC deviations. Format per entry: date · client+version · quirk observed · our response · RFC section affected.
 
-(empty — and every entry added here is a debugging session nobody repeats)
+(no client-forced entries yet — and every entry added here is a debugging session nobody repeats)
+
+## Standing policies (deliberate strictness/tolerance choices, not client-forced)
+
+- 2026-07-25 · **Bare LF / stray CR rejected everywhere** · RFC 5321 §2.3.8 requires
+  CRLF; bare line endings are the SMTP-smuggling vector. Commands: 500, session
+  continues. Inside DATA: 500 and the connection **closes** (the stream cannot be
+  trusted to re-sync). Matches Postfix `smtpd_forbid_bare_newline=yes` posture.
+- 2026-07-25 · **One space tolerated after `MAIL FROM:`/`RCPT TO:`** · RFC 5321
+  §4.1.1.2 admits no space; many clients send one; no security ambiguity → accepted.
+- 2026-07-25 · **DATA line length** · §4.5.3.1.6 sets 1000 octets as the sender
+  limit; long HTML lines are routine in real mail. We accept content lines up to
+  8192 octets and reject the message (500, drained, session survives) beyond —
+  tolerance with a defensive ceiling.
+- 2026-07-25 · **8-bit bytes accepted in DATA without 8BITMIME advertised** ·
+  Strictly, unadvertised 8BITMIME means 7-bit only (RFC 6152); rejecting 8-bit
+  bodies would bounce half of real-world mail. Accepted, like every mainstream MTA.
+  8BITMIME advertisement lands with the capability milestone (M3).
+- 2026-07-25 · **General address literals rejected 501** · §4.1.3 tagged literals
+  (`[tag:content]`) are syntactically legal; nothing routable can be done with
+  them; IPv4 and `IPv6:` literals are accepted.
+- 2026-07-25 · **Source routes accepted and ignored** · §4.1.2 / Appendix C:
+  `<@relay:user@dom>` parses, the route is validated then discarded.
+- 2026-07-26 · **DATA has a 10-minute total budget** · §4.5.3.2 specifies
+  per-wait timeouts; we additionally bound the whole message receive at 600 s as
+  anti-flood policy. A legitimate sender slower than ~350 kbps on a 25 MiB
+  message would be cut off (421); accepted trade-off, revisit with real traffic.
+- 2026-07-26 · **EHLO/HELO argument restricted to printable ASCII** · §4.1.1.1
+  expects a Domain/address-literal; we reject control octets with 501 so the
+  attacker-controlled greeting can never inject binary into the Received: stamp
+  or the spool sidecar. SMTPUTF8 (M3) will widen this to U-labels.

@@ -35,4 +35,14 @@ pub enum SmtpError {
         /// What the probe observed instead of a 220 greeting.
         reason: String,
     },
+
+    /// The spool directory could not be prepared at startup.
+    #[error("spool unavailable at {path} (check the directory exists and is writable): {source}")]
+    Spool {
+        /// Configured spool root.
+        path: String,
+        /// Underlying OS error.
+        #[source]
+        source: std::io::Error,
+    },
 }

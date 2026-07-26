@@ -31,6 +31,7 @@ volumes:
   garage_meta:
   garage_data:
   synapse_data:
+  smtp_spool:
 
 services:
   postgres:
@@ -85,7 +86,11 @@ services:
     environment:
       FICINA_SMTP_ADDR: 0.0.0.0:2525
       FICINA_SMTP_HOSTNAME: ${FICINA_SMTP_HOSTNAME:-mx.ficina.test}
+      FICINA_SMTP_SPOOL_DIR: /var/spool/ficina
+      FICINA_SMTP_MAX_MESSAGE_SIZE: ${FICINA_SMTP_MAX_MESSAGE_SIZE:-26214400}
       RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - smtp_spool:/var/spool/ficina
     ports:
       - "2525:2525"
     networks: [ficina]

@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- New: `ficina-smtp` receives mail end-to-end (Phase 1 M1) — full
+  MAIL FROM / RCPT TO / DATA transactions with RFC 5321 sequencing
+  (503 on out-of-order commands), address parsing incl. quoted local
+  parts, address literals, source routes, the null sender and
+  `<postmaster>`; DATA with dot-unstuffing, the size limit enforced
+  during read (552), and bare-line-ending rejection (SMTP-smuggling
+  defense); a `Received:` header stamped on every accepted message;
+  durable maildir-style spool (`FICINA_SMTP_SPOOL_DIR`) with fsync +
+  atomic-rename commit. New knobs: `FICINA_SMTP_MAX_MESSAGE_SIZE`
+  (default 25 MiB), `FICINA_SMTP_MAX_RCPT` (default 100). HELO, RSET,
+  NOOP, VRFY (252, anti-enumeration), HELP/EXPN → 502.
 - New: `ficina-smtp` service — accepts TCP connections on port 2525,
   greets with a 220 banner, and answers EHLO and QUIT with
   RFC 5321-correct replies. Enforces the 512-octet command-line limit

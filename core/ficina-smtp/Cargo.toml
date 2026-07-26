@@ -11,6 +11,15 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Envelope sidecar serialization for the spool (M2 reads it back).
+serde = { workspace = true }
+serde_json = { workspace = true }
+# RFC 2822 date-time formatting for Received:/DSN headers.
+jiff = { workspace = true }
+
+[dev-dependencies]
+# Unique temp spool directories for integration tests.
+tempfile = "3"
 
 [lints]
 workspace = true

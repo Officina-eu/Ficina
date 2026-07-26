@@ -15,10 +15,16 @@
 //! timeouts RFC 5321 requires, [`reply`] and [`command`] are the wire
 //! vocabulary.
 
+pub mod address;
 pub mod command;
 pub mod config;
+pub mod data;
+pub mod envelope;
 pub mod error;
 pub mod healthcheck;
+mod line;
+pub mod received;
 pub mod reply;
 pub mod server;
 pub mod session;
+pub mod spool;

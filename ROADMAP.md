@@ -44,10 +44,12 @@ Rules of this file:
 ### Receiving & sending
 
 - [ ] SMTP server: session state machine, EHLO negotiation, receive (25) and submission (587), per protocol skill non-negotiables
+  - [x] Session state machine (RFC 5321 §4.1.4), EHLO/HELO negotiation, full receive path: MAIL/RCPT/DATA, §4.1.2 address parsing, dot-stuffing, Received: stamping, durable spool (M1; production port 25 binding lands with real deployment)
+  - [ ] Submission (587) with RFC 6409 rewrites (M3)
 - [ ] Queueing: durable queue, retry schedule, 4xx/5xx semantics, bounce generation (DSN)
 - [ ] Outbound delivery: MX resolution, connection pooling, per-destination rate care
 - [ ] STARTTLS + AUTH; TLS enforced on submission
-- [ ] Size limits enforced during read; timeouts per RFC 5321
+- [x] Size limits enforced during read; timeouts per RFC 5321
 
 ### Trust stack
 

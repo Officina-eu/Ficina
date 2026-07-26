@@ -25,11 +25,106 @@ impl Reply {
     }
 
     /// 250: EHLO accepted (RFC 5321 §4.1.1.1). No extensions are
-    /// advertised yet, so the reply is a single line.
+    /// advertised yet, so the reply is a single line (advertisement
+    /// becomes truthful and complete in the TLS/submission milestone).
     pub fn ehlo_ok(hostname: &str, client: &str) -> Self {
         Self {
             code: 250,
             text: format!("{hostname} greets {client}"),
+        }
+    }
+
+    /// 250: HELO accepted (RFC 5321 §4.1.1.1 — the reply carries only
+    /// our domain for pre-ESMTP clients).
+    pub fn helo_ok(hostname: &str) -> Self {
+        Self {
+            code: 250,
+            text: hostname.to_owned(),
+        }
+    }
+
+    /// 250: generic success for MAIL/RCPT/RSET/NOOP (§4.1.1).
+    pub fn ok() -> Self {
+        Self {
+            code: 250,
+            text: "OK".to_owned(),
+        }
+    }
+
+    /// 250: message accepted and durably spooled, with its id.
+    pub fn ok_queued(id: &str) -> Self {
+        Self {
+            code: 250,
+            text: format!("OK: queued as {id}"),
+        }
+    }
+
+    /// 354: start mail input (RFC 5321 §4.1.1.4).
+    pub fn start_mail_input() -> Self {
+        Self {
+            code: 354,
+            text: "Start mail input; end with <CRLF>.<CRLF>".to_owned(),
+        }
+    }
+
+    /// 503: bad sequence of commands (RFC 5321 §4.1.4).
+    pub fn bad_sequence(hint: &str) -> Self {
+        Self {
+            code: 503,
+            text: format!("bad sequence of commands: {hint}"),
+        }
+    }
+
+    /// 555: MAIL/RCPT parameters not recognized or not implemented
+    /// (RFC 5321 §4.1.1.11) — sent because no extension is advertised.
+    pub fn params_not_recognized() -> Self {
+        Self {
+            code: 555,
+            text: "MAIL FROM/RCPT TO parameters not recognized or not implemented".to_owned(),
+        }
+    }
+
+    /// 452: too many recipients (RFC 5321 §4.5.3.1.10 — transient by
+    /// design so the client retries the rest in a new transaction).
+    pub fn too_many_recipients() -> Self {
+        Self {
+            code: 452,
+            text: "too many recipients".to_owned(),
+        }
+    }
+
+    /// 552: message exceeds the fixed maximum message size
+    /// (RFC 1870 semantics; the limit is enforced during read).
+    pub fn message_too_large() -> Self {
+        Self {
+            code: 552,
+            text: "message exceeds fixed maximum message size".to_owned(),
+        }
+    }
+
+    /// 502: command recognized but not implemented (RFC 5321 §4.2.4).
+    pub fn not_implemented() -> Self {
+        Self {
+            code: 502,
+            text: "command not implemented".to_owned(),
+        }
+    }
+
+    /// 252: VRFY answered without disclosing user existence
+    /// (RFC 5321 §3.5.3, §7.3 — anti-enumeration).
+    pub fn vrfy_noncommittal() -> Self {
+        Self {
+            code: 252,
+            text: "cannot VRFY user, but will accept message and attempt delivery".to_owned(),
+        }
+    }
+
+    /// 451: local error in processing (RFC 5321 §4.2.4) — transient,
+    /// used when the spool write fails so the client retries.
+    pub fn local_error() -> Self {
+        Self {
+            code: 451,
+            text: "local error in processing, try again later".to_owned(),
         }
     }
 
