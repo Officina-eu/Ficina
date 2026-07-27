@@ -19,6 +19,7 @@ use crate::state::{Account, AppState, authenticate};
 
 const CAP_CORE: &str = "urn:ietf:params:jmap:core";
 const CAP_MAIL: &str = "urn:ietf:params:jmap:mail";
+const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
 
 /// `POST /jmap/api` — process a JMAP Request, return the Response.
 pub async fn api(
@@ -41,7 +42,7 @@ pub async fn api(
         .ok_or_else(Problem::not_request)?;
     for cap in using {
         match cap.as_str() {
-            Some(CAP_CORE) | Some(CAP_MAIL) => {}
+            Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) => {}
             other => {
                 return Err(Problem::unknown_capability().detail(other.unwrap_or("").to_owned()));
             }
@@ -177,6 +178,9 @@ async fn dispatch(
         "Email/set" => email_set(account, args).await,
         "Email/changes" => changes(account, args, ficina_store::changes::TYPE_EMAIL, state).await,
         "Thread/get" => thread_get(account, args).await,
+        "SieveScript/get" => crate::sieve::get(account, args).await,
+        "SieveScript/set" => crate::sieve::set(account, args).await,
+        "SieveScript/validate" => crate::sieve::validate(account, args).await,
         _ => Err(method_error("unknownMethod")),
     }
 }

@@ -604,6 +604,7 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "bytes",
+ "ficina-sieve",
  "ficina-store",
  "futures",
  "serde",
@@ -619,6 +620,13 @@ dependencies = [
 [[package]]
 name = "ficina-migrate"
 version = "0.0.1"
+
+[[package]]
+name = "ficina-sieve"
+version = "0.0.1"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "ficina-smtp"
@@ -649,6 +657,7 @@ dependencies = [
  "base64",
  "bytes",
  "ficina-auth-mail",
+ "ficina-sieve",
  "object_store",
  "ring",
  "sha2",

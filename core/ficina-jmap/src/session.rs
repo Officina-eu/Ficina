@@ -11,6 +11,7 @@ use crate::state::{AppState, authenticate};
 
 const CAP_CORE: &str = "urn:ietf:params:jmap:core";
 const CAP_MAIL: &str = "urn:ietf:params:jmap:mail";
+const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
 
 /// `GET /.well-known/jmap` → the Session resource.
 pub async fn session(
@@ -34,7 +35,7 @@ pub async fn session(
             "name": account_id,
             "isPersonal": true,
             "isReadOnly": false,
-            "accountCapabilities": { CAP_MAIL: {} }
+            "accountCapabilities": { CAP_MAIL: {}, CAP_SIEVE: {} }
         }),
     );
     let mut primary = Map::new();
@@ -59,6 +60,18 @@ pub async fn session(
                 "maxSizeAttachmentsPerEmail": l.max_size_upload,
                 "emailQuerySortOptions": ["receivedAt"],
                 "mayCreateTopLevelMailbox": true
+            },
+            CAP_SIEVE: {
+                "maxSizeScriptName": 512,
+                "maxSizeScript": 65536,
+                "maxNumberScripts": 100,
+                "maxNumberRedirects": 3,
+                "sieveExtensions": [
+                    "fileinto", "envelope", "vacation", "subaddress", "imap4flags",
+                    "comparator-i;ascii-numeric"
+                ],
+                "notificationMethods": Value::Null,
+                "externalLists": Value::Null
             }
         },
         "accounts": accounts,

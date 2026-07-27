@@ -18,6 +18,7 @@ pub mod jtypes;
 pub mod push;
 pub mod server;
 pub mod session;
+pub mod sieve;
 pub mod state;
 
 pub use push::PushHub;

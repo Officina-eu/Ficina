@@ -9,6 +9,7 @@
 
 pub mod account;
 pub mod account_imap;
+pub mod account_sieve;
 pub mod auth;
 pub mod blob;
 pub mod changes;
@@ -21,6 +22,7 @@ pub mod thread;
 
 pub use account::AccountStore;
 pub use account_imap::{ImapEntry, ImapMailbox, ImapSearchRow};
+pub use account_sieve::{OutboundAction, SieveDelivery, SieveScriptMeta};
 pub use auth::IssuedToken;
 pub use blob::BlobStore;
 #[cfg(feature = "garage")]

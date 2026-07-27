@@ -150,6 +150,31 @@ impl Store {
     ) -> Result<Option<(TenantId, UserId)>> {
         crate::auth::verify_login(&self.pool, username, password).await
     }
+
+    /// Resolves a recipient email address to its `(tenant, user)` for local
+    /// delivery. `None` if no account has that address. (Email is globally
+    /// unique in a deployment; if two tenants ever share one, this returns
+    /// no account rather than guessing — an ambiguity to resolve in
+    /// provisioning.)
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn account_by_email(&self, email: &str) -> Result<Option<(TenantId, UserId)>> {
+        let rows = sqlx::query!(
+            "SELECT tenant_id, id FROM users WHERE lower(email) = lower($1) LIMIT 2",
+            email
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        if rows.len() == 1 {
+            Ok(Some((
+                TenantId::new(rows[0].tenant_id.clone()),
+                UserId::new(rows[0].id.clone()),
+            )))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// A tenant-scoped handle for tenant-level provisioning. Holds its

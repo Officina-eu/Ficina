@@ -6,6 +6,30 @@ contracts.
 
 ## Unreleased
 
+- New: **`ficina-sieve`** + delivery-time filtering — user **Sieve** filter
+  scripts (RFC 5228, with **vacation** RFC 5230, **subaddress** RFC 5233,
+  **imap4flags** RFC 5232) compiled and run on the server at delivery time.
+  Sieve scripts are user-supplied programs, so every limit is a security
+  control: hard parse caps (script size, nesting depth, test-list length,
+  string size) enforced *during* parse, an evaluation instruction budget,
+  and `require` enforcement (an un-declared extension is a compile error).
+  Actions keep/fileinto/discard/redirect/stop with **implicit keep**, and
+  **no script failure ever loses mail** — a compile error, a budget overrun,
+  or a `fileinto` to a non-existent folder (auto-create is off) all fall back
+  to implicit keep. **Redirect storms are impossible by construction**
+  (per-script count cap, per-account rolling rate budget, loop guards,
+  self-redirect refusal) and **vacation** carries the full RFC 3834 backscatter
+  guards plus per-correspondent `:days` suppression. Wired at the store's
+  delivery entry (`AccountStore::deliver_sieve`, after spam scoring and before
+  filing); scripts, suppression, and the redirect budget are per-account rows,
+  so isolation is inherited (cross-tenant **and** cross-account CRUD and
+  execution tested). **Rule management is JMAP for Sieve** (RFC 9661, ADR
+  0007): `SieveScript/{get,set,validate}` compile-checked on `set`
+  (`invalidScript`), with the sieve capability in the Session resource.
+  Reviewed + security-audited. The SMTP → mailbox local-delivery bridge is
+  **M5** (deferred; the `deliver_sieve` seam is ready). See
+  `docs/design/sieve-filtering.md` and `docs/decisions/0007-sieve-rule-management.md`.
+
 - New: **`ficina-imap`** — IMAP4rev2 (RFC 9051) / IMAP4rev1 (RFC 3501) and
   POP3 (RFC 1939) **compatibility shims** over the account store, so the
   installed base of mail clients (Thunderbird, Apple Mail, Outlook, phones

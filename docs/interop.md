@@ -235,3 +235,40 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   message into the mailbox it already occupies must not lose it; we detect
   same-mailbox MOVE and leave the message untouched (an earlier draft would have
   expunged the sole membership — caught in review, now regression-tested).
+
+## Sieve filtering (ficina-sieve)
+
+- 2026-07-27 · **Sieve runs at the store delivery entry; SMTP local delivery
+  is M5** · the engine filters at `AccountStore::deliver_sieve` — the ingestion
+  boundary, after spam scoring, before filing. SMTP still *spools* inbound mail
+  rather than delivering it into the store (local delivery is M5, a separate
+  ROADMAP item), so the swaks → SMTP → mailbox wire is not yet closed; the seam
+  is ready (`Store::account_by_email` + `deliver_sieve`). Until M5, the Sieve
+  path is exercised through that entry (migration tool, tests), and the
+  redirect/vacation `OutboundAction`s are returned to the caller for the future
+  bridge to enqueue.
+- 2026-07-27 · **Rule management is JMAP for Sieve, not ManageSieve** · ADR 0007:
+  `SieveScript/{get,set,validate}` over the same bearer-auth account door as
+  Mail, compile-checked on `set` (`invalidScript`). ManageSieve (RFC 5804) is a
+  deliberate rejection (additive later). One documented deviation from RFC 9661:
+  script `content` is carried **inline** rather than via a `blobId` round-trip
+  (blob-based content is additive).
+- 2026-07-27 · **fileinto auto-create is OFF; a missing folder keeps to Inbox** ·
+  RFC 5228: `fileinto "Nope"` to a non-existent mailbox is not created — it
+  degrades to implicit keep into the Inbox with a logged warning, so a typo
+  never spawns folders and mail is never lost.
+- 2026-07-27 · **No script failure loses mail** · RFC 5228 §2.10.6: a compile
+  error on the active script, an evaluation budget overrun, or an unperformable
+  action all fall back to implicit keep into the Inbox — never a bounce, never a
+  drop.
+- 2026-07-27 · **imap4flags map to JMAP keywords** · Sieve/IMAP flags are mapped
+  to the store's canonical keywords (`\Seen` → `$seen`, RFC 8621 §4.1.1) before
+  filing; `\Recent` and unknown system flags are unsettable and dropped rather
+  than persisted as a bogus `\`-keyword.
+- 2026-07-27 · **Redirect and vacation are bounded at the source** · a runaway
+  or hostile script cannot storm: per-script redirect cap (3), per-account
+  redirect rate budget, loop guards (Auto-Submitted / null return-path /
+  Received-count ceiling), self-redirect refusal; vacation carries the full
+  RFC 3834 guard set and per-correspondent `:days` suppression. A per-account
+  vacation-send budget and alias-aware self checks are recorded follow-ups (the
+  vacation path is 1:1 with no amplification and its outbound is M5-deferred).
