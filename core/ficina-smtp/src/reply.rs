@@ -133,6 +133,18 @@ impl Reply {
         Self::line(550, "5.7.1 Message rejected by DMARC policy")
     }
 
+    /// 550: rejected by the spam filter (Rspamd `reject` action).
+    pub fn spam_reject() -> Self {
+        Self::line(550, "5.7.1 Message rejected as spam")
+    }
+
+    /// 451: temporarily deferred by the spam filter — Rspamd asked to
+    /// soft-reject/greylist, or the scanner was unreachable and policy
+    /// is fail-closed. Transient so a legitimate sender retries.
+    pub fn spam_tempfail() -> Self {
+        Self::line(451, "4.7.1 Message temporarily deferred, try again later")
+    }
+
     /// 421: too many failed authentication attempts; the server is
     /// closing the connection (RFC 4954 anti-brute-force).
     pub fn too_many_auth_failures(hostname: &str) -> Self {

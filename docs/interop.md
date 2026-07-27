@@ -84,6 +84,27 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   carries the unfixed Marvin timing sidechannel (RUSTSEC-2023-0071); DKIM RSA
   sign/verify use ring (constant-time). DKIM public keys (SPKI) are unwrapped
   to PKCS#1 by a small bounded DER parser before ring verification.
+- 2026-07-27 · **Rspamd fail-closed at DATA (M4b)** · when a scanner is
+  configured (`FICINA_SMTP_RSPAMD_URL`) and is unreachable / times out / answers
+  unparseably, the message is deferred **451**, not accepted — a scanner outage
+  must never silently disable filtering. `reject` → 550, `soft reject`/`greylist`
+  → 451, else accept with an `x-spam` method in Authentication-Results. DMARC
+  `p=reject` is evaluated *before* the spam verdict, so an authenticated-fail is
+  a 550 DMARC rejection regardless of spam score. Verified end-to-end against
+  real Rspamd 4.1.2 (GTUBE → 550).
+- 2026-07-27 · **Rspamd request metadata is CR/LF-stripped** · the envelope
+  fields we pass to `/checkv2` (`IP`/`Helo`/`From`/`Rcpt`/`MTA-Name`) are
+  attacker-controlled; control characters are stripped so a crafted MAIL FROM
+  cannot inject extra HTTP headers into the scanner request.
+- 2026-07-27 · **MTA-STS served in plaintext behind the TLS proxy (M4b)** ·
+  RFC 8461 §3.2 mandates HTTPS with a WebPKI-valid cert on `mta-sts.<domain>`;
+  `ficina-smtp` serves the policy over plaintext HTTP on
+  `FICINA_SMTP_MTA_STS_ADDR` and the deploy reverse proxy terminates TLS. The
+  policy `id` is derived from the policy content, so it rotates automatically on
+  any change. **DNS records to publish:** `_mta-sts.<domain> TXT "v=STSv1;
+  id=<the id we render>"` and `mta-sts.<domain>` A/AAAA (or CNAME) pointing at
+  the proxy that fronts the policy endpoint. TLS-RPT (`_smtp._tls`) reporting is
+  deferred.
 - 2026-07-27 · **Inbound trust headers stripped before stamping** · RFC 8601
   §5: on the MX boundary we delete any pre-existing `Authentication-Results`
   bearing our own authserv-id, and any `Received-SPF`, before adding ours — a

@@ -16,6 +16,8 @@ use ficina_auth_mail::dmarc::{self, Disposition, DmarcResult};
 use ficina_auth_mail::resolver::Resolver;
 use ficina_auth_mail::spf::{self, Mailbox, SpfQuery};
 
+use crate::rspamd::{RspamdAction, RspamdClient, RspamdMeta};
+
 /// DKIM signing configuration for the submission path.
 pub struct SigningConfig {
     /// The key backend.
@@ -33,17 +35,32 @@ pub struct AuthMail {
     hostname: String,
     resolver: Option<Arc<dyn Resolver>>,
     signing: Option<SigningConfig>,
+    rspamd: Option<Arc<RspamdClient>>,
 }
 
-/// The result of the inbound gauntlet: headers to prepend, whether
-/// DMARC policy says to reject, and (when a forged header had to be
-/// removed) the rewritten message body to spool instead of the original.
+/// What the inbound gauntlet decided the transaction should do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboundOutcome {
+    /// Accept and spool the message.
+    Accept,
+    /// Refuse: DMARC `p=reject` on an authenticated failure (550).
+    RejectDmarc,
+    /// Refuse: Rspamd `reject` action (550).
+    RejectSpam,
+    /// Defer: Rspamd soft-reject/greylist, or the scanner was
+    /// unreachable and policy is fail-closed (451).
+    DeferSpam,
+}
+
+/// The result of the inbound gauntlet: headers to prepend, the outcome,
+/// and (when a forged header had to be removed) the rewritten body.
 pub struct InboundResult {
     /// `Received-SPF` + `Authentication-Results` blocks, each ending in
-    /// CRLF, ready to prepend to the message.
+    /// CRLF, ready to prepend to the message. Empty when the outcome is
+    /// a reject/defer (the message is not spooled).
     pub headers: String,
-    /// True when DMARC disposition is `reject` — the caller sends 550.
-    pub reject: bool,
+    /// What the caller should do with the transaction.
+    pub outcome: InboundOutcome,
     /// `Some(bytes)` when a pre-existing `Authentication-Results` (with
     /// our authserv-id) or `Received-SPF` header was stripped from the
     /// received message (RFC 8601 §5); the caller must spool these bytes
@@ -58,6 +75,7 @@ impl AuthMail {
             hostname: hostname.into(),
             resolver: None,
             signing: None,
+            rspamd: None,
         }
     }
 
@@ -68,6 +86,13 @@ impl AuthMail {
         self
     }
 
+    /// Installs the Rspamd spam-scoring client (MX only).
+    #[must_use]
+    pub fn with_rspamd(mut self, rspamd: Arc<RspamdClient>) -> Self {
+        self.rspamd = Some(rspamd);
+        self
+    }
+
     /// Installs the submission DKIM signer.
     #[must_use]
     pub fn with_signing(mut self, signing: SigningConfig) -> Self {
@@ -75,92 +100,157 @@ impl AuthMail {
         self
     }
 
-    /// Whether inbound authentication is active.
-    pub fn verifies(&self) -> bool {
-        self.resolver.is_some()
+    /// Whether the inbound gauntlet does anything: SPF/DKIM/DMARC (needs
+    /// the resolver) or Rspamd scanning. The caller only runs `inbound`
+    /// when this is true.
+    pub fn is_active(&self) -> bool {
+        self.resolver.is_some() || self.rspamd.is_some()
     }
 
-    /// Runs SPF + DKIM + DMARC over a received message and returns the
-    /// headers to prepend plus the reject decision. When no resolver is
-    /// configured, returns empty headers and no rejection.
+    /// Runs the inbound gauntlet — SPF/DKIM/DMARC when a resolver is
+    /// available, then Rspamd when configured — and returns the headers
+    /// to prepend plus the outcome. Rspamd runs **independent of the
+    /// resolver**: a scanner outage fails closed (451) even if DNS is
+    /// down, so a configured scanner never silently stops filtering.
     pub async fn inbound(
         &self,
         peer_ip: IpAddr,
         helo: &str,
         mail_from: Option<&str>,
+        recipients: &[String],
         raw_message: &[u8],
     ) -> InboundResult {
-        let Some(resolver) = &self.resolver else {
+        // Nothing configured → accept unchanged.
+        if self.resolver.is_none() && self.rspamd.is_none() {
             return InboundResult {
                 headers: String::new(),
-                reject: false,
+                outcome: InboundOutcome::Accept,
                 stripped_body: None,
             };
-        };
-        let resolver = resolver.as_ref();
+        }
 
-        // SPF over the connecting IP + HELO + MAIL FROM.
-        let mail_from_box = mail_from
-            .and_then(split_address)
-            .map(|(local, domain)| Mailbox { local, domain });
-        let spf_query = SpfQuery {
-            ip: peer_ip,
-            helo: helo.to_owned(),
-            mail_from: mail_from_box.clone(),
-        };
-        let spf_verdict = spf::check_host(resolver, &spf_query).await;
-
-        // DKIM over the raw message.
         let message = Message::parse(raw_message);
-        let dkim_verdicts = dkim::verify(resolver, &message).await;
-
-        // DMARC over the RFC 5322 From domain.
-        let from_domain = header_from_domain(&message).unwrap_or_default();
-        let dmarc_verdict =
-            dmarc::evaluate(resolver, &from_domain, &spf_verdict, &dkim_verdicts).await;
-
-        // Build Received-SPF (RFC 7208 §9.1).
         let identity = mail_from.unwrap_or(helo);
         let identity_key = if mail_from.is_some() {
             "smtp.mailfrom"
         } else {
             "smtp.helo"
         };
-        let mut headers = format!(
-            "Received-SPF: {} ({}) client-ip={}; envelope-from={}; helo={};\r\n",
-            spf_verdict.result.as_str(),
-            // The explanation is a parenthesized comment (spaces allowed);
-            // envelope-from/helo are `key=value` tokens — strip the
-            // structural chars (SP, `;`, `=`) an attacker could use to
-            // forge extra Received-SPF key/value pairs.
-            sanitize(&spf_verdict.explanation),
-            peer_ip,
-            sanitize_token(identity),
-            sanitize_token(helo),
-        );
+        let mut headers = String::new();
+        let mut ar = AuthenticationResults::new(&self.hostname);
+        let mut dmarc_reject = false;
 
-        // Build Authentication-Results (the contract).
-        let mut ar =
-            AuthenticationResults::new(&self.hostname).spf(&spf_verdict, identity_key, identity);
-        for verdict in &dkim_verdicts {
-            ar = ar.dkim(verdict);
+        // SPF + DKIM + DMARC — only when the resolver is available. When
+        // it is not, these are skipped (mail still flows / gets scanned);
+        // Authentication-Results then carries just the spam verdict.
+        if let Some(resolver) = &self.resolver {
+            let resolver = resolver.as_ref();
+            let mail_from_box = mail_from
+                .and_then(split_address)
+                .map(|(local, domain)| Mailbox { local, domain });
+            let spf_query = SpfQuery {
+                ip: peer_ip,
+                helo: helo.to_owned(),
+                mail_from: mail_from_box,
+            };
+            let spf_verdict = spf::check_host(resolver, &spf_query).await;
+            let dkim_verdicts = dkim::verify(resolver, &message).await;
+            let from_domain = header_from_domain(&message).unwrap_or_default();
+            let dmarc_verdict =
+                dmarc::evaluate(resolver, &from_domain, &spf_verdict, &dkim_verdicts).await;
+
+            // Received-SPF (RFC 7208 §9.1). The explanation is a
+            // parenthesized comment (spaces allowed); envelope-from/helo
+            // are `key=value` tokens — strip the structural chars (SP,
+            // `;`, `=`) an attacker could use to forge extra pairs.
+            headers.push_str(&format!(
+                "Received-SPF: {} ({}) client-ip={}; envelope-from={}; helo={};\r\n",
+                spf_verdict.result.as_str(),
+                sanitize(&spf_verdict.explanation),
+                peer_ip,
+                sanitize_token(identity),
+                sanitize_token(helo),
+            ));
+
+            ar = ar.spf(&spf_verdict, identity_key, identity);
+            for verdict in &dkim_verdicts {
+                ar = ar.dkim(verdict);
+            }
+            if dmarc_verdict.result != DmarcResult::None {
+                ar = ar.dmarc(&dmarc_verdict);
+            }
+
+            // DMARC disposition: reject only on an explicit reject policy,
+            // after applying the published `pct` sampling (§6.6.4) so a
+            // sender mid-rollout (`p=reject; pct<100`) is not enforced at
+            // 100%. The draw is a non-cryptographic sub-nanosecond sample.
+            let roll = (jiff::Timestamp::now().subsec_nanosecond().unsigned_abs() % 100) as u8;
+            let effective =
+                dmarc::sample_disposition(dmarc_verdict.disposition, dmarc_verdict.pct, roll);
+            dmarc_reject =
+                dmarc_verdict.result == DmarcResult::Fail && effective == Disposition::Reject;
+            if dmarc_reject {
+                tracing::info!(from = %from_domain, "DMARC reject policy; refusing message");
+            }
         }
-        if dmarc_verdict.result != DmarcResult::None {
-            ar = ar.dmarc(&dmarc_verdict);
+
+        // Rspamd spam scoring (M4b) — runs whenever configured, whether or
+        // not the resolver is present. A scanner error/timeout fails
+        // closed (defer), never spooling an unscanned message.
+        let spam_verdict = if let Some(rspamd) = &self.rspamd {
+            let ip = peer_ip.to_string();
+            let meta = RspamdMeta {
+                ip: &ip,
+                helo,
+                mail_from,
+                recipients,
+                mta_name: &self.hostname,
+            };
+            match rspamd.check(&meta, raw_message).await {
+                Ok(verdict) => Some(verdict),
+                Err(error) => {
+                    tracing::error!(%error, "rspamd unreachable; deferring message (fail-closed)");
+                    return InboundResult {
+                        headers: String::new(),
+                        outcome: InboundOutcome::DeferSpam,
+                        stripped_body: None,
+                    };
+                }
+            }
+        } else {
+            None
+        };
+        // Record the Rspamd verdict as the `x-spam` method (the visible
+        // "why was this flagged" data downstream renders).
+        if let Some(verdict) = &spam_verdict {
+            ar = ar.spam(verdict.action.spam_token(), Some(verdict.score));
         }
         headers.push_str(&format!("Authentication-Results: {}\r\n", ar.render()));
 
-        // DMARC disposition: reject only on an explicit reject policy,
-        // after applying the published `pct` sampling (§6.6.4) so a
-        // sender mid-rollout (`p=reject; pct<100`) is not enforced at
-        // 100%. The random draw is a non-cryptographic sub-nanosecond
-        // sample — sufficient for policy sampling.
-        let roll = (jiff::Timestamp::now().subsec_nanosecond().unsigned_abs() % 100) as u8;
-        let effective =
-            dmarc::sample_disposition(dmarc_verdict.disposition, dmarc_verdict.pct, roll);
-        let reject = dmarc_verdict.result == DmarcResult::Fail && effective == Disposition::Reject;
-        if reject {
-            tracing::info!(from = %from_domain, "DMARC reject policy; refusing message");
+        // Outcome: DMARC reject takes precedence, then the spam action.
+        let outcome = if dmarc_reject {
+            InboundOutcome::RejectDmarc
+        } else {
+            match spam_verdict.map(|v| v.action) {
+                Some(RspamdAction::Reject) => {
+                    tracing::info!("rspamd reject; refusing message");
+                    InboundOutcome::RejectSpam
+                }
+                Some(RspamdAction::Greylist | RspamdAction::SoftReject) => {
+                    InboundOutcome::DeferSpam
+                }
+                _ => InboundOutcome::Accept,
+            }
+        };
+
+        // On any reject/defer the message is not spooled, so the stamped
+        // headers are unused — drop them to keep the documented invariant.
+        if outcome != InboundOutcome::Accept {
+            return InboundResult {
+                headers: String::new(),
+                outcome,
+                stripped_body: None,
+            };
         }
 
         // RFC 8601 §5: strip any pre-existing Authentication-Results
@@ -171,7 +261,7 @@ impl AuthMail {
 
         InboundResult {
             headers,
-            reject,
+            outcome,
             stripped_body,
         }
     }
@@ -407,16 +497,81 @@ mod tests {
     #[tokio::test]
     async fn disabled_context_stamps_nothing() {
         let auth = AuthMail::disabled("mx.ficina.test");
+        assert!(!auth.is_active());
         let result = auth
             .inbound(
                 "192.0.2.1".parse().unwrap(),
                 "helo",
                 Some("a@b.test"),
+                &["c@d.test".to_owned()],
                 b"From: a@b.test\r\n\r\nx",
             )
             .await;
         assert!(result.headers.is_empty());
-        assert!(!result.reject);
+        assert_eq!(result.outcome, InboundOutcome::Accept);
         assert!(auth.sign_outbound(b"msg").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn rspamd_configured_without_resolver_fails_closed() {
+        // Regression (cold-review BLOCKER): a scanner configured but
+        // unreachable must defer (451) even when the DNS resolver is
+        // absent — never silently accept an unscanned message.
+        let rspamd =
+            RspamdClient::from_url("http://127.0.0.1:1", std::time::Duration::from_millis(300))
+                .unwrap();
+        let auth = AuthMail::disabled("mx.ficina.test").with_rspamd(Arc::new(rspamd));
+        assert!(auth.is_active());
+        let result = auth
+            .inbound(
+                "192.0.2.1".parse().unwrap(),
+                "helo",
+                Some("a@b.test"),
+                &["c@d.test".to_owned()],
+                b"From: a@b.test\r\n\r\nx",
+            )
+            .await;
+        assert_eq!(result.outcome, InboundOutcome::DeferSpam);
+        assert!(result.headers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rspamd_runs_and_stamps_without_a_resolver() {
+        // Happy path with no resolver: Rspamd still runs; a clean verdict
+        // accepts and records the x-spam method (no SPF/DKIM/DMARC).
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = sock.read(&mut buf).await;
+            let body = b"{\"action\":\"no action\",\"score\":0.1}";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            sock.write_all(body).await.unwrap();
+            sock.flush().await.unwrap();
+        });
+        let rspamd =
+            RspamdClient::from_url(&format!("http://{addr}"), std::time::Duration::from_secs(5))
+                .unwrap();
+        let auth = AuthMail::disabled("mx.ficina.test").with_rspamd(Arc::new(rspamd));
+        let result = auth
+            .inbound(
+                "192.0.2.1".parse().unwrap(),
+                "helo",
+                Some("a@b.test"),
+                &["c@d.test".to_owned()],
+                b"From: a@b.test\r\n\r\nhello",
+            )
+            .await;
+        assert_eq!(result.outcome, InboundOutcome::Accept);
+        assert!(result.headers.contains("x-spam=no"));
+        // No resolver → no Received-SPF stamped.
+        assert!(!result.headers.contains("Received-SPF"));
+        server.await.unwrap();
     }
 }

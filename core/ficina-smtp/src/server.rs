@@ -17,7 +17,7 @@ use tokio_rustls::TlsAcceptor;
 use tracing::Instrument;
 
 use crate::auth::{self, Authenticator, Mechanism, StaticAuthenticator};
-use crate::authmail::{AuthMail, SigningConfig};
+use crate::authmail::{AuthMail, InboundOutcome, SigningConfig};
 use crate::config::{self, SmtpConfig};
 use crate::data::{self, DataError};
 use crate::envelope::Envelope;
@@ -261,6 +261,19 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         tokio::spawn(serve(listener, runtime));
     }
 
+    // MTA-STS policy endpoint (M4b): serves the rendered policy over
+    // plaintext HTTP behind the deploy TLS-terminating proxy.
+    if let Some(mta_sts) = &config.mta_sts {
+        let listener = bind(mta_sts.addr).await?;
+        let policy: Arc<str> = Arc::from(mta_sts.policy.render());
+        tracing::info!(
+            addr = %mta_sts.addr,
+            id = %mta_sts.policy.id(),
+            "MTA-STS policy listener"
+        );
+        crate::mta_sts::spawn(listener, policy);
+    }
+
     let mx_listener = bind(config.bind_addr).await?;
     let mx_runtime = Arc::new(Runtime {
         params: SessionParams {
@@ -322,11 +335,18 @@ fn submission_runtime(
     }
 }
 
-/// Builds the MX trust-stack context: SPF/DKIM/DMARC verification.
+/// Builds the MX trust-stack context: SPF/DKIM/DMARC verification plus
+/// Rspamd spam scoring when configured.
 fn build_mx_auth(config: &SmtpConfig, resolver: Option<Arc<dyn AuthResolver>>) -> AuthMail {
     let mut auth = AuthMail::disabled(&config.hostname);
     if let Some(resolver) = resolver {
         auth = auth.with_resolver(resolver);
+    }
+    if let Some(rspamd) = &config.rspamd {
+        // The client was built and validated at config load — no second,
+        // fail-open parse here in a fail-closed feature.
+        auth = auth.with_rspamd(Arc::clone(&rspamd.client));
+        tracing::info!(url = %rspamd.url, "Rspamd spam scoring enabled (fail-closed)");
     }
     auth
 }
@@ -774,19 +794,27 @@ async fn handle_data_phase(
             // Inbound (MX): SPF + DKIM + DMARC over the message as
             // received; stamp Received-SPF + Authentication-Results,
             // and honor a DMARC reject policy.
-            if runtime.params.role == Role::Mx && runtime.auth.verifies() {
+            if runtime.params.role == Role::Mx && runtime.auth.is_active() {
                 let result = runtime
                     .auth
                     .inbound(
                         peer.ip(),
                         session.helo_client(),
                         envelope.mail_from.as_deref(),
+                        &envelope.rcpt_to,
                         &body,
                     )
                     .await;
-                if result.reject {
+                // Reject/defer verdicts end the transaction before spool.
+                let refusal = match result.outcome {
+                    InboundOutcome::Accept => None,
+                    InboundOutcome::RejectDmarc => Some(Reply::dmarc_reject()),
+                    InboundOutcome::RejectSpam => Some(Reply::spam_reject()),
+                    InboundOutcome::DeferSpam => Some(Reply::spam_tempfail()),
+                };
+                if let Some(reply) = refusal {
                     session.end_data();
-                    write_reply(conn, &Reply::dmarc_reject()).await?;
+                    write_reply(conn, &reply).await?;
                     return Ok(true);
                 }
                 // RFC 8601 §5: if a forged Authentication-Results /

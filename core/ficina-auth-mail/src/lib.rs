@@ -15,5 +15,6 @@
 pub mod authres;
 pub mod dkim;
 pub mod dmarc;
+pub mod mta_sts;
 pub mod resolver;
 pub mod spf;

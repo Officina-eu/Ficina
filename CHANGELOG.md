@@ -6,6 +6,24 @@ contracts.
 
 ## Unreleased
 
+- New: **Rspamd spam scoring** at DATA and **MTA-STS** policy serving
+  (Phase 1 M4b), finishing M4's deferrals. On the MX role, after
+  SPF/DKIM/DMARC, `ficina-smtp` consults Rspamd over `POST /checkv2`
+  (`FICINA_SMTP_RSPAMD_URL`): a `reject` action refuses with **550**,
+  `soft reject`/`greylist` defer with **451**, and otherwise the message
+  is accepted with the score recorded as an `x-spam` method in
+  `Authentication-Results`. A scanner that is unreachable, slow, or
+  answers unparseably **fails closed** (451) — configuring a scanner and
+  having it down never silently disables filtering. Scanning is off
+  until the URL is set (`FICINA_SMTP_RSPAMD_TIMEOUT_SECS` bounds the
+  call). **MTA-STS** (RFC 8461): the policy (`mode`/`mx`/`max_age`, with
+  a content-derived `id`) is rendered from config and served at
+  `GET /.well-known/mta-sts.txt` on `FICINA_SMTP_MTA_STS_ADDR` (plaintext
+  behind the deploy TLS proxy); knobs `FICINA_SMTP_MTA_STS_MODE/MX/
+  MAX_AGE/ID`, with the `_mta-sts` and `mta-sts` DNS records documented
+  in `docs/interop.md`. ARC, TLS-RPT reporting, and DMARC report
+  delivery remain deferred (see ROADMAP).
+
 - New: `ficina-auth-mail` — the email-authentication trust stack (Phase
   1 M4), wired into `ficina-smtp`. Inbound (MX) at DATA: **SPF** (RFC
   7208 full `check_host` with macro expansion and the 10-DNS-lookup /
