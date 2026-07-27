@@ -94,12 +94,16 @@ services:
       FICINA_SMTP_OUTBOUND_ENABLED: ${FICINA_SMTP_OUTBOUND_ENABLED:-false}
       FICINA_SMTP_SMARTHOST: ${FICINA_SMTP_SMARTHOST:-}
       # Submission listeners (STARTTLS on 587, implicit TLS on 465);
-      # blank disables. A self-signed cert is generated unless a PEM is
-      # provided — set FICINA_SMTP_TLS_CERT/KEY in production.
+      # blank disables. Provide a real PEM via FICINA_SMTP_TLS_CERT/KEY
+      # in production.
       FICINA_SMTP_SUBMISSION_ADDR: ${FICINA_SMTP_SUBMISSION_ADDR:-0.0.0.0:587}
       FICINA_SMTP_IMPLICIT_TLS_ADDR: ${FICINA_SMTP_IMPLICIT_TLS_ADDR:-0.0.0.0:465}
       FICINA_SMTP_TLS_CERT: ${FICINA_SMTP_TLS_CERT:-}
       FICINA_SMTP_TLS_KEY: ${FICINA_SMTP_TLS_KEY:-}
+      # Self-signed cert generation is opt-in so production never
+      # silently presents an untrusted cert. The dev compose stack opts
+      # in; set false + a real PEM for production.
+      FICINA_SMTP_ALLOW_SELF_SIGNED: ${FICINA_SMTP_ALLOW_SELF_SIGNED:-true}
       # Submission credentials (dev AUTH bootstrap; ficina-identity in
       # M9). Blank means submission AUTH always fails (safe default).
       FICINA_SMTP_CREDENTIALS_FILE: ${FICINA_SMTP_CREDENTIALS_FILE:-}
