@@ -31,7 +31,7 @@ Rules of this file:
 - [x] CI: quality-gate commands run on every PR; releases build from tags only
 - [ ] EU hosting partner selected (Open Decisions closes); first server live
 - [x] `deploy/` composes the engine set (Synapse, LiveKit, Collabora, Garage, Postgres, Rspamd) at pinned versions
-- [ ] Test domain configured: DNS, rDNS, first DKIM/SPF records
+- [ ] Test domain configured: DNS, rDNS, first DKIM/SPF records (BLOCKED until constant-time credential compare lands — no public 587 with a timing oracle)
 - [ ] IP warming begins now — sending reputation is grown for launch, not at launch
 
 ### Exit gate — Phase 0 done when:
