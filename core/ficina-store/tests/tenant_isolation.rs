@@ -223,6 +223,80 @@ async fn blobs_do_not_leak_across_accounts_even_at_identical_content() {
     assert!(b.blob_bytes(&b_blob).await.is_ok());
 }
 
+/// The change cursor is per-account: user A's state token advances only
+/// on A's own mutations, and A's `/changes` stream never surfaces B's
+/// objects — even though A and B share one tenant. This closes the
+/// coarse "activity-volume" side channel a tenant-wide modseq left open
+/// (migration 0005), the invariant IMAP IDLE relies on.
+#[tokio::test]
+async fn account_state_is_silent_about_co_tenant_activity() {
+    let store = common::test_store().await;
+    let tenant = store.create_tenant("modseq-scope").await.unwrap();
+    let ts = store.for_tenant(tenant.clone());
+    let ua = ts.create_user("a@example.test").await.unwrap();
+    let ub = ts.create_user("b@example.test").await.unwrap();
+    let a = store.for_account(tenant.clone(), ua);
+    let b = store.for_account(tenant, ub);
+
+    // A mutates once, then observes its state.
+    a.deliver(b"From: x@example.test\r\nSubject: a-one\r\n\r\nbody\r\n")
+        .await
+        .unwrap();
+    let a_state_before = a.state().await.unwrap();
+
+    // B mutates several times — noise A must not be able to observe.
+    for i in 0..5 {
+        b.deliver(format!("From: y@example.test\r\nSubject: b-{i}\r\n\r\nbody\r\n").as_bytes())
+            .await
+            .unwrap();
+    }
+
+    // A's state token has NOT advanced from B's activity.
+    assert_eq!(
+        a.state().await.unwrap(),
+        a_state_before,
+        "co-tenant B's mutations must not advance A's state cursor"
+    );
+
+    // And A's own change feed since that state is empty (no B objects, no
+    // state jump): newState equals the state A already held.
+    let since: i64 = a_state_before.parse().unwrap();
+    for obj_type in [
+        ficina_store::changes::TYPE_EMAIL,
+        ficina_store::changes::TYPE_MAILBOX,
+        ficina_store::changes::TYPE_THREAD,
+    ] {
+        let delta = a.changes(obj_type, since, 100).await.unwrap();
+        assert!(
+            delta.created.is_empty() && delta.updated.is_empty() && delta.destroyed.is_empty(),
+            "A must see no changes from B's activity for {obj_type}"
+        );
+        assert_eq!(
+            delta.new_state, since,
+            "A's newState must not jump on B's activity for {obj_type}"
+        );
+    }
+
+    // B, by contrast, saw its own counter advance well past A's.
+    let b_state: i64 = b.state().await.unwrap().parse().unwrap();
+    assert!(
+        b_state > since,
+        "B's own cursor advanced on its own mutations"
+    );
+
+    // A's next mutation advances A's cursor by exactly its own steps,
+    // independent of B's five deliveries in between.
+    a.deliver(b"From: x@example.test\r\nSubject: a-two\r\n\r\nbody\r\n")
+        .await
+        .unwrap();
+    let a_after: i64 = a.state().await.unwrap().parse().unwrap();
+    assert_eq!(
+        a_after,
+        since + 1,
+        "A's cursor counts only A's transactions, not the tenant's"
+    );
+}
+
 /// A blob a user has never referenced is `NotFound` for that user even
 /// within the same tenant, proving the ownership join is the gate.
 #[tokio::test]

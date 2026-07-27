@@ -53,16 +53,16 @@ impl AccountStore {
 
     // ---- change log ----------------------------------------------------
 
-    /// The account's JMAP state token. The value is the tenant-wide
-    /// monotonic modseq (a shared, always-increasing counter); deltas are
-    /// filtered per-account by [`Self::changes`], so a client only ever
-    /// sees its own object changes.
+    /// The account's JMAP/IMAP state token: this account's own monotonic
+    /// modseq, which advances only on this account's mutations. A co-tenant
+    /// user's activity never moves it, so the token leaks nothing about
+    /// another account (see migration `0005`).
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
     pub async fn state(&self) -> Result<String> {
         Ok(
-            crate::changes::current_state(&self.pool, self.tenant.as_str())
+            crate::changes::current_state(&self.pool, self.tenant.as_str(), self.user.as_str())
                 .await?
                 .to_string(),
         )

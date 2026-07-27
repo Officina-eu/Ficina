@@ -1,7 +1,12 @@
-//! JMAP change tracking (kept out of `store.rs` — Law 3): a per-tenant
+//! JMAP change tracking (kept out of `store.rs` — Law 3): a **per-account**
 //! monotonic `modseq` and a per-object change log that answers
 //! `/changes` (created/updated/destroyed since a state) in one indexed
 //! range scan.
+//!
+//! The counter is keyed by `(tenant_id, user_id)`, not just tenant, so a
+//! user's state cursor advances only on that user's own mutations — a
+//! co-tenant cannot infer another's activity volume from the token
+//! (see migration `0005`, `docs/design/account-scoped-access-door.md`).
 
 use sqlx::PgPool;
 
@@ -62,10 +67,11 @@ impl<'a> Change<'a> {
     }
 }
 
-/// Bumps the tenant modseq once and records every change at the new
+/// Bumps this account's modseq once and records every change at the new
 /// modseq, all inside the caller's transaction. Every change in one call
-/// belongs to a single account (`user`) — JMAP `/changes` is per-account.
-/// Returns the new modseq (the value future state tokens compare against).
+/// belongs to a single account (`user`) — JMAP/IMAP change tracking is
+/// per-account. Returns the new modseq (the value future state tokens
+/// compare against).
 pub async fn bump_and_record(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     tenant: &str,
@@ -73,10 +79,11 @@ pub async fn bump_and_record(
     changes: &[Change<'_>],
 ) -> Result<i64> {
     let modseq = sqlx::query!(
-        "INSERT INTO tenant_modseq (tenant_id, modseq) VALUES ($1, 1) \
-         ON CONFLICT (tenant_id) DO UPDATE SET modseq = tenant_modseq.modseq + 1 \
+        "INSERT INTO account_modseq (tenant_id, user_id, modseq) VALUES ($1, $2, 1) \
+         ON CONFLICT (tenant_id, user_id) DO UPDATE SET modseq = account_modseq.modseq + 1 \
          RETURNING modseq",
-        tenant
+        tenant,
+        user
     )
     .fetch_one(&mut **tx)
     .await?
@@ -103,14 +110,15 @@ pub async fn bump_and_record(
     Ok(modseq)
 }
 
-/// The tenant's current modseq (0 when it has never mutated).
+/// This account's current modseq (0 when it has never mutated).
 ///
 /// # Errors
 /// [`crate::StoreError::Db`] on failure.
-pub async fn current_state(pool: &PgPool, tenant: &str) -> Result<i64> {
+pub async fn current_state(pool: &PgPool, tenant: &str, user: &str) -> Result<i64> {
     let row = sqlx::query!(
-        "SELECT modseq FROM tenant_modseq WHERE tenant_id = $1",
-        tenant
+        "SELECT modseq FROM account_modseq WHERE tenant_id = $1 AND user_id = $2",
+        tenant,
+        user
     )
     .fetch_optional(pool)
     .await?;
@@ -167,8 +175,8 @@ pub async fn changes_since(
     let rows = fetch_rows(pool, tenant, user, obj_type, since, max + 1).await?;
 
     if (rows.len() as i64) <= max {
-        // Caught up: resume from the tenant's current modseq.
-        let new_state = current_state(pool, tenant).await?.max(since);
+        // Caught up: resume from this account's current modseq.
+        let new_state = current_state(pool, tenant, user).await?.max(since);
         return Ok(classify(&rows, since, new_state, false));
     }
 

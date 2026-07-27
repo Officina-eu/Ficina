@@ -136,11 +136,15 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   not compute distinct thread counts per mailbox, so `ficina-jmap` reports them
   equal to `totalEmails`/`unreadEmails`. Clients rely mainly on
   `unreadEmails`; exact thread counts are an additive refinement.
-- 2026-07-27 · **JMAP state tokens are one per-tenant modseq shared by types** ·
-  Mailbox/Email/Thread states are the same opaque per-tenant counter, so a
-  type's state may skip numbers when another type changed. State tokens are
-  opaque (clients must not parse them), so this is spec-conformant and lets
-  `/changes` for any type resume correctly.
+- 2026-07-27 · **JMAP state tokens are one per-account modseq shared by types** ·
+  Mailbox/Email/Thread states are the same opaque per-account counter (keyed
+  by `(tenant, user)`, migration 0005), so a type's state may skip numbers
+  when another type changed. State tokens are opaque (clients must not parse
+  them), so this is spec-conformant and lets `/changes` for any type resume
+  correctly. The counter is per-account, not per-tenant, so a co-tenant user's
+  activity never advances another's cursor — closing the activity-volume side
+  channel that a shared tenant modseq left open (the invariant IMAP IDLE
+  relies on for account-scoped push).
 - 2026-07-27 · **JMAP isolation is per-account (accountId = user)** · every
   by-id read/mutate, `/changes`, `Thread/get`, and blob download is scoped to
   the token's `(tenant, user)` — a user cannot reach another user's mail even
