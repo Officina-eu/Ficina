@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/ficina-smtp", "core/ficina-auth-mail", "control", "migrate"]
+members = ["core/ficina-smtp", "core/ficina-auth-mail", "core/ficina-store", "control", "migrate"]
 
 [workspace.package]
 version = "0.0.1"
@@ -43,6 +43,17 @@ zeroize = "1"
 # Public-suffix list for DMARC organizational-domain discovery
 # (RFC 7489 §3.2); the crate embeds a compiled list (no runtime fetch).
 psl = "2"
+# ficina-store: PostgreSQL (system of record) via sqlx with
+# compile-checked queries; rustls (no OpenSSL). Timestamps map through
+# the `time` crate at the DB boundary. Blobs go through the
+# `object_store` abstraction; the default build carries only its lean
+# in-memory/local core, and the S3 (Garage) client — which pulls the
+# reqwest/quick-xml tree — is gated behind ficina-store's `garage`
+# feature (see docs/decisions/0006). `bytes` for zero-copy blob buffers.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "time"] }
+time = { version = "0.3", default-features = false, features = ["std", "parsing", "formatting"] }
+object_store = { version = "0.11", default-features = false }
+bytes = "1"
 
 # CLAUDE.md law 2 enforced by the compiler: stubs and swallowed panics
 # cannot merge because they cannot compile under `clippy -D warnings`.

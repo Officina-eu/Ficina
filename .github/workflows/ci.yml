@@ -12,6 +12,25 @@ jobs:
   rust:
     name: Rust quality gate
     runs-on: ubuntu-latest
+    # PostgreSQL is the store's system of record; the integration and
+    # tenant-isolation suites run against it. Compile-time query checking
+    # uses the committed .sqlx offline cache (SQLX_OFFLINE), so the build
+    # and clippy do not need the database — only the tests do.
+    env:
+      SQLX_OFFLINE: "true"
+      DATABASE_URL: "postgres://ficina:ficina-dev-only@localhost:5432/ficina"
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_USER: ficina
+          POSTGRES_PASSWORD: ficina-dev-only
+          POSTGRES_DB: ficina
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ficina -d ficina"
+          --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -24,11 +43,11 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests
         run: cargo test --workspace
-      # Tenant-isolation suite (quality-gate: `--test '*tenant*'`)
-      # activates when ficina-store lands (ROADMAP Phase 1, "Every
-      # store operation tenant-scoped"); today no storage code exists
-      # and the glob would match no test target. Recorded here so its
-      # absence is a visible decision, not an oversight.
+      # Tenant-isolation suite, run explicitly (quality-gate:
+      # `--test '*tenant*'`). For EVERY public store path, a wrong-tenant
+      # id must get a clean NotFound/empty — never data, never a 500.
+      - name: Tenant-isolation suite
+        run: cargo test --workspace --test '*tenant*'
       - name: Install cargo-audit
         uses: taiki-e/install-action@v2
         with:

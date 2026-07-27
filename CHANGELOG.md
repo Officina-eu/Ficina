@@ -6,6 +6,31 @@ contracts.
 
 ## Unreleased
 
+- New: **`ficina-store`** — the tenant-scoped message store on
+  PostgreSQL (system of record, via `sqlx` with compile-checked queries)
+  and Garage/S3 (message bytes). **Tenancy is structural:** mail data is
+  reachable only through a `TenantStore`, obtained via
+  `Store::for_tenant(TenantId)`, and every query carries its tenant
+  predicate by construction — no API takes a `tenant_id` parameter, and
+  a wrong-tenant lookup returns a clean `NotFound` (no cross-tenant
+  oracle). Entities: tenants, users, hierarchical mailboxes (with
+  transactional total/unread counters), messages (with the parsed
+  `Authentication-Results` verdict stored queryable), threads (RFC 8621
+  §3 References-based), message↔mailbox membership, JMAP keywords/flags,
+  and content-addressed blobs (SHA-256, per-tenant key prefix,
+  ref-counted for a later GC sweep). Ids are opaque and random — no
+  sequential integer crosses the API boundary. Ingestion writes the blob
+  before the DB commit, so a crash leaves an invisible orphan (GC'd),
+  never a visible message with a missing body. Full-text search
+  (Postgres `tsvector`) over subject/addresses/body, updated in the same
+  transaction as ingestion. Every list path is bounded by a `Page`. The
+  Garage S3 backend is behind the `garage` cargo feature; tests use an
+  in-memory backend. A **wrong-tenant isolation suite** covers every
+  public read and write path and is required by CI, alongside threading
+  property tests, concurrent-counter tests, and ingestion crash-safety
+  tests (all against real Postgres). JMAP/IMAP endpoints, the Garage
+  live-integration test, and the spool-migration tool are follow-ups.
+
 - New: **Rspamd spam scoring** at DATA and **MTA-STS** policy serving
   (Phase 1 M4b), finishing M4's deferrals. On the MX role, after
   SPF/DKIM/DMARC, `ficina-smtp` consults Rspamd over `POST /checkv2`

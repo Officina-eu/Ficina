@@ -131,3 +131,11 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   silently void DKIM/DMARC for the message); each header's UTF-8 is validated
   in isolation. A multi-address `From` with differing domains yields no DMARC
   From-domain (RFC 7489 §6.6.1).
+- 2026-07-27 · **Store threading is references-only and forward-only** ·
+  `ficina-store` threads a message onto an *earlier* message it references
+  (`In-Reply-To`/`References`); it does not merge on base subject alone
+  (RFC 8621 §3 permits subject as a tiebreaker, but subject-only merging bleeds
+  unrelated conversations, so we omit it). Consequence: a reply delivered
+  before its parent, or a `Re:` with no `References`, starts its own thread and
+  is not retro-merged. Accepted trade-off; revisit if real mail shows
+  meaningful out-of-order fragmentation.
