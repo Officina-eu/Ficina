@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/ficina-smtp", "core/ficina-auth-mail", "core/ficina-store", "control", "migrate"]
+members = ["core/ficina-smtp", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "control", "migrate"]
 
 [workspace.package]
 version = "0.0.1"
@@ -54,6 +54,14 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 time = { version = "0.3", default-features = false, features = ["std", "parsing", "formatting"] }
 object_store = { version = "0.11", default-features = false }
 bytes = "1"
+# Interim JMAP bearer auth (until ficina-identity): argon2 password
+# hashing. Replaced by OIDC-issued tokens later; see docs/design/jmap-api.md.
+argon2 = "0.5"
+# ficina-jmap: the JMAP HTTP service (RFC 8620/8621). axum over hyper
+# (already in-tree) for routing, JSON, and Server-Sent-Events push;
+# `futures` for the SSE stream.
+axum = "0.8"
+futures = "0.3"
 
 # CLAUDE.md law 2 enforced by the compiler: stubs and swallowed panics
 # cannot merge because they cannot compile under `clippy -D warnings`.

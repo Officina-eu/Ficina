@@ -7,7 +7,9 @@
 //! [`Store::for_tenant`], and every query it issues carries its tenant
 //! predicate by construction (see `docs/design/message-store.md`).
 
+pub mod auth;
 pub mod blob;
+pub mod changes;
 pub mod error;
 pub mod id;
 pub mod message;
@@ -15,10 +17,14 @@ pub mod model;
 pub mod store;
 pub mod thread;
 
+pub use auth::IssuedToken;
 pub use blob::BlobStore;
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;
+pub use changes::Changes;
 pub use error::{Result, StoreError};
 pub use id::{BlobId, MailboxId, MessageId, TenantId, ThreadId, UserId};
-pub use model::{MAX_PAGE, Mailbox, Message, MessageSummary, Page};
+pub use model::{
+    Blob, EmailFilter, EmailQuery, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection,
+};
 pub use store::{SEEN, Store, TenantStore};

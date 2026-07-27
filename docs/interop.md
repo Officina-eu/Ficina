@@ -131,6 +131,39 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   silently void DKIM/DMARC for the message); each header's UTF-8 is validated
   in isolation. A multi-address `From` with differing domains yields no DMARC
   From-domain (RFC 7489 §6.6.1).
+- 2026-07-27 · **JMAP mailbox thread counts approximate email counts** ·
+  RFC 8621 §2 requires `totalThreads`/`unreadThreads`; the interim store does
+  not compute distinct thread counts per mailbox, so `ficina-jmap` reports them
+  equal to `totalEmails`/`unreadEmails`. Clients rely mainly on
+  `unreadEmails`; exact thread counts are an additive refinement.
+- 2026-07-27 · **JMAP state tokens are one per-tenant modseq shared by types** ·
+  Mailbox/Email/Thread states are the same opaque per-tenant counter, so a
+  type's state may skip numbers when another type changed. State tokens are
+  opaque (clients must not parse them), so this is spec-conformant and lets
+  `/changes` for any type resume correctly.
+- 2026-07-27 · **JMAP isolation is per-account (accountId = user)** · every
+  by-id read/mutate, `/changes`, `Thread/get`, and blob download is scoped to
+  the token's `(tenant, user)` — a user cannot reach another user's mail even
+  within the same tenant. Threads are resolved per-account (no cross-user merge
+  on a shared Message-ID). Enforced by `owns_*` guards + a `user_id`-scoped
+  change log; covered by a two-users-in-one-tenant isolation test.
+- 2026-07-27 · **JMAP `Email/set` per-object update is not yet atomic** ·
+  RFC 8620 §5.3 wants a single object's changes applied all-or-nothing; the
+  interim maps each keyword/mailbox change to its own store transaction, so a
+  mid-update failure can leave a partial (but individually consistent) result
+  reported under `notUpdated`. A single-transaction multi-change store method is
+  the follow-up. Mixed full-`keywords` + `keywords/X` patches are applied
+  sequentially rather than rejected as `invalidPatch` (documented, not fatal).
+- 2026-07-27 · **JMAP rate-limiting / concurrent-upload caps deferred to the
+  gateway** · `/auth/token` throttling and `maxConcurrentUpload` enforcement
+  belong at the gateway/identity layer (ficina-identity); `maxObjectsInGet`,
+  `maxSizeRequestObject` (per-route body limit), and pagination caps ARE
+  enforced in-process now.
+- 2026-07-27 · **JMAP auth is interim bearer tokens (not OIDC yet)** ·
+  `/auth/token` issues opaque bearer tokens against argon2 credentials in the
+  store; the token → `(tenant, account)` resolution is the seam ficina-identity
+  (OIDC) replaces later. No cookies, no OAuth flow yet (deliberate — see
+  `docs/design/jmap-api.md`).
 - 2026-07-27 · **Store threading is references-only and forward-only** ·
   `ficina-store` threads a message onto an *earlier* message it references
   (`In-Reply-To`/`References`); it does not merge on base subject alone

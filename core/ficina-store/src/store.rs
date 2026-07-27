@@ -12,9 +12,10 @@ use sqlx::postgres::PgPoolOptions;
 
 use crate::blob::{BlobStore, hash_hex};
 use crate::error::{Result, StoreError};
+use crate::id::BlobId;
 use crate::id::{MailboxId, MessageId, TenantId, ThreadId, UserId};
 use crate::message;
-use crate::model::{Mailbox, Message, MessageSummary, Page};
+use crate::model::{Blob, EmailQuery, Mailbox, Message, MessageSummary, Page, SortDirection};
 use crate::thread;
 
 /// The JMAP `$seen` keyword — the one that drives the unread counter.
@@ -101,6 +102,29 @@ impl Store {
             blobs: self.blobs.clone(),
             tenant,
         }
+    }
+
+    /// Interim auth: verifies a username/password (global login key) and
+    /// issues a bearer token. `None` on any mismatch. See
+    /// [`crate::auth`].
+    ///
+    /// # Errors
+    /// [`StoreError::Crypto`]/[`StoreError::Db`] on failure.
+    pub async fn issue_token(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<crate::auth::IssuedToken>> {
+        crate::auth::issue_token(&self.pool, username, password).await
+    }
+
+    /// Interim auth: resolves a bearer token to `(tenant, user)`. The
+    /// tenant claim comes from here, never from a request body.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn resolve_token(&self, token: &str) -> Result<Option<(TenantId, UserId)>> {
+        crate::auth::resolve_token(&self.pool, token).await
     }
 }
 
@@ -193,16 +217,185 @@ impl TenantStore {
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         message: &MessageId,
-    ) -> Result<()> {
+    ) -> Result<String> {
         sqlx::query!(
-            "SELECT id FROM messages WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
+            "SELECT user_id FROM messages WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
             self.tenant.as_str(),
             message.as_str()
         )
         .fetch_optional(&mut **tx)
         .await?
+        .map(|row| row.user_id)
+        .ok_or(StoreError::NotFound)
+    }
+
+    /// The owning user of a mailbox (tenant-scoped) — for change records
+    /// and ownership checks.
+    async fn mailbox_user(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        mailbox: &MailboxId,
+    ) -> Result<String> {
+        sqlx::query!(
+            "SELECT user_id FROM mailboxes WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            mailbox.as_str()
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .map(|row| row.user_id)
+        .ok_or(StoreError::NotFound)
+    }
+
+    // ---- account-ownership guards (JMAP account = user) ----------------
+
+    /// Confirms a message belongs to `user`. `NotFound` otherwise.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent/foreign/other-user.
+    pub async fn owns_message(&self, user: &UserId, message: &MessageId) -> Result<()> {
+        sqlx::query!(
+            "SELECT 1 AS one FROM messages WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+            self.tenant.as_str(),
+            user.as_str(),
+            message.as_str()
+        )
+        .fetch_optional(&self.pool)
+        .await?
         .ok_or(StoreError::NotFound)
         .map(|_| ())
+    }
+
+    /// Confirms a mailbox belongs to `user`. `NotFound` otherwise.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent/foreign/other-user.
+    pub async fn owns_mailbox(&self, user: &UserId, mailbox: &MailboxId) -> Result<()> {
+        sqlx::query!(
+            "SELECT 1 AS one FROM mailboxes WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+            self.tenant.as_str(),
+            user.as_str(),
+            mailbox.as_str()
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound)
+        .map(|_| ())
+    }
+
+    /// Confirms `user` has at least one message in a thread (thread
+    /// membership is per-user after the user-scoped thread resolution).
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the thread has no message owned by `user`.
+    pub async fn owns_thread(&self, user: &UserId, thread: &ThreadId) -> Result<()> {
+        sqlx::query!(
+            "SELECT 1 AS one FROM messages \
+             WHERE tenant_id = $1 AND user_id = $2 AND thread_id = $3 LIMIT 1",
+            self.tenant.as_str(),
+            user.as_str(),
+            thread.as_str()
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound)
+        .map(|_| ())
+    }
+
+    /// Confirms `user` has a message referencing this blob (JMAP blob
+    /// access is per-account). `NotFound` otherwise.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if no owned message references the blob.
+    pub async fn owns_blob(&self, user: &UserId, blob: &BlobId) -> Result<()> {
+        sqlx::query!(
+            "SELECT 1 AS one FROM messages \
+             WHERE tenant_id = $1 AND user_id = $2 AND blob_id = $3 LIMIT 1",
+            self.tenant.as_str(),
+            user.as_str(),
+            blob.as_str()
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound)
+        .map(|_| ())
+    }
+
+    /// Records one account's object changes and bumps the tenant modseq
+    /// within `tx`. Every change in a call belongs to `user`.
+    async fn record(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user: &str,
+        changes: &[crate::changes::Change<'_>],
+    ) -> Result<i64> {
+        crate::changes::bump_and_record(tx, self.tenant.as_str(), user, changes).await
+    }
+
+    /// Mailbox ids a message is a member of (tenant-scoped) — used to
+    /// cascade change records and counter adjustments.
+    async fn message_mailbox_ids(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        message: &MessageId,
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query!(
+            "SELECT mailbox_id FROM mailbox_messages WHERE tenant_id = $1 AND message_id = $2",
+            self.tenant.as_str(),
+            message.as_str()
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.mailbox_id).collect())
+    }
+
+    /// The tenant's current JMAP state (modseq) as an opaque token.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn state(&self) -> Result<String> {
+        Ok(
+            crate::changes::current_state(&self.pool, self.tenant.as_str())
+                .await?
+                .to_string(),
+        )
+    }
+
+    /// Computes `/changes` for an object type since `since` (a raw
+    /// modseq), bounded by `max`.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn changes(
+        &self,
+        user: &UserId,
+        obj_type: &str,
+        since: i64,
+        max: i64,
+    ) -> Result<crate::Changes> {
+        crate::changes::changes_since(
+            &self.pool,
+            self.tenant.as_str(),
+            user.as_str(),
+            obj_type,
+            since,
+            max,
+        )
+        .await
+    }
+
+    /// Sets a user's interim login credentials.
+    ///
+    /// # Errors
+    /// [`StoreError::Crypto`]/[`StoreError::Db`] on failure.
+    pub async fn set_credentials(
+        &self,
+        user: &UserId,
+        username: &str,
+        password: &str,
+    ) -> Result<()> {
+        self.assert_user(user).await?;
+        crate::auth::set_credentials(&self.pool, &self.tenant, user, username, password).await
     }
 
     // ---- users ---------------------------------------------------------
@@ -259,6 +452,7 @@ impl TenantStore {
             self.assert_mailbox(parent).await?;
         }
         let id = MailboxId::generate();
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
         sqlx::query!(
             "INSERT INTO mailboxes (id, tenant_id, user_id, parent_id, name, role) \
              VALUES ($1, $2, $3, $4, $5, $6)",
@@ -269,8 +463,18 @@ impl TenantStore {
             name,
             role
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        self.record(
+            &mut tx,
+            user.as_str(),
+            &[crate::changes::Change::created(
+                crate::changes::TYPE_MAILBOX,
+                id.as_str(),
+            )],
+        )
+        .await?;
+        tx.commit().await.map_err(StoreError::Db)?;
         Ok(id)
     }
 
@@ -402,7 +606,8 @@ impl TenantStore {
         // Upsert the blob row; refcount tracks referencing messages.
         let new_blob_id = crate::id::BlobId::generate();
         let blob_row = sqlx::query!(
-            "INSERT INTO blobs (id, tenant_id, hash, size, refcount) VALUES ($1, $2, $3, $4, 1) \
+            "INSERT INTO blobs (id, tenant_id, hash, size, refcount, content_type) \
+             VALUES ($1, $2, $3, $4, 1, 'message/rfc822') \
              ON CONFLICT (tenant_id, hash) DO UPDATE SET refcount = blobs.refcount + 1 \
              RETURNING id",
             new_blob_id.as_str(),
@@ -414,9 +619,10 @@ impl TenantStore {
         .await?;
         let blob_id = blob_row.id;
 
-        // Thread: join the thread of any earlier message we reference.
-        let thread_id = self
-            .resolve_thread(&mut tx, &parsed.referenced_ids, &parsed.subject)
+        // Thread: join the thread of any earlier message THIS USER sent
+        // that we reference (threads are per-account).
+        let (thread_id, thread_created) = self
+            .resolve_thread(&mut tx, user, &parsed.referenced_ids, &parsed.subject)
             .await?;
 
         let message_id = MessageId::generate();
@@ -467,6 +673,25 @@ impl TenantStore {
         .execute(&mut *tx)
         .await?;
 
+        // Record: Email created, its Thread created/updated, the target
+        // Mailbox updated (its counters changed).
+        use crate::changes::{Change, TYPE_EMAIL, TYPE_MAILBOX, TYPE_THREAD};
+        let thread_change = if thread_created {
+            Change::created(TYPE_THREAD, thread_id.as_str())
+        } else {
+            Change::updated(TYPE_THREAD, thread_id.as_str())
+        };
+        self.record(
+            &mut tx,
+            user.as_str(),
+            &[
+                Change::created(TYPE_EMAIL, message_id.as_str()),
+                thread_change,
+                Change::updated(TYPE_MAILBOX, mailbox.as_str()),
+            ],
+        )
+        .await?;
+
         tx.commit().await.map_err(StoreError::Db)?;
         // Boundary instrumentation — ids and size only, never body/PII.
         tracing::debug!(tenant = %self.tenant, message = %message_id, size, "ingested message");
@@ -475,24 +700,28 @@ impl TenantStore {
 
     /// Resolves the thread for a message: the thread of the earliest
     /// message it references, else a new thread keyed by base subject.
+    /// Returns `(thread, created)` where `created` is true for a fresh
+    /// thread (so ingestion can record the right change type).
     async fn resolve_thread(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user: &UserId,
         referenced_ids: &[String],
         subject: &str,
-    ) -> Result<ThreadId> {
+    ) -> Result<(ThreadId, bool)> {
         if !referenced_ids.is_empty() {
             let existing = sqlx::query!(
                 "SELECT thread_id FROM messages \
-                 WHERE tenant_id = $1 AND message_id_hdr = ANY($2::text[]) \
+                 WHERE tenant_id = $1 AND user_id = $2 AND message_id_hdr = ANY($3::text[]) \
                  ORDER BY created_at LIMIT 1",
                 self.tenant.as_str(),
+                user.as_str(),
                 referenced_ids
             )
             .fetch_optional(&mut **tx)
             .await?;
             if let Some(row) = existing {
-                return Ok(ThreadId::new(row.thread_id));
+                return Ok((ThreadId::new(row.thread_id), false));
             }
         }
         let thread_id = ThreadId::generate();
@@ -504,7 +733,7 @@ impl TenantStore {
         )
         .execute(&mut **tx)
         .await?;
-        Ok(thread_id)
+        Ok((thread_id, true))
     }
 
     // ---- reading -------------------------------------------------------
@@ -628,7 +857,7 @@ impl TenantStore {
 
         // Lock the message row: existence check + serialization against
         // add/remove_from_mailbox so the unread delta is never stale.
-        self.lock_message(&mut tx, message).await?;
+        let owner = self.lock_message(&mut tx, message).await?;
 
         let changed = if on {
             let affected = sqlx::query!(
@@ -690,6 +919,22 @@ impl TenantStore {
             .await?;
         }
 
+        // Record the Email change and, when $seen moved counters, the
+        // affected mailboxes (their unread changed).
+        if changed == 1 {
+            use crate::changes::{Change, TYPE_EMAIL, TYPE_MAILBOX};
+            let mut records = vec![Change::updated(TYPE_EMAIL, message.as_str())];
+            let mailbox_ids = if keyword == SEEN {
+                self.message_mailbox_ids(&mut tx, message).await?
+            } else {
+                Vec::new()
+            };
+            for mb in &mailbox_ids {
+                records.push(Change::updated(TYPE_MAILBOX, mb));
+            }
+            self.record(&mut tx, &owner, &records).await?;
+        }
+
         tx.commit().await.map_err(StoreError::Db)?;
         Ok(())
     }
@@ -705,7 +950,7 @@ impl TenantStore {
             .await?;
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
         // Lock serializes the seen-state read against set_keyword.
-        self.lock_message(&mut tx, message).await?;
+        let owner = self.lock_message(&mut tx, message).await?;
         let seen = self.message_is_seen(&mut tx, message).await?;
         let added = sqlx::query!(
             "INSERT INTO mailbox_messages (tenant_id, mailbox_id, message_id) \
@@ -729,6 +974,16 @@ impl TenantStore {
             )
             .execute(&mut *tx)
             .await?;
+            use crate::changes::{Change, TYPE_EMAIL, TYPE_MAILBOX};
+            self.record(
+                &mut tx,
+                &owner,
+                &[
+                    Change::updated(TYPE_EMAIL, message.as_str()),
+                    Change::updated(TYPE_MAILBOX, mailbox.as_str()),
+                ],
+            )
+            .await?;
         }
         tx.commit().await.map_err(StoreError::Db)?;
         Ok(())
@@ -747,7 +1002,7 @@ impl TenantStore {
         self.assert_message_mailbox_same_user(message, mailbox)
             .await?;
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
-        self.lock_message(&mut tx, message).await?;
+        let owner = self.lock_message(&mut tx, message).await?;
         let seen = self.message_is_seen(&mut tx, message).await?;
         let removed = sqlx::query!(
             "DELETE FROM mailbox_messages WHERE tenant_id = $1 AND mailbox_id = $2 AND message_id = $3",
@@ -768,6 +1023,16 @@ impl TenantStore {
                 mailbox.as_str()
             )
             .execute(&mut *tx)
+            .await?;
+            use crate::changes::{Change, TYPE_EMAIL, TYPE_MAILBOX};
+            self.record(
+                &mut tx,
+                &owner,
+                &[
+                    Change::updated(TYPE_EMAIL, message.as_str()),
+                    Change::updated(TYPE_MAILBOX, mailbox.as_str()),
+                ],
+            )
             .await?;
         }
         tx.commit().await.map_err(StoreError::Db)?;
@@ -847,5 +1112,384 @@ impl TenantStore {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(|r| MessageId::new(r.id)).collect())
+    }
+
+    // ---- mailbox mutations (Mailbox/set) -------------------------------
+
+    /// Renames a mailbox. Records a Mailbox change.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent/foreign; [`StoreError::Conflict`]
+    /// on a duplicate sibling name.
+    pub async fn rename_mailbox(&self, id: &MailboxId, name: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        let owner = self.mailbox_user(&mut tx, id).await?;
+        sqlx::query!(
+            "UPDATE mailboxes SET name = $3 WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            id.as_str(),
+            name
+        )
+        .execute(&mut *tx)
+        .await?;
+        self.record(
+            &mut tx,
+            &owner,
+            &[crate::changes::Change::updated(
+                crate::changes::TYPE_MAILBOX,
+                id.as_str(),
+            )],
+        )
+        .await?;
+        tx.commit().await.map_err(StoreError::Db)?;
+        Ok(())
+    }
+
+    /// Moves a mailbox under a new parent (`None` = root). Records a
+    /// Mailbox change.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the mailbox or parent is absent/foreign;
+    /// [`StoreError::Conflict`] if the move would create a cycle or clash.
+    pub async fn move_mailbox(&self, id: &MailboxId, parent: Option<&MailboxId>) -> Result<()> {
+        if let Some(parent) = parent {
+            self.assert_mailbox(parent).await?;
+            if parent == id {
+                return Err(StoreError::Conflict(
+                    "mailbox cannot parent itself".to_owned(),
+                ));
+            }
+        }
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        let owner = self.mailbox_user(&mut tx, id).await?;
+        sqlx::query!(
+            "UPDATE mailboxes SET parent_id = $3 WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            id.as_str(),
+            parent.map(MailboxId::as_str)
+        )
+        .execute(&mut *tx)
+        .await?;
+        self.record(
+            &mut tx,
+            &owner,
+            &[crate::changes::Change::updated(
+                crate::changes::TYPE_MAILBOX,
+                id.as_str(),
+            )],
+        )
+        .await?;
+        tx.commit().await.map_err(StoreError::Db)?;
+        Ok(())
+    }
+
+    /// Destroys an empty, childless mailbox. Records a Mailbox tombstone.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent/foreign; [`StoreError::Conflict`]
+    /// (mapped to JMAP `mailboxHasEmail`/`mailboxHasChild`) if it still
+    /// holds messages or sub-mailboxes.
+    pub async fn destroy_mailbox(&self, id: &MailboxId) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        let owner = self.mailbox_user(&mut tx, id).await?;
+        let has_child = sqlx::query!(
+            "SELECT 1 AS one FROM mailboxes WHERE tenant_id = $1 AND parent_id = $2 LIMIT 1",
+            self.tenant.as_str(),
+            id.as_str()
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if has_child {
+            return Err(StoreError::Conflict("mailbox has children".to_owned()));
+        }
+        let has_email = sqlx::query!(
+            "SELECT 1 AS one FROM mailbox_messages WHERE tenant_id = $1 AND mailbox_id = $2 LIMIT 1",
+            self.tenant.as_str(),
+            id.as_str()
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if has_email {
+            return Err(StoreError::Conflict("mailbox has emails".to_owned()));
+        }
+        sqlx::query!(
+            "DELETE FROM mailboxes WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            id.as_str()
+        )
+        .execute(&mut *tx)
+        .await?;
+        self.record(
+            &mut tx,
+            &owner,
+            &[crate::changes::Change::destroyed(
+                crate::changes::TYPE_MAILBOX,
+                id.as_str(),
+            )],
+        )
+        .await?;
+        tx.commit().await.map_err(StoreError::Db)?;
+        Ok(())
+    }
+
+    // ---- email query / mutations --------------------------------------
+
+    /// The mailbox ids a message belongs to (tenant-scoped) — for
+    /// `Email/get` `mailboxIds`.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the message is absent/foreign.
+    pub async fn mailboxes_of_message(&self, message: &MessageId) -> Result<Vec<MailboxId>> {
+        self.assert_message_exists(message).await?;
+        let rows = sqlx::query!(
+            "SELECT mailbox_id FROM mailbox_messages WHERE tenant_id = $1 AND message_id = $2",
+            self.tenant.as_str(),
+            message.as_str()
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| MailboxId::new(r.mailbox_id))
+            .collect())
+    }
+
+    async fn assert_message_exists(&self, message: &MessageId) -> Result<()> {
+        sqlx::query!(
+            "SELECT 1 AS one FROM messages WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            message.as_str()
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound)
+        .map(|_| ())
+    }
+
+    /// `Email/query`: filters + `receivedAt` sort + bounded page.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn query_emails(&self, user: &UserId, q: &EmailQuery) -> Result<Vec<MessageSummary>> {
+        let f = &q.filter;
+        let in_mailbox = f.in_mailbox.as_ref().map(MailboxId::as_str);
+        // One statement with optional predicates; sort direction picks the
+        // ORDER BY (it cannot be a bind parameter).
+        let rows = match q.sort {
+            SortDirection::Desc => sqlx::query!(
+                r#"SELECT DISTINCT m.id, m.thread_id, m.subject, m.from_addr, m.sent_at,
+                              m.received_at, m.size
+                       FROM messages m
+                       LEFT JOIN mailbox_messages mm
+                         ON mm.message_id = m.id AND mm.tenant_id = m.tenant_id
+                       WHERE m.tenant_id = $1 AND m.user_id = $2
+                         AND ($3::text IS NULL OR mm.mailbox_id = $3)
+                         AND ($4::text IS NULL OR m.from_addr ILIKE '%' || $4 || '%')
+                         AND ($5::text IS NULL OR m.to_addrs ILIKE '%' || $5 || '%')
+                         AND ($6::text IS NULL OR m.subject ILIKE '%' || $6 || '%')
+                         AND ($7::text IS NULL OR m.search @@ plainto_tsquery('simple', $7))
+                         AND ($8::timestamptz IS NULL OR m.received_at < $8)
+                         AND ($9::timestamptz IS NULL OR m.received_at >= $9)
+                         AND ($10::text IS NULL OR EXISTS
+                              (SELECT 1 FROM message_keywords k
+                               WHERE k.message_id = m.id AND k.keyword = $10))
+                         AND ($11::text IS NULL OR NOT EXISTS
+                              (SELECT 1 FROM message_keywords k
+                               WHERE k.message_id = m.id AND k.keyword = $11))
+                       ORDER BY m.received_at DESC, m.id DESC
+                       LIMIT $12 OFFSET $13"#,
+                self.tenant.as_str(),
+                user.as_str(),
+                in_mailbox,
+                f.from,
+                f.to,
+                f.subject,
+                f.text,
+                f.before,
+                f.after,
+                f.has_keyword,
+                f.not_keyword,
+                q.page.limit(),
+                q.page.offset()
+            )
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|r| MessageSummary {
+                id: MessageId::new(r.id),
+                thread_id: ThreadId::new(r.thread_id),
+                subject: r.subject,
+                from_addr: r.from_addr,
+                sent_at: r.sent_at,
+                received_at: r.received_at,
+                size: r.size,
+            })
+            .collect(),
+            SortDirection::Asc => sqlx::query!(
+                r#"SELECT DISTINCT m.id, m.thread_id, m.subject, m.from_addr, m.sent_at,
+                              m.received_at, m.size
+                       FROM messages m
+                       LEFT JOIN mailbox_messages mm
+                         ON mm.message_id = m.id AND mm.tenant_id = m.tenant_id
+                       WHERE m.tenant_id = $1 AND m.user_id = $2
+                         AND ($3::text IS NULL OR mm.mailbox_id = $3)
+                         AND ($4::text IS NULL OR m.from_addr ILIKE '%' || $4 || '%')
+                         AND ($5::text IS NULL OR m.to_addrs ILIKE '%' || $5 || '%')
+                         AND ($6::text IS NULL OR m.subject ILIKE '%' || $6 || '%')
+                         AND ($7::text IS NULL OR m.search @@ plainto_tsquery('simple', $7))
+                         AND ($8::timestamptz IS NULL OR m.received_at < $8)
+                         AND ($9::timestamptz IS NULL OR m.received_at >= $9)
+                         AND ($10::text IS NULL OR EXISTS
+                              (SELECT 1 FROM message_keywords k
+                               WHERE k.message_id = m.id AND k.keyword = $10))
+                         AND ($11::text IS NULL OR NOT EXISTS
+                              (SELECT 1 FROM message_keywords k
+                               WHERE k.message_id = m.id AND k.keyword = $11))
+                       ORDER BY m.received_at ASC, m.id ASC
+                       LIMIT $12 OFFSET $13"#,
+                self.tenant.as_str(),
+                user.as_str(),
+                in_mailbox,
+                f.from,
+                f.to,
+                f.subject,
+                f.text,
+                f.before,
+                f.after,
+                f.has_keyword,
+                f.not_keyword,
+                q.page.limit(),
+                q.page.offset()
+            )
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|r| MessageSummary {
+                id: MessageId::new(r.id),
+                thread_id: ThreadId::new(r.thread_id),
+                subject: r.subject,
+                from_addr: r.from_addr,
+                sent_at: r.sent_at,
+                received_at: r.received_at,
+                size: r.size,
+            })
+            .collect(),
+        };
+        Ok(rows)
+    }
+
+    /// Destroys a message everywhere: adjusts every containing mailbox's
+    /// counters, deletes the row (membership/keywords cascade), and
+    /// records the Email tombstone plus the affected Mailbox updates.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent/foreign.
+    pub async fn destroy_message(&self, message: &MessageId) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        let owner = self.lock_message(&mut tx, message).await?;
+        let seen = self.message_is_seen(&mut tx, message).await?;
+        let mailbox_ids = self.message_mailbox_ids(&mut tx, message).await?;
+        for mb in &mailbox_ids {
+            let unread_delta: i64 = if seen { 0 } else { -1 };
+            sqlx::query!(
+                "UPDATE mailboxes SET total_messages = total_messages - 1, \
+                 unread_messages = unread_messages + $1 WHERE tenant_id = $2 AND id = $3",
+                unread_delta,
+                self.tenant.as_str(),
+                mb
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query!(
+            "DELETE FROM messages WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            message.as_str()
+        )
+        .execute(&mut *tx)
+        .await?;
+        use crate::changes::{Change, TYPE_EMAIL, TYPE_MAILBOX};
+        let mut records = vec![Change::destroyed(TYPE_EMAIL, message.as_str())];
+        for mb in &mailbox_ids {
+            records.push(Change::updated(TYPE_MAILBOX, mb));
+        }
+        self.record(&mut tx, &owner, &records).await?;
+        tx.commit().await.map_err(StoreError::Db)?;
+        Ok(())
+    }
+
+    // ---- blobs (JMAP upload/download) ---------------------------------
+
+    /// Stores an uploaded blob (content-addressed) and returns its id.
+    /// Idempotent for identical content.
+    ///
+    /// # Errors
+    /// [`StoreError::TooLarge`] over the ceiling; [`StoreError::Db`]/
+    /// [`StoreError::Blob`] on failure.
+    pub async fn put_blob(&self, bytes: Bytes, content_type: Option<&str>) -> Result<BlobId> {
+        if bytes.len() > self.blobs.max_size() {
+            return Err(StoreError::TooLarge {
+                size: bytes.len(),
+                limit: self.blobs.max_size(),
+            });
+        }
+        let hash = hash_hex(&bytes);
+        let size = bytes.len() as i64;
+        self.blobs.put(self.tenant.as_str(), &hash, bytes).await?;
+        let new_id = BlobId::generate();
+        let row = sqlx::query!(
+            "INSERT INTO blobs (id, tenant_id, hash, size, refcount, content_type) \
+             VALUES ($1, $2, $3, $4, 0, $5) \
+             ON CONFLICT (tenant_id, hash) DO UPDATE SET content_type = COALESCE($5, blobs.content_type) \
+             RETURNING id",
+            new_id.as_str(),
+            self.tenant.as_str(),
+            &hash,
+            size,
+            content_type
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(BlobId::new(row.id))
+    }
+
+    /// A blob's metadata (tenant-scoped).
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent/foreign.
+    pub async fn blob(&self, id: &BlobId) -> Result<Blob> {
+        let row = sqlx::query!(
+            "SELECT id, size, content_type FROM blobs WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            id.as_str()
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound)?;
+        Ok(Blob {
+            id: BlobId::new(row.id),
+            size: row.size,
+            content_type: row.content_type,
+        })
+    }
+
+    /// A blob's bytes (tenant-scoped; read only under this tenant's
+    /// prefix).
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent/foreign; [`StoreError::Blob`] on
+    /// a blob-store failure.
+    pub async fn blob_bytes(&self, id: &BlobId) -> Result<Bytes> {
+        let row = sqlx::query!(
+            "SELECT hash FROM blobs WHERE tenant_id = $1 AND id = $2",
+            self.tenant.as_str(),
+            id.as_str()
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound)?;
+        self.blobs.get(self.tenant.as_str(), &row.hash).await
     }
 }

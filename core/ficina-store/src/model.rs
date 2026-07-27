@@ -4,6 +4,60 @@ use time::OffsetDateTime;
 
 use crate::id::{BlobId, MailboxId, MessageId, ThreadId};
 
+/// A stored blob's metadata (for JMAP download).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Blob {
+    /// Opaque id (the store's — JMAP has no second id space).
+    pub id: BlobId,
+    /// Size in octets.
+    pub size: i64,
+    /// Declared Content-Type (served verbatim on download).
+    pub content_type: Option<String>,
+}
+
+/// Sort direction for `Email/query` (by `receivedAt`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    /// Oldest first.
+    Asc,
+    /// Newest first (the JMAP default).
+    Desc,
+}
+
+/// `Email/query` filter conditions — all present ones are ANDed.
+#[derive(Debug, Clone, Default)]
+pub struct EmailFilter {
+    /// `inMailbox`: only emails in this mailbox.
+    pub in_mailbox: Option<MailboxId>,
+    /// `from` substring match.
+    pub from: Option<String>,
+    /// `to` substring match.
+    pub to: Option<String>,
+    /// `subject` substring match.
+    pub subject: Option<String>,
+    /// `text` full-text match over subject/addresses/body.
+    pub text: Option<String>,
+    /// `before`: `receivedAt` strictly before.
+    pub before: Option<OffsetDateTime>,
+    /// `after`: `receivedAt` at or after.
+    pub after: Option<OffsetDateTime>,
+    /// `hasKeyword`: has this keyword.
+    pub has_keyword: Option<String>,
+    /// `notKeyword`: lacks this keyword.
+    pub not_keyword: Option<String>,
+}
+
+/// A full `Email/query` request.
+#[derive(Debug, Clone)]
+pub struct EmailQuery {
+    /// Filter conditions.
+    pub filter: EmailFilter,
+    /// Sort by `receivedAt` in this direction.
+    pub sort: SortDirection,
+    /// Bounded window.
+    pub page: Page,
+}
+
 /// A mailbox with its live counters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mailbox {

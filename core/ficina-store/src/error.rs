@@ -26,6 +26,9 @@ pub enum StoreError {
     /// A schema-migration failure.
     #[error("store migration error")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    /// A credential-hashing or secure-random failure (auth path).
+    #[error("credential crypto error")]
+    Crypto,
     /// A blob-store failure.
     #[error("blob store error")]
     Blob(#[source] object_store::Error),

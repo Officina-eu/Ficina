@@ -138,3 +138,41 @@ async fn set_seen_toggles_unread_counter() {
     ts.set_keyword(&m, SEEN, false).await.unwrap();
     assert_eq!(ts.mailbox(&inbox).await.unwrap().unread_messages, 1);
 }
+
+#[tokio::test]
+async fn changes_pagination_never_drops_a_modseq_group() {
+    // Regression (cold-review HIGH 1): several objects of one type can
+    // share a modseq (one transaction records many). A maxChanges cut
+    // inside that group must not advance the state past it and silently
+    // drop the siblings. Here $seen records Mailbox/updated for BOTH the
+    // inbox and a folder at one modseq; paging one-at-a-time must still
+    // surface both.
+    let store = common::test_store().await;
+    let (ts, user, inbox) = common::fresh_account(&store, "chgroup").await;
+    let m = common::deliver(&ts, &user, &inbox, "<m@x>", &[], "hi").await;
+    let folder = ts.create_mailbox(&user, None, "F", None).await.unwrap();
+    ts.add_to_mailbox(&m, &folder).await.unwrap();
+    let s0: i64 = ts.state().await.unwrap().parse().unwrap();
+
+    ts.set_keyword(&m, SEEN, true).await.unwrap();
+
+    let mut seen = std::collections::HashSet::new();
+    let mut since = s0;
+    for _ in 0..8 {
+        let c = ts
+            .changes(&user, ficina_store::changes::TYPE_MAILBOX, since, 1)
+            .await
+            .unwrap();
+        for id in c.updated.iter().chain(c.created.iter()) {
+            seen.insert(id.clone());
+        }
+        since = c.new_state;
+        if !c.has_more {
+            break;
+        }
+    }
+    assert!(
+        seen.contains(&inbox.to_string()) && seen.contains(&folder.to_string()),
+        "both mailboxes in the split group must surface across pages"
+    );
+}

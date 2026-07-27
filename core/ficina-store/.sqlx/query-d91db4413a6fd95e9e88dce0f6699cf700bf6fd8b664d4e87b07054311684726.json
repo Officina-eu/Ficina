@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO blobs (id, tenant_id, hash, size, refcount) VALUES ($1, $2, $3, $4, 1) ON CONFLICT (tenant_id, hash) DO UPDATE SET refcount = blobs.refcount + 1 RETURNING id",
+  "query": "INSERT INTO blobs (id, tenant_id, hash, size, refcount, content_type) VALUES ($1, $2, $3, $4, 1, 'message/rfc822') ON CONFLICT (tenant_id, hash) DO UPDATE SET refcount = blobs.refcount + 1 RETURNING id",
   "describe": {
     "columns": [
       {
@@ -21,5 +21,5 @@
       false
     ]
   },
-  "hash": "03d76d17247af7799441ada76cf3d66c13f3659e0eb92b9a465fcd42ca5324bd"
+  "hash": "d91db4413a6fd95e9e88dce0f6699cf700bf6fd8b664d4e87b07054311684726"
 }

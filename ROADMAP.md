@@ -75,7 +75,8 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [x] `ficina-store`: mailboxes, messages, flags, threads, blobs on Postgres + Garage; full-text index (opaque JMAP ids, hierarchical mailboxes with transactional counters, References threading, content-addressed blobs per-tenant, parsed Authentication-Results stored queryable, Postgres `tsvector` FTS; sqlx compile-checked with an offline cache; ADR 0006)
   - Deferred: the Garage S3 *live-integration* test (backend is behind the `garage` feature and compiles; in-memory backend is tested) and the one-way spool-migration tool (sanctioned cut seam)
 - [x] Every store operation tenant-scoped; wrong-tenant test suite in place and required by CI (tenancy by construction — a `TenantStore` is the only door and bakes the tenant predicate into every query; the isolation suite covers every public read/write path and CI runs it against real Postgres)
-- [ ] JMAP: session, Mailbox/*, Email/get|query|set|changes, push (RFC 8620/8621)
+- [x] JMAP: session, Mailbox/*, Email/get|query|set|changes, push (RFC 8620/8621) (`ficina-jmap`: Session with honest enforced limits, request batching + result references, interim bearer auth (argon2, trait-swappable for OIDC), Mailbox/Email/Thread get/set/query/changes with per-tenant modseq state tokens, blob upload/download, EventSource push; ADR-style design note; wrong-tenant suite extended to every method + blob + push, CI-gated)
+  - Deferred (sanctioned cut seam): `EmailSubmission/set` (h) — sending a draft through the M2/M3 queue; recorded for the next pass. Also additive-later: full MIME `bodyStructure`/attachments in `Email/get`, JMAP-over-WebSocket (RFC 8887)
 - [ ] IMAP shim: LOGIN/SELECT/FETCH/STORE/SEARCH/IDLE against the store (9051/3501 compat)
 - [ ] POP3 shim
 - [ ] Sieve engine: base + vacation + subaddress; rules stored per user

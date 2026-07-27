@@ -6,6 +6,33 @@ contracts.
 
 ## Unreleased
 
+- New: **`ficina-jmap`** — the JMAP API (RFC 8620 core, RFC 8621 mail),
+  an HTTP service over the store and Ficina's native client protocol.
+  **A public contract from merge** (web/desktop/compat adapters speak
+  it): the Session resource with honest, enforced limits; the
+  Request/Response envelope with ordered method dispatch and result
+  references (back-references); `Mailbox`, `Email`, and `Thread`
+  `get`/`set`/`query`/`changes` mapped onto the store; blob
+  upload/download (blob ids are the store's — one id space; download is
+  tenant-scoped, served with the stored Content-Type and `nosniff`); and
+  an EventSource push endpoint emitting `StateChange` per tenant with
+  heartbeats. `/changes` is backed by a new per-tenant monotonic modseq
+  and change log in the store (`ficina-store::changes`), with opaque
+  state tokens and an honest `cannotCalculateChanges`. **Interim bearer
+  auth** (`/auth/token`, argon2 credentials in the store) resolves each
+  token to `(tenant, account)` and enters the store only through
+  `for_tenant` — behind a seam the future ficina-identity OIDC replaces
+  without touching method code. Isolation is **per-account** (accountId =
+  user): every by-id read/mutate, `/changes`, `Thread/get`, and blob
+  download is scoped to the token's `(tenant, user)`, so a user cannot
+  reach another user's mail even within the same tenant. Covered by the
+  wrong-tenant AND cross-account isolation suites (CI-gated), plus
+  conformance, result-reference, concurrent-`/changes`, `/changes`
+  pagination-group, and malformed/oversized-body tests, all against real
+  Postgres.
+  `EmailSubmission/set` (send), full MIME `bodyStructure`, and
+  JMAP-over-WebSocket are follow-ups. See `docs/design/jmap-api.md`.
+
 - New: **`ficina-store`** — the tenant-scoped message store on
   PostgreSQL (system of record, via `sqlx` with compile-checked queries)
   and Garage/S3 (message bytes). **Tenancy is structural:** mail data is
