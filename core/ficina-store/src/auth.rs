@@ -100,6 +100,42 @@ pub async fn issue_token(
     }))
 }
 
+/// Verifies a username/password and resolves it to `(tenant, user)`
+/// **without** issuing a token — the credential seam for stateful
+/// protocols (IMAP/POP3 `LOGIN`). `None` on any mismatch, with the same
+/// anti-enumeration argon2 burn as [`issue_token`] (a wrong username and
+/// a wrong password are indistinguishable in time and result).
+///
+/// # Errors
+/// [`StoreError::Db`] on a database failure.
+pub async fn verify_login(
+    pool: &PgPool,
+    username: &str,
+    password: &str,
+) -> Result<Option<(TenantId, UserId)>> {
+    let row = sqlx::query!(
+        "SELECT user_id, tenant_id, password_hash FROM credentials WHERE username = $1",
+        username
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(row) = row else {
+        // Burn a comparable argon2 cost so a missing user is not faster
+        // than a wrong password (anti-enumeration).
+        let salt = SaltString::generate(&mut OsRng);
+        let _ = Argon2::default().hash_password(password.as_bytes(), &salt);
+        return Ok(None);
+    };
+    if !verify_password(password, &row.password_hash) {
+        return Ok(None);
+    }
+    Ok(Some((
+        TenantId::new(row.tenant_id),
+        UserId::new(row.user_id),
+    )))
+}
+
 /// Resolves a bearer token to its `(tenant, user)`, honoring expiry.
 /// `None` when the token is unknown or expired.
 ///

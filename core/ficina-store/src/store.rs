@@ -136,6 +136,20 @@ impl Store {
     pub async fn resolve_token(&self, token: &str) -> Result<Option<(TenantId, UserId)>> {
         crate::auth::resolve_token(&self.pool, token).await
     }
+
+    /// Interim auth for stateful protocols (IMAP/POP3 `LOGIN`): verifies a
+    /// username/password and resolves it to `(tenant, user)` without
+    /// issuing a bearer token. `None` on any mismatch. See [`crate::auth`].
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn verify_login(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<(TenantId, UserId)>> {
+        crate::auth::verify_login(&self.pool, username, password).await
+    }
 }
 
 /// A tenant-scoped handle for tenant-level provisioning. Holds its

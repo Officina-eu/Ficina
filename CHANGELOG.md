@@ -6,6 +6,42 @@ contracts.
 
 ## Unreleased
 
+- New: **`ficina-imap`** — IMAP4rev2 (RFC 9051) / IMAP4rev1 (RFC 3501) and
+  POP3 (RFC 1939) **compatibility shims** over the account store, so the
+  installed base of mail clients (Thunderbird, Apple Mail, Outlook, phones
+  over IMAP) can reach a Ficina mailbox unchanged. JMAP stays the native
+  protocol (ADR 0001); these are thin translators over `AccountStore`, so
+  tenant/account isolation is **inherited**, not re-implemented. IMAP on
+  implicit TLS (993) and STARTTLS (143), POP3 on implicit TLS (995);
+  `LOGIN`/`AUTHENTICATE PLAIN`/`LOGIN` are refused before TLS (no
+  credentials in the clear) and both protocols cap failed authentications
+  per connection. Full command set: `SELECT`/`EXAMINE`, `LIST`/`LSUB`
+  (correct `%`/`*` wildcards + RFC 6154 special-use), `CREATE`/`DELETE`/
+  `RENAME`, `STATUS`, `APPEND` (through the **same** ingestion path as
+  delivery — no second parser), `FETCH` (`ENVELOPE`, `INTERNALDATE`,
+  `RFC822.SIZE`, `FLAGS`, byte-exact `BODY[]`/`[HEADER]`/`[TEXT]`/
+  `[HEADER.FIELDS]`/numbered parts with `<partial>`, and a bounded-honest
+  `BODYSTRUCTURE`), `STORE`, `SEARCH`, `EXPUNGE`, `COPY`/`MOVE` (RFC 6851,
+  with `COPYUID`/`APPENDUID`), every `UID` variant, and `IDLE` (RFC 2177)
+  as **account-scoped push** off the per-account change cursor.
+  **Stable per-mailbox UIDs and UIDVALIDITY** (schema migration 0006):
+  strictly-ascending, never reused within an epoch, stable across
+  reconnection; `EXPUNGE` renumbers sequence numbers, never UIDs. Covered
+  by a cross-tenant **and** cross-account isolation suite plus UID-
+  stability, concurrent-session, malformed/oversized-input, pipelining,
+  STARTTLS, and POP3 integration tests over real TLS; reviewed and
+  security-audited. `CONDSTORE`/`QRESYNC`, `SORT`/`THREAD`, `ACL`/`QUOTA`/
+  `METADATA`, and sub-second IDLE via `LISTEN`/`NOTIFY` are additive
+  follow-ups. See `docs/design/imap-pop3-shims.md`.
+
+- Fixed: **account-scoped change visibility** — the JMAP/IMAP state cursor
+  is now a **per-account** monotonic modseq (`account_modseq`, migration
+  0005), not per-tenant, so a co-tenant user's activity can no longer
+  advance another user's state token (closing a coarse activity-volume
+  side channel and removing a spurious cross-account push wakeup). The
+  change log was already per-account; only the counter was shared. State
+  tokens stay opaque; `/changes` resumes unchanged.
+
 - New: **`ficina-jmap`** — the JMAP API (RFC 8620 core, RFC 8621 mail),
   an HTTP service over the store and Ficina's native client protocol.
   **A public contract from merge** (web/desktop/compat adapters speak

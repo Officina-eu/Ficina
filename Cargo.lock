@@ -580,6 +580,25 @@ name = "ficina-control"
 version = "0.0.1"
 
 [[package]]
+name = "ficina-imap"
+version = "0.0.1"
+dependencies = [
+ "base64",
+ "bytes",
+ "ficina-store",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ficina-jmap"
 version = "0.0.1"
 dependencies = [

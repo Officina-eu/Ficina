@@ -176,3 +176,62 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   before its parent, or a `Re:` with no `References`, starts its own thread and
   is not retro-merged. Accepted trade-off; revisit if real mail shows
   meaningful out-of-order fragmentation.
+
+## IMAP / POP3 shims (ficina-imap)
+
+- 2026-07-27 · **Real-client interop: Python imaplib 3.14 + raw openssl s_client** ·
+  the IMAP shim was driven end-to-end by Python's `imaplib` (a real, widely-
+  deployed client library) over implicit TLS: LOGIN, LIST, SELECT, FETCH
+  (ENVELOPE + `BODY[HEADER.FIELDS]`), STORE ±FLAGS, SEARCH, UID SEARCH, and
+  APPEND (returning `[APPENDUID]`) all succeeded with **no accommodation
+  required**, and a raw `openssl s_client` transcript confirmed the full loop
+  including IDLE receiving an untagged `* n EXISTS` as a message was delivered
+  into the selected mailbox. **Thunderbird's GUI could not be driven in this
+  headless environment**; `imaplib` + the openssl transcript stand in as the
+  real-client evidence for this milestone, and a Thunderbird desktop pass is a
+  recorded follow-up for when a GUI environment is available. No client-forced
+  quirk surfaced; the entries below are our deliberate strictness/model choices.
+- 2026-07-27 · **INBOX is auto-provisioned at LOGIN** · RFC 9051 §5.1 makes
+  INBOX always present; the store creates a user's inbox lazily, so the IMAP
+  session calls `AccountStore::inbox()` right after authentication so LIST/
+  SELECT/APPEND never see a missing INBOX on a brand-new account.
+- 2026-07-27 · **HEADER.FIELDS returns message order, byte-exact** · RFC 9051
+  §7.5.2: `BODY[HEADER.FIELDS (…)]` returns the named fields **in the order they
+  appear in the message**, not the requested order, as exact byte slices of the
+  stored header (clients may hash them). `BODY[]`/`[HEADER]`/`[TEXT]` are exact
+  slices too.
+- 2026-07-27 · **Auth only over TLS; POP3 TLS-only** · IMAP `LOGIN`/
+  `AUTHENTICATE` are refused before STARTTLS with `NO [PRIVACYREQUIRED]` and
+  `LOGINDISABLED` is advertised pre-TLS (RFC 9051 §7.1.1); POP3 is served only
+  on implicit TLS (995), never cleartext 110, since USER/PASS are in the clear.
+  Both cap failed authentications per connection and drop the socket.
+- 2026-07-27 · **Flags are shared across mailboxes (JMAP model)** · a message
+  COPYed into two mailboxes is one store object with one keyword set, so setting
+  `\Seen` in one mailbox is visible in the other — a deliberate divergence from
+  classic IMAP copy-independence, inherited from the JMAP-native store. Most
+  clients do not rely on per-copy flag independence.
+- 2026-07-27 · **`\Recent` not tracked; `\Deleted` is the `$deleted` keyword** ·
+  RFC 9051 retires `\Recent`, so we always report `0 RECENT` and omit it from
+  PERMANENTFLAGS. `\Deleted` has no JMAP standard keyword and is stored as the
+  internal `$deleted` keyword; EXPUNGE removes `$deleted` messages from the
+  mailbox (destroying a message only when it is left in no mailbox).
+- 2026-07-27 · **Hierarchy separator is `/`** · IMAP mailbox paths join name
+  segments with `/`; a stored mailbox name that itself contains `/` is
+  ambiguous over IMAP and is a documented shim limit (JMAP-created names
+  normally do not). Mailbox names with control characters are rejected at
+  CREATE/RENAME (a CR/LF in a name would otherwise splice response lines).
+- 2026-07-27 · **BODYSTRUCTURE fidelity is bounded and honest** · single-part
+  and `multipart/*` trees decompose correctly; MIME malformed past depth 16 /
+  256 parts degrades to a single `text/plain` part rather than emitting a
+  fabricated structure. Extension fields we do not compute (MD5, disposition,
+  language) are `NIL`. CONDSTORE/QRESYNC are **not** advertised (no per-message
+  mod-sequence). See `docs/design/imap-pop3-shims.md`.
+- 2026-07-27 · **IDLE is poll-driven off the per-account change cursor** · RFC
+  2177 push is delivered by watching this account's own modseq (migration 0005)
+  at a 1 s cadence and diffing the selected-mailbox view; sub-second LISTEN/
+  NOTIFY is a follow-up. The cursor is per-account, so an IDLE stream is
+  provably silent about another account's activity.
+- 2026-07-27 · **MOVE into the source mailbox is a no-op** · RFC 6851 MOVE of a
+  message into the mailbox it already occupies must not lose it; we detect
+  same-mailbox MOVE and leave the message untouched (an earlier draft would have
+  expunged the sole membership — caught in review, now regression-tested).

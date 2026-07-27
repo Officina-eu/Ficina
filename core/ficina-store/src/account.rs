@@ -19,6 +19,7 @@
 
 use bytes::Bytes;
 use sqlx::PgPool;
+use time::OffsetDateTime;
 
 use crate::blob::{BlobStore, hash_hex};
 use crate::error::{Result, StoreError};
@@ -87,7 +88,7 @@ impl AccountStore {
 
     /// Records this account's object changes and bumps the tenant modseq
     /// within `tx`.
-    async fn record(
+    pub(crate) async fn record(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         changes: &[crate::changes::Change<'_>],
@@ -115,7 +116,7 @@ impl AccountStore {
 
     /// Locks this account's message row `FOR UPDATE` (also a scoped
     /// existence check). A foreign/other-user message is `NotFound`.
-    async fn lock_message(
+    pub(crate) async fn lock_message(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         message: &MessageId,
@@ -134,7 +135,7 @@ impl AccountStore {
     }
 
     /// Whether this account's message currently bears `$seen`.
-    async fn message_is_seen(
+    pub(crate) async fn message_is_seen(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         message: &MessageId,
@@ -322,9 +323,30 @@ impl AccountStore {
     pub async fn move_mailbox(&self, id: &MailboxId, parent: Option<&MailboxId>) -> Result<()> {
         if let Some(parent) = parent {
             self.assert_own_mailbox(parent).await?;
-            if parent == id {
+            // Reject any cycle, not just a direct self-parent: walking up
+            // from the proposed parent must never reach `id` (which would
+            // make `id` its own ancestor — an orphaned, unreachable subtree).
+            let creates_cycle = sqlx::query!(
+                "WITH RECURSIVE ancestors AS ( \
+                   SELECT id, parent_id FROM mailboxes \
+                     WHERE tenant_id = $1 AND user_id = $2 AND id = $3 \
+                   UNION ALL \
+                   SELECT m.id, m.parent_id FROM mailboxes m \
+                     JOIN ancestors a ON m.id = a.parent_id \
+                     WHERE m.tenant_id = $1 AND m.user_id = $2 \
+                 ) \
+                 SELECT 1 AS one FROM ancestors WHERE id = $4 LIMIT 1",
+                self.tenant.as_str(),
+                self.user.as_str(),
+                parent.as_str(),
+                id.as_str()
+            )
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+            if creates_cycle {
                 return Err(StoreError::Conflict(
-                    "mailbox cannot parent itself".to_owned(),
+                    "mailbox cannot be moved under itself or a descendant".to_owned(),
                 ));
             }
         }
@@ -421,6 +443,27 @@ impl AccountStore {
         .map(|_| ())
     }
 
+    /// Locks this account's mailbox row `FOR UPDATE` and returns its
+    /// `uid_next` — the UID to assign to the next message added. Foreign/
+    /// other-user mailbox → `NotFound`.
+    async fn lock_own_mailbox_uid(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        mailbox: &MailboxId,
+    ) -> Result<i64> {
+        let row = sqlx::query!(
+            "SELECT uid_next FROM mailboxes \
+             WHERE tenant_id = $1 AND user_id = $2 AND id = $3 FOR UPDATE",
+            self.tenant.as_str(),
+            self.user.as_str(),
+            mailbox.as_str()
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or(StoreError::NotFound)?;
+        Ok(row.uid_next)
+    }
+
     // ---- ingestion -----------------------------------------------------
 
     /// Delivers a raw message into this account's inbox (the SMTP/
@@ -443,6 +486,20 @@ impl AccountStore {
     /// [`StoreError::TooLarge`] over the blob ceiling; [`StoreError::Db`]/
     /// [`StoreError::Blob`] on failure.
     pub async fn ingest(&self, mailbox: &MailboxId, raw: &[u8]) -> Result<MessageId> {
+        self.ingest_at(mailbox, raw, None).await
+    }
+
+    /// Like [`Self::ingest`] but with an explicit `received_at` (IMAP
+    /// `APPEND`'s optional INTERNALDATE); `None` means now.
+    ///
+    /// # Errors
+    /// See [`Self::ingest`].
+    pub(crate) async fn ingest_at(
+        &self,
+        mailbox: &MailboxId,
+        raw: &[u8],
+        received_at: Option<OffsetDateTime>,
+    ) -> Result<MessageId> {
         // Bound the size before any parse/copy/blob work.
         if raw.len() > self.blobs.max_size() {
             return Err(StoreError::TooLarge {
@@ -497,8 +554,9 @@ impl AccountStore {
         sqlx::query!(
             "INSERT INTO messages \
              (id, tenant_id, user_id, thread_id, blob_id, message_id_hdr, subject, from_addr, \
-              to_addrs, sent_at, size, auth_spf, auth_dkim, auth_dmarc, auth_raw, search) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, to_tsvector('simple',$16))",
+              to_addrs, sent_at, received_at, size, auth_spf, auth_dkim, auth_dmarc, auth_raw, search) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11, now()), \
+                     $12,$13,$14,$15,$16, to_tsvector('simple',$17))",
             message_id.as_str(),
             self.tenant.as_str(),
             self.user.as_str(),
@@ -509,6 +567,7 @@ impl AccountStore {
             parsed.from_addr,
             parsed.to_addrs,
             parsed.sent_at,
+            received_at,
             size,
             parsed.auth_spf.as_deref(),
             parsed.auth_dkim.as_deref(),
@@ -519,20 +578,27 @@ impl AccountStore {
         .execute(&mut *tx)
         .await?;
 
-        // Membership + counters (a fresh message is unread).
-        sqlx::query!(
-            "INSERT INTO mailbox_messages (tenant_id, mailbox_id, message_id) VALUES ($1,$2,$3)",
-            self.tenant.as_str(),
-            mailbox.as_str(),
-            message_id.as_str()
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query!(
-            "UPDATE mailboxes SET total_messages = total_messages + 1, \
-             unread_messages = unread_messages + 1 WHERE tenant_id = $1 AND id = $2",
+        // Assign this message's per-mailbox UID and bump counters in one
+        // locked step (the UPDATE takes a row lock, serializing concurrent
+        // deliveries so UIDs never collide or gap-reuse). A fresh message
+        // is unread. `uid_next - 1` is the value we just consumed.
+        let uid = sqlx::query!(
+            "UPDATE mailboxes SET uid_next = uid_next + 1, \
+             total_messages = total_messages + 1, unread_messages = unread_messages + 1 \
+             WHERE tenant_id = $1 AND id = $2 RETURNING uid_next - 1 AS \"uid!\"",
             self.tenant.as_str(),
             mailbox.as_str()
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .uid;
+        sqlx::query!(
+            "INSERT INTO mailbox_messages (tenant_id, mailbox_id, message_id, uid) \
+             VALUES ($1,$2,$3,$4)",
+            self.tenant.as_str(),
+            mailbox.as_str(),
+            message_id.as_str(),
+            uid
         )
         .execute(&mut *tx)
         .await?;
@@ -891,19 +957,22 @@ impl AccountStore {
     /// # Errors
     /// [`StoreError::NotFound`] if either is not this account's.
     pub async fn add_to_mailbox(&self, message: &MessageId, mailbox: &MailboxId) -> Result<()> {
-        // Both must be this account's.
-        self.assert_own_mailbox(mailbox).await?;
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        // Lock the destination mailbox (also the ownership check → NotFound)
+        // so the UID we read is the one we assign, serialized against other
+        // adders/deliveries. Then lock the message (ownership + serialize).
+        let candidate_uid = self.lock_own_mailbox_uid(&mut tx, mailbox).await?;
         self.lock_message(&mut tx, message).await?;
         let seen = self.message_is_seen(&mut tx, message).await?;
         let added = sqlx::query!(
-            "INSERT INTO mailbox_messages (tenant_id, mailbox_id, message_id) \
-             SELECT $1, $2, id FROM messages WHERE tenant_id = $1 AND user_id = $4 AND id = $3 \
+            "INSERT INTO mailbox_messages (tenant_id, mailbox_id, message_id, uid) \
+             SELECT $1, $2, id, $5 FROM messages WHERE tenant_id = $1 AND user_id = $4 AND id = $3 \
              ON CONFLICT DO NOTHING",
             self.tenant.as_str(),
             mailbox.as_str(),
             message.as_str(),
-            self.user.as_str()
+            self.user.as_str(),
+            candidate_uid
         )
         .execute(&mut *tx)
         .await?
@@ -911,7 +980,8 @@ impl AccountStore {
         if added == 1 {
             let unread_delta: i64 = if seen { 0 } else { 1 };
             sqlx::query!(
-                "UPDATE mailboxes SET total_messages = total_messages + 1, \
+                "UPDATE mailboxes SET uid_next = uid_next + 1, \
+                 total_messages = total_messages + 1, \
                  unread_messages = unread_messages + $1 WHERE tenant_id = $2 AND id = $3",
                 unread_delta,
                 self.tenant.as_str(),
