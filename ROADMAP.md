@@ -55,12 +55,21 @@ Rules of this file:
 
 ### Trust stack
 
-- [ ] SPF verification
-- [ ] DKIM: verification and signing, key management with rotation support
-- [ ] DMARC evaluation + report generation
+Built as the `ficina-auth-mail` crate, wired into `ficina-smtp` at DATA
+(inbound verdicts → `Received-SPF` + `Authentication-Results`, the
+RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
+`ring` (constant-time), not the `rsa` crate (RUSTSEC-2023-0071).
+
+- [x] SPF verification (M4: RFC 7208 full `check_host` — all mechanisms, macro expansion, 10-DNS-lookup + 2-void-lookup hard limits)
+- [x] DKIM: verification and signing, key management with rotation support (M4: verify multi-sig + relaxed/simple canon + `l=`/`x=`; sign RSA-2048 + Ed25519; `KeyStore` trait addressed by (domain, selector), file impl with perm checks + zeroize; verified by an independent tool (dkimpy))
+- [x] DMARC evaluation + report generation (M4: PSL org-domain, relaxed/strict alignment, disposition→550 on `p=reject`, aggregate-report XML per Appendix C)
+  - Deferred: DMARC report *delivery* (gzip + email via the M2 queue) — the XML is generated; sending is a follow-up job
 - [ ] ARC sealing (needed for lists later)
+  - Deferred from M4 (sanctioned cut seam): chain validation + AAR/AMS/AS sealing; needed for mailing-list forwarding, not first-hop receive/submit
 - [ ] MTA-STS + TLS-RPT published for our domains
+  - Deferred from M4: MTA-STS policy serving + TLS-RPT report JSON (TLS-RPT reporting is a sanctioned cut seam)
 - [ ] Rspamd integrated at SMTP time; verdict wired to reply codes and headers
+  - Deferred from M4: HTTP consult at DATA, verdict → 550/451/X-Spam headers merged into Authentication-Results, fail-closed default. The `x-spam` method is already reserved in the Authentication-Results builder
 
 ### Store & APIs
 

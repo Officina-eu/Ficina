@@ -51,6 +51,15 @@ pub const ENV_LOCAL_DOMAINS: &str = "FICINA_SMTP_LOCAL_DOMAINS";
 /// Environment flag permitting self-signed certificate generation when
 /// no PEM is configured (development only).
 pub const ENV_ALLOW_SELF_SIGNED: &str = "FICINA_SMTP_ALLOW_SELF_SIGNED";
+/// Environment variable for the DKIM signing domain (`d=`).
+pub const ENV_DKIM_DOMAIN: &str = "FICINA_SMTP_DKIM_DOMAIN";
+/// Environment variable for the DKIM selector (`s=`).
+pub const ENV_DKIM_SELECTOR: &str = "FICINA_SMTP_DKIM_SELECTOR";
+/// Environment variable for the DKIM private-key PEM path.
+pub const ENV_DKIM_KEY: &str = "FICINA_SMTP_DKIM_KEY";
+/// Environment variable selecting the DKIM algorithm (`ed25519` or the
+/// default `rsa`).
+pub const ENV_DKIM_ALGORITHM: &str = "FICINA_SMTP_DKIM_ALGORITHM";
 
 const DEFAULT_ADDR: &str = "0.0.0.0:2525";
 const DEFAULT_HOSTNAME: &str = "ficina.test";
@@ -113,6 +122,22 @@ pub struct SmtpConfig {
     /// never silently presents an untrusted cert (opportunistic-TLS
     /// MITM exposure).
     pub allow_self_signed: bool,
+    /// DKIM signing for submitted mail; `None` disables signing.
+    pub dkim: Option<DkimSigning>,
+}
+
+/// DKIM signing configuration (M4). The key path is always explicit —
+/// never defaulted into the repo tree — and permission-checked at load.
+#[derive(Debug, Clone)]
+pub struct DkimSigning {
+    /// Signing domain (`d=`).
+    pub domain: String,
+    /// Selector (`s=`), addressing the key for rotation.
+    pub selector: String,
+    /// Path to the PKCS#8 PEM private key.
+    pub key_path: PathBuf,
+    /// `true` for Ed25519 (RFC 8463), `false` for RSA.
+    pub ed25519: bool,
 }
 
 /// Paths to a TLS certificate chain and its private key (PEM).
@@ -261,6 +286,8 @@ impl SmtpConfig {
             });
         }
 
+        let dkim = Self::dkim_from_env()?;
+
         Ok(Self {
             bind_addr,
             hostname,
@@ -275,7 +302,39 @@ impl SmtpConfig {
             credentials_file,
             local_domains,
             allow_self_signed,
+            dkim,
         })
+    }
+
+    /// Reads DKIM signing config; all three of domain/selector/key must
+    /// be set together, or none (signing disabled).
+    fn dkim_from_env() -> Result<Option<DkimSigning>, SmtpError> {
+        let domain = std::env::var(ENV_DKIM_DOMAIN)
+            .ok()
+            .filter(|s| !s.is_empty());
+        let selector = std::env::var(ENV_DKIM_SELECTOR)
+            .ok()
+            .filter(|s| !s.is_empty());
+        let key = std::env::var(ENV_DKIM_KEY).ok().filter(|s| !s.is_empty());
+        match (domain, selector, key) {
+            (Some(domain), Some(selector), Some(key)) => {
+                let ed25519 = std::env::var(ENV_DKIM_ALGORITHM)
+                    .map(|a| a.eq_ignore_ascii_case("ed25519"))
+                    .unwrap_or(false);
+                Ok(Some(DkimSigning {
+                    domain,
+                    selector,
+                    key_path: PathBuf::from(key),
+                    ed25519,
+                }))
+            }
+            (None, None, None) => Ok(None),
+            _ => Err(SmtpError::Config {
+                message: format!(
+                    "{ENV_DKIM_DOMAIN}, {ENV_DKIM_SELECTOR}, and {ENV_DKIM_KEY} must be set together"
+                ),
+            }),
+        }
     }
 
     fn outbound_from_env() -> Result<Option<OutboundConfig>, SmtpError> {

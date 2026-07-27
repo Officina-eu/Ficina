@@ -6,6 +6,28 @@ contracts.
 
 ## Unreleased
 
+- New: `ficina-auth-mail` — the email-authentication trust stack (Phase
+  1 M4), wired into `ficina-smtp`. Inbound (MX) at DATA: **SPF** (RFC
+  7208 full `check_host` with macro expansion and the 10-DNS-lookup /
+  2-void-lookup hard limits), **DKIM** verification (RFC 6376 + Ed25519
+  per RFC 8463; relaxed/simple canonicalization, `l=`/`x=`, multiple
+  signatures), and **DMARC** (RFC 7489; public-suffix org-domain,
+  relaxed/strict alignment, `p=reject` → 550, with `pct=` sampling per
+  §6.6.4 so a sender mid-rollout is not enforced at 100%). Every verdict
+  is recorded in **`Authentication-Results`** (RFC 8601) — the public
+  contract downstream parses — plus a `Received-SPF` header; any
+  pre-existing `Authentication-Results` bearing our authserv-id (and any
+  `Received-SPF`) is stripped from inbound mail first (RFC 8601 §5) so a
+  remote sender cannot forge the verdict. A DKIM signature whose `h=`
+  omits `From` is a permfail (RFC 6376 §6.1.1). Outbound
+  (submission): **DKIM signing** with RSA-2048 or Ed25519, keys
+  addressed by `(domain, selector)` behind a `KeyStore` (file backend
+  with permission checks and zeroizing buffers) so rotation is a config
+  change. RSA uses `ring` (constant-time), not the `rsa` crate
+  (RUSTSEC-2023-0071). New knobs: `FICINA_SMTP_DKIM_DOMAIN/SELECTOR/KEY/
+  ALGORITHM`. DMARC report delivery, ARC, MTA-STS, TLS-RPT, and Rspamd
+  are deferred (see ROADMAP).
+
 - New: `ficina-smtp` TLS and authenticated submission (Phase 1 M3).
   **STARTTLS** (RFC 3207) on the MX and submission ports and **implicit
   TLS** (port 465), via rustls with the ring provider — pure Rust, no

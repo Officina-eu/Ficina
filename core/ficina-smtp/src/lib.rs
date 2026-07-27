@@ -17,6 +17,7 @@
 
 pub mod address;
 pub mod auth;
+pub mod authmail;
 pub mod backoff;
 pub mod client;
 pub mod client_reply;

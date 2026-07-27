@@ -17,6 +17,7 @@ use tokio_rustls::TlsAcceptor;
 use tracing::Instrument;
 
 use crate::auth::{self, Authenticator, Mechanism, StaticAuthenticator};
+use crate::authmail::{AuthMail, SigningConfig};
 use crate::config::{self, SmtpConfig};
 use crate::data::{self, DataError};
 use crate::envelope::Envelope;
@@ -27,6 +28,8 @@ use crate::session::{Action, Directive, Role, Session, SessionParams};
 use crate::spool::Spool;
 use crate::stream::SmtpStream;
 use crate::{received, submission, tls};
+use ficina_auth_mail::dkim::keystore::{FileKeyStore, KeyAlgorithm};
+use ficina_auth_mail::resolver::Resolver as AuthResolver;
 
 /// Command line limit: 512 octets including CRLF (RFC 5321 §4.5.3.1.4).
 const MAX_COMMAND_LINE: usize = 512;
@@ -66,6 +69,9 @@ pub struct Runtime {
     max_connections: usize,
     /// Apply RFC 6409 submission fixups before spooling (submission).
     apply_fixups: bool,
+    /// Trust stack: SPF/DKIM/DMARC verification (MX) and DKIM signing
+    /// (submission). Disabled by default; `run` installs a real one.
+    auth: Arc<AuthMail>,
 }
 
 impl Runtime {
@@ -80,6 +86,7 @@ impl Runtime {
         max_connections: usize,
         apply_fixups: bool,
     ) -> Self {
+        let auth = Arc::new(AuthMail::disabled(&params.hostname));
         Self {
             params,
             spool,
@@ -87,7 +94,15 @@ impl Runtime {
             authenticator,
             max_connections,
             apply_fixups,
+            auth,
         }
+    }
+
+    /// Installs the trust-stack context (SPF/DKIM/DMARC + signing).
+    #[must_use]
+    pub fn with_auth(mut self, auth: Arc<AuthMail>) -> Self {
+        self.auth = auth;
+        self
     }
 
     /// Builds an MX (relay-in) runtime: STARTTLS offered, no AUTH,
@@ -147,9 +162,11 @@ impl Runtime {
         max_rcpt: usize,
         max_connections: usize,
     ) -> Self {
+        let hostname = hostname.into();
+        let auth = Arc::new(AuthMail::disabled(&hostname));
         Self {
             params: SessionParams {
-                hostname: hostname.into(),
+                hostname,
                 max_rcpt,
                 max_message_size,
                 role: Role::Submission,
@@ -166,6 +183,7 @@ impl Runtime {
             authenticator,
             max_connections,
             apply_fixups: true,
+            auth,
         }
     }
 }
@@ -208,29 +226,37 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         tracing::warn!("outbound delivery disabled; received mail accumulates in the spool");
     }
 
+    // Trust stack (M4): one shared DNS resolver for SPF/DKIM/DMARC. If
+    // it cannot be built, verification is disabled (mail still flows —
+    // an absent resolver must not stop receiving).
+    let auth_resolver: Option<Arc<dyn AuthResolver>> =
+        match ficina_auth_mail::resolver::DnsResolver::from_system() {
+            Ok(resolver) => Some(Arc::new(resolver)),
+            Err(error) => {
+                tracing::error!(%error, "trust-stack resolver unavailable; SPF/DKIM/DMARC disabled");
+                None
+            }
+        };
+    let mx_auth = Arc::new(build_mx_auth(&config, auth_resolver.clone()));
+    let submission_auth = Arc::new(build_submission_auth(&config, auth_resolver)?);
+
     // Optional submission listeners bind first and run as spawned
     // tasks; the MX listener runs on this task (and never returns).
     if let Some(addr) = config.submission_addr {
         let listener = bind(addr).await?;
-        let runtime = Arc::new(submission_runtime(
-            &config,
-            &spool,
-            &tls_acceptor,
-            &authenticator,
-            false,
-        ));
+        let runtime = Arc::new(
+            submission_runtime(&config, &spool, &tls_acceptor, &authenticator, false)
+                .with_auth(Arc::clone(&submission_auth)),
+        );
         tracing::info!(%addr, "submission (STARTTLS) listener");
         tokio::spawn(serve(listener, runtime));
     }
     if let Some(addr) = config.implicit_tls_addr {
         let listener = bind(addr).await?;
-        let runtime = Arc::new(submission_runtime(
-            &config,
-            &spool,
-            &tls_acceptor,
-            &authenticator,
-            true,
-        ));
+        let runtime = Arc::new(
+            submission_runtime(&config, &spool, &tls_acceptor, &authenticator, true)
+                .with_auth(Arc::clone(&submission_auth)),
+        );
         tracing::info!(%addr, "implicit-TLS submission listener");
         tokio::spawn(serve(listener, runtime));
     }
@@ -253,6 +279,7 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         authenticator: Arc::clone(&authenticator),
         max_connections: config.max_connections,
         apply_fixups: false,
+        auth: mx_auth,
     });
     tracing::info!(
         addr = %config.bind_addr,
@@ -291,7 +318,49 @@ fn submission_runtime(
         authenticator: Arc::clone(authenticator),
         max_connections: config.max_connections,
         apply_fixups: true,
+        auth: Arc::new(AuthMail::disabled(&config.hostname)),
     }
+}
+
+/// Builds the MX trust-stack context: SPF/DKIM/DMARC verification.
+fn build_mx_auth(config: &SmtpConfig, resolver: Option<Arc<dyn AuthResolver>>) -> AuthMail {
+    let mut auth = AuthMail::disabled(&config.hostname);
+    if let Some(resolver) = resolver {
+        auth = auth.with_resolver(resolver);
+    }
+    auth
+}
+
+/// Builds the submission trust-stack context: verification (harmless on
+/// submission) plus DKIM signing when configured.
+fn build_submission_auth(
+    config: &SmtpConfig,
+    resolver: Option<Arc<dyn AuthResolver>>,
+) -> Result<AuthMail, SmtpError> {
+    let mut auth = AuthMail::disabled(&config.hostname);
+    if let Some(resolver) = resolver {
+        auth = auth.with_resolver(resolver);
+    }
+    if let Some(dkim) = &config.dkim {
+        let algorithm = if dkim.ed25519 {
+            KeyAlgorithm::Ed25519Sha256
+        } else {
+            KeyAlgorithm::RsaSha256
+        };
+        let keys = FileKeyStore::new().with_key(
+            &dkim.domain,
+            &dkim.selector,
+            dkim.key_path.clone(),
+            algorithm,
+        );
+        auth = auth.with_signing(SigningConfig {
+            keys: Arc::new(keys),
+            domain: dkim.domain.clone(),
+            selector: dkim.selector.clone(),
+        });
+        tracing::info!(domain = %dkim.domain, selector = %dkim.selector, "DKIM signing enabled");
+    }
+    Ok(auth)
 }
 
 async fn bind(addr: SocketAddr) -> Result<TcpListener, SmtpError> {
@@ -693,11 +762,46 @@ async fn handle_data_phase(
 
             // RFC 6409 §8: on submission, add Date/Message-ID if absent
             // before stamping Received (so the fixups sit under it).
-            let body = if runtime.apply_fixups {
+            let mut body = if runtime.apply_fixups {
                 submission::apply_fixups(&body, &runtime.params.hostname, &id, &now)
             } else {
                 body
             };
+
+            // Trust stack (M4): headers to insert between our Received:
+            // stamp and the original message.
+            let mut trust_headers = String::new();
+            // Inbound (MX): SPF + DKIM + DMARC over the message as
+            // received; stamp Received-SPF + Authentication-Results,
+            // and honor a DMARC reject policy.
+            if runtime.params.role == Role::Mx && runtime.auth.verifies() {
+                let result = runtime
+                    .auth
+                    .inbound(
+                        peer.ip(),
+                        session.helo_client(),
+                        envelope.mail_from.as_deref(),
+                        &body,
+                    )
+                    .await;
+                if result.reject {
+                    session.end_data();
+                    write_reply(conn, &Reply::dmarc_reject()).await?;
+                    return Ok(true);
+                }
+                // RFC 8601 §5: if a forged Authentication-Results /
+                // Received-SPF was stripped, spool the rewritten body.
+                if let Some(clean) = result.stripped_body {
+                    body = clean;
+                }
+                trust_headers.push_str(&result.headers);
+            }
+            // Outbound (submission): DKIM-sign the fixed-up message.
+            if runtime.apply_fixups
+                && let Some(signature) = runtime.auth.sign_outbound(&body).await
+            {
+                trust_headers.push_str(&signature);
+            }
 
             let header = received::stamp(
                 session.helo_client(),
@@ -707,8 +811,9 @@ async fn handle_data_phase(
                 &id,
                 &now,
             );
-            let mut message = Vec::with_capacity(header.len() + body.len());
+            let mut message = Vec::with_capacity(header.len() + trust_headers.len() + body.len());
             message.extend_from_slice(header.as_bytes());
+            message.extend_from_slice(trust_headers.as_bytes());
             message.extend_from_slice(&body);
 
             let spool = Arc::clone(&runtime.spool);

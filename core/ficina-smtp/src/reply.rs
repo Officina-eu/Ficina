@@ -127,6 +127,12 @@ impl Reply {
         Self::line(550, "5.7.1 Relaying denied: recipient not local")
     }
 
+    /// 550: rejected by DMARC policy (RFC 7489 — the sending domain
+    /// publishes `p=reject` and the message failed authentication).
+    pub fn dmarc_reject() -> Self {
+        Self::line(550, "5.7.1 Message rejected by DMARC policy")
+    }
+
     /// 421: too many failed authentication attempts; the server is
     /// closing the connection (RFC 4954 anti-brute-force).
     pub fn too_many_auth_failures(hostname: &str) -> Self {

@@ -65,3 +65,48 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   ports (587/465) MAIL before TLS gets 530 (must STARTTLS) and MAIL before a
   successful AUTH gets 530 (auth required) — the open-relay gate. MX (25)
   authenticates no one and never advertises AUTH.
+- 2026-07-27 · **Authentication-Results is the verdict contract** · every
+  SPF/DKIM/DMARC (and later ARC/spam) result is recorded in one
+  `Authentication-Results` header (RFC 8601) under one authserv-id (our
+  hostname). Downstream (store/JMAP/UI) parses THIS, not internal types; the
+  rendered format changes additively only. `Received-SPF` is also stamped for
+  operators/legacy tooling but is not the authoritative record.
+- 2026-07-27 · **Malformed auth input fails, never crashes** · a malformed
+  SPF/DKIM/DMARC record, DKIM signature, or DNS key (all internet-sourced)
+  yields a fail/permerror verdict, never a panic — enforced by the workspace
+  unwrap/panic deny-lints plus fuzz-style tests and a bounded hand-rolled DER
+  parser for DKIM public keys.
+- 2026-07-27 · **DMARC disposition** · `p=reject` + authenticated-fail → 550 at
+  DATA. `p=quarantine` is accepted (the verdict is recorded in
+  Authentication-Results; actual foldering is a store concern, M5). SPF `ptr`
+  is implemented but discouraged (RFC 7208 §5.5).
+- 2026-07-27 · **RSA crypto via ring, not the rsa crate** · the `rsa` crate
+  carries the unfixed Marvin timing sidechannel (RUSTSEC-2023-0071); DKIM RSA
+  sign/verify use ring (constant-time). DKIM public keys (SPKI) are unwrapped
+  to PKCS#1 by a small bounded DER parser before ring verification.
+- 2026-07-27 · **Inbound trust headers stripped before stamping** · RFC 8601
+  §5: on the MX boundary we delete any pre-existing `Authentication-Results`
+  bearing our own authserv-id, and any `Received-SPF`, before adding ours — a
+  remote sender must not be able to plant the verdict header downstream trusts.
+  A different authserv-id's `Authentication-Results` (a legitimate upstream) is
+  preserved.
+- 2026-07-27 · **DKIM `From` must be signed** · RFC 6376 §6.1.1: a signature
+  whose `h=` omits `From` is a permerror, not a pass — otherwise the visible
+  sender could be altered while DKIM still reported pass.
+- 2026-07-27 · **DKIM `l=` counts canonicalized octets** · §3.7: inbound `l=`
+  is applied after body canonicalization, not before, so `simple`-body
+  signatures with trailing-whitespace differences score correctly. Our signer
+  omits `l=` by default (it permits post-signing appends) but can emit it.
+- 2026-07-27 · **DMARC `pct` sampled with a non-crypto draw** · §6.6.4: for the
+  `100 - pct` fraction "sampled out", the next-lower policy applies
+  (reject→quarantine→none). The per-message draw is a sub-nanosecond timestamp
+  sample — sufficient for policy sampling, not a security decision.
+- 2026-07-27 · **SPF `redirect=` to a recordless domain is permerror** · §6.1:
+  a redirect whose target publishes no (or a malformed) SPF record is a
+  permerror, distinct from a bare `none`. A no-record lookup also charges the
+  §4.6.4 void-lookup budget.
+- 2026-07-27 · **Non-UTF-8 header octet drops only its own field** · a stray
+  8-bit byte in one header no longer erases the whole header block (which would
+  silently void DKIM/DMARC for the message); each header's UTF-8 is validated
+  in isolation. A multi-address `From` with differing domains yields no DMARC
+  From-domain (RFC 7489 §6.6.1).
