@@ -1,4 +1,4 @@
-# M4b — Rspamd + MTA-STS (design note)
+# Spam filtering + MTA-STS (design note)
 
 Finishes the two unapproved M4 deferrals before M5: (1) Rspamd spam
 scoring consulted at DATA, and (2) MTA-STS policy serving. ARC,

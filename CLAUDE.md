@@ -34,6 +34,11 @@ team. Everything here is absolute; everything else is judgment.
 - **Scope is gated.** Nothing gets built that isn't in
   `docs/features.md` with a tier, inside the current phase, and
   outside Non-goals in the product doc.
+- **Names are for strangers:** files, commit subjects, and branches
+  describe the subject matter; roadmap codes (M1, M4b, "Phase 1") live
+  only in `ROADMAP.md` and commit trailers (`Roadmap: ...`). Commit
+  subjects follow conventional style — `type(scope): descriptive
+  subject`.
 - **User-facing strings are externalized (i18n) from day one.**
   Hardcoded English is a bug in a European product.
 - **`../engines/` is read-only reference material; code changes there

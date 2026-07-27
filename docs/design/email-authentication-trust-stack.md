@@ -1,4 +1,4 @@
-# M4 — Trust stack (design note)
+# Email authentication trust stack (design note)
 
 Phase 1 milestone M4: email authentication (SPF, DKIM, DMARC, ARC),
 transport-security policy (MTA-STS, TLS-RPT), and spam scoring (Rspamd)

@@ -1,4 +1,4 @@
-# M3 — TLS + Submission (design note)
+# TLS + submission (design note)
 
 Phase 1 milestone M3 for `ficina-smtp`. Adds transport security and
 authenticated submission on top of the M1 receive path and M2 queue.

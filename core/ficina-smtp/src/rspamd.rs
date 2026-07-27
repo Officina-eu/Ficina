@@ -6,7 +6,7 @@
 //! `POST` to a localhost/container controller over plaintext, so a small
 //! `Connection: close` + read-to-EOF client with `serde_json` for the
 //! body keeps the dependency surface — and the fail-closed/timeout
-//! policy — ours (see `docs/design/m4b-rspamd-mta-sts.md`).
+//! policy — ours (see `docs/design/spam-filtering-and-mta-sts.md`).
 //!
 //! Every failure (unreachable, bad status, unparseable/timeout) is a
 //! typed error; the caller maps it to a **fail-closed** 451 so a scanner

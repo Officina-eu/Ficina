@@ -6,7 +6,7 @@
 //! every verdict. `ficina-smtp` calls this crate at DATA time
 //! (inbound verdicts) and at submission (DKIM signing).
 //!
-//! Security invariants (see `docs/design/m4-trust-stack.md`): DNS is
+//! Security invariants (see `docs/design/email-authentication-trust-stack.md`): DNS is
 //! hostile input handled behind one [`resolver`] with timeouts and
 //! caps; private keys are permission-checked, never logged, and held
 //! in zeroizing buffers; malformed input yields a *fail verdict*,

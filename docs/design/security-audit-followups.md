@@ -1,4 +1,4 @@
-# M3 security follow-ups (from the security audit)
+# SMTP security audit follow-ups
 
 The M3 security audit returned **no critical or high findings**; the
 submission open-relay gate and the STARTTLS injection defense both
