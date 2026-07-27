@@ -7,25 +7,24 @@ mod common;
 
 use std::collections::HashSet;
 
-use ficina_store::{MessageId, Page, TenantStore};
+use ficina_store::{AccountStore, MessageId, Page};
 
-async fn thread_of(ts: &TenantStore, message: &MessageId) -> String {
+async fn thread_of(ts: &AccountStore, message: &MessageId) -> String {
     ts.message(message).await.unwrap().thread_id.to_string()
 }
 
 #[tokio::test]
 async fn reply_chain_converges_to_one_thread() {
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "chain").await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "chain").await;
 
-    let root = common::deliver(&ts, &user, &inbox, "<root@x>", &[], "Project kickoff").await;
+    let root = common::deliver(&ts, &inbox, "<root@x>", &[], "Project kickoff").await;
     let mut messages = vec![root];
     let mut prev = "<root@x>".to_owned();
     for i in 0..12 {
         let mid = format!("<r{i}@x>");
         let m = common::deliver(
             &ts,
-            &user,
             &inbox,
             &mid,
             &[prev.as_str(), "<root@x>"],
@@ -54,13 +53,12 @@ async fn reply_chain_converges_to_one_thread() {
 #[tokio::test]
 async fn unrelated_messages_never_merge() {
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "distinct").await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "distinct").await;
 
     let mut threads = HashSet::new();
     for i in 0..10 {
         let m = common::deliver(
             &ts,
-            &user,
             &inbox,
             &format!("<u{i}@x>"),
             &[],
@@ -77,9 +75,9 @@ async fn same_subject_without_references_does_not_merge() {
     // Documented interop choice: we thread on references, not subject
     // alone, so two independent "Re: Hi" with no References stay apart.
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "subjonly").await;
-    let a = common::deliver(&ts, &user, &inbox, "<a@x>", &[], "Re: Hi").await;
-    let b = common::deliver(&ts, &user, &inbox, "<b@x>", &[], "Re: Hi").await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "subjonly").await;
+    let a = common::deliver(&ts, &inbox, "<a@x>", &[], "Re: Hi").await;
+    let b = common::deliver(&ts, &inbox, "<b@x>", &[], "Re: Hi").await;
     assert_ne!(thread_of(&ts, &a).await, thread_of(&ts, &b).await);
 }
 
@@ -89,7 +87,7 @@ async fn randomized_forests_group_by_chain() {
     // a shuffled order. Every message in a chain must share one thread;
     // different chains must not collide.
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "forest").await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "forest").await;
 
     // Build chains: chain c has roots <c-0@x> and replies <c-k@x> each
     // referencing <c-(k-1)@x>.
@@ -126,7 +124,7 @@ async fn randomized_forests_group_by_chain() {
     for &i in &order {
         let (mid, refs, c) = &plan[i];
         let refs_ref: Vec<&str> = refs.iter().map(String::as_str).collect();
-        let m = common::deliver(&ts, &user, &inbox, mid, &refs_ref, "subject").await;
+        let m = common::deliver(&ts, &inbox, mid, &refs_ref, "subject").await;
         let t = thread_of(&ts, &m).await;
         match &chain_thread[*c] {
             Some(existing) => assert_eq!(existing, &t, "chain {c} split across threads"),

@@ -43,7 +43,7 @@ pub async fn upload(
         .map(str::to_owned);
     let size = body.len();
     let blob_id = account
-        .ts
+        .acc
         .put_blob(body, content_type.as_deref())
         .await
         .map_err(store_problem)?;
@@ -68,14 +68,11 @@ pub async fn download(
         return Err(Problem::not_found());
     }
     let id = BlobId::new(blob_id);
-    // Account scope: the caller must own a message referencing this blob.
-    account
-        .ts
-        .owns_blob(&account.user, &id)
-        .await
-        .map_err(store_problem)?;
-    let meta = account.ts.blob(&id).await.map_err(store_problem)?;
-    let bytes = account.ts.blob_bytes(&id).await.map_err(store_problem)?;
+    // The account door scopes blob access to blobs referenced by one of
+    // this account's messages: an unreferenced/foreign blob is NotFound
+    // from blob()/blob_bytes() themselves — no separate ownership guard.
+    let meta = account.acc.blob(&id).await.map_err(store_problem)?;
+    let bytes = account.acc.blob_bytes(&id).await.map_err(store_problem)?;
 
     let ctype = meta
         .content_type

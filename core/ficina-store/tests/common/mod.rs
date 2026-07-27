@@ -8,7 +8,7 @@
 // helpers; the rest are legitimately unused there.
 #![allow(dead_code)]
 
-use ficina_store::{BlobStore, MailboxId, MessageId, Store, TenantStore, UserId};
+use ficina_store::{AccountStore, BlobStore, MailboxId, MessageId, Store, UserId};
 use sqlx::postgres::PgPoolOptions;
 
 /// The test database URL (compose sets `DATABASE_URL`; falls back to the
@@ -37,23 +37,24 @@ pub async fn test_store_with_blobs() -> (Store, BlobStore) {
     (store, blobs)
 }
 
-/// Creates a fresh tenant with one user and their inbox (no messages).
-pub async fn fresh_account(store: &Store, tag: &str) -> (TenantStore, UserId, MailboxId) {
+/// Creates a fresh tenant with one user and their inbox (no messages),
+/// returning the **account door** for that user.
+pub async fn fresh_account(store: &Store, tag: &str) -> (AccountStore, UserId, MailboxId) {
     let tenant = store.create_tenant(&format!("t-{tag}")).await.unwrap();
-    let ts = store.for_tenant(tenant);
+    let ts = store.for_tenant(tenant.clone());
     let user = ts
         .create_user(&format!("u-{tag}@example.test"))
         .await
         .unwrap();
-    let inbox = ts.inbox(&user).await.unwrap();
-    (ts, user, inbox)
+    let acc = store.for_account(tenant, user.clone());
+    let inbox = acc.inbox().await.unwrap();
+    (acc, user, inbox)
 }
 
 /// Delivers a synthetic message with a chosen `Message-ID`, references,
-/// and subject into `inbox`.
+/// and subject into `inbox`, through the account door.
 pub async fn deliver(
-    ts: &TenantStore,
-    user: &UserId,
+    acc: &AccountStore,
     inbox: &MailboxId,
     message_id: &str,
     references: &[&str],
@@ -68,12 +69,13 @@ pub async fn deliver(
         "From: sender@example.test\r\nSubject: {subject}\r\nMessage-ID: {message_id}\r\n\
          {refs_hdr}\r\nbody for {message_id}\r\n"
     );
-    ts.ingest(user, inbox, raw.as_bytes()).await.unwrap()
+    acc.ingest(inbox, raw.as_bytes()).await.unwrap()
 }
 
-/// A fully set-up tenant: a user, their inbox, and one ingested message.
+/// A fully set-up tenant: a user, their inbox, and one ingested message,
+/// reachable through the account door.
 pub struct Fixture {
-    pub ts: TenantStore,
+    pub acc: AccountStore,
     pub user: UserId,
     pub inbox: MailboxId,
     pub message: MessageId,
@@ -83,17 +85,18 @@ pub struct Fixture {
 /// the message-id/subject across fixtures.
 pub async fn tenant_fixture(store: &Store, tag: &str) -> Fixture {
     let tenant = store.create_tenant(&format!("tenant-{tag}")).await.unwrap();
-    let ts = store.for_tenant(tenant);
+    let ts = store.for_tenant(tenant.clone());
     let email = format!("user-{tag}@example.test");
     let user = ts.create_user(&email).await.unwrap();
-    let inbox = ts.inbox(&user).await.unwrap();
+    let acc = store.for_account(tenant, user.clone());
+    let inbox = acc.inbox().await.unwrap();
     let raw = format!(
         "From: sender@example.test\r\nTo: {email}\r\nSubject: hello {tag}\r\n\
          Message-ID: <{tag}@example.test>\r\n\r\nbody of {tag}\r\n"
     );
-    let message = ts.ingest(&user, &inbox, raw.as_bytes()).await.unwrap();
+    let message = acc.ingest(&inbox, raw.as_bytes()).await.unwrap();
     Fixture {
-        ts,
+        acc,
         user,
         inbox,
         message,

@@ -10,8 +10,8 @@ use ficina_store::SEEN;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_mark_seen_keeps_unread_consistent() {
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "conc-seen").await;
-    let message = common::deliver(&ts, &user, &inbox, "<m@x>", &[], "hi").await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "conc-seen").await;
+    let message = common::deliver(&ts, &inbox, "<m@x>", &[], "hi").await;
     assert_eq!(ts.mailbox(&inbox).await.unwrap().unread_messages, 1);
 
     // 32 concurrent "mark seen": exactly one must move the counter.
@@ -52,12 +52,9 @@ async fn concurrent_mark_seen_keeps_unread_consistent() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_add_to_mailbox_is_idempotent() {
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "conc-add").await;
-    let message = common::deliver(&ts, &user, &inbox, "<m@x>", &[], "hi").await;
-    let folder = ts
-        .create_mailbox(&user, None, "Folder", None)
-        .await
-        .unwrap();
+    let (ts, _user, inbox) = common::fresh_account(&store, "conc-add").await;
+    let message = common::deliver(&ts, &inbox, "<m@x>", &[], "hi").await;
+    let folder = ts.create_mailbox(None, "Folder", None).await.unwrap();
 
     // 32 concurrent adds of the same message: total settles at 1.
     let mut handles = Vec::new();
@@ -92,12 +89,9 @@ async fn set_seen_racing_membership_never_drifts_or_underflows() {
     // counters must equal reality and never go negative (else the CHECK
     // constraint fails the transaction).
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "conc-race").await;
-    let message = common::deliver(&ts, &user, &inbox, "<m@x>", &[], "hi").await;
-    let folder = ts
-        .create_mailbox(&user, None, "Folder", None)
-        .await
-        .unwrap();
+    let (ts, _user, inbox) = common::fresh_account(&store, "conc-race").await;
+    let message = common::deliver(&ts, &inbox, "<m@x>", &[], "hi").await;
+    let folder = ts.create_mailbox(None, "Folder", None).await.unwrap();
 
     let mut handles = Vec::new();
     for i in 0..48 {

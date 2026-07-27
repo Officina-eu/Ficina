@@ -13,7 +13,7 @@ use ficina_store::{Page, StoreError};
 #[tokio::test]
 async fn orphan_blob_is_invisible_and_redelivery_is_not_lost() {
     let (store, blobs) = common::test_store_with_blobs().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "crash").await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "crash").await;
     let raw = b"From: a@example.test\r\nSubject: crash\r\nMessage-ID: <c@x>\r\n\r\nbody\r\n";
     let hash = hash_hex(raw);
 
@@ -35,7 +35,7 @@ async fn orphan_blob_is_invisible_and_redelivery_is_not_lost() {
 
     // The sender retries; re-delivery succeeds and is now visible, reusing
     // the pre-existing content-addressed blob. Nothing was lost.
-    let mid = ts.ingest(&user, &inbox, raw).await.unwrap();
+    let mid = ts.ingest(&inbox, raw).await.unwrap();
     assert_eq!(ts.message_bytes(&mid).await.unwrap().as_ref(), &raw[..]);
     assert_eq!(
         ts.list_mailbox(&inbox, Page::default())
@@ -51,11 +51,11 @@ async fn rejected_ingest_writes_no_visible_state() {
     // A cross-tenant/invalid ingest is rejected by the ownership guard
     // BEFORE any blob or row is written — no orphan, no partial message.
     let store = common::test_store().await;
-    let (ts, user, inbox) = common::fresh_account(&store, "reject").await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "reject").await;
     let (_other_ts, _other_user, other_inbox) = common::fresh_account(&store, "reject-other").await;
 
     let result = ts
-        .ingest(&user, &other_inbox, b"From: a@example.test\r\n\r\nx")
+        .ingest(&other_inbox, b"From: a@example.test\r\n\r\nx")
         .await;
     assert!(matches!(result, Err(StoreError::NotFound)));
 

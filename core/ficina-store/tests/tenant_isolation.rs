@@ -1,12 +1,18 @@
-//! The wrong-tenant suite (mandatory, CI-gated). For **every** public
-//! read and write path, tenant A addressing tenant B's ids must get a
-//! clean `NotFound`/empty — never B's data, never an unexpected error
-//! (a "500"). Runs against the real Postgres from compose.
+//! The isolation suite (mandatory, CI-gated). For **every** public read
+//! and write path on the account door, an id belonging to another
+//! account — whether in another tenant or another user of the *same*
+//! tenant — must get a clean `NotFound`/empty: never the other account's
+//! data, never an unexpected error (a "500"). The boundary is the type
+//! you hold ([`AccountStore`]), enforced by construction: there is no
+//! ownership guard in any call path to omit. Runs against the real
+//! Postgres from compose.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
 
-use ficina_store::{Page, SEEN, StoreError};
+use ficina_store::{
+    AccountStore, BlobId, MailboxId, Message, MessageId, Page, SEEN, StoreError, ThreadId,
+};
 
 /// Asserts a result is the clean not-found denial — never data, never an
 /// internal (`Db`/`Blob`/`Migrate`) error.
@@ -18,101 +24,224 @@ fn assert_not_found<T: std::fmt::Debug>(result: Result<T, StoreError>) {
     }
 }
 
-#[tokio::test]
-async fn wrong_tenant_reads_and_writes_are_denied_never_leaked() {
-    let store = common::test_store().await;
-    let a = common::tenant_fixture(&store, "iso-a").await;
-    let b = common::tenant_fixture(&store, "iso-b").await;
+/// One account plus the ids of its single delivered message, that
+/// message's thread, and the blob it references — everything a probe
+/// needs to address it.
+struct Probe {
+    acc: AccountStore,
+    inbox: MailboxId,
+    message: MessageId,
+    thread: ThreadId,
+    blob: BlobId,
+}
 
-    // --- reads that must return NotFound (single-row lookups) ---
-    assert_not_found(a.ts.mailbox(&b.inbox).await);
-    assert_not_found(a.ts.message(&b.message).await);
-    assert_not_found(a.ts.message_bytes(&b.message).await);
+impl Probe {
+    async fn build(acc: AccountStore, tag: &str) -> Self {
+        let inbox = acc.inbox().await.unwrap();
+        let raw = format!(
+            "From: sender@example.test\r\nSubject: hello {tag}\r\n\
+             Message-ID: <{tag}@example.test>\r\n\r\nbody of {tag}\r\n"
+        );
+        let message = acc.ingest(&inbox, raw.as_bytes()).await.unwrap();
+        let full = acc.message(&message).await.unwrap();
+        Self {
+            thread: full.thread_id,
+            blob: full.blob_id,
+            acc,
+            inbox,
+            message,
+        }
+    }
+}
 
-    // --- reads that must return EMPTY (list/collection paths) — never
-    //     the other tenant's rows ---
+/// Drives every account-door path on `attacker`'s handle against
+/// `victim`'s ids and asserts each is denied — the shared core of the
+/// cross-tenant and cross-account proofs.
+async fn assert_fully_isolated(attacker: &Probe, victim: &Probe) {
+    // --- single-row reads → NotFound ---
+    assert_not_found(attacker.acc.mailbox(&victim.inbox).await);
+    assert_not_found(attacker.acc.message(&victim.message).await);
+    assert_not_found(attacker.acc.message_bytes(&victim.message).await);
+    assert_not_found(attacker.acc.mailboxes_of_message(&victim.message).await);
+    assert_not_found(attacker.acc.blob(&victim.blob).await);
+    assert_not_found(attacker.acc.blob_bytes(&victim.blob).await);
+
+    // --- collection reads → EMPTY, never the victim's rows ---
     assert!(
-        a.ts.list_mailbox(&b.inbox, Page::default())
+        attacker
+            .acc
+            .list_mailbox(&victim.inbox, Page::default())
             .await
             .unwrap()
             .is_empty(),
-        "A must not list B's mailbox contents"
+        "must not list another account's mailbox contents"
     );
     assert!(
-        a.ts.keywords(&b.message).await.unwrap().is_empty(),
-        "A must not read B's keywords"
-    );
-    assert!(
-        a.ts.mailboxes_for_user(&b.user, Page::default())
+        attacker
+            .acc
+            .keywords(&victim.message)
             .await
             .unwrap()
             .is_empty(),
-        "A must not list B's mailboxes"
+        "must not read another account's keywords"
     );
     assert!(
-        a.ts.search(&b.user, "body", Page::default())
+        attacker
+            .acc
+            .thread_messages(&victim.thread, Page::default())
             .await
             .unwrap()
             .is_empty(),
-        "A must not search B's messages"
-    );
-    let b_thread = b.ts.message(&b.message).await.unwrap().thread_id;
-    assert!(
-        a.ts.thread_messages(&b_thread, Page::default())
-            .await
-            .unwrap()
-            .is_empty(),
-        "A cannot enumerate B's thread"
+        "must not enumerate another account's thread"
     );
 
-    // --- writes that must return NotFound (foreign id on a write) ---
-    assert_not_found(a.ts.set_keyword(&b.message, SEEN, true).await);
-    assert_not_found(a.ts.add_to_mailbox(&b.message, &a.inbox).await); // foreign message
-    assert_not_found(a.ts.add_to_mailbox(&a.message, &b.inbox).await); // foreign mailbox
-    assert_not_found(a.ts.remove_from_mailbox(&b.message, &a.inbox).await);
-    assert_not_found(a.ts.create_mailbox(&b.user, None, "Evil", None).await);
-    assert_not_found(a.ts.inbox(&b.user).await);
-    assert_not_found(a.ts.ingest(&b.user, &a.inbox, b"From: x\r\n\r\nx").await);
-    assert_not_found(a.ts.ingest(&a.user, &b.inbox, b"From: x\r\n\r\nx").await);
-    assert_not_found(a.ts.deliver(&b.user, b"From: x\r\n\r\nx").await);
-
-    // --- B's data is completely intact after A's probing ---
-    let b_inbox = b.ts.mailbox(&b.inbox).await.unwrap();
-    assert_eq!(b_inbox.total_messages, 1, "B still has its one message");
-    assert_eq!(b_inbox.unread_messages, 1);
-    assert_eq!(
-        b.ts.list_mailbox(&b.inbox, Page::default())
-            .await
-            .unwrap()
-            .len(),
-        1
+    // --- writes with a foreign id → NotFound ---
+    assert_not_found(attacker.acc.set_keyword(&victim.message, SEEN, true).await);
+    assert_not_found(attacker.acc.destroy_message(&victim.message).await);
+    // foreign message into own mailbox, and own message into foreign mailbox:
+    assert_not_found(
+        attacker
+            .acc
+            .add_to_mailbox(&victim.message, &attacker.inbox)
+            .await,
     );
-    assert!(b.ts.message(&b.message).await.is_ok());
-    // And A only ever sees its own single message.
-    let a_list = a.ts.list_mailbox(&a.inbox, Page::default()).await.unwrap();
-    assert_eq!(a_list.len(), 1);
-    assert_eq!(a_list[0].id, a.message);
+    assert_not_found(
+        attacker
+            .acc
+            .add_to_mailbox(&attacker.message, &victim.inbox)
+            .await,
+    );
+    assert_not_found(
+        attacker
+            .acc
+            .remove_from_mailbox(&victim.message, &attacker.inbox)
+            .await,
+    );
+    assert_not_found(attacker.acc.rename_mailbox(&victim.inbox, "Evil").await);
+    assert_not_found(attacker.acc.move_mailbox(&victim.inbox, None).await);
+    assert_not_found(attacker.acc.destroy_mailbox(&victim.inbox).await);
+    // a mailbox created under a foreign parent must be refused:
+    assert_not_found(
+        attacker
+            .acc
+            .create_mailbox(Some(&victim.inbox), "Evil", None)
+            .await,
+    );
+    // ingest into a foreign mailbox must be refused:
+    assert_not_found(
+        attacker
+            .acc
+            .ingest(&victim.inbox, b"From: x\r\n\r\nx")
+            .await,
+    );
+}
+
+/// Confirms a probe's account still holds exactly its one message after
+/// being probed, and sees only its own.
+async fn assert_intact(probe: &Probe) {
+    let inbox = probe.acc.mailbox(&probe.inbox).await.unwrap();
+    assert_eq!(inbox.total_messages, 1, "account still has its one message");
+    assert_eq!(inbox.unread_messages, 1);
+    let list = probe
+        .acc
+        .list_mailbox(&probe.inbox, Page::default())
+        .await
+        .unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].id, probe.message);
+    assert!(probe.acc.message(&probe.message).await.is_ok());
+    // Its own blob is reachable (it references it).
+    assert!(probe.acc.blob(&probe.blob).await.is_ok());
 }
 
 #[tokio::test]
-async fn blobs_do_not_leak_across_tenants_even_at_identical_content() {
-    // Two tenants deliver byte-identical messages: the content hash is the
-    // same, but each tenant reads only under its own key prefix, and one
-    // cannot read the other's message bytes.
+async fn cross_tenant_is_denied_on_every_path() {
     let store = common::test_store().await;
-    let ta = store.create_tenant("blob-a").await.unwrap();
-    let tb = store.create_tenant("blob-b").await.unwrap();
-    let a = store.for_tenant(ta);
-    let b = store.for_tenant(tb);
-    let ua = a.create_user("a@example.test").await.unwrap();
-    let ub = b.create_user("b@example.test").await.unwrap();
-    let raw = b"From: same@example.test\r\nSubject: identical\r\n\r\nidentical body\r\n";
-    let ma = a.deliver(&ua, raw).await.unwrap();
-    let mb = b.deliver(&ub, raw).await.unwrap();
+    // Two accounts, each the sole user of its own tenant.
+    let (a_acc, _ua, _ia) = common::fresh_account(&store, "xt-a").await;
+    let (b_acc, _ub, _ib) = common::fresh_account(&store, "xt-b").await;
+    let a = Probe::build(a_acc, "xt-a").await;
+    let b = Probe::build(b_acc, "xt-b").await;
 
+    assert_fully_isolated(&a, &b).await;
+    assert_fully_isolated(&b, &a).await;
+    assert_intact(&a).await;
+    assert_intact(&b).await;
+}
+
+#[tokio::test]
+async fn cross_account_within_one_tenant_is_denied_on_every_path() {
+    // The account door's reason to exist: two users in the SAME tenant
+    // must not reach each other's rows, with no ownership guard in the
+    // path — the compiler-enforced boundary.
+    let store = common::test_store().await;
+    let tenant = store.create_tenant("one-tenant").await.unwrap();
+    let ts = store.for_tenant(tenant.clone());
+    let ua = ts.create_user("alice@example.test").await.unwrap();
+    let ub = ts.create_user("bob@example.test").await.unwrap();
+    let a = Probe::build(store.for_account(tenant.clone(), ua), "ca-a").await;
+    let b = Probe::build(store.for_account(tenant, ub), "ca-b").await;
+
+    assert_fully_isolated(&a, &b).await;
+    assert_fully_isolated(&b, &a).await;
+    assert_intact(&a).await;
+    assert_intact(&b).await;
+}
+
+#[tokio::test]
+async fn blobs_do_not_leak_across_accounts_even_at_identical_content() {
+    // Byte-identical messages dedup to one tenant blob, yet an account can
+    // only read a blob one of ITS messages references — neither the other
+    // tenant nor another user of the same tenant can read it.
+    let store = common::test_store().await;
+
+    // Same-tenant users with identical content.
+    let tenant = store.create_tenant("blob-shared").await.unwrap();
+    let ts = store.for_tenant(tenant.clone());
+    let ua = ts.create_user("a@example.test").await.unwrap();
+    let ub = ts.create_user("b@example.test").await.unwrap();
+    let a = store.for_account(tenant.clone(), ua);
+    let b = store.for_account(tenant, ub);
+    let ia = a.inbox().await.unwrap();
+    let ib = b.inbox().await.unwrap();
+    let raw = b"From: same@example.test\r\nSubject: identical\r\n\r\nidentical body\r\n";
+    let ma = a.ingest(&ia, raw).await.unwrap();
+    let mb = b.ingest(&ib, raw).await.unwrap();
+
+    // Each reads its own message bytes.
     assert_eq!(a.message_bytes(&ma).await.unwrap().as_ref(), raw);
     assert_eq!(b.message_bytes(&mb).await.unwrap().as_ref(), raw);
-    // A cannot read B's message even though the bytes are identical.
+    // Neither can read the other's message, though the bytes are identical.
     assert_not_found(a.message_bytes(&mb).await);
     assert_not_found(b.message_bytes(&ma).await);
+    // Nor the other's blob directly (same tenant, one deduped blob row).
+    let blob_of = |m: &Message| m.blob_id.clone();
+    let a_blob = blob_of(&a.message(&ma).await.unwrap());
+    let b_blob = blob_of(&b.message(&mb).await.unwrap());
+    assert_eq!(a_blob, b_blob, "identical content dedups to one blob row");
+    assert!(a.blob_bytes(&a_blob).await.is_ok());
+    assert!(b.blob_bytes(&b_blob).await.is_ok());
+}
+
+/// A blob a user has never referenced is `NotFound` for that user even
+/// within the same tenant, proving the ownership join is the gate.
+#[tokio::test]
+async fn unreferenced_blob_is_not_found_for_a_non_owner() {
+    let store = common::test_store().await;
+    let tenant = store.create_tenant("blob-ref").await.unwrap();
+    let ts = store.for_tenant(tenant.clone());
+    let ua = ts.create_user("owner@example.test").await.unwrap();
+    let ub = ts.create_user("other@example.test").await.unwrap();
+    let a = store.for_account(tenant.clone(), ua);
+    let b = store.for_account(tenant, ub);
+    let ia = a.inbox().await.unwrap();
+    let m = a
+        .ingest(&ia, b"From: x@example.test\r\n\r\nowned body\r\n")
+        .await
+        .unwrap();
+    let blob = a.message(&m).await.unwrap().blob_id;
+    // The owner reads it; the other same-tenant user cannot.
+    assert!(a.blob(&blob).await.is_ok());
+    assert_not_found(b.blob(&blob).await);
+    assert_not_found(b.blob_bytes(&blob).await);
 }

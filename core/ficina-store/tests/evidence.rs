@@ -17,12 +17,20 @@ async fn interleaved_tenants_api_isolation() {
 
     let a_tenant = store.create_tenant("EVIDENCE-ACME").await.unwrap();
     let b_tenant = store.create_tenant("EVIDENCE-BEACON").await.unwrap();
-    let a = store.for_tenant(a_tenant.clone());
-    let b = store.for_tenant(b_tenant.clone());
-    let ua = a.create_user("alice@acme.example").await.unwrap();
-    let ub = b.create_user("bob@beacon.example").await.unwrap();
-    let ia = a.inbox(&ua).await.unwrap();
-    let ib = b.inbox(&ub).await.unwrap();
+    let ua = store
+        .for_tenant(a_tenant.clone())
+        .create_user("alice@acme.example")
+        .await
+        .unwrap();
+    let ub = store
+        .for_tenant(b_tenant.clone())
+        .create_user("bob@beacon.example")
+        .await
+        .unwrap();
+    let a = store.for_account(a_tenant.clone(), ua);
+    let b = store.for_account(b_tenant.clone(), ub);
+    let ia = a.inbox().await.unwrap();
+    let ib = b.inbox().await.unwrap();
 
     for s in [
         "ACME quarterly numbers",
@@ -32,13 +40,13 @@ async fn interleaved_tenants_api_isolation() {
         let raw = format!(
             "From: x@acme.example\r\nSubject: {s}\r\nMessage-ID: <{s}@acme>\r\n\r\nbody\r\n"
         );
-        a.ingest(&ua, &ia, raw.as_bytes()).await.unwrap();
+        a.ingest(&ia, raw.as_bytes()).await.unwrap();
     }
     for s in ["BEACON launch plan", "BEACON investor update"] {
         let raw = format!(
             "From: y@beacon.example\r\nSubject: {s}\r\nMessage-ID: <{s}@beacon>\r\n\r\nbody\r\n"
         );
-        b.ingest(&ub, &ib, raw.as_bytes()).await.unwrap();
+        b.ingest(&ib, raw.as_bytes()).await.unwrap();
     }
 
     println!("EVIDENCE_TENANT_A={a_tenant}");

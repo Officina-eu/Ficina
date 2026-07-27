@@ -7,6 +7,7 @@
 //! [`Store::for_tenant`], and every query it issues carries its tenant
 //! predicate by construction (see `docs/design/message-store.md`).
 
+pub mod account;
 pub mod auth;
 pub mod blob;
 pub mod changes;
@@ -17,6 +18,7 @@ pub mod model;
 pub mod store;
 pub mod thread;
 
+pub use account::AccountStore;
 pub use auth::IssuedToken;
 pub use blob::BlobStore;
 #[cfg(feature = "garage")]

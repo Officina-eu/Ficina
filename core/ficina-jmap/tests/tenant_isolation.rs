@@ -38,19 +38,20 @@ async fn cross_account_within_one_tenant_is_denied() {
     ts.set_credentials(&u1, &e1, "pw").await.unwrap();
     ts.set_credentials(&u2, &e2, "pw").await.unwrap();
     let tok1 = store.issue_token(&e1, "pw").await.unwrap().unwrap().token;
+    let acc2 = store.for_account(tenant.clone(), u2.clone());
 
     // User 2 has a private message.
-    let m2 = ts
-        .deliver(&u2, b"From: p@x\r\nSubject: U2 private\r\n\r\nsecret\r\n")
+    let m2 = acc2
+        .deliver(b"From: p@x\r\nSubject: U2 private\r\n\r\nsecret\r\n")
         .await
         .unwrap();
-    let msg2 = ts.message(&m2).await.unwrap();
+    let msg2 = acc2.message(&m2).await.unwrap();
     let (mid2, thread2, blob2) = (
         m2.to_string(),
         msg2.thread_id.to_string(),
         msg2.blob_id.to_string(),
     );
-    let inbox2 = ts.inbox(&u2).await.unwrap().to_string();
+    let inbox2 = acc2.inbox().await.unwrap().to_string();
 
     let app = ficina_jmap::app(ficina_jmap::app_state(Arc::clone(&store), "http://test"));
     let acc1 = u1.to_string();
@@ -137,15 +138,13 @@ async fn jmap_methods_never_leak_across_tenants() {
     let b = harness("iso-b").await;
 
     // Seed B with a delivered message (its own inbox, message, thread, blob).
-    let b_msg =
-        b.ts.deliver(
-            &b.user,
-            b"From: secret@b\r\nSubject: B secret\r\n\r\nB body\r\n",
-        )
+    let b_msg = b
+        .acc
+        .deliver(b"From: secret@b\r\nSubject: B secret\r\n\r\nB body\r\n")
         .await
         .unwrap();
-    let b_inbox = b.ts.inbox(&b.user).await.unwrap();
-    let b_message = b.ts.message(&b_msg).await.unwrap();
+    let b_inbox = b.acc.inbox().await.unwrap();
+    let b_message = b.acc.message(&b_msg).await.unwrap();
     let b_blob = b_message.blob_id.to_string();
     let b_thread = b_message.thread_id.to_string();
     let b_mid = b_msg.to_string();
@@ -267,7 +266,7 @@ async fn jmap_methods_never_leak_across_tenants() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     // Email/changes with B's state token under A → only A's (empty) changes.
-    let b_state = b.ts.state().await.unwrap();
+    let b_state = b.acc.state().await.unwrap();
     let (_s, body) = api(
         &a.app,
         &a.token,

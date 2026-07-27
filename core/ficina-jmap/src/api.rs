@@ -56,7 +56,7 @@ pub async fn api(
         return Err(Problem::limit("too many method calls"));
     }
 
-    let state_before = account.ts.state().await.unwrap_or_default();
+    let state_before = account.acc.state().await.unwrap_or_default();
     let mut responses: Vec<Value> = Vec::new();
 
     for call in method_calls {
@@ -80,7 +80,7 @@ pub async fn api(
 
     // Push: if anything changed, notify this account's stream.
     let session_state = account
-        .ts
+        .acc
         .state()
         .await
         .unwrap_or_else(|_| state_before.clone());
@@ -208,7 +208,7 @@ fn set_error(e: &StoreError) -> Value {
 
 async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
     check_account(args, account)?;
-    let state = account.ts.state().await.map_err(store_err)?;
+    let state = account.acc.state().await.map_err(store_err)?;
     let ids = args.get("ids");
 
     let mut list = Vec::new();
@@ -216,8 +216,8 @@ async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
     if ids.is_none() || ids == Some(&Value::Null) {
         // All the account's mailboxes.
         let boxes = account
-            .ts
-            .mailboxes_for_user(&account.user, Page::first(ficina_store::MAX_PAGE))
+            .acc
+            .mailboxes(Page::first(ficina_store::MAX_PAGE))
             .await
             .map_err(store_err)?;
         for m in &boxes {
@@ -227,12 +227,9 @@ async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
         for id in ids.and_then(Value::as_array).into_iter().flatten() {
             let Some(id) = id.as_str() else { continue };
             let mid = MailboxId::new(id);
-            // Account scope: only the caller's own mailboxes.
-            match account.ts.owns_mailbox(&account.user, &mid).await {
-                Ok(()) => match account.ts.mailbox(&mid).await {
-                    Ok(m) => list.push(jtypes::mailbox_json(&m)),
-                    Err(_) => not_found.push(json!(id)),
-                },
+            // The account door is the scope: a foreign mailbox is NotFound.
+            match account.acc.mailbox(&mid).await {
+                Ok(m) => list.push(jtypes::mailbox_json(&m)),
                 Err(StoreError::NotFound) => not_found.push(json!(id)),
                 Err(e) => return Err(store_err(e)),
             }
@@ -245,7 +242,7 @@ async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
 
 async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
     check_account(args, account)?;
-    let old_state = account.ts.state().await.map_err(store_err)?;
+    let old_state = account.acc.state().await.map_err(store_err)?;
     if let Some(expected) = args.get("ifInState").and_then(Value::as_str)
         && expected != old_state
     {
@@ -271,17 +268,12 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
                 .get("parentId")
                 .and_then(Value::as_str)
                 .map(MailboxId::new);
-            // A parent, if given, must be the caller's own mailbox.
-            if let Some(p) = &parent
-                && let Err(e) = account.ts.owns_mailbox(&account.user, p).await
-            {
-                not_created.insert(cid.clone(), set_error(&e));
-                continue;
-            }
+            // A foreign parent is rejected by create_mailbox itself
+            // (the account door scopes it) — no separate guard to forget.
             let role = props.get("role").and_then(Value::as_str);
             match account
-                .ts
-                .create_mailbox(&account.user, parent.as_ref(), name, role)
+                .acc
+                .create_mailbox(parent.as_ref(), name, role)
                 .await
             {
                 Ok(id) => {
@@ -298,21 +290,22 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
     if let Some(updates) = args.get("update").and_then(Value::as_object) {
         for (id, patch) in updates {
             let mailbox = MailboxId::new(id.as_str());
-            // Account scope: refuse to touch another user's mailbox.
-            if let Err(e) = account.ts.owns_mailbox(&account.user, &mailbox).await {
+            // Account-scoped existence check: a foreign mailbox is
+            // NotFound, so an empty patch cannot report a spurious success.
+            if let Err(e) = account.acc.mailbox(&mailbox).await {
                 not_updated.insert(id.clone(), set_error(&e));
                 continue;
             }
             let mut result: Result<(), StoreError> = Ok(());
             if let Some(name) = patch.get("name").and_then(Value::as_str) {
-                result = account.ts.rename_mailbox(&mailbox, name).await;
+                result = account.acc.rename_mailbox(&mailbox, name).await;
             }
             if result.is_ok() && patch.get("parentId").is_some() {
                 let parent = patch
                     .get("parentId")
                     .and_then(Value::as_str)
                     .map(MailboxId::new);
-                result = account.ts.move_mailbox(&mailbox, parent.as_ref()).await;
+                result = account.acc.move_mailbox(&mailbox, parent.as_ref()).await;
             }
             match result {
                 Ok(()) => {
@@ -330,11 +323,9 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
         for id in ids {
             let Some(id) = id.as_str() else { continue };
             let mbox = MailboxId::new(id);
-            if let Err(e) = account.ts.owns_mailbox(&account.user, &mbox).await {
-                not_destroyed.insert(id.to_owned(), set_error(&e));
-                continue;
-            }
-            match account.ts.destroy_mailbox(&mbox).await {
+            // destroy_mailbox is account-scoped: a foreign mailbox is
+            // NotFound → notDestroyed, no separate guard to forget.
+            match account.acc.destroy_mailbox(&mbox).await {
                 Ok(()) => destroyed.push(json!(id)),
                 Err(e) => {
                     not_destroyed.insert(id.to_owned(), set_error(&e));
@@ -343,7 +334,7 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
         }
     }
 
-    let new_state = account.ts.state().await.map_err(store_err)?;
+    let new_state = account.acc.state().await.map_err(store_err)?;
     Ok(json!({
         "accountId": account.account_id(), "oldState": old_state, "newState": new_state,
         "created": created, "updated": updated, "destroyed": destroyed,
@@ -355,7 +346,7 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
 
 async fn email_get(account: &Account, args: &Value, state: &AppState) -> Result<Value, Value> {
     check_account(args, account)?;
-    let acct_state = account.ts.state().await.map_err(store_err)?;
+    let acct_state = account.acc.state().await.map_err(store_err)?;
     let want_body = args
         .get("fetchTextBodyValues")
         .and_then(Value::as_bool)
@@ -380,28 +371,21 @@ async fn email_get(account: &Account, args: &Value, state: &AppState) -> Result<
 
     for id in ids {
         let mid = MessageId::new(id);
-        // Account scope: only the caller's own messages (JMAP account = user).
-        match account.ts.owns_message(&account.user, &mid).await {
-            Ok(()) => {}
-            Err(StoreError::NotFound) => {
-                not_found.push(json!(id));
-                continue;
-            }
-            Err(e) => return Err(store_err(e)),
-        }
-        match account.ts.message(&mid).await {
+        // The account door scopes every read: a foreign message is
+        // NotFound from message() itself — no separate ownership guard.
+        match account.acc.message(&mid).await {
             Ok(m) => {
                 let mailbox_ids: Vec<String> = account
-                    .ts
+                    .acc
                     .mailboxes_of_message(&mid)
                     .await
                     .map_err(store_err)?
                     .into_iter()
                     .map(|b| b.to_string())
                     .collect();
-                let keywords = account.ts.keywords(&mid).await.map_err(store_err)?;
+                let keywords = account.acc.keywords(&mid).await.map_err(store_err)?;
                 let body = if want_body {
-                    let raw = account.ts.message_bytes(&mid).await.map_err(store_err)?;
+                    let raw = account.acc.message_bytes(&mid).await.map_err(store_err)?;
                     Some(extract_text_body(&raw, max_body))
                 } else {
                     None
@@ -426,7 +410,7 @@ async fn email_get(account: &Account, args: &Value, state: &AppState) -> Result<
 
 async fn email_query(account: &Account, args: &Value) -> Result<Value, Value> {
     check_account(args, account)?;
-    let query_state = account.ts.state().await.map_err(store_err)?;
+    let query_state = account.acc.state().await.map_err(store_err)?;
 
     let filter = parse_email_filter(args.get("filter"));
     let sort = parse_sort(args.get("sort"));
@@ -439,11 +423,7 @@ async fn email_query(account: &Account, args: &Value) -> Result<Value, Value> {
     let page = Page::new(limit, position);
 
     let query = EmailQuery { filter, sort, page };
-    let results = account
-        .ts
-        .query_emails(&account.user, &query)
-        .await
-        .map_err(store_err)?;
+    let results = account.acc.query_emails(&query).await.map_err(store_err)?;
     let ids: Vec<String> = results.iter().map(|m| m.id.to_string()).collect();
 
     Ok(json!({
@@ -457,7 +437,7 @@ async fn email_query(account: &Account, args: &Value) -> Result<Value, Value> {
 
 async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
     check_account(args, account)?;
-    let old_state = account.ts.state().await.map_err(store_err)?;
+    let old_state = account.acc.state().await.map_err(store_err)?;
     if let Some(expected) = args.get("ifInState").and_then(Value::as_str)
         && expected != old_state
     {
@@ -483,12 +463,9 @@ async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
 
     if let Some(updates) = args.get("update").and_then(Value::as_object) {
         for (id, patch) in updates {
-            // Account scope: refuse to touch another user's message.
-            if let Err(e) = account
-                .ts
-                .owns_message(&account.user, &MessageId::new(id.as_str()))
-                .await
-            {
+            // Account-scoped existence check: a foreign message is
+            // NotFound, so an empty patch cannot report a spurious success.
+            if let Err(e) = account.acc.message(&MessageId::new(id.as_str())).await {
                 not_updated.insert(id.clone(), set_error(&e));
                 continue;
             }
@@ -507,11 +484,9 @@ async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
         for id in ids {
             let Some(id) = id.as_str() else { continue };
             let mid = MessageId::new(id);
-            if let Err(e) = account.ts.owns_message(&account.user, &mid).await {
-                not_destroyed.insert(id.to_owned(), set_error(&e));
-                continue;
-            }
-            match account.ts.destroy_message(&mid).await {
+            // destroy_message is account-scoped: a foreign message is
+            // NotFound → notDestroyed, no separate guard to forget.
+            match account.acc.destroy_message(&mid).await {
                 Ok(()) => destroyed.push(json!(id)),
                 Err(e) => {
                     not_destroyed.insert(id.to_owned(), set_error(&e));
@@ -520,7 +495,7 @@ async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
         }
     }
 
-    let new_state = account.ts.state().await.map_err(store_err)?;
+    let new_state = account.acc.state().await.map_err(store_err)?;
     Ok(json!({
         "accountId": account.account_id(), "oldState": old_state, "newState": new_state,
         "created": created, "updated": updated, "destroyed": destroyed,
@@ -540,12 +515,8 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
         ));
     };
     let mailbox = MailboxId::new(first_mailbox.as_str());
-    // The target mailbox must be the caller's (ingest also enforces this).
-    account
-        .ts
-        .owns_mailbox(&account.user, &mailbox)
-        .await
-        .map_err(|e| set_error(&e))?;
+    // The account door scopes ingest: a foreign target mailbox is
+    // NotFound from ingest itself — no separate ownership guard here.
 
     let subject = props.get("subject").and_then(Value::as_str).unwrap_or("");
     let from = props
@@ -580,28 +551,28 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
     );
 
     let id = account
-        .ts
-        .ingest(&account.user, &mailbox, raw.as_bytes())
+        .acc
+        .ingest(&mailbox, raw.as_bytes())
         .await
         .map_err(|e| set_error(&e))?;
     // Drafts default to $draft; apply requested keywords (failures are
     // surfaced, not swallowed).
     account
-        .ts
+        .acc
         .set_keyword(&id, "$draft", true)
         .await
         .map_err(|e| set_error(&e))?;
     if let Some(keywords) = props.get("keywords").and_then(Value::as_object) {
         for (kw, on) in keywords {
             account
-                .ts
+                .acc
                 .set_keyword(&id, kw, on.as_bool().unwrap_or(false))
                 .await
                 .map_err(|e| set_error(&e))?;
         }
     }
     // Return the server-set properties (real blobId/threadId/size).
-    let m = account.ts.message(&id).await.map_err(|e| set_error(&e))?;
+    let m = account.acc.message(&id).await.map_err(|e| set_error(&e))?;
     Ok(json!({
         "id": m.id.as_str(),
         "blobId": m.blob_id.as_str(),
@@ -620,11 +591,15 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
 
     // Full replacements first.
     if let Some(keywords) = obj.get("keywords").and_then(Value::as_object) {
-        let current = account.ts.keywords(&mid).await.map_err(|e| set_error(&e))?;
+        let current = account
+            .acc
+            .keywords(&mid)
+            .await
+            .map_err(|e| set_error(&e))?;
         for kw in &current {
             if !keywords.contains_key(kw) {
                 account
-                    .ts
+                    .acc
                     .set_keyword(&mid, kw, false)
                     .await
                     .map_err(|e| set_error(&e))?;
@@ -632,7 +607,7 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
         }
         for (kw, on) in keywords {
             account
-                .ts
+                .acc
                 .set_keyword(&mid, kw, on.as_bool().unwrap_or(false))
                 .await
                 .map_err(|e| set_error(&e))?;
@@ -640,7 +615,7 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
     }
     if let Some(mailboxes) = obj.get("mailboxIds").and_then(Value::as_object) {
         let current: Vec<String> = account
-            .ts
+            .acc
             .mailboxes_of_message(&mid)
             .await
             .map_err(|e| set_error(&e))?
@@ -650,7 +625,7 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
         for existing in &current {
             if !mailboxes.contains_key(existing) {
                 account
-                    .ts
+                    .acc
                     .remove_from_mailbox(&mid, &MailboxId::new(existing.as_str()))
                     .await
                     .map_err(|e| set_error(&e))?;
@@ -659,7 +634,7 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
         for (mb, on) in mailboxes {
             if on.as_bool().unwrap_or(false) && !current.contains(mb) {
                 account
-                    .ts
+                    .acc
                     .add_to_mailbox(&mid, &MailboxId::new(mb.as_str()))
                     .await
                     .map_err(|e| set_error(&e))?;
@@ -672,7 +647,7 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
         if let Some(kw) = key.strip_prefix("keywords/") {
             let on = value.as_bool().unwrap_or(!value.is_null());
             account
-                .ts
+                .acc
                 .set_keyword(&mid, kw, on)
                 .await
                 .map_err(|e| set_error(&e))?;
@@ -680,13 +655,13 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
             let mailbox = MailboxId::new(mb);
             if value.is_null() || value.as_bool() == Some(false) {
                 account
-                    .ts
+                    .acc
                     .remove_from_mailbox(&mid, &mailbox)
                     .await
                     .map_err(|e| set_error(&e))?;
             } else {
                 account
-                    .ts
+                    .acc
                     .add_to_mailbox(&mid, &mailbox)
                     .await
                     .map_err(|e| set_error(&e))?;
@@ -700,7 +675,7 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
 
 async fn thread_get(account: &Account, args: &Value) -> Result<Value, Value> {
     check_account(args, account)?;
-    let state = account.ts.state().await.map_err(store_err)?;
+    let state = account.acc.state().await.map_err(store_err)?;
     let mut list = Vec::new();
     let mut not_found = Vec::new();
     for id in args
@@ -712,14 +687,11 @@ async fn thread_get(account: &Account, args: &Value) -> Result<Value, Value> {
         .take(500)
     {
         let tid = ThreadId::new(id);
-        // Account scope: the thread must contain one of the caller's own
-        // messages (threads are per-account after user-scoped resolution).
-        if account.ts.owns_thread(&account.user, &tid).await.is_err() {
-            not_found.push(json!(id));
-            continue;
-        }
+        // The account door scopes thread_messages to this account's own
+        // messages: a thread the account has no message in comes back
+        // empty → notFound. No separate ownership guard.
         let members = account
-            .ts
+            .acc
             .thread_messages(&tid, Page::first(ficina_store::MAX_PAGE))
             .await
             .map_err(store_err)?;
@@ -753,7 +725,7 @@ async fn changes(
         _ => return Err(method_error("cannotCalculateChanges")),
     };
     let current = account
-        .ts
+        .acc
         .state()
         .await
         .map_err(store_err)?
@@ -769,8 +741,8 @@ async fn changes(
         .unwrap_or(state.limits.max_objects_in_get as i64);
 
     let c = account
-        .ts
-        .changes(&account.user, obj_type, since, max)
+        .acc
+        .changes(obj_type, since, max)
         .await
         .map_err(store_err)?;
     Ok(json!({

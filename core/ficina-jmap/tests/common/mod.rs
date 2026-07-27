@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use ficina_store::{BlobStore, Store, TenantStore, UserId};
+use ficina_store::{AccountStore, BlobStore, Store, TenantStore, UserId};
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
@@ -25,6 +25,7 @@ pub struct Harness {
     pub email: String,
     pub store: Arc<Store>,
     pub ts: TenantStore,
+    pub acc: AccountStore,
     pub user: UserId,
 }
 
@@ -42,11 +43,12 @@ pub async fn harness(tag: &str) -> Harness {
     // The username has a global unique index; include the random tenant id
     // so reruns against the shared database never collide.
     let email = format!("{tag}-{tenant}@example.test");
-    let ts = store.for_tenant(tenant);
+    let ts = store.for_tenant(tenant.clone());
     let user = ts.create_user(&email).await.unwrap();
     ts.set_credentials(&user, &email, "s3cret-pw")
         .await
         .unwrap();
+    let acc = store.for_account(tenant, user.clone());
     let token = store
         .issue_token(&email, "s3cret-pw")
         .await
@@ -61,6 +63,7 @@ pub async fn harness(tag: &str) -> Harness {
         email,
         store,
         ts,
+        acc,
         user,
     }
 }

@@ -21,7 +21,7 @@ contracts.
   state tokens and an honest `cannotCalculateChanges`. **Interim bearer
   auth** (`/auth/token`, argon2 credentials in the store) resolves each
   token to `(tenant, account)` and enters the store only through
-  `for_tenant` — behind a seam the future ficina-identity OIDC replaces
+  `for_account` — behind a seam the future ficina-identity OIDC replaces
   without touching method code. Isolation is **per-account** (accountId =
   user): every by-id read/mutate, `/changes`, `Thread/get`, and blob
   download is scoped to the token's `(tenant, user)`, so a user cannot
@@ -33,14 +33,17 @@ contracts.
   `EmailSubmission/set` (send), full MIME `bodyStructure`, and
   JMAP-over-WebSocket are follow-ups. See `docs/design/jmap-api.md`.
 
-- New: **`ficina-store`** — the tenant-scoped message store on
+- New: **`ficina-store`** — the account-scoped message store on
   PostgreSQL (system of record, via `sqlx` with compile-checked queries)
-  and Garage/S3 (message bytes). **Tenancy is structural:** mail data is
-  reachable only through a `TenantStore`, obtained via
-  `Store::for_tenant(TenantId)`, and every query carries its tenant
-  predicate by construction — no API takes a `tenant_id` parameter, and
-  a wrong-tenant lookup returns a clean `NotFound` (no cross-tenant
-  oracle). Entities: tenants, users, hierarchical mailboxes (with
+  and Garage/S3 (message bytes). **Isolation is structural, enforced by
+  the type you hold:** user-owned mail data is reachable only through an
+  `AccountStore`, obtained via `Store::for_account(TenantId, UserId)`,
+  and every query bakes in its `(tenant, user)` predicate by construction
+  — no API takes a `tenant_id` or `user_id` parameter, there is no
+  ownership guard in any call path to forget, and a wrong-tenant *or*
+  wrong-account lookup returns a clean `NotFound` (no cross-account
+  oracle). Tenant-level provisioning (users, credentials) stays on a
+  narrow `TenantStore` from `Store::for_tenant(TenantId)`. Entities: tenants, users, hierarchical mailboxes (with
   transactional total/unread counters), messages (with the parsed
   `Authentication-Results` verdict stored queryable), threads (RFC 8621
   §3 References-based), message↔mailbox membership, JMAP keywords/flags,
@@ -52,8 +55,10 @@ contracts.
   (Postgres `tsvector`) over subject/addresses/body, updated in the same
   transaction as ingestion. Every list path is bounded by a `Page`. The
   Garage S3 backend is behind the `garage` cargo feature; tests use an
-  in-memory backend. A **wrong-tenant isolation suite** covers every
-  public read and write path and is required by CI, alongside threading
+  in-memory backend. A **wrong-tenant and cross-account isolation suite**
+  covers every public read and write path — proving two users of the same
+  tenant cannot reach each other's rows with no guard in the path — and is
+  required by CI, alongside threading
   property tests, concurrent-counter tests, and ingestion crash-safety
   tests (all against real Postgres). JMAP/IMAP endpoints, the Garage
   live-integration test, and the spool-migration tool are follow-ups.

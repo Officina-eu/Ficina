@@ -20,7 +20,7 @@ pub async fn session(
     let account = authenticate(&state, &headers).await?;
     let account_id = account.account_id().to_owned();
     let state_str = account
-        .ts
+        .acc
         .state()
         .await
         .map_err(|_| Problem::server_error())?;

@@ -143,7 +143,8 @@ async fn wrong_account_id_is_account_not_found() {
 #[tokio::test]
 async fn mailbox_get_all_shows_inbox_with_counters() {
     let h = harness("mbget").await;
-    h.ts.deliver(&h.user, b"From: a@x\r\nSubject: hi\r\n\r\nbody\r\n")
+    h.acc
+        .deliver(b"From: a@x\r\nSubject: hi\r\n\r\nbody\r\n")
         .await
         .unwrap();
     let (status, body) = api(
@@ -166,12 +167,10 @@ async fn mailbox_get_all_shows_inbox_with_counters() {
 #[tokio::test]
 async fn query_then_get_via_result_reference() {
     let h = harness("qref").await;
-    h.ts.deliver(
-        &h.user,
-        b"From: alice@x\r\nSubject: Quarterly numbers\r\n\r\nhello body text\r\n",
-    )
-    .await
-    .unwrap();
+    h.acc
+        .deliver(b"From: alice@x\r\nSubject: Quarterly numbers\r\n\r\nhello body text\r\n")
+        .await
+        .unwrap();
     let request = json!({
         "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
         "methodCalls": [
@@ -201,11 +200,12 @@ async fn query_then_get_via_result_reference() {
 #[tokio::test]
 async fn set_seen_updates_counter_and_shows_in_changes() {
     let h = harness("flag").await;
-    let mid =
-        h.ts.deliver(&h.user, b"From: a@x\r\nSubject: s\r\n\r\nb\r\n")
-            .await
-            .unwrap();
-    let state0 = h.ts.state().await.unwrap();
+    let mid = h
+        .acc
+        .deliver(b"From: a@x\r\nSubject: s\r\n\r\nb\r\n")
+        .await
+        .unwrap();
+    let state0 = h.acc.state().await.unwrap();
 
     // Email/set: mark $seen via a patch.
     let update = obj(vec![(mid.to_string(), json!({ "keywords/$seen": true }))]);
@@ -276,12 +276,10 @@ async fn oversized_request_body_is_rejected_before_parse() {
 async fn email_query_limit_is_enforced() {
     let h = harness("page").await;
     for i in 0..5 {
-        h.ts.deliver(
-            &h.user,
-            format!("From: a@x\r\nSubject: m{i}\r\n\r\nbody\r\n").as_bytes(),
-        )
-        .await
-        .unwrap();
+        h.acc
+            .deliver(format!("From: a@x\r\nSubject: m{i}\r\n\r\nbody\r\n").as_bytes())
+            .await
+            .unwrap();
     }
     let (status, body) = api(
         &h.app,
@@ -307,11 +305,12 @@ async fn concurrent_sets_converge() {
     // Two clients flag/mark the same message concurrently; both apply and
     // the tenant state converges (the modseq serializes them).
     let h = harness("converge").await;
-    let mid =
-        h.ts.deliver(&h.user, b"From: a@x\r\nSubject: s\r\n\r\nb\r\n")
-            .await
-            .unwrap();
-    let state0 = h.ts.state().await.unwrap();
+    let mid = h
+        .acc
+        .deliver(b"From: a@x\r\nSubject: s\r\n\r\nb\r\n")
+        .await
+        .unwrap();
+    let state0 = h.acc.state().await.unwrap();
 
     let seen = obj(vec![(mid.to_string(), json!({ "keywords/$seen": true }))]);
     let flagged = obj(vec![(
@@ -345,7 +344,7 @@ async fn concurrent_sets_converge() {
     assert_eq!(r2.0, StatusCode::OK);
 
     // Both keywords are present, and /changes from state0 shows the update.
-    let kws = h.ts.keywords(&mid).await.unwrap();
+    let kws = h.acc.keywords(&mid).await.unwrap();
     assert!(kws.contains(&"$seen".to_owned()) && kws.contains(&"$flagged".to_owned()));
     let (_s, body) = api(
         &h.app,

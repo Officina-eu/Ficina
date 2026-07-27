@@ -27,11 +27,11 @@ async fn main() {
         .is_none()
     {
         let tenant = store.create_tenant("demo").await.unwrap();
-        let ts = store.for_tenant(tenant);
+        let ts = store.for_tenant(tenant.clone());
         let user = ts.create_user(email).await.unwrap();
         ts.set_credentials(&user, email, "demo-pass").await.unwrap();
-        ts.deliver(
-            &user,
+        let acc = store.for_account(tenant, user);
+        acc.deliver(
             b"From: Alice <alice@example.com>\r\nTo: demo@ficina.test\r\n\
               Subject: Welcome to Ficina\r\nMessage-ID: <welcome@ficina.test>\r\n\r\n\
               Hello from the JMAP API.\r\n",
