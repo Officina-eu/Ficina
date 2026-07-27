@@ -45,4 +45,11 @@ pub enum SmtpError {
         #[source]
         source: std::io::Error,
     },
+
+    /// TLS could not be configured (certificate/key load or generation).
+    #[error("TLS configuration error: {message}")]
+    Tls {
+        /// Actionable description for the operator.
+        message: String,
+    },
 }

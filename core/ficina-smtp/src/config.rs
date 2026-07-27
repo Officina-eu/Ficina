@@ -1,5 +1,6 @@
 //! Runtime configuration for the SMTP service, read from environment.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -31,6 +32,25 @@ pub const ENV_RETRY_CAP_SECS: &str = "FICINA_SMTP_RETRY_CAP_SECS";
 pub const ENV_MAX_ATTEMPTS: &str = "FICINA_SMTP_MAX_ATTEMPTS";
 /// Environment variable for the queue polling interval in seconds.
 pub const ENV_QUEUE_INTERVAL_SECS: &str = "FICINA_SMTP_QUEUE_INTERVAL_SECS";
+/// Environment variable for the submission (STARTTLS) listener address.
+pub const ENV_SUBMISSION_ADDR: &str = "FICINA_SMTP_SUBMISSION_ADDR";
+/// Environment variable for the implicit-TLS submission listener address.
+pub const ENV_IMPLICIT_TLS_ADDR: &str = "FICINA_SMTP_IMPLICIT_TLS_ADDR";
+/// Environment variable for the TLS certificate PEM path.
+pub const ENV_TLS_CERT: &str = "FICINA_SMTP_TLS_CERT";
+/// Environment variable for the TLS private-key PEM path.
+pub const ENV_TLS_KEY: &str = "FICINA_SMTP_TLS_KEY";
+/// Environment variable for the submission credentials file (dev
+/// bootstrap for AUTH; replaced by ficina-identity in M9). One
+/// `username:password` per line.
+pub const ENV_CREDENTIALS_FILE: &str = "FICINA_SMTP_CREDENTIALS_FILE";
+/// Environment variable listing the domains this server hosts
+/// (comma-separated). The MX anti-open-relay guard: only these
+/// domains' recipients are accepted on port 25.
+pub const ENV_LOCAL_DOMAINS: &str = "FICINA_SMTP_LOCAL_DOMAINS";
+/// Environment flag permitting self-signed certificate generation when
+/// no PEM is configured (development only).
+pub const ENV_ALLOW_SELF_SIGNED: &str = "FICINA_SMTP_ALLOW_SELF_SIGNED";
 
 const DEFAULT_ADDR: &str = "0.0.0.0:2525";
 const DEFAULT_HOSTNAME: &str = "ficina.test";
@@ -74,6 +94,34 @@ pub struct SmtpConfig {
     pub max_connections: usize,
     /// Outbound delivery settings; `None` means receive-only.
     pub outbound: Option<OutboundConfig>,
+    /// Submission (STARTTLS, port 587) listener; `None` disables it.
+    pub submission_addr: Option<SocketAddr>,
+    /// Implicit-TLS submission (port 465) listener; `None` disables it.
+    pub implicit_tls_addr: Option<SocketAddr>,
+    /// TLS certificate + key PEM paths. `None` generates a self-signed
+    /// certificate at startup (development only).
+    pub tls: Option<TlsPaths>,
+    /// Submission credentials file (dev AUTH bootstrap). `None` means
+    /// no credentials — submission AUTH always fails (a safe default).
+    pub credentials_file: Option<PathBuf>,
+    /// Hosted domains (lowercased) for the MX anti-open-relay guard.
+    /// Empty accepts all recipients (development); a non-empty list is
+    /// required before outbound delivery may be enabled.
+    pub local_domains: Vec<String>,
+    /// Whether a self-signed certificate may be generated when no PEM
+    /// is configured. Must be set explicitly so a production server
+    /// never silently presents an untrusted cert (opportunistic-TLS
+    /// MITM exposure).
+    pub allow_self_signed: bool,
+}
+
+/// Paths to a TLS certificate chain and its private key (PEM).
+#[derive(Debug, Clone)]
+pub struct TlsPaths {
+    /// Certificate chain PEM.
+    pub cert: PathBuf,
+    /// Private key PEM.
+    pub key: PathBuf,
 }
 
 /// Outbound delivery configuration.
@@ -151,6 +199,68 @@ impl SmtpConfig {
 
         let outbound = Self::outbound_from_env()?;
 
+        let submission_addr = env_addr(ENV_SUBMISSION_ADDR)?;
+        let implicit_tls_addr = env_addr(ENV_IMPLICIT_TLS_ADDR)?;
+
+        let tls = match (std::env::var(ENV_TLS_CERT), std::env::var(ENV_TLS_KEY)) {
+            (Ok(cert), Ok(key)) if !cert.is_empty() && !key.is_empty() => Some(TlsPaths {
+                cert: PathBuf::from(cert),
+                key: PathBuf::from(key),
+            }),
+            (Ok(one), Err(_)) | (Err(_), Ok(one)) if !one.is_empty() => {
+                return Err(SmtpError::Config {
+                    message: format!("{ENV_TLS_CERT} and {ENV_TLS_KEY} must be set together"),
+                });
+            }
+            _ => None,
+        };
+
+        // Implicit-TLS (465) cannot run without a usable certificate;
+        // a self-signed one is generated when none is configured, so
+        // this never blocks dev — but warn nobody set a real cert.
+        if implicit_tls_addr.is_some() && tls.is_none() {
+            tracing::warn!(
+                "implicit-TLS listener configured without a certificate; a self-signed one will be generated (development only)"
+            );
+        }
+
+        let credentials_file = match std::env::var(ENV_CREDENTIALS_FILE) {
+            Ok(path) if !path.is_empty() => Some(PathBuf::from(path)),
+            _ => None,
+        };
+
+        let local_domains: Vec<String> = std::env::var(ENV_LOCAL_DOMAINS)
+            .unwrap_or_default()
+            .split(',')
+            .map(|d| d.trim().to_ascii_lowercase())
+            .filter(|d| !d.is_empty())
+            .collect();
+
+        // Anti-open-relay (security audit): outbound delivery must not
+        // be enabled while the MX accepts recipients for any domain, or
+        // an exposed instance relays to arbitrary externals. Enforced
+        // in code, not left to the outbound-off default.
+        if outbound.is_some() && local_domains.is_empty() {
+            return Err(SmtpError::Config {
+                message: format!(
+                    "{ENV_OUTBOUND_ENABLED}=true requires {ENV_LOCAL_DOMAINS} to be set \
+                     (the MX would otherwise be an open relay)"
+                ),
+            });
+        }
+
+        let allow_self_signed = env_bool(ENV_ALLOW_SELF_SIGNED)?;
+        // A production server (real cert absent) must not silently
+        // present a self-signed cert: require the explicit opt-in.
+        if tls.is_none() && !allow_self_signed {
+            return Err(SmtpError::Config {
+                message: format!(
+                    "no TLS certificate configured: set {ENV_TLS_CERT}/{ENV_TLS_KEY}, \
+                     or {ENV_ALLOW_SELF_SIGNED}=true for development"
+                ),
+            });
+        }
+
         Ok(Self {
             bind_addr,
             hostname,
@@ -159,6 +269,12 @@ impl SmtpConfig {
             max_rcpt,
             max_connections,
             outbound,
+            submission_addr,
+            implicit_tls_addr,
+            tls,
+            credentials_file,
+            local_domains,
+            allow_self_signed,
         })
     }
 
@@ -224,6 +340,67 @@ fn env_usize(name: &str, default: usize) -> Result<usize, SmtpError> {
             message: format!("{name}={raw} is not a number"),
         }),
     }
+}
+
+/// Warns when the credentials file is group/world-readable (Unix),
+/// since it holds plaintext dev passwords. No-op on Windows.
+fn warn_if_world_readable(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(path)
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            tracing::warn!(
+                path = %path.display(),
+                "credentials file is group/world-accessible; restrict to 0600"
+            );
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
+/// Parses an optional socket-address env var.
+fn env_addr(name: &str) -> Result<Option<SocketAddr>, SmtpError> {
+    match std::env::var(name) {
+        Ok(raw) if !raw.is_empty() => raw.parse().map(Some).map_err(|_| SmtpError::Config {
+            message: format!("{name}={raw} is not a host:port address"),
+        }),
+        _ => Ok(None),
+    }
+}
+
+/// Loads submission credentials from a `username:password`-per-line
+/// file (the dev AUTH bootstrap, replaced by ficina-identity in M9).
+/// Blank lines and `#` comments are ignored.
+///
+/// # Errors
+/// [`SmtpError::Config`] when the file cannot be read or a line is
+/// malformed (no colon).
+pub fn load_credentials(path: &std::path::Path) -> Result<HashMap<String, String>, SmtpError> {
+    warn_if_world_readable(path);
+    let contents = std::fs::read_to_string(path).map_err(|error| SmtpError::Config {
+        message: format!("reading credentials file {}: {error}", path.display()),
+    })?;
+    let mut map = HashMap::new();
+    for (lineno, line) in contents.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (user, pass) = line.split_once(':').ok_or_else(|| SmtpError::Config {
+            message: format!(
+                "credentials file {} line {}: expected username:password",
+                path.display(),
+                lineno + 1
+            ),
+        })?;
+        map.insert(user.to_owned(), pass.to_owned());
+    }
+    Ok(map)
 }
 
 #[cfg(test)]

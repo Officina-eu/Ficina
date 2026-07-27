@@ -1,15 +1,28 @@
 //! The SMTP session state machine — pure protocol logic, no I/O
-//! (RFC 5321 §4.1.4 command ordering).
+//! (RFC 5321 §4.1.4 ordering, RFC 3207 STARTTLS, RFC 4954 AUTH,
+//! RFC 6409 submission policy).
 //!
-//! [`Session`] consumes complete command lines and produces replies;
-//! the transport (limits, timeouts, sockets, the DATA byte stream)
-//! lives in [`crate::server`].
+//! [`Session`] consumes command lines and produces [`Directive`]s; the
+//! transport ([`crate::server`]) performs the I/O they imply — the TLS
+//! handshake, the SASL dialog, the DATA byte stream. Keeping all
+//! policy here makes every security decision unit-testable.
 
 use crate::address::{ForwardPath, ReversePath};
+use crate::auth::{AuthIdentity, Mechanism};
 use crate::command::{self, Command, CommandError};
 use crate::reply::Reply;
 
-/// What the transport must do after writing the reply.
+/// The role of the listener a session arrived on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// Inbound relay (port 25). No authentication; STARTTLS offered.
+    Mx,
+    /// Message submission (ports 587/465). AUTH required over TLS,
+    /// RFC 6409 policy applies.
+    Submission,
+}
+
+/// After the transport writes the reply, what it must do next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     /// Keep reading commands.
@@ -20,8 +33,52 @@ pub enum Action {
     EnterData,
 }
 
-/// Transaction state (§4.1.4): MAIL begins one, RCPT extends it, DATA
-/// consumes it, RSET/EHLO/HELO abort it.
+/// What [`Session::on_line`] asks the transport to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Directive {
+    /// Write `reply`, then perform `action`.
+    Respond(Reply, Action),
+    /// Write the 220 greeting-to-TLS, perform the handshake, then
+    /// reset the session (RFC 3207 §4.2).
+    StartTls,
+    /// Run the SASL dialog for `mechanism` (with an optional base64
+    /// initial response), then report the result back to the session.
+    Authenticate {
+        /// Selected, validated mechanism.
+        mechanism: Mechanism,
+        /// Base64 initial response, if the client supplied one.
+        initial: Option<String>,
+    },
+}
+
+/// Immutable per-listener parameters for a session.
+#[derive(Debug, Clone)]
+pub struct SessionParams {
+    /// Announced hostname.
+    pub hostname: String,
+    /// Recipient cap per transaction (≥ 100, §4.5.3.1.8).
+    pub max_rcpt: usize,
+    /// Advertised/enforced maximum message size (RFC 1870 SIZE).
+    pub max_message_size: usize,
+    /// Listener role.
+    pub role: Role,
+    /// Whether STARTTLS can be offered (a certificate is configured).
+    pub tls_available: bool,
+    /// Whether the connection is already encrypted (implicit TLS/465).
+    pub tls_active: bool,
+    /// Whether a successful AUTH is required before MAIL (submission).
+    pub require_auth: bool,
+    /// Whether TLS must be active before MAIL (submission).
+    pub require_tls_before_mail: bool,
+    /// Domains this server hosts (lowercased). On the MX role, when
+    /// non-empty, `RCPT TO:` for any other domain is refused (550) —
+    /// the anti-open-relay guard (RFC 5321 §7.2). Empty means accept
+    /// all (development); production MUST set this before enabling
+    /// outbound (enforced in `config`/`server::run`).
+    pub local_domains: Vec<String>,
+}
+
+/// Transaction state (§4.1.4).
 #[derive(Debug)]
 enum Txn {
     Idle,
@@ -34,30 +91,30 @@ enum Txn {
 /// One SMTP session's protocol state.
 #[derive(Debug)]
 pub struct Session {
-    hostname: String,
-    max_rcpt: usize,
-    /// EHLO/HELO argument once greeted; commands requiring a greeting
-    /// are rejected 503 until set.
+    params: SessionParams,
+    /// EHLO/HELO argument once greeted.
     helo: Option<String>,
-    /// Whether the greeting was EHLO (ESMTP) or HELO (SMTP) — drives
-    /// the WITH clause of the Received: stamp (RFC 3848).
+    /// Whether the greeting was EHLO (ESMTP) vs HELO (SMTP), RFC 3848.
     esmtp: bool,
+    /// Whether TLS is currently active (implicit, or after STARTTLS).
+    tls_active: bool,
+    /// The authenticated identity, once AUTH succeeds.
+    identity: Option<AuthIdentity>,
     txn: Txn,
-    /// SMTPUTF8 is negotiated per transaction (RFC 6531); never
-    /// enabled until the extension is advertised (M3).
+    /// SMTPUTF8 (RFC 6531) — not advertised yet, always false.
     utf8_enabled: bool,
 }
 
 impl Session {
-    /// Creates a session for a server announcing `hostname`, accepting
-    /// at most `max_rcpt` recipients per transaction (§4.5.3.1.8:
-    /// minimum 100).
-    pub fn new(hostname: impl Into<String>, max_rcpt: usize) -> Self {
+    /// Creates a session for the given listener parameters.
+    pub fn new(params: SessionParams) -> Self {
+        let tls_active = params.tls_active;
         Self {
-            hostname: hostname.into(),
-            max_rcpt,
+            params,
             helo: None,
             esmtp: false,
+            tls_active,
+            identity: None,
             txn: Txn::Idle,
             utf8_enabled: false,
         }
@@ -65,115 +122,268 @@ impl Session {
 
     /// The 220 greeting sent when the connection opens (§3.1).
     pub fn greeting(&self) -> Reply {
-        Reply::service_ready(&self.hostname)
+        Reply::service_ready(&self.params.hostname)
+    }
+
+    /// The capabilities to advertise in an EHLO reply — only those
+    /// that are truthfully implemented AND usable in the current state.
+    fn capabilities(&self) -> Vec<String> {
+        let mut caps = Vec::new();
+        if self.params.tls_available && !self.tls_active {
+            caps.push("STARTTLS".to_owned());
+        }
+        // AUTH is offered only where it can be used: a submission role,
+        // over TLS, not already authenticated (RFC 4954 §4).
+        if self.params.role == Role::Submission && self.tls_active && self.identity.is_none() {
+            caps.push("AUTH PLAIN LOGIN".to_owned());
+        }
+        caps.push(format!("SIZE {}", self.params.max_message_size));
+        caps.push("8BITMIME".to_owned());
+        caps
     }
 
     /// Handles one complete command line (CRLF already stripped).
-    pub fn on_line(&mut self, line: &str) -> (Reply, Action) {
+    pub fn on_line(&mut self, line: &str) -> Directive {
         let command = match command::parse(line, self.utf8_enabled) {
             Ok(command) => command,
-            Err(CommandError::Empty) => return (Reply::command_unrecognized(), Action::Continue),
+            Err(CommandError::Empty) => return self.respond(Reply::command_unrecognized()),
             Err(CommandError::BadAddress(error)) => {
                 tracing::debug!(%error, "address rejected");
-                return (Reply::parameter_error(), Action::Continue);
+                return self.respond(Reply::parameter_error());
             }
             Err(CommandError::MissingParameter { .. } | CommandError::BadParameter { .. }) => {
-                return (Reply::parameter_error(), Action::Continue);
+                return self.respond(Reply::parameter_error());
             }
         };
 
         match command {
             Command::Ehlo { client } => {
-                // EHLO aborts any transaction in progress (§4.1.4).
                 self.txn = Txn::Idle;
                 self.helo = Some(client.clone());
                 self.esmtp = true;
-                (Reply::ehlo_ok(&self.hostname, &client), Action::Continue)
+                let caps = self.capabilities();
+                Directive::Respond(
+                    Reply::ehlo(&self.params.hostname, &client, &caps),
+                    Action::Continue,
+                )
             }
             Command::Helo { client } => {
                 self.txn = Txn::Idle;
                 self.helo = Some(client);
                 self.esmtp = false;
-                (Reply::helo_ok(&self.hostname), Action::Continue)
+                self.respond(Reply::helo_ok(&self.params.hostname))
             }
+            Command::StartTls => self.on_starttls(),
+            Command::Auth { mechanism, initial } => self.on_auth(&mechanism, initial),
             Command::Mail {
                 reverse_path,
                 params,
-            } => {
-                if self.helo.is_none() {
-                    return (
-                        Reply::bad_sequence("send EHLO or HELO first"),
-                        Action::Continue,
-                    );
-                }
-                if !matches!(self.txn, Txn::Idle) {
-                    return (
-                        Reply::bad_sequence("MAIL transaction already in progress"),
-                        Action::Continue,
-                    );
-                }
-                // No extensions are advertised, so no parameters are
-                // acceptable (§4.1.1.11 → 555).
-                if params.is_some() {
-                    return (Reply::params_not_recognized(), Action::Continue);
-                }
-                self.txn = Txn::InProgress {
-                    from: reverse_path,
-                    rcpts: Vec::new(),
-                };
-                (Reply::ok(), Action::Continue)
-            }
+            } => self.on_mail(reverse_path, params),
             Command::Rcpt {
                 forward_path,
                 params,
-            } => {
-                let Txn::InProgress { rcpts, .. } = &mut self.txn else {
-                    return (
-                        Reply::bad_sequence("need MAIL before RCPT"),
-                        Action::Continue,
-                    );
-                };
-                if params.is_some() {
-                    return (Reply::params_not_recognized(), Action::Continue);
-                }
-                if rcpts.len() >= self.max_rcpt {
-                    // §4.5.3.1.10: 452 means "try the rest in a new
-                    // transaction", not a permanent failure.
-                    return (Reply::too_many_recipients(), Action::Continue);
-                }
-                rcpts.push(forward_path);
-                (Reply::ok(), Action::Continue)
-            }
-            Command::Data => match &self.txn {
-                Txn::InProgress { rcpts, .. } if !rcpts.is_empty() => {
-                    (Reply::start_mail_input(), Action::EnterData)
-                }
-                Txn::InProgress { .. } => (
-                    Reply::bad_sequence("need at least one RCPT before DATA"),
-                    Action::Continue,
-                ),
-                Txn::Idle => (
-                    Reply::bad_sequence("need MAIL before DATA"),
-                    Action::Continue,
-                ),
-            },
+            } => self.on_rcpt(forward_path, params),
+            Command::Data => self.on_data(),
             Command::Rset => {
                 self.txn = Txn::Idle;
-                (Reply::ok(), Action::Continue)
+                self.respond(Reply::ok())
             }
-            Command::Noop => (Reply::ok(), Action::Continue),
-            // §4.1.1.6: 252 discloses nothing about user existence.
-            Command::Vrfy => (Reply::vrfy_noncommittal(), Action::Continue),
-            Command::Quit => (Reply::closing(&self.hostname), Action::Close),
+            Command::Noop => self.respond(Reply::ok()),
+            Command::Vrfy => self.respond(Reply::vrfy_noncommittal()),
+            Command::Quit => {
+                Directive::Respond(Reply::closing(&self.params.hostname), Action::Close)
+            }
             Command::NotImplemented { verb } => {
                 tracing::debug!(%verb, "recognized but unimplemented command");
-                (Reply::not_implemented(), Action::Continue)
+                self.respond(Reply::not_implemented())
             }
             Command::Unknown { verb } => {
                 tracing::debug!(%verb, "unrecognized command");
-                (Reply::command_unrecognized(), Action::Continue)
+                self.respond(Reply::command_unrecognized())
             }
         }
+    }
+
+    fn on_starttls(&mut self) -> Directive {
+        if !self.params.tls_available {
+            return self.respond(Reply::tls_unavailable());
+        }
+        if self.tls_active {
+            return self.respond(Reply::bad_sequence("TLS already active"));
+        }
+        // The transport writes 220, handshakes, and calls
+        // `reset_after_starttls` on success.
+        Directive::StartTls
+    }
+
+    fn on_auth(&mut self, mechanism: &str, initial: Option<String>) -> Directive {
+        if self.params.role != Role::Submission {
+            return self.respond(Reply::bad_sequence("AUTH not offered on this port"));
+        }
+        // Most MSAs require EHLO before AUTH; require it so AUTH cannot
+        // race the greeting.
+        if self.helo.is_none() {
+            return self.respond(Reply::bad_sequence("send EHLO first"));
+        }
+        if !self.tls_active {
+            return self.respond(Reply::auth_encryption_required());
+        }
+        if self.identity.is_some() {
+            return self.respond(Reply::bad_sequence("already authenticated"));
+        }
+        if !matches!(self.txn, Txn::Idle) {
+            return self.respond(Reply::bad_sequence("AUTH not permitted mid-transaction"));
+        }
+        match Mechanism::parse(mechanism) {
+            Some(mechanism) => Directive::Authenticate { mechanism, initial },
+            None => self.respond(Reply::auth_mechanism_unsupported()),
+        }
+    }
+
+    fn on_mail(&mut self, reverse_path: ReversePath, params: Option<String>) -> Directive {
+        if self.helo.is_none() {
+            return self.respond(Reply::bad_sequence("send EHLO or HELO first"));
+        }
+        // Submission policy gates BEFORE a transaction can begin.
+        if self.params.role == Role::Submission {
+            if self.params.require_tls_before_mail && !self.tls_active {
+                return self.respond(Reply::starttls_required());
+            }
+            if self.params.require_auth && self.identity.is_none() {
+                return self.respond(Reply::auth_required());
+            }
+            // Sender authorization (binding MAIL FROM to the
+            // authenticated identity / a send-as permission model,
+            // RFC 6409 §6.1) is deferred to ficina-identity (M9): a
+            // strict "sender == login" rule breaks legitimate shared
+            // mailboxes and aliases, so it needs the real permission
+            // model, not an interim approximation.
+        }
+        if !matches!(self.txn, Txn::Idle) {
+            return self.respond(Reply::bad_sequence("MAIL transaction already in progress"));
+        }
+        if let Some(params) = params.as_deref()
+            && let Err(reply) = self.check_mail_params(params)
+        {
+            return self.respond(reply);
+        }
+        self.txn = Txn::InProgress {
+            from: reverse_path,
+            rcpts: Vec::new(),
+        };
+        self.respond(Reply::ok())
+    }
+
+    /// Validates MAIL parameters against the extensions we advertise
+    /// (SIZE, 8BITMIME, AUTH). Unknown params → 555 (§4.1.1.11).
+    fn check_mail_params(&self, params: &str) -> Result<(), Reply> {
+        for param in params.split(' ').filter(|p| !p.is_empty()) {
+            let (key, value) = match param.split_once('=') {
+                Some((k, v)) => (k.to_ascii_uppercase(), Some(v)),
+                None => (param.to_ascii_uppercase(), None),
+            };
+            match key.as_str() {
+                // RFC 1870: reject early if the declared size exceeds
+                // our fixed maximum.
+                "SIZE" => match value.and_then(|v| v.parse::<usize>().ok()) {
+                    Some(n) if n > self.params.max_message_size => {
+                        return Err(Reply::message_too_large());
+                    }
+                    Some(_) => {}
+                    None => return Err(Reply::params_not_recognized()),
+                },
+                // RFC 6152: we accept 7-bit and 8-bit bodies.
+                "BODY" => match value.map(|v| v.to_ascii_uppercase()) {
+                    Some(ref v) if v == "7BIT" || v == "8BITMIME" => {}
+                    _ => return Err(Reply::params_not_recognized()),
+                },
+                // RFC 4954 §5: a submission AUTH= parameter is accepted
+                // and ignored (we do not implement trusted relaying).
+                "AUTH" => {}
+                _ => return Err(Reply::params_not_recognized()),
+            }
+        }
+        Ok(())
+    }
+
+    fn on_rcpt(&mut self, forward_path: ForwardPath, params: Option<String>) -> Directive {
+        // Anti-open-relay (RFC 5321 §7.2): on the MX role with a
+        // configured local-domains allowlist, only accept recipients
+        // in a hosted domain. Authenticated submission relays anywhere
+        // (that is the point of submission), so this applies to MX
+        // only. `<postmaster>` (no domain) is always accepted
+        // (§4.1.1.3). This is enforced in code so the safety no longer
+        // rests on outbound being off by default.
+        if self.params.role == Role::Mx
+            && !self.params.local_domains.is_empty()
+            && !self.recipient_is_local(&forward_path)
+        {
+            return self.respond(Reply::relay_denied());
+        }
+        let max_rcpt = self.params.max_rcpt;
+        let Txn::InProgress { rcpts, .. } = &mut self.txn else {
+            return self.respond(Reply::bad_sequence("need MAIL before RCPT"));
+        };
+        // We advertise no RCPT extensions (no DSN), so any RCPT
+        // parameter is unrecognized (§4.1.1.11).
+        if params.is_some() {
+            return self.respond(Reply::params_not_recognized());
+        }
+        if rcpts.len() >= max_rcpt {
+            return self.respond(Reply::too_many_recipients());
+        }
+        rcpts.push(forward_path);
+        self.respond(Reply::ok())
+    }
+
+    /// Whether a recipient is in a hosted domain (or is the domainless
+    /// `<postmaster>`, always local). Comparison is case-insensitive.
+    fn recipient_is_local(&self, forward_path: &ForwardPath) -> bool {
+        match forward_path {
+            ForwardPath::Postmaster => true,
+            ForwardPath::Mailbox(m) => {
+                let host = m.host.to_string().to_ascii_lowercase();
+                self.params.local_domains.iter().any(|d| d == &host)
+            }
+        }
+    }
+
+    fn on_data(&mut self) -> Directive {
+        match &self.txn {
+            Txn::InProgress { rcpts, .. } if !rcpts.is_empty() => {
+                Directive::Respond(Reply::start_mail_input(), Action::EnterData)
+            }
+            Txn::InProgress { .. } => {
+                self.respond(Reply::bad_sequence("need at least one RCPT before DATA"))
+            }
+            Txn::Idle => self.respond(Reply::bad_sequence("need MAIL before DATA")),
+        }
+    }
+
+    fn respond(&self, reply: Reply) -> Directive {
+        Directive::Respond(reply, Action::Continue)
+    }
+
+    /// Resets protocol state after a successful STARTTLS handshake
+    /// (RFC 3207 §4.2): the server MUST discard any knowledge obtained
+    /// from the client before TLS. The client must EHLO again.
+    pub fn reset_after_starttls(&mut self) {
+        self.helo = None;
+        self.esmtp = false;
+        self.tls_active = true;
+        self.txn = Txn::Idle;
+        // Identity is cleared too: nothing before TLS is trusted.
+        self.identity = None;
+    }
+
+    /// Records a successful authentication.
+    pub fn set_authenticated(&mut self, identity: AuthIdentity) {
+        self.identity = Some(identity);
+    }
+
+    /// The authenticated login name, if any (for tracing/tenant seam).
+    pub fn authenticated_username(&self) -> Option<&str> {
+        self.identity.as_ref().map(|i| i.username.as_str())
     }
 
     /// The HELO/EHLO identity, for the `Received:` stamp.
@@ -182,9 +392,14 @@ impl Session {
     }
 
     /// WITH-clause protocol name for the `Received:` stamp
-    /// (RFC 3848: `ESMTP` after EHLO, `SMTP` after HELO).
+    /// (RFC 3848: `ESMTP`/`ESMTPS` after EHLO, `SMTP` after HELO;
+    /// the `S` suffix marks a TLS-protected session).
     pub fn protocol_name(&self) -> &'static str {
-        if self.esmtp { "ESMTP" } else { "SMTP" }
+        match (self.esmtp, self.tls_active) {
+            (true, true) => "ESMTPS",
+            (true, false) => "ESMTP",
+            (false, _) => "SMTP",
+        }
     }
 
     /// Envelope fields of the in-flight transaction: sender display
@@ -223,137 +438,220 @@ mod tests {
 
     use super::*;
 
-    fn greeted() -> Session {
-        let mut s = Session::new("mx.ficina.test", 100);
-        let (reply, _) = s.on_line("EHLO client.example");
-        assert_eq!(reply.code(), 250);
-        s
+    fn params(role: Role) -> SessionParams {
+        SessionParams {
+            hostname: "mx.ficina.test".to_owned(),
+            max_rcpt: 100,
+            max_message_size: 25 * 1024 * 1024,
+            role,
+            tls_available: true,
+            tls_active: false,
+            require_auth: role == Role::Submission,
+            require_tls_before_mail: role == Role::Submission,
+            // Most tests exercise policy unrelated to the relay guard;
+            // the dedicated relay tests set this explicitly.
+            local_domains: Vec::new(),
+        }
     }
 
-    fn with_rcpt() -> Session {
-        let mut s = greeted();
-        assert_eq!(s.on_line("MAIL FROM:<bob@example.org>").0.code(), 250);
-        assert_eq!(s.on_line("RCPT TO:<alice@example.com>").0.code(), 250);
-        s
+    /// Extracts the reply from a Respond directive (test helper).
+    fn reply(d: &Directive) -> &Reply {
+        match d {
+            Directive::Respond(reply, _) => reply,
+            other => panic!("expected Respond, got {other:?}"),
+        }
     }
 
-    #[test]
-    fn full_transaction_reaches_data() {
-        let mut s = with_rcpt();
-        let (reply, action) = s.on_line("DATA");
-        assert_eq!(reply.code(), 354);
-        assert_eq!(action, Action::EnterData);
-        let (from, rcpts) = s.envelope_fields().unwrap();
-        assert_eq!(from.as_deref(), Some("bob@example.org"));
-        assert_eq!(rcpts, vec!["alice@example.com"]);
-    }
-
-    #[test]
-    fn mail_before_greeting_is_503() {
-        let mut s = Session::new("mx.ficina.test", 100);
-        assert_eq!(s.on_line("MAIL FROM:<bob@example.org>").0.code(), 503);
+    fn code(d: &Directive) -> u16 {
+        reply(d).code()
     }
 
     #[test]
-    fn rcpt_before_mail_is_503() {
-        let mut s = greeted();
-        assert_eq!(s.on_line("RCPT TO:<alice@example.com>").0.code(), 503);
+    fn mx_ehlo_advertises_starttls_and_size_but_not_auth() {
+        let mut s = Session::new(params(Role::Mx));
+        let d = s.on_line("EHLO client.example");
+        let wire = reply(&d).to_string();
+        assert!(wire.contains("STARTTLS"));
+        assert!(wire.contains("SIZE "));
+        assert!(wire.contains("8BITMIME"));
+        assert!(!wire.contains("AUTH"), "AUTH must not appear on an MX port");
     }
 
     #[test]
-    fn data_before_rcpt_is_503() {
-        let mut s = greeted();
-        assert_eq!(s.on_line("DATA").0.code(), 503);
-        assert_eq!(s.on_line("MAIL FROM:<bob@example.org>").0.code(), 250);
-        assert_eq!(s.on_line("DATA").0.code(), 503);
-    }
-
-    #[test]
-    fn nested_mail_is_503() {
-        let mut s = with_rcpt();
-        assert_eq!(s.on_line("MAIL FROM:<carol@example.org>").0.code(), 503);
-    }
-
-    #[test]
-    fn rset_aborts_the_transaction() {
-        let mut s = with_rcpt();
-        assert_eq!(s.on_line("RSET").0.code(), 250);
-        assert_eq!(s.on_line("DATA").0.code(), 503);
-        assert!(s.envelope_fields().is_none());
-    }
-
-    #[test]
-    fn ehlo_mid_transaction_aborts_it() {
-        // §4.1.4: EHLO resets state.
-        let mut s = with_rcpt();
-        assert_eq!(s.on_line("EHLO other.example").0.code(), 250);
-        assert_eq!(s.on_line("DATA").0.code(), 503);
-    }
-
-    #[test]
-    fn null_sender_is_accepted() {
-        let mut s = greeted();
-        assert_eq!(s.on_line("MAIL FROM:<>").0.code(), 250);
-        assert_eq!(s.on_line("RCPT TO:<alice@example.com>").0.code(), 250);
-        let (from, _) = s.envelope_fields().unwrap();
-        assert!(from.is_none());
-    }
-
-    #[test]
-    fn esmtp_params_get_555_when_none_advertised() {
-        let mut s = greeted();
-        assert_eq!(
-            s.on_line("MAIL FROM:<bob@example.org> SIZE=1000").0.code(),
-            555
+    fn submission_advertises_auth_only_after_tls() {
+        let mut s = Session::new(params(Role::Submission));
+        let before = s.on_line("EHLO client.example");
+        assert!(
+            !reply(&before).to_string().contains("AUTH"),
+            "AUTH must not be offered before TLS"
         );
-        // The rejected MAIL must not have started a transaction.
-        assert_eq!(s.on_line("RCPT TO:<alice@example.com>").0.code(), 503);
+        // Simulate the STARTTLS upgrade.
+        s.reset_after_starttls();
+        let after = s.on_line("EHLO client.example");
+        let wire = reply(&after).to_string();
+        assert!(wire.contains("AUTH PLAIN LOGIN"));
+        assert!(
+            !wire.contains("STARTTLS"),
+            "STARTTLS not offered once active"
+        );
     }
 
     #[test]
-    fn recipient_limit_is_452() {
-        let mut s = Session::new("mx.ficina.test", 2);
+    fn starttls_lifecycle() {
+        let mut s = Session::new(params(Role::Mx));
         s.on_line("EHLO client.example");
-        s.on_line("MAIL FROM:<bob@example.org>");
-        assert_eq!(s.on_line("RCPT TO:<a@example.com>").0.code(), 250);
-        assert_eq!(s.on_line("RCPT TO:<b@example.com>").0.code(), 250);
-        assert_eq!(s.on_line("RCPT TO:<c@example.com>").0.code(), 452);
+        assert_eq!(s.on_line("STARTTLS"), Directive::StartTls);
+        s.reset_after_starttls();
+        // After reset, a greeting is required again (§4.2.2).
+        assert_eq!(code(&s.on_line("MAIL FROM:<a@b.example>")), 503);
+        // And STARTTLS is no longer available.
+        assert_eq!(code(&s.on_line("STARTTLS")), 503);
     }
 
     #[test]
-    fn postmaster_rcpt_is_accepted() {
-        let mut s = greeted();
-        s.on_line("MAIL FROM:<bob@example.org>");
-        assert_eq!(s.on_line("RCPT TO:<postmaster>").0.code(), 250);
-        let (_, rcpts) = s.envelope_fields().unwrap();
-        assert_eq!(rcpts, vec!["postmaster"]);
+    fn starttls_unavailable_when_no_cert() {
+        let mut p = params(Role::Mx);
+        p.tls_available = false;
+        let mut s = Session::new(p);
+        s.on_line("EHLO client.example");
+        assert_eq!(code(&s.on_line("STARTTLS")), 454);
     }
 
     #[test]
-    fn bad_address_is_501_and_state_unchanged() {
-        let mut s = greeted();
-        assert_eq!(s.on_line("MAIL FROM:<broken>").0.code(), 501);
-        assert_eq!(s.on_line("MAIL FROM:<bob@example.org>").0.code(), 250);
+    fn auth_requires_submission_tls_and_no_txn() {
+        // On MX: AUTH is refused outright.
+        let mut mx = Session::new(params(Role::Mx));
+        mx.on_line("EHLO c.example");
+        assert_eq!(code(&mx.on_line("AUTH PLAIN abc")), 503);
+
+        // On submission before TLS: 538 encryption required.
+        let mut sub = Session::new(params(Role::Submission));
+        sub.on_line("EHLO c.example");
+        assert_eq!(code(&sub.on_line("AUTH PLAIN abc")), 538);
+
+        // After TLS: a valid mechanism yields an Authenticate directive.
+        sub.reset_after_starttls();
+        sub.on_line("EHLO c.example");
+        assert!(matches!(
+            sub.on_line("AUTH PLAIN dGVzdA=="),
+            Directive::Authenticate {
+                mechanism: Mechanism::Plain,
+                initial: Some(_)
+            }
+        ));
+        // An unknown mechanism → 504.
+        assert_eq!(code(&sub.on_line("AUTH CRAM-MD5")), 504);
     }
 
     #[test]
-    fn service_commands_reply_correctly() {
-        let mut s = greeted();
-        assert_eq!(s.on_line("NOOP").0.code(), 250);
-        assert_eq!(s.on_line("VRFY alice").0.code(), 252);
-        assert_eq!(s.on_line("HELP").0.code(), 502);
-        assert_eq!(s.on_line("XYZZY").0.code(), 500);
-        let (reply, action) = s.on_line("QUIT");
-        assert_eq!(reply.code(), 221);
-        assert_eq!(action, Action::Close);
+    fn mx_relay_guard_rejects_non_local_recipients() {
+        // With a hosted-domain allowlist, the MX (unauthenticated) may
+        // only accept recipients in a local domain — the anti-open-relay
+        // guard (RFC 5321 §7.2). This is the security-critical property.
+        let mut p = params(Role::Mx);
+        p.local_domains = vec!["ficina.test".to_owned()];
+        let mut s = Session::new(p);
+        s.on_line("EHLO client.example");
+        assert_eq!(code(&s.on_line("MAIL FROM:<a@b.example>")), 250);
+        // Local recipient: accepted.
+        assert_eq!(code(&s.on_line("RCPT TO:<alice@ficina.test>")), 250);
+        // Case-insensitive domain match.
+        assert_eq!(code(&s.on_line("RCPT TO:<bob@FICINA.TEST>")), 250);
+        // Non-local recipient: relaying denied (550).
+        assert_eq!(code(&s.on_line("RCPT TO:<victim@external.com>")), 550);
+        // <postmaster> (no domain) is always local (§4.1.1.3).
+        assert_eq!(code(&s.on_line("RCPT TO:<postmaster>")), 250);
     }
 
     #[test]
-    fn end_data_consumes_the_transaction() {
-        let mut s = with_rcpt();
-        assert_eq!(s.on_line("DATA").1, Action::EnterData);
-        s.end_data();
-        assert!(s.envelope_fields().is_none());
-        assert_eq!(s.on_line("DATA").0.code(), 503);
+    fn mx_with_empty_allowlist_accepts_all_dev_default() {
+        // Empty allowlist = development accept-all (config refuses to
+        // pair this with outbound enabled).
+        let mut s = Session::new(params(Role::Mx));
+        s.on_line("EHLO client.example");
+        s.on_line("MAIL FROM:<a@b.example>");
+        assert_eq!(code(&s.on_line("RCPT TO:<anyone@external.com>")), 250);
+    }
+
+    #[test]
+    fn submission_blocks_mail_until_tls_then_auth() {
+        let mut s = Session::new(params(Role::Submission));
+        s.on_line("EHLO c.example");
+        // Before TLS: must STARTTLS first (530).
+        assert_eq!(code(&s.on_line("MAIL FROM:<a@b.example>")), 530);
+        s.reset_after_starttls();
+        s.on_line("EHLO c.example");
+        // After TLS but before AUTH: authentication required (530).
+        assert_eq!(code(&s.on_line("MAIL FROM:<a@b.example>")), 530);
+        s.set_authenticated(AuthIdentity {
+            username: "alice@b.example".to_owned(),
+        });
+        // Once authenticated, MAIL is accepted. Sender authorization
+        // (binding MAIL FROM to the identity) is deferred to M9 with
+        // the real send-as permission model — see the design note — so
+        // M3 does not restrict the envelope sender here.
+        assert_eq!(code(&s.on_line("MAIL FROM:<alice@b.example>")), 250);
+    }
+
+    #[test]
+    fn mx_accepts_mail_without_auth() {
+        // Inbound relay must not require auth.
+        let mut s = Session::new(params(Role::Mx));
+        s.on_line("EHLO c.example");
+        assert_eq!(code(&s.on_line("MAIL FROM:<a@b.example>")), 250);
+        assert_eq!(code(&s.on_line("RCPT TO:<c@ficina.test>")), 250);
+    }
+
+    #[test]
+    fn mx_allowlist_refuses_foreign_recipients() {
+        // Anti-open-relay (S1): with a hosted-domains allowlist, MX
+        // accepts local recipients and postmaster, refuses others.
+        let mut p = params(Role::Mx);
+        p.local_domains = vec!["ficina.test".to_owned()];
+        let mut s = Session::new(p);
+        s.on_line("EHLO c.example");
+        s.on_line("MAIL FROM:<a@b.example>");
+        assert_eq!(code(&s.on_line("RCPT TO:<bob@ficina.test>")), 250);
+        assert_eq!(code(&s.on_line("RCPT TO:<BOB@Ficina.Test>")), 250);
+        assert_eq!(code(&s.on_line("RCPT TO:<postmaster>")), 250);
+        assert_eq!(code(&s.on_line("RCPT TO:<eve@elsewhere.example>")), 550);
+    }
+
+    #[test]
+    fn empty_allowlist_accepts_any_recipient() {
+        // Development default: no allowlist configured → accept all.
+        let mut s = Session::new(params(Role::Mx));
+        s.on_line("EHLO c.example");
+        s.on_line("MAIL FROM:<a@b.example>");
+        assert_eq!(code(&s.on_line("RCPT TO:<eve@elsewhere.example>")), 250);
+    }
+
+    #[test]
+    fn size_and_body_params_accepted_oversize_rejected() {
+        let mut s = Session::new(params(Role::Mx));
+        s.on_line("EHLO c.example");
+        assert_eq!(
+            code(&s.on_line("MAIL FROM:<a@b.example> SIZE=1000 BODY=8BITMIME")),
+            250
+        );
+        s.on_line("RSET");
+        // Oversize declaration is rejected early (552).
+        assert_eq!(
+            code(&s.on_line("MAIL FROM:<a@b.example> SIZE=999999999999")),
+            552
+        );
+        s.on_line("RSET");
+        // An unadvertised parameter is still 555.
+        assert_eq!(code(&s.on_line("MAIL FROM:<a@b.example> SMTPUTF8")), 555);
+    }
+
+    #[test]
+    fn protocol_name_reflects_tls() {
+        let mut s = Session::new(params(Role::Mx));
+        s.on_line("EHLO c.example");
+        assert_eq!(s.protocol_name(), "ESMTP");
+        s.reset_after_starttls();
+        s.on_line("EHLO c.example");
+        assert_eq!(s.protocol_name(), "ESMTPS");
     }
 }

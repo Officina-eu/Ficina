@@ -6,6 +6,24 @@ contracts.
 
 ## Unreleased
 
+- New: `ficina-smtp` TLS and authenticated submission (Phase 1 M3).
+  **STARTTLS** (RFC 3207) on the MX and submission ports and **implicit
+  TLS** (port 465), via rustls with the ring provider — pure Rust, no
+  OpenSSL. A PEM certificate/key is loaded from disk
+  (`FICINA_SMTP_TLS_CERT`/`FICINA_SMTP_TLS_KEY`) or a self-signed one is
+  generated for development. **AUTH PLAIN and LOGIN** (RFC 4954),
+  offered only on a submission port over active TLS; wrong password and
+  unknown user are indistinguishable (535, anti-enumeration).
+  **Submission listeners** (`FICINA_SMTP_SUBMISSION_ADDR` for STARTTLS,
+  `FICINA_SMTP_IMPLICIT_TLS_ADDR` for 465) require authentication before
+  MAIL (530) — closing the open-relay hole ahead of enabling outbound.
+  Credentials come from `FICINA_SMTP_CREDENTIALS_FILE` (a dev bootstrap;
+  ficina-identity replaces it in M9). **RFC 6409** submission fixups add
+  a `Date:` and `Message-ID:` when absent. EHLO now advertises a
+  truthful capability set (STARTTLS/AUTH/SIZE/8BITMIME) reflecting the
+  connection's exact state, and MAIL accepts `SIZE=`/`BODY=`/`AUTH=`
+  parameters for the advertised extensions. `Received:` records
+  `ESMTPS` for TLS-protected sessions (RFC 3848).
 - New: `ficina-smtp` outbound delivery (Phase 1 M2) — a durable queue
   over the spool relays accepted mail. MX resolution (RFC 5321 §5.1:
   preference order, implicit MX, RFC 7505 null-MX = permanent),

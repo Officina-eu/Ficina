@@ -88,15 +88,28 @@ services:
       FICINA_SMTP_HOSTNAME: ${FICINA_SMTP_HOSTNAME:-mx.ficina.test}
       FICINA_SMTP_SPOOL_DIR: /var/spool/ficina
       FICINA_SMTP_MAX_MESSAGE_SIZE: ${FICINA_SMTP_MAX_MESSAGE_SIZE:-26214400}
-      # Outbound stays OFF in the default compose stack (relay safety —
-      # AUTH lands in M3). Enable per deployment via .env once trusted.
+      # Outbound stays OFF in the default compose stack (relay safety).
+      # Enable per deployment via .env once trusted (submission AUTH now
+      # gates it — see below).
       FICINA_SMTP_OUTBOUND_ENABLED: ${FICINA_SMTP_OUTBOUND_ENABLED:-false}
       FICINA_SMTP_SMARTHOST: ${FICINA_SMTP_SMARTHOST:-}
+      # Submission listeners (STARTTLS on 587, implicit TLS on 465);
+      # blank disables. A self-signed cert is generated unless a PEM is
+      # provided — set FICINA_SMTP_TLS_CERT/KEY in production.
+      FICINA_SMTP_SUBMISSION_ADDR: ${FICINA_SMTP_SUBMISSION_ADDR:-0.0.0.0:587}
+      FICINA_SMTP_IMPLICIT_TLS_ADDR: ${FICINA_SMTP_IMPLICIT_TLS_ADDR:-0.0.0.0:465}
+      FICINA_SMTP_TLS_CERT: ${FICINA_SMTP_TLS_CERT:-}
+      FICINA_SMTP_TLS_KEY: ${FICINA_SMTP_TLS_KEY:-}
+      # Submission credentials (dev AUTH bootstrap; ficina-identity in
+      # M9). Blank means submission AUTH always fails (safe default).
+      FICINA_SMTP_CREDENTIALS_FILE: ${FICINA_SMTP_CREDENTIALS_FILE:-}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - smtp_spool:/var/spool/ficina
     ports:
       - "2525:2525"
+      - "587:587"
+      - "465:465"
     networks: [ficina]
     healthcheck:
       test: ["CMD", "/usr/local/bin/ficina-smtp", "--healthcheck"]

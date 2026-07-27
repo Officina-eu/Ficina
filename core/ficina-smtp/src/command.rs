@@ -37,6 +37,15 @@ pub enum Command {
     },
     /// `DATA` (§4.1.1.4).
     Data,
+    /// `STARTTLS` (RFC 3207 §4) — takes no argument.
+    StartTls,
+    /// `AUTH <mechanism> [initial-response]` (RFC 4954 §4).
+    Auth {
+        /// Mechanism token as received (e.g. `PLAIN`, `LOGIN`).
+        mechanism: String,
+        /// Optional base64 initial response, or `=` for an empty one.
+        initial: Option<String>,
+    },
     /// `RSET` (§4.1.1.5).
     Rset,
     /// `VRFY <string>` (§4.1.1.6).
@@ -118,6 +127,8 @@ pub fn parse(line: &str, allow_utf8: bool) -> Result<Command, CommandError> {
             })
         }
         "DATA" => no_argument(argument, verb_upper, Command::Data),
+        "STARTTLS" => no_argument(argument, verb_upper, Command::StartTls),
+        "AUTH" => parse_auth(argument, verb_upper),
         "RSET" => no_argument(argument, verb_upper, Command::Rset),
         "QUIT" => no_argument(argument, verb_upper, Command::Quit),
         // NOOP may carry a string that is simply ignored (§4.1.1.9).
@@ -148,7 +159,27 @@ fn single_token(argument: Option<&str>, verb: String) -> Result<String, CommandE
     }
 }
 
-/// DATA/RSET/QUIT admit no arguments.
+/// `AUTH mechanism [initial-response]` (RFC 4954 §4). The initial
+/// response, when present, is one token (base64 or `=` for empty).
+fn parse_auth(argument: Option<&str>, verb: String) -> Result<Command, CommandError> {
+    let arg = match argument {
+        None | Some("") => return Err(CommandError::MissingParameter { verb }),
+        Some(arg) => arg,
+    };
+    let mut parts = arg.split(' ');
+    let mechanism = parts.next().unwrap_or("").to_owned();
+    if mechanism.is_empty() {
+        return Err(CommandError::MissingParameter { verb });
+    }
+    let initial = parts.next().map(str::to_owned);
+    // At most one initial-response token (§4).
+    if parts.next().is_some() {
+        return Err(CommandError::BadParameter { verb });
+    }
+    Ok(Command::Auth { mechanism, initial })
+}
+
+/// DATA/RSET/QUIT/STARTTLS admit no arguments.
 fn no_argument(
     argument: Option<&str>,
     verb: String,
@@ -377,6 +408,48 @@ mod tests {
         assert!(matches!(
             parse("XYZZY", false).unwrap(),
             Command::Unknown { ref verb } if verb == "XYZZY"
+        ));
+    }
+
+    #[test]
+    fn starttls_parses_and_rejects_arguments() {
+        assert!(matches!(
+            parse("STARTTLS", false).unwrap(),
+            Command::StartTls
+        ));
+        assert!(matches!(
+            parse("starttls", false).unwrap(),
+            Command::StartTls
+        ));
+        assert!(matches!(
+            parse("STARTTLS now", false),
+            Err(CommandError::BadParameter { .. })
+        ));
+    }
+
+    #[test]
+    fn auth_parses_mechanism_and_optional_initial_response() {
+        assert!(matches!(
+            parse("AUTH LOGIN", false).unwrap(),
+            Command::Auth { ref mechanism, initial: None } if mechanism == "LOGIN"
+        ));
+        assert!(matches!(
+            parse("AUTH PLAIN dGVzdA==", false).unwrap(),
+            Command::Auth { ref mechanism, initial: Some(ref ir) }
+                if mechanism == "PLAIN" && ir == "dGVzdA=="
+        ));
+        // Empty initial response marker `=` (RFC 4954 §4).
+        assert!(matches!(
+            parse("AUTH PLAIN =", false).unwrap(),
+            Command::Auth { initial: Some(ref ir), .. } if ir == "="
+        ));
+        assert!(matches!(
+            parse("AUTH", false),
+            Err(CommandError::MissingParameter { .. })
+        ));
+        assert!(matches!(
+            parse("AUTH PLAIN a b", false),
+            Err(CommandError::BadParameter { .. })
         ));
     }
 }

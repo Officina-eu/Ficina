@@ -44,3 +44,24 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   `<postmaster>` (§4.1.1.3) has no domain to route to; M2 holds such messages
   in the spool (logged) pending local delivery (M5) rather than dropping or
   bouncing them.
+- 2026-07-27 · **STARTTLS discards all pre-TLS state** · RFC 3207 §4.2: after a
+  successful STARTTLS the HELO/EHLO identity, any transaction, and any prior
+  auth are cleared; the client must EHLO again. Buffered plaintext arriving
+  after our 220 and before the handshake is treated as a command-injection
+  attempt (CVE-2011-0411 class) and the connection is dropped, nothing executed.
+- 2026-07-27 · **AUTH offered only on submission over TLS** · `AUTH PLAIN`/`LOGIN`
+  are advertised and accepted only on a submission listener with TLS active.
+  On the MX (port 25) role AUTH is refused 503; before TLS it is refused 538.
+  Wrong password and unknown user return the same 535 (anti-enumeration, §7.3).
+- 2026-07-27 · **EHLO capabilities are state-exact** · we advertise STARTTLS only
+  while TLS is inactive, AUTH only on submission-over-TLS, and always SIZE and
+  8BITMIME. Advertising a capability implies accepting its MAIL parameters, so
+  `SIZE=`, `BODY=7BIT|8BITMIME`, and `AUTH=` (RFC 4954 §5, accepted and ignored)
+  are honored; every other MAIL parameter is still 555.
+- 2026-07-27 · **Submission adds Date/Message-ID only** · RFC 6409 §8 permits the
+  MSA to rewrite more, but we make the minimal non-destructive fix (add `Date:`
+  and `Message-ID:` when absent) and never touch `From`/`Sender` or the body.
+- 2026-07-27 · **Submission requires STARTTLS then AUTH** · on submission
+  ports (587/465) MAIL before TLS gets 530 (must STARTTLS) and MAIL before a
+  successful AUTH gets 530 (auth required) — the open-relay gate. MX (25)
+  authenticates no one and never advertises AUTH.

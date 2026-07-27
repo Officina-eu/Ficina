@@ -16,6 +16,7 @@
 //! vocabulary.
 
 pub mod address;
+pub mod auth;
 pub mod backoff;
 pub mod client;
 pub mod client_reply;
@@ -35,3 +36,6 @@ pub mod resolver;
 pub mod server;
 pub mod session;
 pub mod spool;
+pub mod stream;
+pub mod submission;
+pub mod tls;

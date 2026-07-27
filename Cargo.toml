@@ -19,6 +19,18 @@ jiff = "0.2"
 # Async MX/A/AAAA resolution for outbound delivery (RFC 5321 §5.1).
 # Pinned ≥0.26.1: earlier hickory-proto carries RUSTSEC-2026-0119.
 hickory-resolver = "0.26"
+# TLS via rustls with the ring provider (pure Rust, no OpenSSL/C — see
+# ADR/doctrine "Rust below the waterline"). tls12 for broad client
+# compatibility; STARTTLS (RFC 3207) and implicit TLS.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+# PEM cert/key loading via pki-types (rustls-pemfile is unmaintained,
+# RUSTSEC-2025-0134; its functionality moved here).
+rustls-pki-types = { version = "1", features = ["std"] }
+# Self-signed cert generation for dev/test when no PEM is configured.
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+# Base64 for SASL AUTH (RFC 4954).
+base64 = "0.22"
 
 # CLAUDE.md law 2 enforced by the compiler: stubs and swallowed panics
 # cannot merge because they cannot compile under `clippy -D warnings`.

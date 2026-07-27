@@ -15,7 +15,8 @@ RUN useradd --system --no-create-home ficina \
 COPY --from=build /src/target/release/ficina-smtp /usr/local/bin/ficina-smtp
 USER ficina
 ENV FICINA_SMTP_SPOOL_DIR=/var/spool/ficina
-EXPOSE 2525
+# 2525 MX (dev), 587 submission/STARTTLS, 465 implicit TLS.
+EXPOSE 2525 587 465
 # Healthcheck is the binary itself (`--healthcheck` probes for the 220
 # greeting), so the runtime image carries no shell tooling for it.
 ENTRYPOINT ["/usr/local/bin/ficina-smtp"]

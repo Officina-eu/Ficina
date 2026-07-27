@@ -14,7 +14,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ficina_smtp::config::SmtpConfig;
 use ficina_smtp::server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -36,20 +35,26 @@ async fn target_addr() -> SocketAddr {
         .expect("bind ephemeral port");
     let addr = listener.local_addr().expect("local addr");
     let spool_dir = tempfile::tempdir().expect("temp spool dir");
-    let config = Arc::new(SmtpConfig {
-        bind_addr: addr,
-        hostname: TEST_HOSTNAME.to_owned(),
-        spool_dir: spool_dir.path().to_path_buf(),
-        max_message_size: 25 * 1024 * 1024,
-        max_rcpt: 100,
-        max_connections: 256,
-        outbound: None,
-    });
     let spool = Arc::new(ficina_smtp::spool::Spool::new(spool_dir.path()).expect("spool init"));
+    let acceptor = Arc::new(
+        ficina_smtp::tls::build_acceptor(None, None, TEST_HOSTNAME, true).expect("tls acceptor"),
+    );
+    let authenticator = Arc::new(ficina_smtp::auth::StaticAuthenticator::new(
+        std::collections::HashMap::new(),
+    ));
+    let runtime = Arc::new(server::Runtime::mx(
+        TEST_HOSTNAME,
+        spool,
+        acceptor,
+        authenticator,
+        25 * 1024 * 1024,
+        100,
+        256,
+    ));
     tokio::spawn(async move {
         // Keep the tempdir alive for the server's lifetime.
         let _spool_dir = spool_dir;
-        let _ = server::serve(listener, config, spool).await;
+        let _ = server::serve(listener, runtime).await;
     });
     addr
 }
@@ -81,8 +86,19 @@ impl Client {
         self.writer.flush().await.expect("flush failed");
     }
 
-    /// Reads one CRLF-terminated reply line.
+    /// Reads a complete reply, consuming continuation lines of a
+    /// multiline reply (RFC 5321 §4.2.1) and returning the final line.
     async fn read_reply(&mut self) -> String {
+        loop {
+            let line = self.read_line().await;
+            if line.as_bytes().get(3) == Some(&b'-') {
+                continue;
+            }
+            return line;
+        }
+    }
+
+    async fn read_line(&mut self) -> String {
         let mut line = Vec::new();
         loop {
             let mut byte = [0_u8; 1];

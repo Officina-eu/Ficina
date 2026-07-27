@@ -1,63 +1,182 @@
-//! TCP transport: the listener, per-connection wire I/O, and the
-//! read-side limits and timeouts RFC 5321 requires.
+//! TCP/TLS transport: listeners per role (MX, submission, implicit
+//! TLS), per-connection wire I/O, the STARTTLS upgrade and SASL AUTH
+//! dialog, and the read-side limits and timeouts RFC 5321 requires.
 //!
-//! All protocol decisions live in [`crate::session`]; DATA content
-//! collection lives in [`crate::data`]; this module moves bytes
-//! safely and stitches the two together around the spool.
+//! All protocol *decisions* live in [`crate::session`]; DATA content
+//! collection lives in [`crate::data`]. This module performs the I/O
+//! the session's [`Directive`]s imply and stitches everything to the
+//! spool.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::TlsAcceptor;
 use tracing::Instrument;
 
-use crate::config::SmtpConfig;
+use crate::auth::{self, Authenticator, Mechanism, StaticAuthenticator};
+use crate::config::{self, SmtpConfig};
 use crate::data::{self, DataError};
 use crate::envelope::Envelope;
 use crate::error::SmtpError;
 use crate::line::{RawLine, read_raw_line};
-use crate::received;
 use crate::reply::Reply;
-use crate::session::{Action, Session};
+use crate::session::{Action, Directive, Role, Session, SessionParams};
 use crate::spool::Spool;
+use crate::stream::SmtpStream;
+use crate::{received, submission, tls};
 
-/// Command line limit: 512 octets including CRLF (RFC 5321
-/// §4.5.3.1.4; no extension we advertise raises it). Enforced during
-/// read, never after buffering (protocol skill non-negotiable).
+/// Command line limit: 512 octets including CRLF (RFC 5321 §4.5.3.1.4).
 const MAX_COMMAND_LINE: usize = 512;
-
-/// Hard ceiling on octets drained while hunting for a line ending on
-/// the command channel; beyond it the peer is flooding.
+/// Hard ceiling on octets drained hunting for a line ending.
 const FLOOD_LIMIT: usize = 64 * 1024;
-
-/// Idle timeout while awaiting a command, RFC 5321 §4.5.3.2.
+/// Idle timeout awaiting a command (RFC 5321 §4.5.3.2).
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// Overall budget for receiving one message body. Deliberately
-/// stricter than the per-wait timeouts of §4.5.3.2 (a total budget,
-/// not per-block) as anti-flood policy — recorded in docs/interop.md
-/// "Standing policies".
+/// Total budget for receiving one message body (anti-flood policy;
+/// stricter than §4.5.3.2 per-block, recorded in docs/interop.md).
 const DATA_TIMEOUT: Duration = Duration::from_secs(600);
-
-/// Budget for writing one reply: a peer that stops reading (full
-/// receive window) must not pin this task forever — the read-side
-/// timeouts never fire while a write pends.
+/// Budget for writing one reply so a non-reading peer cannot pin us.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Delay before re-accepting after a transient `accept()` error, so a
-/// resource-exhaustion condition cannot spin the accept loop hot.
+/// TLS handshake budget.
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Delay before re-accepting after a transient `accept()` error.
 const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
+/// Failed AUTH attempts tolerated on one connection before it is
+/// dropped (RFC 4954 §4 anti-brute-force; durable per-account limits
+/// arrive with ficina-identity in M9).
+const MAX_AUTH_FAILURES: u32 = 3;
 
-/// Binds the configured address, opens the spool, starts the outbound
-/// queue if enabled, and serves forever.
+/// A buffered SMTP connection (plaintext or TLS). `BufReader` supplies
+/// both bounded line reading and pass-through writing.
+type Conn = BufReader<SmtpStream>;
+
+/// Everything a listener needs to serve one connection.
+pub struct Runtime {
+    /// Per-listener session template (role, TLS/auth policy).
+    params: SessionParams,
+    /// Durable spool.
+    spool: Arc<Spool>,
+    /// TLS acceptor for STARTTLS upgrades and implicit TLS.
+    tls_acceptor: Arc<TlsAcceptor>,
+    /// Credential backend for AUTH.
+    authenticator: Arc<dyn Authenticator>,
+    /// Concurrent-connection cap.
+    max_connections: usize,
+    /// Apply RFC 6409 submission fixups before spooling (submission).
+    apply_fixups: bool,
+}
+
+impl Runtime {
+    /// Assembles a listener runtime from its parts. `apply_fixups`
+    /// should be true only for submission roles (RFC 6409). Used by
+    /// [`run`] and by embedders/tests that drive a single [`serve`].
+    pub fn new(
+        params: SessionParams,
+        spool: Arc<Spool>,
+        tls_acceptor: Arc<TlsAcceptor>,
+        authenticator: Arc<dyn Authenticator>,
+        max_connections: usize,
+        apply_fixups: bool,
+    ) -> Self {
+        Self {
+            params,
+            spool,
+            tls_acceptor,
+            authenticator,
+            max_connections,
+            apply_fixups,
+        }
+    }
+
+    /// Builds an MX (relay-in) runtime: STARTTLS offered, no AUTH,
+    /// no submission fixups.
+    #[allow(clippy::too_many_arguments)]
+    pub fn mx(
+        hostname: impl Into<String>,
+        spool: Arc<Spool>,
+        tls_acceptor: Arc<TlsAcceptor>,
+        authenticator: Arc<dyn Authenticator>,
+        max_message_size: usize,
+        max_rcpt: usize,
+        max_connections: usize,
+    ) -> Self {
+        let params = SessionParams {
+            hostname: hostname.into(),
+            max_rcpt,
+            max_message_size,
+            role: Role::Mx,
+            tls_available: true,
+            tls_active: false,
+            require_auth: false,
+            require_tls_before_mail: false,
+            // Constructor default: accept all recipients. `run` sets the
+            // configured allowlist; embedders/tests that need the
+            // anti-relay guard call `with_local_domains`.
+            local_domains: Vec::new(),
+        };
+        Self::new(
+            params,
+            spool,
+            tls_acceptor,
+            authenticator,
+            max_connections,
+            false,
+        )
+    }
+
+    /// Sets the MX hosted-domains allowlist (anti-open-relay guard).
+    #[must_use]
+    pub fn with_local_domains(mut self, domains: Vec<String>) -> Self {
+        self.params.local_domains = domains;
+        self
+    }
+
+    /// Builds a submission runtime: AUTH required over TLS, RFC 6409
+    /// fixups applied. `implicit_tls` selects port-465 semantics
+    /// (TLS from the first byte) versus STARTTLS on 587.
+    #[allow(clippy::too_many_arguments)]
+    pub fn submission(
+        hostname: impl Into<String>,
+        spool: Arc<Spool>,
+        tls_acceptor: Arc<TlsAcceptor>,
+        authenticator: Arc<dyn Authenticator>,
+        implicit_tls: bool,
+        max_message_size: usize,
+        max_rcpt: usize,
+        max_connections: usize,
+    ) -> Self {
+        Self {
+            params: SessionParams {
+                hostname: hostname.into(),
+                max_rcpt,
+                max_message_size,
+                role: Role::Submission,
+                tls_available: true,
+                tls_active: implicit_tls,
+                require_auth: true,
+                require_tls_before_mail: true,
+                // Irrelevant on submission: an authenticated user
+                // relays anywhere (the relay guard is MX-only).
+                local_domains: Vec::new(),
+            },
+            spool,
+            tls_acceptor,
+            authenticator,
+            max_connections,
+            apply_fixups: true,
+        }
+    }
+}
+
+/// Binds every configured listener, starts the outbound queue if
+/// enabled, and serves forever.
 ///
 /// # Errors
-/// [`SmtpError::Bind`] when the listener cannot bind,
-/// [`SmtpError::Spool`] when the spool root cannot be prepared; once
-/// running, per-connection failures are logged and never fatal.
+/// [`SmtpError::Bind`] / [`SmtpError::Spool`] / [`SmtpError::Tls`] /
+/// [`SmtpError::Config`] during startup; once running, per-connection
+/// failures are logged and never fatal.
 pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
     let spool = Arc::new(
         Spool::new(&config.spool_dir).map_err(|source| SmtpError::Spool {
@@ -65,62 +184,142 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
             source,
         })?,
     );
-    let listener = TcpListener::bind(config.bind_addr)
-        .await
-        .map_err(|source| SmtpError::Bind {
-            addr: config.bind_addr,
-            source,
-        })?;
-    tracing::info!(
-        addr = %config.bind_addr,
-        hostname = %config.hostname,
-        spool = %config.spool_dir.display(),
-        outbound = config.outbound.is_some(),
-        "ficina-smtp listening"
-    );
 
-    // Outbound queue runs alongside the listener when enabled. When
-    // disabled (the default), messages accumulate in the spool and
-    // nothing relays them — the relay-safety posture (M2 design note).
+    let (cert, key) = match &config.tls {
+        Some(paths) => (Some(paths.cert.as_path()), Some(paths.key.as_path())),
+        None => (None, None),
+    };
+    let tls_acceptor = Arc::new(tls::build_acceptor(
+        cert,
+        key,
+        &config.hostname,
+        config.allow_self_signed,
+    )?);
+
+    let credentials = match &config.credentials_file {
+        Some(path) => config::load_credentials(path)?,
+        None => std::collections::HashMap::new(),
+    };
+    let authenticator: Arc<dyn Authenticator> = Arc::new(StaticAuthenticator::new(credentials));
+
     if let Some(outbound) = config.outbound.clone() {
         crate::queue_runner::spawn(Arc::clone(&spool), config.hostname.clone(), outbound);
     } else {
         tracing::warn!("outbound delivery disabled; received mail accumulates in the spool");
     }
 
-    serve(listener, Arc::new(config), spool).await
+    // Optional submission listeners bind first and run as spawned
+    // tasks; the MX listener runs on this task (and never returns).
+    if let Some(addr) = config.submission_addr {
+        let listener = bind(addr).await?;
+        let runtime = Arc::new(submission_runtime(
+            &config,
+            &spool,
+            &tls_acceptor,
+            &authenticator,
+            false,
+        ));
+        tracing::info!(%addr, "submission (STARTTLS) listener");
+        tokio::spawn(serve(listener, runtime));
+    }
+    if let Some(addr) = config.implicit_tls_addr {
+        let listener = bind(addr).await?;
+        let runtime = Arc::new(submission_runtime(
+            &config,
+            &spool,
+            &tls_acceptor,
+            &authenticator,
+            true,
+        ));
+        tracing::info!(%addr, "implicit-TLS submission listener");
+        tokio::spawn(serve(listener, runtime));
+    }
+
+    let mx_listener = bind(config.bind_addr).await?;
+    let mx_runtime = Arc::new(Runtime {
+        params: SessionParams {
+            hostname: config.hostname.clone(),
+            max_rcpt: config.max_rcpt,
+            max_message_size: config.max_message_size,
+            role: Role::Mx,
+            tls_available: true,
+            tls_active: false,
+            require_auth: false,
+            require_tls_before_mail: false,
+            local_domains: config.local_domains.clone(),
+        },
+        spool: Arc::clone(&spool),
+        tls_acceptor: Arc::clone(&tls_acceptor),
+        authenticator: Arc::clone(&authenticator),
+        max_connections: config.max_connections,
+        apply_fixups: false,
+    });
+    tracing::info!(
+        addr = %config.bind_addr,
+        hostname = %config.hostname,
+        spool = %config.spool_dir.display(),
+        outbound = config.outbound.is_some(),
+        "ficina-smtp MX listener"
+    );
+    serve(mx_listener, mx_runtime).await
 }
 
-/// Accept loop over an already-bound listener (also the seam the
-/// integration tests use to serve on an ephemeral port).
+/// Builds a submission `Runtime` (STARTTLS or implicit TLS).
+fn submission_runtime(
+    config: &SmtpConfig,
+    spool: &Arc<Spool>,
+    tls_acceptor: &Arc<TlsAcceptor>,
+    authenticator: &Arc<dyn Authenticator>,
+    implicit_tls: bool,
+) -> Runtime {
+    Runtime {
+        params: SessionParams {
+            hostname: config.hostname.clone(),
+            max_rcpt: config.max_rcpt,
+            max_message_size: config.max_message_size,
+            role: Role::Submission,
+            tls_available: true,
+            tls_active: implicit_tls,
+            require_auth: true,
+            require_tls_before_mail: true,
+            // Submission relays for authenticated users to any domain;
+            // the MX allowlist does not apply here.
+            local_domains: Vec::new(),
+        },
+        spool: Arc::clone(spool),
+        tls_acceptor: Arc::clone(tls_acceptor),
+        authenticator: Arc::clone(authenticator),
+        max_connections: config.max_connections,
+        apply_fixups: true,
+    }
+}
+
+async fn bind(addr: SocketAddr) -> Result<TcpListener, SmtpError> {
+    TcpListener::bind(addr)
+        .await
+        .map_err(|source| SmtpError::Bind { addr, source })
+}
+
+/// Accept loop over a bound listener (also the seam integration tests
+/// use). Bounds concurrent sessions so one host cannot pin unlimited
+/// tasks; connection #cap+1 is greeted with 421 and dropped.
 ///
 /// # Errors
 /// Never returns an error today; the `Result` is the stable signature
-/// for when shutdown handling lands.
-pub async fn serve(
-    listener: TcpListener,
-    config: Arc<SmtpConfig>,
-    spool: Arc<Spool>,
-) -> Result<(), SmtpError> {
-    // Bounds concurrent sessions; connection #cap+1 gets 421 + close
-    // instead of an unbounded task (review finding: remote task-pinning).
-    let limiter = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
+/// for when graceful shutdown lands.
+pub async fn serve(listener: TcpListener, runtime: Arc<Runtime>) -> Result<(), SmtpError> {
+    let limiter = Arc::new(tokio::sync::Semaphore::new(runtime.max_connections));
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
                 let span = tracing::info_span!("smtp_session", %peer);
                 match Arc::clone(&limiter).try_acquire_owned() {
                     Ok(permit) => {
-                        let config = Arc::clone(&config);
-                        let spool = Arc::clone(&spool);
+                        let runtime = Arc::clone(&runtime);
                         tokio::spawn(
                             async move {
                                 let _permit = permit;
-                                if let Err(error) =
-                                    handle_connection(stream, peer, config, spool).await
-                                {
-                                    // Peer-side I/O failures are normal
-                                    // churn, not service errors.
+                                if let Err(error) = accept_connection(stream, peer, runtime).await {
                                     tracing::debug!(%error, "session ended with I/O error");
                                 }
                             }
@@ -128,16 +327,16 @@ pub async fn serve(
                         );
                     }
                     Err(_no_permit) => {
-                        let hostname = config.hostname.clone();
+                        let hostname = runtime.params.hostname.clone();
                         tokio::spawn(
                             async move {
                                 tracing::warn!("connection limit reached; refusing with 421");
-                                let (_read_half, mut write_half) = stream.into_split();
-                                let _best_effort = write_reply(
-                                    &mut write_half,
-                                    &Reply::service_closing(&hostname),
-                                )
-                                .await;
+                                let mut stream = stream;
+                                let _best_effort = stream
+                                    .write_all(
+                                        Reply::service_closing(&hostname).to_string().as_bytes(),
+                                    )
+                                    .await;
                             }
                             .instrument(span),
                         );
@@ -152,50 +351,91 @@ pub async fn serve(
     }
 }
 
-/// Drives one connection: greeting, then command/reply/DATA until
-/// close.
-async fn handle_connection(
-    stream: TcpStream,
+/// Wraps the accepted TCP stream (performing the implicit-TLS
+/// handshake when this listener requires it), then drives the session.
+async fn accept_connection(
+    tcp: TcpStream,
     peer: SocketAddr,
-    config: Arc<SmtpConfig>,
-    spool: Arc<Spool>,
+    runtime: Arc<Runtime>,
 ) -> std::io::Result<()> {
-    let (read_half, mut write_half) = stream.into_split();
-    let mut reader = BufReader::new(read_half);
-    let mut session = Session::new(config.hostname.clone(), config.max_rcpt);
+    let stream = if runtime.params.tls_active {
+        match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, runtime.tls_acceptor.accept(tcp)).await {
+            Ok(Ok(tls)) => SmtpStream::Tls(Box::new(tls)),
+            Ok(Err(error)) => {
+                tracing::info!(%error, "implicit TLS handshake failed");
+                return Ok(());
+            }
+            Err(_elapsed) => {
+                tracing::info!("implicit TLS handshake timed out");
+                return Ok(());
+            }
+        }
+    } else {
+        SmtpStream::Plain(tcp)
+    };
+    handle_connection(stream, peer, runtime).await
+}
 
-    tracing::info!("session opened");
-    write_reply(&mut write_half, &session.greeting()).await?;
+/// Drives one connection: greeting, then command/reply/DATA and the
+/// STARTTLS/AUTH sub-dialogs until close.
+async fn handle_connection(
+    stream: SmtpStream,
+    peer: SocketAddr,
+    runtime: Arc<Runtime>,
+) -> std::io::Result<()> {
+    let mut conn: Conn = BufReader::new(stream);
+    let mut session = Session::new(runtime.params.clone());
 
+    tracing::info!(tls = conn.get_ref().is_tls(), "session opened");
+    write_reply(&mut conn, &session.greeting()).await?;
+
+    let mut auth_failures: u32 = 0;
     loop {
         let outcome = match tokio::time::timeout(
             COMMAND_TIMEOUT,
-            read_raw_line(&mut reader, MAX_COMMAND_LINE, FLOOD_LIMIT),
+            read_raw_line(&mut conn, MAX_COMMAND_LINE, FLOOD_LIMIT),
         )
         .await
         {
             Ok(result) => result?,
             Err(_elapsed) => {
-                // RFC 5321 §4.5.3.2: on timeout, close with 421.
                 tracing::info!("idle timeout; closing");
-                write_reply(&mut write_half, &Reply::service_closing(&config.hostname)).await?;
+                write_reply(&mut conn, &Reply::service_closing(&runtime.params.hostname)).await?;
                 break;
             }
         };
 
-        match outcome {
-            RawLine::Line(bytes) => {
-                // Commands are ASCII (§2.4); SMTPUTF8 (RFC 6531) is a
-                // later-milestone extension and applies to addresses,
-                // not to reaching this check with arbitrary bytes.
-                if !bytes.is_ascii() {
-                    write_reply(&mut write_half, &Reply::command_unrecognized()).await?;
-                    continue;
-                }
-                // ASCII just verified, so this conversion is lossless.
-                let line = String::from_utf8_lossy(&bytes).into_owned();
-                let (reply, action) = session.on_line(&line);
-                write_reply(&mut write_half, &reply).await?;
+        let bytes = match outcome {
+            RawLine::Line(bytes) => bytes,
+            RawLine::TooLong { .. } => {
+                write_reply(&mut conn, &Reply::line_too_long()).await?;
+                continue;
+            }
+            RawLine::BadEol => {
+                write_reply(&mut conn, &Reply::bare_line_ending()).await?;
+                continue;
+            }
+            RawLine::Flooded => {
+                tracing::warn!("peer flooded without newline; closing");
+                write_reply(&mut conn, &Reply::service_closing(&runtime.params.hostname)).await?;
+                break;
+            }
+            RawLine::Eof => {
+                tracing::info!("peer disconnected");
+                break;
+            }
+        };
+
+        // Commands are ASCII (§2.4); SMTPUTF8 is not yet advertised.
+        if !bytes.is_ascii() {
+            write_reply(&mut conn, &Reply::command_unrecognized()).await?;
+            continue;
+        }
+        let line = String::from_utf8_lossy(&bytes).into_owned();
+
+        match session.on_line(&line) {
+            Directive::Respond(reply, action) => {
+                write_reply(&mut conn, &reply).await?;
                 match action {
                     Action::Continue => {}
                     Action::Close => {
@@ -203,75 +443,242 @@ async fn handle_connection(
                         break;
                     }
                     Action::EnterData => {
-                        let keep_going = handle_data_phase(
-                            &mut reader,
-                            &mut write_half,
-                            &mut session,
-                            peer,
-                            &config,
-                            &spool,
-                        )
-                        .await?;
-                        if !keep_going {
+                        if !handle_data_phase(&mut conn, &mut session, peer, &runtime).await? {
                             break;
                         }
                     }
                 }
             }
-            RawLine::TooLong { .. } => {
-                write_reply(&mut write_half, &Reply::line_too_long()).await?;
+            Directive::StartTls => {
+                if !do_starttls(&mut conn, &mut session, &runtime).await? {
+                    break;
+                }
             }
-            RawLine::BadEol => {
-                write_reply(&mut write_half, &Reply::bare_line_ending()).await?;
-            }
-            RawLine::Flooded => {
-                tracing::warn!("peer flooded without newline; closing");
-                write_reply(&mut write_half, &Reply::service_closing(&config.hostname)).await?;
-                break;
-            }
-            RawLine::Eof => {
-                tracing::info!("peer disconnected");
-                break;
+            Directive::Authenticate { mechanism, initial } => {
+                let authenticated =
+                    do_auth(&mut conn, &mut session, &runtime, mechanism, initial).await?;
+                if !authenticated {
+                    auth_failures += 1;
+                    if auth_failures >= MAX_AUTH_FAILURES {
+                        tracing::warn!("too many failed AUTH attempts; closing");
+                        write_reply(
+                            &mut conn,
+                            &Reply::too_many_auth_failures(&runtime.params.hostname),
+                        )
+                        .await?;
+                        break;
+                    }
+                }
             }
         }
     }
     Ok(())
 }
 
-/// Collects one message after 354, stamps `Received:`, and spools it
-/// durably. Returns whether the session may continue.
-async fn handle_data_phase(
-    reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
-    writer: &mut OwnedWriteHalf,
+/// Performs the STARTTLS upgrade (RFC 3207). Returns whether the
+/// session may continue.
+async fn do_starttls(
+    conn: &mut Conn,
     session: &mut Session,
-    peer: SocketAddr,
-    config: &Arc<SmtpConfig>,
-    spool: &Arc<Spool>,
+    runtime: &Arc<Runtime>,
 ) -> std::io::Result<bool> {
-    let collected = match tokio::time::timeout(
-        DATA_TIMEOUT,
-        data::read_message(reader, config.max_message_size),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_elapsed) => {
-            tracing::info!("DATA timeout; closing");
-            session.end_data();
-            write_reply(writer, &Reply::service_closing(&config.hostname)).await?;
+    write_reply(conn, &Reply::tls_ready()).await?;
+
+    // RFC 3207 §5: any buffered plaintext after the 220 and before the
+    // handshake is a command-injection attempt across the TLS boundary
+    // — drop the connection, process nothing.
+    if !conn.buffer().is_empty() {
+        tracing::warn!("plaintext buffered after STARTTLS; possible injection — closing");
+        return Ok(false);
+    }
+
+    // Take the underlying plaintext stream out and wrap it in TLS.
+    // The `Closed` placeholder is swapped in only long enough to move
+    // the real stream out; it is never read or written.
+    let inner = std::mem::replace(conn, BufReader::new(SmtpStream::Closed));
+    let SmtpStream::Plain(tcp) = inner.into_inner() else {
+        tracing::error!("STARTTLS on an already-encrypted connection — invariant broken");
+        return Ok(false);
+    };
+    let tls =
+        match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, runtime.tls_acceptor.accept(tcp)).await {
+            Ok(Ok(tls)) => tls,
+            Ok(Err(error)) => {
+                tracing::info!(%error, "STARTTLS handshake failed; closing");
+                return Ok(false);
+            }
+            Err(_elapsed) => {
+                tracing::info!("STARTTLS handshake timed out; closing");
+                return Ok(false);
+            }
+        };
+    *conn = BufReader::new(SmtpStream::Tls(Box::new(tls)));
+    session.reset_after_starttls();
+    tracing::info!("STARTTLS established");
+    Ok(true)
+}
+
+/// Runs the SASL exchange for `mechanism` and records the identity on
+/// success. Returns whether authentication succeeded; all failures
+/// reply and leave the session unauthenticated.
+async fn do_auth(
+    conn: &mut Conn,
+    session: &mut Session,
+    runtime: &Arc<Runtime>,
+    mechanism: Mechanism,
+    initial: Option<String>,
+) -> std::io::Result<bool> {
+    let credentials = match collect_credentials(conn, mechanism, initial).await? {
+        Ok(credentials) => credentials,
+        Err(reply) => {
+            write_reply(conn, &reply).await?;
             return Ok(false);
         }
     };
+    match runtime.authenticator.verify(&credentials).await {
+        Some(identity) => {
+            // The login is personal data (CLAUDE.md law 1): keep it out
+            // of default-visible logs; it is available at debug for
+            // audit until ficina-identity (M9) owns auth logging.
+            tracing::debug!(user = %identity.username, "authentication succeeded");
+            tracing::info!("authentication succeeded");
+            session.set_authenticated(identity);
+            write_reply(conn, &Reply::auth_ok()).await?;
+            Ok(true)
+        }
+        None => {
+            // No log of which of user/password was wrong (§7.3).
+            tracing::info!("authentication failed");
+            write_reply(conn, &Reply::auth_failed()).await?;
+            Ok(false)
+        }
+    }
+}
+
+/// Collects credentials from the client for `mechanism`, running the
+/// 334-challenge sub-dialog when needed. The inner `Result` is the
+/// SASL-level outcome (Ok credentials, or a reply to send).
+async fn collect_credentials(
+    conn: &mut Conn,
+    mechanism: Mechanism,
+    initial: Option<String>,
+) -> std::io::Result<Result<auth::Credentials, Reply>> {
+    // RFC 4954 §4: an initial response of "=" denotes a zero-length
+    // response (distinct from "no initial response"). Normalize it so
+    // it is not fed to the base64 decoder as literal "=".
+    let initial = initial.map(|ir| if ir == "=" { String::new() } else { ir });
+    match mechanism {
+        Mechanism::Plain => {
+            let payload = match initial {
+                Some(ir) => ir,
+                None => {
+                    write_reply(conn, &Reply::auth_challenge("")).await?;
+                    match read_sasl_line(conn).await? {
+                        Some(line) => line,
+                        None => return Ok(Err(Reply::auth_malformed())),
+                    }
+                }
+            };
+            if payload == "*" {
+                return Ok(Err(Reply::auth_malformed())); // client cancelled
+            }
+            // RFC 4954 §4: a lone "=" is a zero-length initial response.
+            let payload = decode_ir_marker(&payload);
+            Ok(auth::decode_plain(payload).map_err(|_| Reply::auth_malformed()))
+        }
+        Mechanism::Login => {
+            // Username: from the initial response if present, else 334.
+            let username_b64 = match initial {
+                Some(ir) => ir,
+                None => {
+                    write_reply(conn, &Reply::auth_challenge(auth::LOGIN_USERNAME_CHALLENGE))
+                        .await?;
+                    match read_sasl_line(conn).await? {
+                        Some(line) => line,
+                        None => return Ok(Err(Reply::auth_malformed())),
+                    }
+                }
+            };
+            if username_b64 == "*" {
+                return Ok(Err(Reply::auth_malformed()));
+            }
+            let username = match auth::decode_login_field(decode_ir_marker(&username_b64)) {
+                Ok(u) => u,
+                Err(_) => return Ok(Err(Reply::auth_malformed())),
+            };
+            write_reply(conn, &Reply::auth_challenge(auth::LOGIN_PASSWORD_CHALLENGE)).await?;
+            let password_b64 = match read_sasl_line(conn).await? {
+                Some(line) => line,
+                None => return Ok(Err(Reply::auth_malformed())),
+            };
+            if password_b64 == "*" {
+                return Ok(Err(Reply::auth_malformed()));
+            }
+            let password = match auth::decode_login_field(decode_ir_marker(&password_b64)) {
+                Ok(p) => p,
+                Err(_) => return Ok(Err(Reply::auth_malformed())),
+            };
+            if username.is_empty() {
+                return Ok(Err(Reply::auth_malformed()));
+            }
+            Ok(Ok(auth::Credentials { username, password }))
+        }
+    }
+}
+
+/// Maps the RFC 4954 §4 zero-length-response marker `=` to an empty
+/// string; every other value passes through unchanged.
+fn decode_ir_marker(field: &str) -> &str {
+    if field == "=" { "" } else { field }
+}
+
+/// Reads one CRLF-terminated SASL response line (bounded, ASCII).
+/// `None` on any read problem (EOF/too-long/bad ending).
+async fn read_sasl_line(conn: &mut Conn) -> std::io::Result<Option<String>> {
+    let outcome = match tokio::time::timeout(
+        COMMAND_TIMEOUT,
+        read_raw_line(conn, MAX_COMMAND_LINE, FLOOD_LIMIT),
+    )
+    .await
+    {
+        Ok(result) => result?,
+        Err(_elapsed) => return Ok(None),
+    };
+    match outcome {
+        RawLine::Line(bytes) if bytes.is_ascii() => {
+            Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Collects one message after 354, applies submission fixups when the
+/// role calls for them, stamps `Received:`, and spools it durably.
+/// Returns whether the session may continue.
+async fn handle_data_phase(
+    conn: &mut Conn,
+    session: &mut Session,
+    peer: SocketAddr,
+    runtime: &Arc<Runtime>,
+) -> std::io::Result<bool> {
+    let max_size = runtime.params.max_message_size;
+    let collected =
+        match tokio::time::timeout(DATA_TIMEOUT, data::read_message(conn, max_size)).await {
+            Ok(result) => result,
+            Err(_elapsed) => {
+                tracing::info!("DATA timeout; closing");
+                session.end_data();
+                write_reply(conn, &Reply::service_closing(&runtime.params.hostname)).await?;
+                return Ok(false);
+            }
+        };
 
     match collected {
         Ok(body) => {
-            // EnterData is only reachable from a live transaction; if
-            // that invariant ever breaks, fail loudly (451) rather
-            // than spool a fabricated envelope into the M2 contract.
             let Some((mail_from, rcpt_to)) = session.envelope_fields() else {
                 tracing::error!("DATA completed without a transaction — invariant broken");
                 session.end_data();
-                write_reply(writer, &Reply::local_error()).await?;
+                write_reply(conn, &Reply::local_error()).await?;
                 return Ok(true);
             };
             let envelope = Envelope {
@@ -281,12 +688,21 @@ async fn handle_data_phase(
                 rcpt_to,
                 received_at: jiff::Timestamp::now().to_string(),
             };
-            let id = spool.next_id();
+            let id = spool_id(&runtime.spool);
             let now = jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC);
+
+            // RFC 6409 §8: on submission, add Date/Message-ID if absent
+            // before stamping Received (so the fixups sit under it).
+            let body = if runtime.apply_fixups {
+                submission::apply_fixups(&body, &runtime.params.hostname, &id, &now)
+            } else {
+                body
+            };
+
             let header = received::stamp(
                 session.helo_client(),
                 &peer.ip().to_string(),
-                &config.hostname,
+                &runtime.params.hostname,
                 session.protocol_name(),
                 &id,
                 &now,
@@ -295,54 +711,47 @@ async fn handle_data_phase(
             message.extend_from_slice(header.as_bytes());
             message.extend_from_slice(&body);
 
-            // Spool I/O is synchronous by design (fsync durability);
-            // run it off the reactor.
-            let spool_task = {
-                let spool = Arc::clone(spool);
-                let id = id.clone();
-                tokio::task::spawn_blocking(move || spool.store(&id, &envelope, &message))
-            };
+            let spool = Arc::clone(&runtime.spool);
+            let id_for_task = id.clone();
+            let spool_task =
+                tokio::task::spawn_blocking(move || spool.store(&id_for_task, &envelope, &message));
             session.end_data();
             match spool_task.await {
                 Ok(Ok(())) => {
                     tracing::info!(%id, size = body.len(), "message accepted");
-                    write_reply(writer, &Reply::ok_queued(&id)).await?;
+                    write_reply(conn, &Reply::ok_queued(&id)).await?;
                 }
                 Ok(Err(error)) => {
-                    // Durability failed: the message was NOT accepted;
-                    // 451 tells the client to retry (RFC 5321 §4.2.4).
                     tracing::error!(%error, "spool write failed");
-                    write_reply(writer, &Reply::local_error()).await?;
+                    write_reply(conn, &Reply::local_error()).await?;
                 }
                 Err(join_error) => {
                     tracing::error!(%join_error, "spool task panicked");
-                    write_reply(writer, &Reply::local_error()).await?;
+                    write_reply(conn, &Reply::local_error()).await?;
                 }
             }
             Ok(true)
         }
         Err(DataError::TooLarge) => {
             session.end_data();
-            write_reply(writer, &Reply::message_too_large()).await?;
+            write_reply(conn, &Reply::message_too_large()).await?;
             Ok(true)
         }
         Err(DataError::LineTooLong) => {
             session.end_data();
-            write_reply(writer, &Reply::line_too_long()).await?;
+            write_reply(conn, &Reply::line_too_long()).await?;
             Ok(true)
         }
         Err(DataError::BareLineEnding) => {
-            // Smuggling shape inside content: reject AND close — the
-            // stream beyond this point cannot be trusted to re-sync.
             tracing::warn!("bare line ending inside DATA; closing");
             session.end_data();
-            write_reply(writer, &Reply::bare_line_ending()).await?;
+            write_reply(conn, &Reply::bare_line_ending()).await?;
             Ok(false)
         }
         Err(DataError::Flooded) => {
             tracing::warn!("peer flooded the DATA channel; closing");
             session.end_data();
-            write_reply(writer, &Reply::service_closing(&config.hostname)).await?;
+            write_reply(conn, &Reply::service_closing(&runtime.params.hostname)).await?;
             Ok(false)
         }
         Err(DataError::UnexpectedEof) => {
@@ -357,10 +766,14 @@ async fn handle_data_phase(
     }
 }
 
-async fn write_reply(writer: &mut OwnedWriteHalf, reply: &Reply) -> std::io::Result<()> {
+fn spool_id(spool: &Arc<Spool>) -> String {
+    spool.next_id()
+}
+
+async fn write_reply(conn: &mut Conn, reply: &Reply) -> std::io::Result<()> {
     tokio::time::timeout(WRITE_TIMEOUT, async {
-        writer.write_all(reply.to_string().as_bytes()).await?;
-        writer.flush().await
+        conn.write_all(reply.to_string().as_bytes()).await?;
+        conn.flush().await
     })
     .await
     .map_err(|_elapsed| {
