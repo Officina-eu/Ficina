@@ -39,18 +39,94 @@ async fn cross_account_within_one_tenant_is_denied() {
     ts.set_credentials(&u2, &e2, "pw").await.unwrap();
     let tok1 = store.issue_token(&e1, "pw").await.unwrap().unwrap().token;
 
-    // User 2 has a private message.
-    let m2 = ts
-        .deliver(&u2, b"From: p@x\r\nSubject: U2 private\r\n\r\nsecret\r\n")
+    // Each user's account-scoped door — the ONLY path to their mail.
+    let acct1 = store.for_account(tenant.clone(), u1.clone());
+    let acct2 = store.for_account(tenant.clone(), u2.clone());
+
+    // User 2 has a private message (seeded through U2's own door).
+    let m2 = acct2
+        .deliver(b"From: p@x\r\nSubject: U2 private\r\n\r\nsecret\r\n")
         .await
         .unwrap();
-    let msg2 = ts.message(&m2).await.unwrap();
+    let msg2 = acct2.message(&m2).await.unwrap();
     let (mid2, thread2, blob2) = (
         m2.to_string(),
         msg2.thread_id.to_string(),
         msg2.blob_id.to_string(),
     );
-    let inbox2 = ts.inbox(&u2).await.unwrap().to_string();
+    let inbox2 = acct2.inbox().await.unwrap().to_string();
+
+    // ---- The store-level door, proven directly (no JMAP, no guards) ----
+    // U1's AccountStore wielding U2's ids must be NotFound on EVERY path —
+    // the door is compiler-enforced, so there is no `owns_*` guard to
+    // forget. This is the structural counterpart to the HTTP probes below.
+    use ficina_store::{MailboxId, MessageId, Page, StoreError, ThreadId};
+    let m2_id = MessageId::new(mid2.clone());
+    let mb2_id = MailboxId::new(inbox2.clone());
+    let th2_id = ThreadId::new(thread2.clone());
+    let bl2_id = ficina_store::BlobId::new(blob2.clone());
+    let is_nf = |r: &Result<_, StoreError>| matches!(r, Err(StoreError::NotFound));
+
+    assert!(is_nf(&acct1.message(&m2_id).await), "read U2 message");
+    assert!(is_nf(&acct1.message_bytes(&m2_id).await), "read U2 body");
+    assert!(is_nf(&acct1.mailbox(&mb2_id).await), "read U2 mailbox");
+    assert!(
+        is_nf(&acct1.mailboxes_of_message(&m2_id).await),
+        "U2 message membership"
+    );
+    assert!(
+        is_nf(&acct1.set_keyword(&m2_id, "$flagged", true).await),
+        "flag U2 message"
+    );
+    assert!(
+        is_nf(&acct1.add_to_mailbox(&m2_id, &mb2_id).await),
+        "file U2 message"
+    );
+    assert!(
+        is_nf(&acct1.remove_from_mailbox(&m2_id, &mb2_id).await),
+        "unfile U2 message"
+    );
+    assert!(
+        is_nf(&acct1.rename_mailbox(&mb2_id, "hijack").await),
+        "rename U2 mailbox"
+    );
+    assert!(
+        is_nf(&acct1.move_mailbox(&mb2_id, None).await),
+        "move U2 mailbox"
+    );
+    assert!(
+        is_nf(&acct1.destroy_mailbox(&mb2_id).await),
+        "destroy U2 mailbox"
+    );
+    assert!(
+        is_nf(&acct1.destroy_message(&m2_id).await),
+        "destroy U2 message"
+    );
+    assert!(is_nf(&acct1.blob(&bl2_id).await), "read U2 blob meta");
+    assert!(is_nf(&acct1.blob_bytes(&bl2_id).await), "read U2 blob bytes");
+    // Reads that widen to a set must simply be empty for U1, never U2's.
+    assert!(
+        acct1.keywords(&m2_id).await.unwrap().is_empty(),
+        "U2 keywords leaked"
+    );
+    assert!(
+        acct1
+            .list_mailbox(&mb2_id, Page::first(100))
+            .await
+            .unwrap()
+            .is_empty(),
+        "U2 mailbox contents leaked"
+    );
+    assert!(
+        acct1
+            .thread_messages(&th2_id, Page::first(100))
+            .await
+            .unwrap()
+            .is_empty(),
+        "U2 thread leaked"
+    );
+    // U2's message is untouched after all of U1's probing.
+    assert_eq!(acct2.message(&m2_id).await.unwrap().subject, "U2 private");
 
     let app = ficina_jmap::app(ficina_jmap::app_state(Arc::clone(&store), "http://test"));
     let acc1 = u1.to_string();
@@ -138,14 +214,12 @@ async fn jmap_methods_never_leak_across_tenants() {
 
     // Seed B with a delivered message (its own inbox, message, thread, blob).
     let b_msg =
-        b.ts.deliver(
-            &b.user,
-            b"From: secret@b\r\nSubject: B secret\r\n\r\nB body\r\n",
-        )
-        .await
-        .unwrap();
-    let b_inbox = b.ts.inbox(&b.user).await.unwrap();
-    let b_message = b.ts.message(&b_msg).await.unwrap();
+        b.acct
+            .deliver(b"From: secret@b\r\nSubject: B secret\r\n\r\nB body\r\n")
+            .await
+            .unwrap();
+    let b_inbox = b.acct.inbox().await.unwrap();
+    let b_message = b.acct.message(&b_msg).await.unwrap();
     let b_blob = b_message.blob_id.to_string();
     let b_thread = b_message.thread_id.to_string();
     let b_mid = b_msg.to_string();
@@ -267,7 +341,7 @@ async fn jmap_methods_never_leak_across_tenants() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     // Email/changes with B's state token under A → only A's (empty) changes.
-    let b_state = b.ts.state().await.unwrap();
+    let b_state = b.acct.state().await.unwrap();
     let (_s, body) = api(
         &a.app,
         &a.token,

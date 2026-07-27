@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
-use ficina_store::{Store, TenantId, TenantStore, UserId};
+use ficina_store::{AccountStore, Store, TenantId, UserId};
 
 use crate::error::Problem;
 use crate::push::PushHub;
@@ -57,14 +57,16 @@ impl Default for Limits {
 }
 
 /// An authenticated account: the resolved tenant/user and the store door
-/// scoped to that tenant. Obtained only via [`authenticate`].
+/// scoped to that `(tenant, user)`. Obtained only via [`authenticate`].
+/// Every data access goes through [`Account::store`], which cannot reach
+/// another account's rows — so JMAP handlers carry no `owns_*` guards.
 pub struct Account {
     /// The tenant claim (from the token, never the request body).
     pub tenant: TenantId,
     /// The account's user.
     pub user: UserId,
-    /// The tenant-scoped store handle.
-    pub ts: TenantStore,
+    /// The account-scoped store handle — the only door to this user's mail.
+    pub store: AccountStore,
 }
 
 impl Account {
@@ -88,8 +90,12 @@ pub async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Accou
         .await
         .map_err(|_| Problem::server_error())?
         .ok_or_else(Problem::unauthorized)?;
-    let ts = state.store.for_tenant(tenant.clone());
-    Ok(Account { tenant, user, ts })
+    let account_store = state.store.for_account(tenant.clone(), user.clone());
+    Ok(Account {
+        tenant,
+        user,
+        store: account_store,
+    })
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
