@@ -88,6 +88,10 @@ services:
       FICINA_SMTP_HOSTNAME: ${FICINA_SMTP_HOSTNAME:-mx.ficina.test}
       FICINA_SMTP_SPOOL_DIR: /var/spool/ficina
       FICINA_SMTP_MAX_MESSAGE_SIZE: ${FICINA_SMTP_MAX_MESSAGE_SIZE:-26214400}
+      # Outbound stays OFF in the default compose stack (relay safety —
+      # AUTH lands in M3). Enable per deployment via .env once trusted.
+      FICINA_SMTP_OUTBOUND_ENABLED: ${FICINA_SMTP_OUTBOUND_ENABLED:-false}
+      FICINA_SMTP_SMARTHOST: ${FICINA_SMTP_SMARTHOST:-}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - smtp_spool:/var/spool/ficina

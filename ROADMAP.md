@@ -46,8 +46,10 @@ Rules of this file:
 - [ ] SMTP server: session state machine, EHLO negotiation, receive (25) and submission (587), per protocol skill non-negotiables
   - [x] Session state machine (RFC 5321 §4.1.4), EHLO/HELO negotiation, full receive path: MAIL/RCPT/DATA, §4.1.2 address parsing, dot-stuffing, Received: stamping, durable spool (M1; production port 25 binding lands with real deployment)
   - [ ] Submission (587) with RFC 6409 rewrites (M3)
-- [ ] Queueing: durable queue, retry schedule, 4xx/5xx semantics, bounce generation (DSN)
-- [ ] Outbound delivery: MX resolution, connection pooling, per-destination rate care
+- [x] Queueing: durable queue, retry schedule, 4xx/5xx semantics, bounce generation (DSN)
+  - Deferred to M5: a mixed remote+local envelope holds its remote recipients' bounce until local delivery exists (held, not lost); DSN prose is not yet i18n'd
+- [x] Outbound delivery: MX resolution + delivery, per-pass connection reuse
+  - Deferred (not launch-blocking): cross-pass connection pooling and per-destination concurrency caps — delivery is currently sequential per pass; hardened when volume warrants
 - [ ] STARTTLS + AUTH; TLS enforced on submission
 - [x] Size limits enforced during read; timeouts per RFC 5321
 

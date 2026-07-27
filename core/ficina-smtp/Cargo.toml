@@ -16,6 +16,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # RFC 2822 date-time formatting for Received:/DSN headers.
 jiff = { workspace = true }
+# MX resolution for outbound delivery.
+hickory-resolver = { workspace = true }
 
 [dev-dependencies]
 # Unique temp spool directories for integration tests.

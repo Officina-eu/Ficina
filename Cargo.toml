@@ -16,6 +16,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 jiff = "0.2"
+# Async MX/A/AAAA resolution for outbound delivery (RFC 5321 §5.1).
+# Pinned ≥0.26.1: earlier hickory-proto carries RUSTSEC-2026-0119.
+hickory-resolver = "0.26"
 
 # CLAUDE.md law 2 enforced by the compiler: stubs and swallowed panics
 # cannot merge because they cannot compile under `clippy -D warnings`.

@@ -51,17 +51,20 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 /// resource-exhaustion condition cannot spin the accept loop hot.
 const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
 
-/// Binds the configured address, opens the spool, and serves forever.
+/// Binds the configured address, opens the spool, starts the outbound
+/// queue if enabled, and serves forever.
 ///
 /// # Errors
 /// [`SmtpError::Bind`] when the listener cannot bind,
 /// [`SmtpError::Spool`] when the spool root cannot be prepared; once
 /// running, per-connection failures are logged and never fatal.
 pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
-    let spool = Spool::new(&config.spool_dir).map_err(|source| SmtpError::Spool {
-        path: config.spool_dir.display().to_string(),
-        source,
-    })?;
+    let spool = Arc::new(
+        Spool::new(&config.spool_dir).map_err(|source| SmtpError::Spool {
+            path: config.spool_dir.display().to_string(),
+            source,
+        })?,
+    );
     let listener = TcpListener::bind(config.bind_addr)
         .await
         .map_err(|source| SmtpError::Bind {
@@ -72,9 +75,20 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         addr = %config.bind_addr,
         hostname = %config.hostname,
         spool = %config.spool_dir.display(),
+        outbound = config.outbound.is_some(),
         "ficina-smtp listening"
     );
-    serve(listener, Arc::new(config), Arc::new(spool)).await
+
+    // Outbound queue runs alongside the listener when enabled. When
+    // disabled (the default), messages accumulate in the spool and
+    // nothing relays them — the relay-safety posture (M2 design note).
+    if let Some(outbound) = config.outbound.clone() {
+        crate::queue_runner::spawn(Arc::clone(&spool), config.hostname.clone(), outbound);
+    } else {
+        tracing::warn!("outbound delivery disabled; received mail accumulates in the spool");
+    }
+
+    serve(listener, Arc::new(config), spool).await
 }
 
 /// Accept loop over an already-bound listener (also the seam the

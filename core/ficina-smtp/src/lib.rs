@@ -16,15 +16,22 @@
 //! vocabulary.
 
 pub mod address;
+pub mod backoff;
+pub mod client;
+pub mod client_reply;
 pub mod command;
 pub mod config;
 pub mod data;
+pub mod dsn;
 pub mod envelope;
 pub mod error;
 pub mod healthcheck;
 mod line;
+pub mod queue;
+pub mod queue_runner;
 pub mod received;
 pub mod reply;
+pub mod resolver;
 pub mod server;
 pub mod session;
 pub mod spool;

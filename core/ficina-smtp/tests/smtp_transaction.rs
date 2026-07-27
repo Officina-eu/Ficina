@@ -51,6 +51,7 @@ async fn spawn_local(max_message_size: usize) -> LocalServer {
         max_message_size,
         max_rcpt: 100,
         max_connections: 256,
+        outbound: None,
     });
     let spool = Arc::new(Spool::new(&spool_dir).expect("spool init"));
     tokio::spawn(async move {

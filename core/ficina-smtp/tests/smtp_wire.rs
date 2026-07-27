@@ -43,6 +43,7 @@ async fn target_addr() -> SocketAddr {
         max_message_size: 25 * 1024 * 1024,
         max_rcpt: 100,
         max_connections: 256,
+        outbound: None,
     });
     let spool = Arc::new(ficina_smtp::spool::Spool::new(spool_dir.path()).expect("spool init"));
     tokio::spawn(async move {

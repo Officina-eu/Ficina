@@ -33,3 +33,14 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   expects a Domain/address-literal; we reject control octets with 501 so the
   attacker-controlled greeting can never inject binary into the Received: stamp
   or the spool sidecar. SMTPUTF8 (M3) will widen this to U-labels.
+- 2026-07-27 · **Outbound delivery off by default** · M1 accepts any recipient;
+  turning on relaying before the AUTH gate (M3) would make an exposed instance
+  an open relay. Delivery requires `FICINA_SMTP_OUTBOUND_ENABLED=true`, and a
+  smarthost route is the supported self-hosted mode until MX+AUTH are complete.
+- 2026-07-27 · **Empty MAIL FROM on outbound = null path** · we send
+  `MAIL FROM:<>` for DSNs and never generate a DSN for a message that itself
+  arrived with a null reverse-path (RFC 5321 §4.5.5 loop prevention).
+- 2026-07-27 · **Domainless recipients parked, not delivered** · a bare
+  `<postmaster>` (§4.1.1.3) has no domain to route to; M2 holds such messages
+  in the spool (logged) pending local delivery (M5) rather than dropping or
+  bouncing them.
