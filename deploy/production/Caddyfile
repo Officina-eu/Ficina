@@ -1,0 +1,25 @@
+# Caddy fronts the HTTPS origin for Ficina. It automatically obtains and
+# renews a Let's Encrypt certificate for the domain and reverse-proxies to
+# the internal JMAP + OIDC service (plain HTTP inside the private network).
+#
+# The mail services (SMTP/IMAP) read this same Let's Encrypt certificate
+# from Caddy's storage volume (mounted read-only), so there is one cert for
+# the whole deployment — see docker-compose.yml and README.md.
+
+{
+	# ACME account email for Let's Encrypt expiry notices.
+	email {$ACME_EMAIL}
+}
+
+# The mail + login origin: webmail (Phase 2) and the JMAP API + OIDC
+# provider (login, discovery, JWKS, token, userinfo) all live here.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy ficina-jmap:8080
+}
+
+# MTA-STS policy host (RFC 8461). Publishes the policy the SMTP service
+# renders; senders fetch https://mta-sts.<domain>/.well-known/mta-sts.txt.
+mta-sts.{$DOMAIN} {
+	reverse_proxy ficina-smtp:8461
+}

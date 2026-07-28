@@ -2,7 +2,11 @@
 # compose invokes this as: context ".." dockerfile "core/ficina-smtp/Dockerfile".
 FROM rust:1.90-slim AS build
 WORKDIR /src
+# SQLX_OFFLINE + the checked-in .sqlx query cache let sqlx's compile-time
+# query checks pass without a database at build time.
+ENV SQLX_OFFLINE=true
 COPY Cargo.toml Cargo.lock ./
+COPY .sqlx ./.sqlx
 COPY core ./core
 COPY control ./control
 COPY migrate ./migrate

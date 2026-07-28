@@ -56,7 +56,10 @@ async fn connect() -> Result<Identity, String> {
         std::env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required".to_owned())?;
     let issuer = std::env::var("FICINA_IDENTITY_ISSUER")
         .map_err(|_| "FICINA_IDENTITY_ISSUER is required".to_owned())?;
-    let blob_dir: PathBuf = std::env::var("FICINA_IDENTITY_BLOB_DIR")
+    // Prefer the shared FICINA_BLOB_DIR the services use, so identityctl
+    // runs against the same blob backend inside a deployment container.
+    let blob_dir: PathBuf = std::env::var("FICINA_BLOB_DIR")
+        .or_else(|_| std::env::var("FICINA_IDENTITY_BLOB_DIR"))
         .unwrap_or_else(|_| "./blobs".to_owned())
         .into();
     let blobs = BlobStore::local(&blob_dir, 1024 * 1024)

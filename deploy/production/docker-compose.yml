@@ -1,0 +1,192 @@
+# Ficina — single-server production stack (receive + read + login).
+#
+# This runs the full first-class mail path on ONE host and ONE database:
+#   - ficina-smtp : receive (25) + authenticated submission (587/465) + outbound
+#   - ficina-imap : read mail from any mail app (993 IMAPS, 143 STARTTLS, 995 POP3S)
+#   - ficina-jmap : the native API + the OpenID Connect login provider (behind Caddy)
+#   - postgres    : system of record
+#   - rspamd      : spam scoring at SMTP time (fail-closed)
+#   - caddy       : automatic Let's Encrypt HTTPS for the web/login origin
+#
+# Message bodies live on a shared on-disk volume (`blobs`), so all three
+# Ficina services read and write the same blob store (single-node; a
+# multi-node deployment swaps this for Garage/S3 behind the store's `garage`
+# feature — see docs/decisions/0006).
+#
+# Bring-up and the TLS model are documented in ./README.md. Copy
+# .env.example to .env and fill it in first; .env is gitignored and never
+# holds a real secret in the repo (CLAUDE.md law 1).
+
+name: ficina
+
+networks:
+  ficina:
+
+volumes:
+  pg_data:
+  blobs:
+  smtp_spool:
+  caddy_data:
+  caddy_config:
+
+services:
+  postgres:
+    image: postgres:16.14
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ficina}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ficina}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  rspamd:
+    image: rspamd/rspamd:4.1.2
+    restart: unless-stopped
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/11334'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  ficina-smtp:
+    build:
+      context: ../..
+      dockerfile: core/ficina-smtp/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      rspamd: { condition: service_started }
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
+      FICINA_BLOB_DIR: /var/lib/ficina/blobs
+      FICINA_SMTP_SPOOL_DIR: /var/spool/ficina
+      FICINA_SMTP_ADDR: 0.0.0.0:25
+      FICINA_SMTP_HOSTNAME: ${DOMAIN:?set DOMAIN in .env}
+      FICINA_SMTP_LOCAL_DOMAINS: ${FICINA_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
+      FICINA_SMTP_SUBMISSION_ADDR: 0.0.0.0:587
+      FICINA_SMTP_IMPLICIT_TLS_ADDR: 0.0.0.0:465
+      # Outbound sending: ON in production. Requires LOCAL_DOMAINS (set
+      # above) or startup is refused (anti-open-relay).
+      FICINA_SMTP_OUTBOUND_ENABLED: ${FICINA_SMTP_OUTBOUND_ENABLED:-true}
+      FICINA_SMTP_SMARTHOST: ${FICINA_SMTP_SMARTHOST:-}
+      # Real TLS: point at the Let's Encrypt cert Caddy obtained (read-only
+      # from its storage volume). allow_self_signed stays false so the
+      # server refuses to present an untrusted cert (set true only for a
+      # local test with no public domain — see README).
+      FICINA_SMTP_TLS_CERT: ${FICINA_SMTP_TLS_CERT:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.crt}
+      FICINA_SMTP_TLS_KEY: ${FICINA_SMTP_TLS_KEY:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.key}
+      FICINA_SMTP_ALLOW_SELF_SIGNED: ${FICINA_SMTP_ALLOW_SELF_SIGNED:-false}
+      # DKIM signing (all three together). Publish the public key at
+      # <selector>._domainkey.<domain>. Generate with ./generate-dkim.sh.
+      FICINA_SMTP_DKIM_DOMAIN: ${FICINA_SMTP_DKIM_DOMAIN:-}
+      FICINA_SMTP_DKIM_SELECTOR: ${FICINA_SMTP_DKIM_SELECTOR:-}
+      FICINA_SMTP_DKIM_KEY: ${FICINA_SMTP_DKIM_KEY:-}
+      FICINA_SMTP_DKIM_ALGORITHM: ${FICINA_SMTP_DKIM_ALGORITHM:-rsa}
+      # Spam scoring (fail-closed if unreachable).
+      FICINA_SMTP_RSPAMD_URL: http://rspamd:11333
+      # MTA-STS policy served internally; Caddy fronts mta-sts.<domain>.
+      FICINA_SMTP_MTA_STS_ADDR: 0.0.0.0:8461
+      FICINA_SMTP_MTA_STS_MODE: ${FICINA_SMTP_MTA_STS_MODE:-enforce}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - blobs:/var/lib/ficina/blobs
+      - smtp_spool:/var/spool/ficina
+      - caddy_data:/certs:ro
+      - ${DKIM_KEY_HOST_DIR:-./dkim}:/dkim:ro
+    ports:
+      - "25:25"
+      - "587:587"
+      - "465:465"
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ficina-smtp", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ficina-imap:
+    build:
+      context: ../..
+      dockerfile: core/ficina-imap/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
+      FICINA_BLOB_DIR: /var/lib/ficina/blobs
+      FICINA_IDENTITY_ISSUER: https://${DOMAIN}
+      FICINA_IMAP_HOSTNAME: ${DOMAIN}
+      FICINA_IMAPS_ADDR: 0.0.0.0:993
+      FICINA_IMAP_ADDR: 0.0.0.0:143
+      FICINA_POP3S_ADDR: 0.0.0.0:995
+      FICINA_IMAP_TLS_CERT: ${FICINA_IMAP_TLS_CERT:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.crt}
+      FICINA_IMAP_TLS_KEY: ${FICINA_IMAP_TLS_KEY:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.key}
+      FICINA_IMAP_ALLOW_SELF_SIGNED: ${FICINA_IMAP_ALLOW_SELF_SIGNED:-false}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - blobs:/var/lib/ficina/blobs
+      - caddy_data:/certs:ro
+    ports:
+      - "993:993"
+      - "143:143"
+      - "995:995"
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ficina-imap", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ficina-jmap:
+    build:
+      context: ../..
+      dockerfile: core/ficina-jmap/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
+      FICINA_BLOB_DIR: /var/lib/ficina/blobs
+      # The public HTTPS origin (Caddy terminates TLS and forwards here).
+      FICINA_IDENTITY_ISSUER: https://${DOMAIN}
+      FICINA_JMAP_BASE_URL: https://${DOMAIN}
+      FICINA_JMAP_ADDR: 0.0.0.0:8080
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - blobs:/var/lib/ficina/blobs
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ficina-jmap", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      ficina-jmap: { condition: service_started }
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env for Let's Encrypt}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    networks: [ficina]
