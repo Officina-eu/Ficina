@@ -6,16 +6,19 @@
 #   - ficina-jmap : the native API + the OpenID Connect login provider (behind Caddy)
 #   - postgres    : system of record
 #   - rspamd      : spam scoring at SMTP time (fail-closed)
-#   - caddy       : automatic Let's Encrypt HTTPS for the web/login origin
+#   - caddy       : HTTPS reverse proxy for the web/login origin (port 443)
+#   - certbot     : the dedicated Let's Encrypt helper — obtains + renews ONE
+#                   certificate that Caddy, SMTP and IMAP all read from a
+#                   shared volume at a stable path (/certs/live/<domain>/).
 #
 # Message bodies live on a shared on-disk volume (`blobs`), so all three
 # Ficina services read and write the same blob store (single-node; a
-# multi-node deployment swaps this for Garage/S3 behind the store's `garage`
-# feature — see docs/decisions/0006).
+# multi-node deployment swaps this for Garage/S3 — see docs/decisions/0006).
 #
 # Bring-up and the TLS model are documented in ./README.md. Copy
 # .env.example to .env and fill it in first; .env is gitignored and never
-# holds a real secret in the repo (CLAUDE.md law 1).
+# holds a real secret in the repo (CLAUDE.md law 1). The certificate is
+# obtained once with ./init-certs.sh before the first `up`.
 
 name: ficina
 
@@ -26,8 +29,8 @@ volumes:
   pg_data:
   blobs:
   smtp_spool:
+  certs:
   caddy_data:
-  caddy_config:
 
 services:
   postgres:
@@ -58,6 +61,25 @@ services:
       retries: 5
       start_period: 15s
 
+  # The dedicated ACME helper. Standalone mode: it binds port 80 to answer
+  # Let's Encrypt's HTTP-01 challenge (during the one-off issuance and, later,
+  # during the periodic renewal check when a cert is within 30 days of
+  # expiry). The cert lands in the shared `certs` volume at
+  # /etc/letsencrypt/live/<domain>/, which every other service reads as
+  # /certs/live/<domain>/. First issuance is ./init-certs.sh (run once).
+  certbot:
+    image: certbot/certbot:v3.1.0
+    restart: unless-stopped
+    entrypoint: >
+      sh -c 'trap exit TERM;
+             while :; do certbot renew --standalone --quiet;
+                         sleep 12h & wait $${!}; done'
+    volumes:
+      - certs:/etc/letsencrypt
+    ports:
+      - "80:80"
+    networks: [ficina]
+
   ficina-smtp:
     build:
       context: ../..
@@ -79,12 +101,12 @@ services:
       # above) or startup is refused (anti-open-relay).
       FICINA_SMTP_OUTBOUND_ENABLED: ${FICINA_SMTP_OUTBOUND_ENABLED:-true}
       FICINA_SMTP_SMARTHOST: ${FICINA_SMTP_SMARTHOST:-}
-      # Real TLS: point at the Let's Encrypt cert Caddy obtained (read-only
-      # from its storage volume). allow_self_signed stays false so the
-      # server refuses to present an untrusted cert (set true only for a
-      # local test with no public domain — see README).
-      FICINA_SMTP_TLS_CERT: ${FICINA_SMTP_TLS_CERT:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.crt}
-      FICINA_SMTP_TLS_KEY: ${FICINA_SMTP_TLS_KEY:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.key}
+      # The shared Let's Encrypt certificate (one stable path for every
+      # service). allow_self_signed stays false so the server refuses to
+      # present an untrusted cert (set true only for a local test with no
+      # public domain — see README).
+      FICINA_SMTP_TLS_CERT: ${FICINA_SMTP_TLS_CERT:-/certs/live/${DOMAIN}/fullchain.pem}
+      FICINA_SMTP_TLS_KEY: ${FICINA_SMTP_TLS_KEY:-/certs/live/${DOMAIN}/privkey.pem}
       FICINA_SMTP_ALLOW_SELF_SIGNED: ${FICINA_SMTP_ALLOW_SELF_SIGNED:-false}
       # DKIM signing (all three together). Publish the public key at
       # <selector>._domainkey.<domain>. Generate with ./generate-dkim.sh.
@@ -101,7 +123,7 @@ services:
     volumes:
       - blobs:/var/lib/ficina/blobs
       - smtp_spool:/var/spool/ficina
-      - caddy_data:/certs:ro
+      - certs:/certs:ro
       - ${DKIM_KEY_HOST_DIR:-./dkim}:/dkim:ro
     ports:
       - "25:25"
@@ -130,13 +152,13 @@ services:
       FICINA_IMAPS_ADDR: 0.0.0.0:993
       FICINA_IMAP_ADDR: 0.0.0.0:143
       FICINA_POP3S_ADDR: 0.0.0.0:995
-      FICINA_IMAP_TLS_CERT: ${FICINA_IMAP_TLS_CERT:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.crt}
-      FICINA_IMAP_TLS_KEY: ${FICINA_IMAP_TLS_KEY:-/certs/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.key}
+      FICINA_IMAP_TLS_CERT: ${FICINA_IMAP_TLS_CERT:-/certs/live/${DOMAIN}/fullchain.pem}
+      FICINA_IMAP_TLS_KEY: ${FICINA_IMAP_TLS_KEY:-/certs/live/${DOMAIN}/privkey.pem}
       FICINA_IMAP_ALLOW_SELF_SIGNED: ${FICINA_IMAP_ALLOW_SELF_SIGNED:-false}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - blobs:/var/lib/ficina/blobs
-      - caddy_data:/certs:ro
+      - certs:/certs:ro
     ports:
       - "993:993"
       - "143:143"
@@ -174,6 +196,9 @@ services:
       retries: 3
       start_period: 10s
 
+  # HTTPS for the web/login origin. Caddy does NOT manage certificates here
+  # (auto_https is off in the Caddyfile); it reads the shared certbot cert
+  # from /certs and terminates TLS on 443, forwarding to the JMAP service.
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
@@ -181,12 +206,10 @@ services:
       ficina-jmap: { condition: service_started }
     environment:
       DOMAIN: ${DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env for Let's Encrypt}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certs:/certs:ro
       - caddy_data:/data
-      - caddy_config:/config
     ports:
-      - "80:80"
       - "443:443"
     networks: [ficina]

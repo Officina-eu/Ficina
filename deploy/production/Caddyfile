@@ -1,25 +1,27 @@
-# Caddy fronts the HTTPS origin for Ficina. It automatically obtains and
-# renews a Let's Encrypt certificate for the domain and reverse-proxies to
-# the internal JMAP + OIDC service (plain HTTP inside the private network).
-#
-# The mail services (SMTP/IMAP) read this same Let's Encrypt certificate
-# from Caddy's storage volume (mounted read-only), so there is one cert for
-# the whole deployment — see docker-compose.yml and README.md.
+# Caddy fronts the HTTPS origin for Ficina. It does NOT obtain certificates
+# here — the dedicated `certbot` service obtains and renews one Let's Encrypt
+# certificate into the shared `certs` volume, and every service (Caddy, SMTP,
+# IMAP) reads it from the same stable path /certs/live/<domain>/. Caddy just
+# terminates TLS on 443 and reverse-proxies to the internal JMAP + OIDC
+# service. See docker-compose.yml and README.md.
 
 {
-	# ACME account email for Let's Encrypt expiry notices.
-	email {$ACME_EMAIL}
+	# We manage certificates with certbot, not Caddy's own ACME.
+	auto_https off
 }
 
-# The mail + login origin: webmail (Phase 2) and the JMAP API + OIDC
-# provider (login, discovery, JWKS, token, userinfo) all live here.
-{$DOMAIN} {
+# The mail + login origin: the JMAP API + OIDC provider (login, discovery,
+# JWKS, token, userinfo) — and, later, webmail — all live here.
+https://{$DOMAIN} {
+	tls /certs/live/{$DOMAIN}/fullchain.pem /certs/live/{$DOMAIN}/privkey.pem
 	encode zstd gzip
 	reverse_proxy ficina-jmap:8080
 }
 
-# MTA-STS policy host (RFC 8461). Publishes the policy the SMTP service
-# renders; senders fetch https://mta-sts.<domain>/.well-known/mta-sts.txt.
-mta-sts.{$DOMAIN} {
+# MTA-STS policy host (RFC 8461). Senders fetch
+# https://mta-sts.<domain>/.well-known/mta-sts.txt. Covered by the same
+# certificate (issued with both names as SANs — see init-certs.sh).
+https://mta-sts.{$DOMAIN} {
+	tls /certs/live/{$DOMAIN}/fullchain.pem /certs/live/{$DOMAIN}/privkey.pem
 	reverse_proxy ficina-smtp:8461
 }

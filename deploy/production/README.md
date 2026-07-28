@@ -43,6 +43,8 @@ cp .env.example .env
 ./generate-dkim.sh             # writes dkim/dkim.key and PRINTS the DNS record
 # → add the printed TXT record at fic._domainkey.<your-domain>, then continue.
 
+# DNS for DOMAIN and mta-sts.DOMAIN must already resolve to this server.
+./init-certs.sh                # obtains the Let's Encrypt cert (once)
 docker compose up -d --build   # build the images and start the stack
 ```
 
@@ -84,34 +86,33 @@ docker compose exec ficina-jmap \
   identityctl register-client web "Ficina Web" https://<DOMAIN>/callback
 ```
 
-## ⚠️ TLS certificate model — one decision to confirm
+## TLS certificates
 
-Caddy **automatically obtains and renews** a Let's Encrypt certificate for
-`<DOMAIN>` and terminates HTTPS for the web/login origin — that part is
-fully automatic. The **mail services (SMTP/IMAP) reuse that same
-certificate** by reading it from Caddy's storage volume (mounted read-only
-at `/certs`). This keeps one cert for the whole server. Two consequences to
-be aware of:
+A dedicated `certbot` service obtains and renews **one** Let's Encrypt
+certificate (for `<DOMAIN>` and `mta-sts.<DOMAIN>`) into a shared volume at
+the stable path `/certs/live/<DOMAIN>/`. **Every service reads that same
+path** — Caddy for HTTPS on 443, and the SMTP/IMAP services for their own
+TLS on 465/587/993/995. One certificate, one location, no coupling to any
+proxy's internal storage.
 
-1. **First-boot ordering.** The mail cert only exists after Caddy has
-   obtained it. On the very first `up`, bring Caddy up first (or just wait a
-   minute and `docker compose restart ficina-smtp ficina-imap` once
-   `docker compose logs caddy` shows the certificate obtained).
-2. **Renewal reload.** Caddy renews automatically; the SMTP/IMAP services
-   pick up a renewed cert on restart. A periodic
-   `docker compose restart ficina-smtp ficina-imap` (e.g. a monthly cron) or
-   an automatic reload-on-change is a small follow-up.
+- **First issuance** is `./init-certs.sh`, run once before the first `up`
+  (it uses certbot standalone on port 80, so DNS must already resolve to the
+  server and nothing else may hold port 80 at that moment).
+- **Renewal is automatic:** the `certbot` service runs `certbot renew` on a
+  12-hour loop and only touches port 80 when a cert is within 30 days of
+  expiry. The mail services pick up a renewed cert on their next restart, so
+  a monthly `docker compose restart ficina-smtp ficina-imap` (or a
+  reload-on-change hook) keeps them current — a small operational note, not a
+  blocker.
 
-**This is the one deployment choice worth confirming.** The alternative is a
-dedicated ACME sidecar (certbot/lego) writing a stable cert path that every
-service — including Caddy — reads. Say the word and I'll switch to that; it
-removes the storage-path coupling at the cost of one more container. Either
-way, **the TLS path can only be fully verified against a real public domain**
-(Let's Encrypt won't issue for a private/local name).
+The certificate path can only be exercised for real against a **public
+domain** (Let's Encrypt will not issue for a private/local name) — see the
+local test mode below for laptops.
 
 ## Local test mode (no public domain)
 
-To validate the stack on a laptop without Let's Encrypt, set in `.env`:
+Let's Encrypt cannot issue for a private/local name, so for a laptop smoke
+test skip certbot + Caddy and let the mail services self-sign. In `.env`:
 
 ```sh
 FICINA_SMTP_ALLOW_SELF_SIGNED=true
@@ -122,16 +123,15 @@ FICINA_IMAP_TLS_CERT=
 FICINA_IMAP_TLS_KEY=
 ```
 
-and create `docker-compose.override.yml` making Caddy use its internal CA:
+Then bring up only the core services (no cert needed):
 
-```yaml
-services:
-  caddy:
-    command: ["caddy", "reverse-proxy", "--from", "localhost", "--to", "ficina-jmap:8080"]
+```sh
+docker compose up -d --build postgres rspamd ficina-smtp ficina-imap ficina-jmap
 ```
 
-The services then present self-signed certs (mail apps will warn) — fine for
-a smoke test, never for production.
+The mail services present self-signed certs (mail apps will warn) and the
+JMAP/OIDC API is reachable on its internal port — fine for a smoke test,
+never for production. Do not run `init-certs.sh` locally.
 
 ## How to notice problems, and how to turn it off
 
