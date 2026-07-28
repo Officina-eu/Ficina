@@ -37,6 +37,46 @@ Rule of the file: nothing gets built that isn't listed here, and nothing gets li
 - [3] Email client keyboard-shortcut parity (Gmail-style j/k culture)
 - [3] S/MIME and OpenPGP for the customers who ask
 
+## Outlook toolbar audit — keep / do-better / drop
+
+Outlook's toolbar is a thin core of email actions wrapped in a ring of Microsoft-ecosystem hooks and third-party add-ins. Almost everything we **drop** below is one of those hooks or add-ins — not email — so Ficina's mail toolbar ends up *cleaner* than Outlook's (the daily actions minus the clutter) **plus** the AI actions Outlook lacks (summarize, draft, why-flagged).
+
+**Keep** — core mail actions, table stakes:
+
+| Outlook | Ficina |
+|---|---|
+| Reply · Reply All · Forward | [L] the spine of email — identical |
+| Delete · Archive | [L] daily one-keystroke actions |
+| New Email / New Items | [L] compose |
+| Move | [L] into folders |
+| Flag · Categories / Tags | [L] flags + color categories, multiple per message, filterable |
+| Report junk/phishing | [L] ★ feeds the visible "why was this flagged" banner |
+| Quick Steps | [2] one-click multi-action macros (the power-user retention feature) |
+| Rules | [L] ★ server-side Sieve — stronger than Outlook's client-side rules, runs even when you're offline |
+| Address Book · Search People | [L] from CardDAV contacts |
+| Filter Email | [L] sort/filter the list |
+
+**Do better** — keep the capability; Ficina's version is superior:
+
+| Outlook | Ficina |
+|---|---|
+| New Meeting · Scheduling Poll | [L] Ficina Meet + [2] ★ native meeting polls (kills the Doodle bolt-on) |
+| Translate | [2] ★★ AI-native and EU-hosted — the Belgium differentiator, not an add-in |
+| Read Aloud | [3] accessibility, later tier |
+| Recall | [2] ★ actually works inside a tenant — we own the store, unlike Exchange's famously fake recall |
+
+**Drop** — Microsoft ecosystem tentacles and third-party add-ins; dropping them *removes lock-in*, which is the pitch, not a lost feature:
+
+| Outlook | Why it's gone |
+|---|---|
+| Share to Teams | replaced by "share to Ficina Chat" |
+| Viva Insights | a Microsoft analytics add-in, not our product |
+| TeamViewer | a third-party add-in, never a mail feature |
+| Browse Groups | an M365 Groups construct — our distribution lists + shared mailboxes cover the real need |
+| All Apps | the Microsoft app-grid launcher, irrelevant to a focused workspace |
+
+This table doubles as the answer to a prospect asking "where's feature X?" — every row is kept, done better, or deliberately dropped to cut a lock-in tentacle.
+
 ## Agenda
 
 - [L] Personal + shared calendars, free/busy, invitations (iTIP/iMIP)
