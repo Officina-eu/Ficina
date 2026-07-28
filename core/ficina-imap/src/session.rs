@@ -406,9 +406,9 @@ impl Session {
     }
 
     async fn try_login(&mut self, tag: &str, user: &str, pass: &str) -> std::io::Result<()> {
-        // Legacy-protocol password auth (no interactive 2FA — see the
-        // app-password seam in docs/design/identity.md).
-        match self.identity.authenticate_password(user, pass).await {
+        // Legacy-protocol auth: fails closed for 2FA accounts (they must use
+        // the OIDC flow), with per-username backoff. See docs/design/identity.md.
+        match self.identity.authenticate_legacy(user, pass).await {
             Ok(Some(principal)) => {
                 let acc = self.store.for_account(principal.tenant, principal.user);
                 // Guarantee INBOX exists (RFC 9051 §5.1 — INBOX is always

@@ -104,6 +104,63 @@ dogfood; must-close before broad multi-tenant / self-service exposure):**
   authenticated identity is still deferred (see item 2 above) — it needs
   the group/alias permission model this milestone ships the data for.
 
+## ficina-identity audit — second pass (deployment-readiness)
+
+A fresh, independent security audit + cold review before considering
+internet exposure found gaps the first pass missed. **Fixed in this pass:**
+
+- **Swallowed revocation `Result`s (review blocker).** Five `let _ =
+  …revoke…` calls discarded store errors on the RFC 6749 §10.4 replay
+  defense and the RFC 7009 `/oauth/revoke` path — a failed revoke reported
+  success while tokens stayed live. Now: a detected replay whose chain
+  revocation fails returns `server_error` (fail closed) and logs a
+  SOC-alertable `warn`; `/oauth/revoke` returns `503` on a store fault
+  rather than a false `200`.
+- **Legacy 2FA bypass (audit HIGH).** `authenticate_password` (used by
+  IMAP/POP3/SMTP) did no second-factor check, so a TOTP user still had a
+  password-only mailbox over those protocols. New `authenticate_legacy`
+  **fails closed** for a TOTP-enabled account (indistinguishable refusal)
+  and is wired into all three protocols; ADR 0008 + design note updated.
+- **No per-account backoff on legacy protocols (audit MEDIUM).**
+  `authenticate_legacy` now applies per-username exponential backoff across
+  connections (on top of the per-connection caps).
+- **OIDC signing key not provisioned on the server path (review).**
+  `jmap::serve` now calls the idempotent `ensure_signing_key()` at startup
+  (fail-fast), so a deployment no longer serves a broken `/oauth/jwks` or
+  fails to sign ID tokens without an out-of-band CLI step.
+- **JWKS loaded private seed material (audit LOW).** A dedicated
+  `public_signing_keys()` query feeds the JWKS; private seeds never transit
+  the public-key path.
+- **No OAuth-boundary instrumentation (review).** Structured `tracing`
+  events (no secrets) on auth failure, replay detection, and revoke.
+- **Client-lookup / credential store faults masked as client/credential
+  rejections (review nit).** A DB fault now returns `server_error` and does
+  not record a rate-limit strike against the user.
+- **`secret_hash` contract trap (review).** Documented at the store field
+  that confidential-client secrets are stored-but-not-verified (public PKCE
+  clients only) until confidential-client support lands.
+
+**Still deferred with rationale (must-close before broad multi-tenant /
+self-service / third-party-client exposure; not blocking a founder
+dogfood):**
+
+- **JMAP does not enforce token scope (audit MEDIUM).** `state::authenticate`
+  grants any valid access token full mailbox access regardless of scope.
+  Contained today because only first-party full-scope public clients are
+  registered; a concrete `mail` scope check must land **before** any
+  reduced-scope or third-party client is registered.
+- **Automatic rehash-on-login (audit LOW).** ADR 0008 mentions transparent
+  rehash when argon2 params are raised; not implemented. Params are fixed at
+  deploy, so the divergence (and the dummy-hash timing skew) does not arise
+  on a single fresh deployment; implement before changing params on a live
+  system.
+- **TOTP per-time-step single-use** and the earlier deferrals (email_verified
+  flag, argon2 → `spawn_blocking`, key-at-rest KMS, global email/alias
+  uniqueness, send-as) remain as recorded above.
+- **IdP transport invariant.** `/oauth/authorize` accepts a password POST and
+  relies on the front TLS proxy; the deployment must terminate TLS and set
+  HSTS in front of it (a Stage-3 deployment invariant, not app code).
+
 ## Doc drift fixed
 
 - The design note listed `ENHANCEDSTATUSCODES` among advertised EHLO

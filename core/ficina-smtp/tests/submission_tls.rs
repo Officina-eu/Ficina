@@ -34,46 +34,66 @@ fn database_url() -> String {
         .unwrap_or_else(|_| "postgres://ficina:ficina-dev-only@127.0.0.1:5432/ficina".to_owned())
 }
 
-/// A process-shared identity backed by the real Postgres store, with the
-/// fixed credential the tests use (`alice@ficina.test` / `s3cret`)
-/// provisioned once and idempotently — the login username has a global
-/// unique index, so every test in this file shares one user rather than
-/// racing to create it.
-static ENV: OnceCell<Identity> = OnceCell::const_new();
+/// A **fast** argon2 config for these tests. Production-strength argon2id
+/// (19 MiB, t=2) in a debug build takes seconds per hash, which under the
+/// tests' 10s socket timeout makes AUTH flaky. The AUTH *behaviour* under
+/// test (reply codes, the failure cap, the RFC 6409 fixups) is
+/// param-independent — argon2 strength itself is proven in
+/// `ficina-identity`'s own tests — so we hash cheaply here.
+fn fast_config() -> IdentityConfig {
+    let mut c = IdentityConfig::new("https://id.test");
+    c.argon2_m_kib = 8;
+    c.argon2_t = 1;
+    c.argon2_p = 1;
+    c
+}
 
-async fn submission_identity() -> Identity {
-    ENV.get_or_init(|| async {
-        let store = Arc::new(
-            Store::connect(&database_url(), BlobStore::in_memory(25 * 1024 * 1024))
-                .await
-                .unwrap(),
-        );
-        store.migrate().await.unwrap();
-        let identity =
-            Identity::new(Arc::clone(&store), IdentityConfig::new("https://id.test")).unwrap();
-        // Idempotent provisioning: reuse the credential if a previous run
-        // already created it (it persists in the shared database).
-        if identity
-            .authenticate_password("alice@ficina.test", "s3cret")
-            .await
-            .unwrap()
-            .is_none()
-        {
-            let tenant = store.create_tenant("submission-tls").await.unwrap();
-            let user = store
-                .for_tenant(tenant.clone())
-                .create_user("alice@ficina.test")
-                .await
-                .unwrap();
+/// A process-shared store with the fixed test credential
+/// (`alice@ficina.test` / `s3cret`) provisioned once — the login username
+/// has a global unique index, so the tests share one user rather than
+/// racing to create it. The password is (re)hashed with [`fast_config`]
+/// every process start so a hash left by an earlier run at production cost
+/// cannot slow verification.
+static STORE: OnceCell<Arc<Store>> = OnceCell::const_new();
+
+async fn shared_store() -> Arc<Store> {
+    STORE
+        .get_or_init(|| async {
+            let store = Arc::new(
+                Store::connect(&database_url(), BlobStore::in_memory(25 * 1024 * 1024))
+                    .await
+                    .unwrap(),
+            );
+            store.migrate().await.unwrap();
+            let identity = Identity::new(Arc::clone(&store), fast_config()).unwrap();
+            // Reuse the existing alice (the username is globally unique) or
+            // create her; then always reset the password with fast params.
+            let (tenant, user) = match store.account_by_email("alice@ficina.test").await.unwrap() {
+                Some(existing) => existing,
+                None => {
+                    let tenant = store.create_tenant("submission-tls").await.unwrap();
+                    let user = store
+                        .for_tenant(tenant.clone())
+                        .create_user("alice@ficina.test")
+                        .await
+                        .unwrap();
+                    (tenant, user)
+                }
+            };
             identity
                 .set_password(&tenant, &user, "alice@ficina.test", "s3cret")
                 .await
                 .unwrap();
-        }
-        identity
-    })
-    .await
-    .clone()
+            store
+        })
+        .await
+        .clone()
+}
+
+/// A **fresh** identity over the shared store for each listener — its own
+/// rate limiter, so tests never couple through per-username backoff state.
+async fn submission_identity() -> Identity {
+    Identity::new(shared_store().await, fast_config()).unwrap()
 }
 
 /// Spawns a submission (STARTTLS) listener with the shared credential

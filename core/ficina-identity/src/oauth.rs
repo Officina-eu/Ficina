@@ -96,9 +96,17 @@ struct AuthorizeForm {
 
 async fn authorize(State(id): State<Identity>, Form(f): Form<AuthorizeForm>) -> Response {
     // 1. The client and redirect URI are validated *before* any redirect,
-    // so we never bounce a credential or an error to an unvetted URI.
-    let Ok(Some(client)) = id.store().oauth_client(&f.client_id).await else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_client", "unknown client");
+    // so we never bounce a credential or an error to an unvetted URI. A
+    // store fault is a server_error, distinct from an unknown client.
+    let client = match id.store().oauth_client(&f.client_id).await {
+        Ok(Some(client)) => client,
+        Ok(None) => {
+            return oauth_error(StatusCode::BAD_REQUEST, "invalid_client", "unknown client");
+        }
+        Err(error) => {
+            tracing::error!(%error, "oauth/authorize: client lookup failed");
+            return server_error();
+        }
     };
     if !client.redirect_uris.iter().any(|u| u == &f.redirect_uri) {
         return oauth_error(
@@ -123,13 +131,25 @@ async fn authorize(State(id): State<Identity>, Form(f): Form<AuthorizeForm>) -> 
     if let Some(wait) = id.rate_limiter().retry_after(&rl_key) {
         return too_many_requests(wait.as_secs());
     }
-    let Ok(Some(principal)) = id.authenticate_password(&f.username, &f.password).await else {
-        id.rate_limiter().record_failure(&rl_key);
-        return oauth_error(
-            StatusCode::UNAUTHORIZED,
-            "access_denied",
-            "invalid credentials",
-        );
+    let principal = match id.authenticate_password(&f.username, &f.password).await {
+        Ok(Some(principal)) => principal,
+        Ok(None) => {
+            id.rate_limiter().record_failure(&rl_key);
+            // Login is personal data (Law 1): username at debug only.
+            tracing::debug!(client = %f.client_id, user = %f.username, "oauth/authorize: bad credentials");
+            tracing::info!(client = %f.client_id, "oauth/authorize: authentication failed");
+            return oauth_error(
+                StatusCode::UNAUTHORIZED,
+                "access_denied",
+                "invalid credentials",
+            );
+        }
+        Err(error) => {
+            // A store fault is not a credential rejection: don't penalize
+            // the user with a rate-limit strike for our outage.
+            tracing::error!(%error, "oauth/authorize: credential lookup failed");
+            return server_error();
+        }
     };
     // A tenant-scoped client may only be used by that tenant's users; a
     // deployment-wide client (NULL tenant) is usable by everyone.
@@ -237,11 +257,19 @@ async fn token_auth_code(id: &Identity, f: &TokenForm) -> Response {
             user,
             client_id: cid,
         }) => {
-            // A reused code: revoke anything minted for that (user, client).
-            let _ = id
+            // A reused code is a replay (RFC 6749 §10.4): revoke everything
+            // minted for that (user, client) and refuse. If the revoke
+            // itself fails we fail closed (server_error), never reporting a
+            // safety action we did not complete.
+            tracing::warn!(client = %cid, "oauth/token: authorization code replay detected; revoking token chain");
+            if let Err(error) = id
                 .store()
                 .revoke_user_client_tokens(&tenant, &user, &cid)
-                .await;
+                .await
+            {
+                tracing::error!(%error, "oauth/token: chain revocation on code replay FAILED");
+                return server_error();
+            }
             return invalid_grant("authorization code already used");
         }
         Ok(AuthCodeOutcome::NotFound) => return invalid_grant("unknown or expired code"),
@@ -278,12 +306,18 @@ async fn token_refresh(id: &Identity, f: &TokenForm) -> Response {
         Ok(None) => return invalid_grant("unknown refresh token"),
         Err(_) => return server_error(),
     };
-    // Reuse of a spent (rotated) token is a replay → revoke the chain.
+    // Reuse of a spent (rotated) token is a replay → revoke the chain,
+    // failing closed if the revoke itself errors.
     if row.rotated_to.is_some() {
-        let _ = id
+        tracing::warn!(client = %row.client_id, "oauth/token: refresh-token replay detected; revoking token chain");
+        if let Err(error) = id
             .store()
             .revoke_user_client_tokens(&row.tenant, &row.user, &row.client_id)
-            .await;
+            .await
+        {
+            tracing::error!(%error, "oauth/token: chain revocation on refresh replay FAILED");
+            return server_error();
+        }
         return invalid_grant("refresh token already used");
     }
     if row.revoked_at.is_some() || row.expires_at <= OffsetDateTime::now_utc() {
@@ -316,10 +350,15 @@ async fn token_refresh(id: &Identity, f: &TokenForm) -> Response {
     {
         Ok(true) => {}
         Ok(false) => {
-            let _ = id
+            tracing::warn!(client = %row.client_id, "oauth/token: concurrent refresh-token reuse; revoking token chain");
+            if let Err(error) = id
                 .store()
                 .revoke_user_client_tokens(&row.tenant, &row.user, &row.client_id)
-                .await;
+                .await
+            {
+                tracing::error!(%error, "oauth/token: chain revocation on refresh race FAILED");
+                return server_error();
+            }
             return invalid_grant("refresh token already used");
         }
         Err(_) => return server_error(),
@@ -471,13 +510,29 @@ struct RevokeForm {
 }
 
 async fn revoke(State(id): State<Identity>, Form(f): Form<RevokeForm>) -> Response {
-    // RFC 7009: always 200, whether or not the token was valid. Revoke on
-    // both stores unless the hint pins one (a wrong hint still succeeds).
-    if f.token_type_hint != "refresh_token" {
-        let _ = id.revoke_access_token(&f.token).await;
+    // RFC 7009: 200 whether or not the token was valid — but only once the
+    // revoke has actually run. A store fault must NOT report success (that
+    // would tell a user "logged out" when the token is still live); RFC 7009
+    // §2.2.1 permits a 503 in that case so the client retries.
+    let mut store_failed = false;
+    if f.token_type_hint != "refresh_token"
+        && let Err(error) = id.revoke_access_token(&f.token).await
+    {
+        tracing::warn!(%error, "oauth/revoke: access-token revocation failed");
+        store_failed = true;
     }
-    if f.token_type_hint != "access_token" {
-        let _ = id.revoke_refresh_token(&f.token).await;
+    if f.token_type_hint != "access_token"
+        && let Err(error) = id.revoke_refresh_token(&f.token).await
+    {
+        tracing::warn!(%error, "oauth/revoke: refresh-token revocation failed");
+        store_failed = true;
+    }
+    if store_failed {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "temporarily_unavailable" })),
+        )
+            .into_response();
     }
     StatusCode::OK.into_response()
 }

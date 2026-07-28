@@ -146,7 +146,9 @@ impl Pop3Session {
         let Some(user) = self.pending_user.take() else {
             return self.send("-ERR USER first\r\n").await;
         };
-        match self.identity.authenticate_password(&user, pass).await {
+        // Legacy-protocol auth: fails closed for 2FA accounts, per-username
+        // backoff (see docs/design/identity.md).
+        match self.identity.authenticate_legacy(&user, pass).await {
             Ok(Some(principal)) => {
                 let acc = self.store.for_account(principal.tenant, principal.user);
                 let inbox = match acc.inbox().await {

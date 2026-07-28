@@ -710,11 +710,11 @@ async fn do_auth(
         write_reply(conn, &Reply::auth_failed()).await?;
         return Ok(false);
     };
-    // Legacy-protocol password auth (no interactive 2FA — app-specific
-    // passwords are the follow-up, see docs/design/identity.md). The verify
-    // is constant-time and closes the user-existence timing oracle.
+    // Legacy-protocol auth: constant-time verify, fails closed for 2FA
+    // accounts (they must use the OIDC flow), with per-username backoff on
+    // top of the per-connection cap. See docs/design/identity.md.
     match identity
-        .authenticate_password(&credentials.username, &credentials.password)
+        .authenticate_legacy(&credentials.username, &credentials.password)
         .await
     {
         Ok(Some(_principal)) => {

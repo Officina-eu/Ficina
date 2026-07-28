@@ -299,9 +299,18 @@ async fn groups_are_tenant_scoped() {
 }
 
 #[tokio::test]
-async fn password_login_enforces_2fa_but_legacy_password_auth_does_not() {
+async fn two_factor_is_enforced_on_every_token_issuing_and_legacy_path() {
     let (store, id) = setup().await;
     let u = make_user(&store, &id, "2fa-gate").await;
+
+    // Before 2FA, legacy auth (IMAP/SMTP path) accepts the password.
+    assert!(
+        id.authenticate_legacy(&u.email, &u.password)
+            .await
+            .unwrap()
+            .is_some(),
+        "legacy auth works before 2FA is enabled"
+    );
 
     // Enroll + confirm TOTP.
     let e = id.enroll_totp(&u.tenant, &u.user, &u.email).await.unwrap();
@@ -324,12 +333,15 @@ async fn password_login_enforces_2fa_but_legacy_password_auth_does_not() {
             .is_some()
     );
 
-    // Legacy-protocol password auth (SMTP/IMAP) still accepts the password
-    // alone — the documented interim until app-specific passwords.
+    // Legacy protocols (SMTP/IMAP/POP3) FAIL CLOSED for a 2FA account: a
+    // bare password can't carry the second factor, so it is refused —
+    // indistinguishably from a wrong password (no oracle). The user must use
+    // the OIDC flow. This closes the "2FA bypassable over IMAP/SMTP" gap.
     assert!(
-        id.authenticate_password(&u.email, &u.password)
+        id.authenticate_legacy(&u.email, &u.password)
             .await
             .unwrap()
-            .is_some()
+            .is_none(),
+        "legacy auth must refuse a 2FA-enabled account (fail closed)"
     );
 }

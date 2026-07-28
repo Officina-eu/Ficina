@@ -170,6 +170,58 @@ impl Identity {
         }
     }
 
+    /// Authenticates a legacy mail protocol (SMTP AUTH, IMAP/POP3 `LOGIN`)
+    /// where there is nowhere to prompt for a second factor. On top of
+    /// [`Identity::authenticate_password`] it adds two protections the bare
+    /// password check lacks:
+    ///
+    /// - **Fail closed for 2FA accounts.** A basic-auth exchange cannot
+    ///   carry a TOTP code, so if the account has TOTP **enabled** this
+    ///   refuses (returns `None`, indistinguishable from a wrong password —
+    ///   no oracle). Such a user must authenticate via the OIDC flow (or, in
+    ///   future, an app-specific password). This closes the "2FA is
+    ///   bypassable over IMAP/SMTP" gap rather than leaving it to a
+    ///   deployment note.
+    /// - **Per-username backoff across connections.** The protocols already
+    ///   cap failures per connection; this adds a shared exponential backoff
+    ///   keyed on the username so an attacker rotating TCP connections is
+    ///   still throttled. A correct-password 2FA refusal is *not* counted as
+    ///   a failure (the user is not guessing).
+    ///
+    /// # Errors
+    /// [`IdentityError::Store`] on a persistence failure.
+    pub async fn authenticate_legacy(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<Principal>> {
+        let key = format!("legacy|{username}");
+        if self.rate.retry_after(&key).is_some() {
+            // Backed off: an indistinguishable failure (no lockout oracle).
+            return Ok(None);
+        }
+        match self.authenticate_password(username, password).await? {
+            Some(principal) => {
+                if self
+                    .totp_enabled(&principal.tenant, &principal.user)
+                    .await?
+                {
+                    tracing::info!(
+                        "legacy auth refused: account has 2FA enabled — use the OIDC flow or an app password"
+                    );
+                    // Correct password, but policy-refused: no failure strike.
+                    return Ok(None);
+                }
+                self.rate.record_success(&key);
+                Ok(Some(principal))
+            }
+            None => {
+                self.rate.record_failure(&key);
+                Ok(None)
+            }
+        }
+    }
+
     /// Sets (or replaces) a user's password, argon2id-hashing it here — the
     /// store only ever holds the PHC string.
     ///

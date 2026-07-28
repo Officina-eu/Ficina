@@ -30,8 +30,8 @@ pub use changes::Changes;
 pub use error::{Result, StoreError};
 pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 pub use identity::{
-    AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, RefreshTokenRow,
-    SigningKeyRow, TotpRow,
+    AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
+    RefreshTokenRow, SigningKeyRow, TotpRow,
 };
 pub use model::{
     Blob, EmailFilter, EmailQuery, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection,

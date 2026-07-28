@@ -32,14 +32,20 @@ contracts.
   opaque user id, never the email (ADR 0008 explains opaque-vs-JWT and
   EdDSA-vs-RS256). **TOTP 2FA** (RFC 6238) adds enrollment (provisioning
   URI), verification with a clock-drift window, and single-use recovery
-  codes; it is enforced on the OIDC browser flow. Credential endpoints have
-  per-`(client, username)` exponential backoff (not a lockout, which would
-  be a denial-of-service lever). Reviewed + security-audited; cross-tenant
-  **and** cross-account isolation is tested on every identity operation.
-  App-specific passwords + `XOAUTH2` for 2FA users on legacy IMAP/SMTP
-  clients are the sanctioned follow-up (interim: the account password works
-  on legacy protocols, 2FA gates the browser flow). See
-  `docs/design/identity.md` and `docs/decisions/0008-identity-and-token-model.md`.
+  codes. **2FA is enforced everywhere it can be:** the OIDC flow prompts for
+  the code, and the legacy protocols (IMAP/POP3/SMTP), which cannot prompt,
+  **fail closed** for a TOTP-enabled account — a password-only login is
+  refused (indistinguishably from a wrong password) so a phished password
+  cannot bypass 2FA over IMAP. Credential endpoints — including the legacy
+  ones — have per-`(client, )username` exponential backoff (not a lockout,
+  which would be a denial-of-service lever). Reviewed + security-audited
+  (two independent passes); cross-tenant **and** cross-account isolation is
+  tested on every identity operation, and the OAuth flow's negative cases
+  (wrong PKCE verifier, code/refresh replay → chain revoke, unregistered
+  redirect, bad credentials) are covered. App-specific passwords + `XOAUTH2`
+  are the sanctioned follow-up that lets a 2FA user drive a non-OAuth legacy
+  client again. See `docs/design/identity.md` and
+  `docs/decisions/0008-identity-and-token-model.md`.
 
 - New: **inbound local delivery** — received mail now files into the account
   store with **Sieve at the boundary**, closing the SMTP → mailbox path

@@ -112,6 +112,12 @@ pub struct OAuthClient {
     pub redirect_uris: Vec<String>,
     /// The argon2 hash of the client secret, or `None` for a public
     /// (PKCE-only) client.
+    ///
+    /// **Not yet enforced:** the token endpoint currently authenticates
+    /// clients by PKCE only (`token_endpoint_auth_methods_supported:
+    /// ["none"]`). This field is reserved for confidential-client support;
+    /// until that lands, a non-`None` secret is stored but never checked.
+    /// Recorded in `docs/design/security-audit-followups.md`.
     pub secret_hash: Option<String>,
 }
 
@@ -132,6 +138,17 @@ pub struct SigningKeyRow {
     pub algorithm: String,
     /// The private key material.
     pub private_key: Vec<u8>,
+    /// The public key material.
+    pub public_key: Vec<u8>,
+}
+
+/// A signing key's **public** half only — for the JWKS, which must never
+/// load private seed material into memory.
+pub struct PublicKeyRow {
+    /// The key id.
+    pub kid: String,
+    /// The signing algorithm (`EdDSA`).
+    pub algorithm: String,
     /// The public key material.
     pub public_key: Vec<u8>,
 }
@@ -434,6 +451,28 @@ impl Store {
                 kid: r.kid,
                 algorithm: r.algorithm,
                 private_key: r.private_key,
+                public_key: r.public_key,
+            })
+            .collect())
+    }
+
+    /// The **public** halves of all non-retired signing keys, for the JWKS.
+    /// Never loads private seed material. Deployment-global.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on a database failure.
+    pub async fn public_signing_keys(&self) -> Result<Vec<PublicKeyRow>> {
+        let rows = sqlx::query!(
+            "SELECT kid, algorithm, public_key FROM signing_keys \
+             WHERE retired_at IS NULL ORDER BY created_at DESC"
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| PublicKeyRow {
+                kid: r.kid,
+                algorithm: r.algorithm,
                 public_key: r.public_key,
             })
             .collect())

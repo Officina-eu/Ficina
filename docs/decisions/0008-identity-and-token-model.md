@@ -71,9 +71,16 @@ documented as non-public.
 and the scope/claims set are a **public contract** from merge — additive
 changes only (CLAUDE.md "contracts outlive code"). `sub` is the opaque
 stable `UserId`, never the email. The argon2id parameters are a documented
-contract (a stored PHC hash is self-describing, so raising them is
-backward-compatible with transparent rehash-on-login). App-specific
-passwords and `XOAUTH2` on submission — how a 2FA user drives a legacy
-IMAP/SMTP client — are the sanctioned cut seam; the interim is
-account-password-on-legacy, TOTP enforced on the browser flow. See
-`docs/design/identity.md`.
+contract (a stored PHC hash is self-describing, so raising them stays
+backward-compatible; automatic rehash-on-login is a recorded follow-up —
+see `docs/design/security-audit-followups.md`, not yet implemented).
+
+**Legacy protocols fail closed for 2FA accounts.** A basic-auth exchange
+(IMAP/POP3 `LOGIN`, SMTP AUTH) cannot carry a TOTP code, so rather than
+silently accept a password-only login and give a 2FA user a false sense of
+protection, a TOTP-enabled account is **refused** on those protocols
+(indistinguishably from a wrong password — no oracle) and must use the OIDC
+flow. App-specific passwords / `XOAUTH2` on submission — which would let a
+2FA user drive a legacy client again — are the sanctioned cut seam that
+re-opens that door safely. A non-2FA account authenticates normally over
+legacy protocols. See `docs/design/identity.md`.

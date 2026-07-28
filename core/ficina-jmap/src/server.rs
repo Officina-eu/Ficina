@@ -86,11 +86,18 @@ async fn token(
     }
 }
 
-/// Binds `addr` and serves the JMAP API until shutdown.
+/// Binds `addr` and serves the JMAP API (with the OIDC provider) until
+/// shutdown. Provisions an ID-token signing key first (idempotent), so the
+/// mounted `/oauth/jwks` and token-signing paths work without an
+/// out-of-band CLI step — failing fast with a clear message if it cannot.
 ///
 /// # Errors
-/// I/O errors binding or serving.
+/// I/O errors binding or serving; a startup error if the signing key cannot
+/// be provisioned.
 pub async fn serve(addr: SocketAddr, state: AppState) -> std::io::Result<()> {
+    state.identity.ensure_signing_key().await.map_err(|error| {
+        std::io::Error::other(format!("could not provision OIDC signing key: {error}"))
+    })?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "ficina-jmap listening");
     axum::serve(listener, app(state)).await

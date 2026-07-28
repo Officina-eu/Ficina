@@ -92,12 +92,13 @@ impl Identity {
         })
     }
 
-    /// Renders the JWKS document (all non-retired public keys).
+    /// Renders the JWKS document (all non-retired public keys). Loads only
+    /// public key material — never the private seed (L2 hardening).
     ///
     /// # Errors
     /// [`IdentityError::Store`] on a persistence failure.
     pub async fn jwks(&self) -> Result<serde_json::Value> {
-        let keys = self.store().signing_keys().await?;
+        let keys = self.store().public_signing_keys().await?;
         let jwks: Vec<serde_json::Value> = keys
             .into_iter()
             .map(|k| {

@@ -217,18 +217,24 @@ lock a victim out. Recorded in the note as the deliberate choice.
 ### 2FA on legacy protocols — the app-password seam
 
 TOTP is interactive; SMTP/IMAP/POP3 AUTH is a single password exchange
-with nowhere to prompt for a code. The clean answer is **app-specific
-passwords**: a 2FA user mints a per-client random password that legacy
-clients use in place of their account password, bypassing the TOTP
-prompt while staying revocable. **App-specific passwords are the
-approved cut seam** for this milestone. **Interim answer for
-dogfooding (named, per scope):** TOTP is enforced on the **OIDC/browser
-flow**; legacy IMAP/SMTP/POP3 continue to accept the **account
-password** for a 2FA-enabled user (2FA is a browser-flow control until
-app passwords land). OAuth-capable desktop clients (Thunderbird supports
-OAuth2/`XOAUTH2`) use the OIDC flow and get TOTP; the founder's
-Thunderbird in the exit gate can use either. This is a common, documented
-posture; the follow-up is app passwords + `XOAUTH2` SASL on submission.
+with nowhere to prompt for a code. Rather than silently accept a
+password-only login for a 2FA account — which would give the user a false
+sense of protection and let a phished password read their mail over IMAP —
+**the legacy protocols fail closed**: `authenticate_legacy` refuses a
+TOTP-enabled account (returning the same indistinguishable failure as a
+wrong password — no oracle) and the user must authenticate via the OIDC
+flow. A non-2FA account authenticates normally. The same method adds a
+**per-username backoff across connections** on top of the per-connection
+failure caps (a correct-password 2FA refusal is not counted as a failure,
+so a legitimate 2FA user is never locked out by trying their password).
+
+**App-specific passwords / `XOAUTH2`** are the sanctioned cut seam that
+re-opens legacy clients to 2FA users: a per-client random password that
+carries no interactive step but stays revocable. OAuth-capable desktop
+clients (Thunderbird supports `XOAUTH2`) already work today via the OIDC
+flow; the founder's Thunderbird in the exit gate uses that. The follow-up
+is app passwords + `XOAUTH2` SASL on submission so a 2FA user can also use
+a non-OAuth client.
 
 ## Tenancy
 
