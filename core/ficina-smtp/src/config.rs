@@ -1,6 +1,5 @@
 //! Runtime configuration for the SMTP service, read from environment.
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -43,10 +42,6 @@ pub const ENV_IMPLICIT_TLS_ADDR: &str = "FICINA_SMTP_IMPLICIT_TLS_ADDR";
 pub const ENV_TLS_CERT: &str = "FICINA_SMTP_TLS_CERT";
 /// Environment variable for the TLS private-key PEM path.
 pub const ENV_TLS_KEY: &str = "FICINA_SMTP_TLS_KEY";
-/// Environment variable for the submission credentials file (dev
-/// bootstrap for AUTH; replaced by ficina-identity in M9). One
-/// `username:password` per line.
-pub const ENV_CREDENTIALS_FILE: &str = "FICINA_SMTP_CREDENTIALS_FILE";
 /// Environment variable listing the domains this server hosts
 /// (comma-separated). The MX anti-open-relay guard: only these
 /// domains' recipients are accepted on port 25.
@@ -141,9 +136,6 @@ pub struct SmtpConfig {
     /// TLS certificate + key PEM paths. `None` generates a self-signed
     /// certificate at startup (development only).
     pub tls: Option<TlsPaths>,
-    /// Submission credentials file (dev AUTH bootstrap). `None` means
-    /// no credentials — submission AUTH always fails (a safe default).
-    pub credentials_file: Option<PathBuf>,
     /// Hosted domains (lowercased) for the MX anti-open-relay guard.
     /// Empty accepts all recipients (development); a non-empty list is
     /// required before outbound delivery may be enabled.
@@ -313,11 +305,6 @@ impl SmtpConfig {
             );
         }
 
-        let credentials_file = match std::env::var(ENV_CREDENTIALS_FILE) {
-            Ok(path) if !path.is_empty() => Some(PathBuf::from(path)),
-            _ => None,
-        };
-
         let local_domains: Vec<String> = std::env::var(ENV_LOCAL_DOMAINS)
             .unwrap_or_default()
             .split(',')
@@ -377,7 +364,6 @@ impl SmtpConfig {
             submission_addr,
             implicit_tls_addr,
             tls,
-            credentials_file,
             local_domains,
             allow_self_signed,
             dkim,
@@ -543,27 +529,6 @@ fn env_usize(name: &str, default: usize) -> Result<usize, SmtpError> {
     }
 }
 
-/// Warns when the credentials file is group/world-readable (Unix),
-/// since it holds plaintext dev passwords. No-op on Windows.
-fn warn_if_world_readable(path: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(path)
-            && meta.permissions().mode() & 0o077 != 0
-        {
-            tracing::warn!(
-                path = %path.display(),
-                "credentials file is group/world-accessible; restrict to 0600"
-            );
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-    }
-}
-
 /// Parses an optional socket-address env var.
 fn env_addr(name: &str) -> Result<Option<SocketAddr>, SmtpError> {
     match std::env::var(name) {
@@ -572,36 +537,6 @@ fn env_addr(name: &str) -> Result<Option<SocketAddr>, SmtpError> {
         }),
         _ => Ok(None),
     }
-}
-
-/// Loads submission credentials from a `username:password`-per-line
-/// file (the dev AUTH bootstrap, replaced by ficina-identity in M9).
-/// Blank lines and `#` comments are ignored.
-///
-/// # Errors
-/// [`SmtpError::Config`] when the file cannot be read or a line is
-/// malformed (no colon).
-pub fn load_credentials(path: &std::path::Path) -> Result<HashMap<String, String>, SmtpError> {
-    warn_if_world_readable(path);
-    let contents = std::fs::read_to_string(path).map_err(|error| SmtpError::Config {
-        message: format!("reading credentials file {}: {error}", path.display()),
-    })?;
-    let mut map = HashMap::new();
-    for (lineno, line) in contents.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let (user, pass) = line.split_once(':').ok_or_else(|| SmtpError::Config {
-            message: format!(
-                "credentials file {} line {}: expected username:password",
-                path.display(),
-                lineno + 1
-            ),
-        })?;
-        map.insert(user.to_owned(), pass.to_owned());
-    }
-    Ok(map)
 }
 
 #[cfg(test)]

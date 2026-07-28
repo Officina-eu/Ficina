@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
+use ficina_identity::Identity;
 use ficina_store::{AccountStore, Store, TenantId, UserId};
 
 use crate::error::Problem;
@@ -14,6 +15,8 @@ use crate::push::PushHub;
 pub struct AppState {
     /// The message store (system handle).
     pub store: Arc<Store>,
+    /// The credential authority — resolves bearer tokens to accounts.
+    pub identity: Identity,
     /// Per-tenant push fan-out for EventSource.
     pub push: PushHub,
     /// Advertised, enforced limits.
@@ -77,22 +80,29 @@ impl Account {
     }
 }
 
-/// Resolves the `Authorization: Bearer` token to an [`Account`] via the
-/// store. The tenant is taken from the token, never the request.
+/// Resolves the `Authorization: Bearer` token to an [`Account`] via
+/// `ficina-identity`. The tenant is taken from the token, never the
+/// request. A revoked or expired token resolves to `unauthorized`.
 ///
 /// # Errors
-/// [`Problem::unauthorized`] when the token is missing/invalid;
+/// [`Problem::unauthorized`] when the token is missing/invalid/revoked;
 /// [`Problem::server_error`] on a store failure.
 pub async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Account, Problem> {
     let token = bearer_token(headers).ok_or_else(Problem::unauthorized)?;
-    let (tenant, user) = state
-        .store
-        .resolve_token(&token)
+    let principal = state
+        .identity
+        .resolve_access_token(&token)
         .await
         .map_err(|_| Problem::server_error())?
         .ok_or_else(Problem::unauthorized)?;
-    let acc = state.store.for_account(tenant.clone(), user.clone());
-    Ok(Account { tenant, user, acc })
+    let acc = state
+        .store
+        .for_account(principal.tenant.clone(), principal.user.clone());
+    Ok(Account {
+        tenant: principal.tenant,
+        user: principal.user,
+        acc,
+    })
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<String> {

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tenant_id, user_id FROM api_tokens WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > now())",
+  "query": "SELECT tenant_id, user_id, password_hash FROM credentials WHERE username = $1",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "user_id",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "password_hash",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
+      false,
       false
     ]
   },
-  "hash": "f382136cfee7adbcad86a4b501f2833905e018f0c84c94ccd880d74e767f819f"
+  "hash": "63979d7b03e65b40f341cdae48c0ea20cb541f36ab36c15d6aca6537cdc71510"
 }

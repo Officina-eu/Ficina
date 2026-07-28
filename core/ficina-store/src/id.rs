@@ -103,6 +103,10 @@ opaque_id!(
     UserId
 );
 opaque_id!(
+    /// A group (a named membership set) within a tenant.
+    GroupId
+);
+opaque_id!(
     /// A mailbox.
     MailboxId
 );

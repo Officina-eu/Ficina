@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use ficina_identity::{Identity, IdentityConfig};
 use ficina_store::{BlobStore, Store};
 
 #[tokio::main]
@@ -18,18 +19,26 @@ async fn main() {
             .expect("connect"),
     );
     store.migrate().await.expect("migrate");
+    let identity = Identity::new(
+        Arc::clone(&store),
+        IdentityConfig::new("http://127.0.0.1:8090"),
+    )
+    .expect("identity");
 
     let email = "demo@ficina.test";
-    if store
-        .issue_token(email, "demo-pass")
+    if identity
+        .password_login(email, "demo-pass", None)
         .await
-        .expect("issue")
+        .expect("login")
         .is_none()
     {
         let tenant = store.create_tenant("demo").await.unwrap();
         let ts = store.for_tenant(tenant.clone());
         let user = ts.create_user(email).await.unwrap();
-        ts.set_credentials(&user, email, "demo-pass").await.unwrap();
+        identity
+            .set_password(&tenant, &user, email, "demo-pass")
+            .await
+            .unwrap();
         let acc = store.for_account(tenant, user);
         acc.deliver(
             b"From: Alice <alice@example.com>\r\nTo: demo@ficina.test\r\n\
@@ -41,7 +50,7 @@ async fn main() {
     }
 
     let addr = "127.0.0.1:8090".parse().unwrap();
-    let state = ficina_jmap::app_state(Arc::clone(&store), "http://127.0.0.1:8090");
+    let state = ficina_jmap::app_state(Arc::clone(&store), identity, "http://127.0.0.1:8090");
     println!("ficina-jmap demo on http://127.0.0.1:8090 (demo@ficina.test / demo-pass)");
     ficina_jmap::serve(addr, state).await.unwrap();
 }

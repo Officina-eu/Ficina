@@ -309,3 +309,34 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   RFC 3834 guard set and per-correspondent `:days` suppression. A per-account
   vacation-send budget and alias-aware self checks are recorded follow-ups (the
   vacation path is 1:1 with no amplification and its outbound is M5-deferred).
+
+## Identity / OIDC (ficina-identity)
+
+- 2026-07-28 · **`/oauth/authorize` is POST-only (credential submission), not
+  a browser `GET`** · the first-party web app renders its own login page and
+  POSTs `username`/`password`(/`otp`) plus the OAuth parameters; the endpoint
+  validates the client + exact `redirect_uri` before any redirect, then 303s
+  back with the code. A third-party RP that does the classic browser `GET`
+  redirect to `authorization_endpoint` gets `405` until a GET consent/login
+  render lands (Phase-2 webmail). Recorded because discovery advertises the
+  endpoint and the "trust Ficina as your IdP" goal implies external RPs.
+- 2026-07-28 · **ID tokens are signed EdDSA (Ed25519), never RS256** · the
+  JWKS publishes `{"kty":"OKP","crv":"Ed25519","alg":"EdDSA"}` and discovery
+  advertises `id_token_signing_alg_values_supported:["EdDSA"]`. An RP whose
+  JWT library is RS256-only cannot verify our ID tokens — a deliberate cost
+  to stay on the audited pure-Rust `ring`/`dalek` stack and avoid the `rsa`
+  crate's Marvin vulnerability (RUSTSEC-2023-0071). RS256 is additive to the
+  JWKS later if a customer's RP needs it (ADR 0008).
+- 2026-07-28 · **Access tokens are opaque and revocable, not self-validating
+  JWTs** · a resource server cannot verify an access token offline; it calls
+  `/oauth/userinfo` (or resolves via the store). This is what makes logout /
+  `/oauth/revoke` actually invalidate a token immediately (verified on the
+  wire: revoke → `200`, next userinfo → `401`). The **ID token** is the JWT an
+  RP verifies against the JWKS.
+- 2026-07-28 · **2FA is enforced on the OIDC/browser flow, not on legacy
+  IMAP/SMTP/POP3** · those single-exchange AUTH protocols cannot prompt for a
+  TOTP code, so a 2FA-enabled user authenticates them with the account
+  password (the documented interim); app-specific passwords + `XOAUTH2` are
+  the follow-up. Wrong credentials are refused constant-time with no
+  user-existence oracle (IMAP `[AUTHENTICATIONFAILED]`, SMTP `535`, OAuth
+  `access_denied` — never distinguishing unknown-user from wrong-password).

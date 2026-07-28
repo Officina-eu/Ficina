@@ -8,10 +8,16 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use ficina_identity::{Identity, IdentityConfig};
 use ficina_store::{AccountStore, BlobStore, Store, TenantStore, UserId};
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
+
+/// Builds a test `Identity` over a store handle (a fixed dev issuer).
+pub fn test_identity(store: Arc<Store>) -> Identity {
+    Identity::new(store, IdentityConfig::new("https://id.test")).expect("identity")
+}
 
 pub fn database_url() -> String {
     std::env::var("DATABASE_URL")
@@ -24,6 +30,7 @@ pub struct Harness {
     pub account_id: String,
     pub email: String,
     pub store: Arc<Store>,
+    pub identity: Identity,
     pub ts: TenantStore,
     pub acc: AccountStore,
     pub user: UserId,
@@ -45,23 +52,32 @@ pub async fn harness(tag: &str) -> Harness {
     let email = format!("{tag}-{tenant}@example.test");
     let ts = store.for_tenant(tenant.clone());
     let user = ts.create_user(&email).await.unwrap();
-    ts.set_credentials(&user, &email, "s3cret-pw")
+    let identity = test_identity(Arc::clone(&store));
+    identity
+        .set_password(&tenant, &user, &email, "s3cret-pw")
         .await
         .unwrap();
     let acc = store.for_account(tenant, user.clone());
-    let token = store
-        .issue_token(&email, "s3cret-pw")
+    let token = identity
+        .password_login(&email, "s3cret-pw", None)
         .await
         .unwrap()
         .expect("token issued")
-        .token;
-    let app = ficina_jmap::app(ficina_jmap::app_state(Arc::clone(&store), "http://test"));
+        .0
+        .reveal()
+        .to_owned();
+    let app = ficina_jmap::app(ficina_jmap::app_state(
+        Arc::clone(&store),
+        identity.clone(),
+        "http://test",
+    ));
     Harness {
         app,
         token,
         account_id: user.to_string(),
         email,
         store,
+        identity,
         ts,
         acc,
         user,

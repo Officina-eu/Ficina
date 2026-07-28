@@ -6,6 +6,41 @@ contracts.
 
 ## Unreleased
 
+- New: **`ficina-identity`** — the credential authority and an **OpenID
+  Connect / OAuth 2.0 provider** (Ficina-as-IdP). It replaces every interim
+  auth path: SMTP AUTH, IMAP/POP3 `LOGIN`, and the JMAP bearer now
+  authenticate through one crate, and the dev `StaticAuthenticator`, the
+  store's interim `auth.rs`, and the SMTP credentials-file loader are
+  **deleted**. Passwords are **argon2id** (OWASP-baseline parameters,
+  documented as a contract and overridable per deployment); **every secret
+  comparison is constant-time** (the `subtle` crate), and an unknown user
+  still pays one argon2 hash so *wrong password* and *no such user* are
+  indistinguishable in time — closing the timing oracle the M3 TLS audit
+  pinned here (proven by a timing test, not asserted: unknown-vs-wrong
+  ratio ≈ 1.0). Tokens and recovery codes are stored only as SHA-256
+  hashes; secrets never appear in a log, error, or `Debug`. The identity
+  model is **tenants → users → aliases + groups**; `account_by_email`
+  (inbound routing) is **alias-aware**; a tenant's first admin is created
+  by the `identityctl` **CLI**, never a public endpoint. The **OAuth
+  provider** offers discovery (RFC 8414), a JWKS, `authorization_code` with
+  **mandatory PKCE `S256`** (RFC 6749/7636 — `plain` and challenge-less
+  codes refused), and token / userinfo / revocation (RFC 7009). **Access
+  tokens are opaque and revocable** (a logout truly invalidates); refresh
+  tokens rotate on use and a replayed refresh token **revokes the whole
+  token chain**; authorization codes are single-use. **ID tokens are EdDSA
+  (Ed25519) JWTs** with `kid` rotation designed in — `sub` is the stable
+  opaque user id, never the email (ADR 0008 explains opaque-vs-JWT and
+  EdDSA-vs-RS256). **TOTP 2FA** (RFC 6238) adds enrollment (provisioning
+  URI), verification with a clock-drift window, and single-use recovery
+  codes; it is enforced on the OIDC browser flow. Credential endpoints have
+  per-`(client, username)` exponential backoff (not a lockout, which would
+  be a denial-of-service lever). Reviewed + security-audited; cross-tenant
+  **and** cross-account isolation is tested on every identity operation.
+  App-specific passwords + `XOAUTH2` for 2FA users on legacy IMAP/SMTP
+  clients are the sanctioned follow-up (interim: the account password works
+  on legacy protocols, 2FA gates the browser flow). See
+  `docs/design/identity.md` and `docs/decisions/0008-identity-and-token-model.md`.
+
 - New: **inbound local delivery** — received mail now files into the account
   store with **Sieve at the boundary**, closing the SMTP → mailbox path
   (previously inbound mail terminated at a spool). On the MX role with a

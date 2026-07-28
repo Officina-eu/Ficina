@@ -8,19 +8,20 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use ficina_smtp::auth::StaticAuthenticator;
+use ficina_identity::{Identity, IdentityConfig};
 use ficina_smtp::server::{self, Runtime};
 use ficina_smtp::spool::Spool;
 use ficina_smtp::tls;
+use ficina_store::{BlobStore, Store};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::sync::OnceCell;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{self, ClientConfig};
@@ -28,7 +29,54 @@ use tokio_rustls::rustls::{self, ClientConfig};
 const HOSTNAME: &str = "mx.ficina.test";
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Spawns a submission (STARTTLS) listener with one known credential
+fn database_url() -> String {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://ficina:ficina-dev-only@127.0.0.1:5432/ficina".to_owned())
+}
+
+/// A process-shared identity backed by the real Postgres store, with the
+/// fixed credential the tests use (`alice@ficina.test` / `s3cret`)
+/// provisioned once and idempotently — the login username has a global
+/// unique index, so every test in this file shares one user rather than
+/// racing to create it.
+static ENV: OnceCell<Identity> = OnceCell::const_new();
+
+async fn submission_identity() -> Identity {
+    ENV.get_or_init(|| async {
+        let store = Arc::new(
+            Store::connect(&database_url(), BlobStore::in_memory(25 * 1024 * 1024))
+                .await
+                .unwrap(),
+        );
+        store.migrate().await.unwrap();
+        let identity =
+            Identity::new(Arc::clone(&store), IdentityConfig::new("https://id.test")).unwrap();
+        // Idempotent provisioning: reuse the credential if a previous run
+        // already created it (it persists in the shared database).
+        if identity
+            .authenticate_password("alice@ficina.test", "s3cret")
+            .await
+            .unwrap()
+            .is_none()
+        {
+            let tenant = store.create_tenant("submission-tls").await.unwrap();
+            let user = store
+                .for_tenant(tenant.clone())
+                .create_user("alice@ficina.test")
+                .await
+                .unwrap();
+            identity
+                .set_password(&tenant, &user, "alice@ficina.test", "s3cret")
+                .await
+                .unwrap();
+        }
+        identity
+    })
+    .await
+    .clone()
+}
+
+/// Spawns a submission (STARTTLS) listener with the shared credential
 /// (`alice@ficina.test` / `s3cret`) and returns its address + spool.
 async fn spawn_submission() -> (SocketAddr, Arc<Spool>, tempfile::TempDir) {
     spawn_submission_mode(false).await
@@ -37,19 +85,17 @@ async fn spawn_submission() -> (SocketAddr, Arc<Spool>, tempfile::TempDir) {
 /// `implicit_tls = true` gives port-465 semantics (TLS from the first
 /// byte); `false` is STARTTLS on 587.
 async fn spawn_submission_mode(implicit_tls: bool) -> (SocketAddr, Arc<Spool>, tempfile::TempDir) {
+    let identity = submission_identity().await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let spool = Arc::new(Spool::new(dir.path()).unwrap());
     let acceptor = Arc::new(tls::build_acceptor(None, None, HOSTNAME, true).unwrap());
-    let mut creds = HashMap::new();
-    creds.insert("alice@ficina.test".to_owned(), "s3cret".to_owned());
-    let authenticator = Arc::new(StaticAuthenticator::new(creds));
     let runtime = Arc::new(Runtime::submission(
         HOSTNAME,
         Arc::clone(&spool),
         acceptor,
-        authenticator,
+        Some(identity),
         implicit_tls,
         25 * 1024 * 1024,
         100,

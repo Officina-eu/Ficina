@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/ficina-smtp", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "core/ficina-imap", "core/ficina-sieve", "control", "migrate"]
+members = ["core/ficina-smtp", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "core/ficina-imap", "core/ficina-sieve", "core/ficina-identity", "control", "migrate"]
 
 [workspace.package]
 version = "0.0.1"
@@ -40,6 +40,10 @@ ring = "0.17"
 ed25519-dalek = { version = "2", features = ["pkcs8", "rand_core"] }
 sha2 = "0.10"
 zeroize = "1"
+# Auditable constant-time byte comparison for ficina-identity's secret and
+# token-hash checks (ring's own helper is deprecated as "no side-channel
+# promises"). `subtle` is the canonical, purpose-built primitive.
+subtle = "2"
 # Public-suffix list for DMARC organizational-domain discovery
 # (RFC 7489 §3.2); the crate embeds a compiled list (no runtime fetch).
 psl = "2"
@@ -54,8 +58,8 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 time = { version = "0.3", default-features = false, features = ["std", "parsing", "formatting"] }
 object_store = { version = "0.11", default-features = false }
 bytes = "1"
-# Interim JMAP bearer auth (until ficina-identity): argon2 password
-# hashing. Replaced by OIDC-issued tokens later; see docs/design/jmap-api.md.
+# ficina-identity: argon2id password hashing (the credential authority).
+# See docs/design/identity.md and docs/decisions/0008.
 argon2 = "0.5"
 # ficina-jmap: the JMAP HTTP service (RFC 8620/8621). axum over hyper
 # (already in-tree) for routing, JSON, and Server-Sent-Events push;

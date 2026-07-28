@@ -39,14 +39,11 @@ async fn target_addr() -> SocketAddr {
     let acceptor = Arc::new(
         ficina_smtp::tls::build_acceptor(None, None, TEST_HOSTNAME, true).expect("tls acceptor"),
     );
-    let authenticator = Arc::new(ficina_smtp::auth::StaticAuthenticator::new(
-        std::collections::HashMap::new(),
-    ));
     let runtime = Arc::new(server::Runtime::mx(
         TEST_HOSTNAME,
         spool,
         acceptor,
-        authenticator,
+        None,
         25 * 1024 * 1024,
         100,
         256,

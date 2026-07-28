@@ -142,8 +142,15 @@ async fn cross_account_and_cross_tenant_isolation() {
     let (ea, eb) = (format!("a-{tenant}@x.test"), format!("b-{tenant}@x.test"));
     let ua = ts.create_user(&ea).await.unwrap();
     let ub = ts.create_user(&eb).await.unwrap();
-    ts.set_credentials(&ua, &ea, "pw").await.unwrap();
-    ts.set_credentials(&ub, &eb, "pw").await.unwrap();
+    let identity = common::test_identity(store.clone());
+    identity
+        .set_password(&tenant, &ua, &ea, "pw")
+        .await
+        .unwrap();
+    identity
+        .set_password(&tenant, &ub, &eb, "pw")
+        .await
+        .unwrap();
     deliver(&store, &tenant, &ua, &message("ALICE-SECRET", "alice body")).await;
     deliver(&store, &tenant, &ub, &message("BOB-SECRET", "bob body")).await;
     // B also has a custom folder A must never reach.

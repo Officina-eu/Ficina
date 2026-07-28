@@ -1,25 +1,30 @@
 //! SMTP authentication (RFC 4954) for the submission path: the SASL
-//! PLAIN and LOGIN mechanisms and a pluggable credential backend.
-//!
-//! The [`Authenticator`] trait is the seam that `ficina-identity` (M9)
-//! implements; for now [`StaticAuthenticator`] validates against a
-//! configured credential map. Passwords never appear in logs or
-//! errors — only the resolved identity (a username) is ever surfaced.
-
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
+//! PLAIN and LOGIN mechanisms and their wire decoding. Credential
+//! **verification** is `ficina-identity`'s job — the submission path calls
+//! `Identity::authenticate_password`, which is constant-time and closes the
+//! user-existence timing oracle. Passwords never appear in logs or errors;
+//! only the resolved login name is surfaced (at debug).
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
 /// A successfully authenticated identity. Carries the login name; the
-/// tenant/user mapping is added when `ficina-identity` (M9) and the
-/// store (M5) land.
+/// resolved `(tenant, user)` lives in `ficina-identity`'s `Principal`.
+/// Binding the envelope sender to this identity (send-as) is deferred —
+/// see `docs/design/tls-and-submission.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthIdentity {
     /// The authenticated login name (an address or bare username).
     pub username: String,
+}
+
+impl AuthIdentity {
+    /// An identity for a verified login name.
+    pub fn new(username: impl Into<String>) -> Self {
+        Self {
+            username: username.into(),
+        }
+    }
 }
 
 /// Decoded SASL credentials from a client.
@@ -41,45 +46,6 @@ impl std::fmt::Debug for Credentials {
             .field("username", &self.username)
             .field("password", &"<redacted>")
             .finish()
-    }
-}
-
-/// Boxed future alias for the object-safe async verify method.
-pub type VerifyFuture<'a> = Pin<Box<dyn Future<Output = Option<AuthIdentity>> + Send + 'a>>;
-
-/// Validates credentials. Returns the identity on success, `None` on
-/// any failure (wrong password, unknown user) — callers must not
-/// distinguish the two to the client (anti-enumeration, RFC 4954).
-pub trait Authenticator: Send + Sync {
-    /// Verifies `credentials`, resolving to an identity or `None`.
-    fn verify<'a>(&'a self, credentials: &'a Credentials) -> VerifyFuture<'a>;
-}
-
-/// Config-backed authenticator: an in-memory username→password map.
-/// A development/bootstrap backend replaced by `ficina-identity` (M9).
-pub struct StaticAuthenticator {
-    credentials: HashMap<String, String>,
-}
-
-impl StaticAuthenticator {
-    /// Builds from a username→password map.
-    pub fn new(credentials: HashMap<String, String>) -> Self {
-        Self { credentials }
-    }
-}
-
-impl Authenticator for StaticAuthenticator {
-    fn verify<'a>(&'a self, credentials: &'a Credentials) -> VerifyFuture<'a> {
-        Box::pin(async move {
-            // Constant-ish comparison is overkill for the dev backend;
-            // M9's real backend does argon2 verification.
-            match self.credentials.get(&credentials.username) {
-                Some(expected) if expected == &credentials.password => Some(AuthIdentity {
-                    username: credentials.username.clone(),
-                }),
-                _ => None,
-            }
-        })
     }
 }
 
@@ -220,43 +186,5 @@ mod tests {
     fn login_field_round_trips() {
         assert_eq!(decode_login_field(&b64("alice")).unwrap(), "alice");
         assert_eq!(decode_login_field("!!!").unwrap_err(), SaslError::BadBase64);
-    }
-
-    #[tokio::test]
-    async fn static_authenticator_verifies_and_rejects() {
-        let mut map = HashMap::new();
-        map.insert("alice@ficina.test".to_owned(), "correct-horse".to_owned());
-        let auth = StaticAuthenticator::new(map);
-
-        let ok = auth
-            .verify(&Credentials {
-                username: "alice@ficina.test".to_owned(),
-                password: "correct-horse".to_owned(),
-            })
-            .await;
-        assert_eq!(
-            ok,
-            Some(AuthIdentity {
-                username: "alice@ficina.test".to_owned()
-            })
-        );
-
-        // Wrong password and unknown user both yield None (no distinction).
-        assert!(
-            auth.verify(&Credentials {
-                username: "alice@ficina.test".to_owned(),
-                password: "wrong".to_owned(),
-            })
-            .await
-            .is_none()
-        );
-        assert!(
-            auth.verify(&Credentials {
-                username: "mallory@ficina.test".to_owned(),
-                password: "whatever".to_owned(),
-            })
-            .await
-            .is_none()
-        );
     }
 }

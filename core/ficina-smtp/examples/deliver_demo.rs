@@ -30,12 +30,10 @@ async fn main() {
     let user = ts.create_user(&email).await.unwrap();
     store.for_account(tenant, user).inbox().await.unwrap();
 
-    let spool = Arc::new(Spool::new(std::env::temp_dir().join("ficina-deliver-demo-spool")).unwrap());
+    let spool =
+        Arc::new(Spool::new(std::env::temp_dir().join("ficina-deliver-demo-spool")).unwrap());
     let acceptor =
         Arc::new(ficina_smtp::tls::build_acceptor(None, None, "mx.ficina.test", true).unwrap());
-    let authenticator = Arc::new(ficina_smtp::auth::StaticAuthenticator::new(
-        std::collections::HashMap::new(),
-    ));
     let local = Arc::new(LocalDelivery::from_store(
         store,
         spool.clone(),
@@ -46,7 +44,7 @@ async fn main() {
             "mx.ficina.test",
             spool,
             acceptor,
-            authenticator,
+            None,
             25 * 1024 * 1024,
             100,
             256,
@@ -55,7 +53,9 @@ async fn main() {
         .with_local_delivery(Some(local)),
     );
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:2526").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:2526")
+        .await
+        .unwrap();
     println!("DEMO_EMAIL={email}");
     println!("DEMO_ADDR=127.0.0.1:2526");
     println!("READY");

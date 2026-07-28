@@ -114,66 +114,55 @@ impl Store {
         }
     }
 
-    /// Interim auth: verifies a username/password (global login key) and
-    /// issues a bearer token. `None` on any mismatch. See
-    /// [`crate::auth`].
-    ///
-    /// # Errors
-    /// [`StoreError::Crypto`]/[`StoreError::Db`] on failure.
-    pub async fn issue_token(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<Option<crate::auth::IssuedToken>> {
-        crate::auth::issue_token(&self.pool, username, password).await
-    }
-
-    /// Interim auth: resolves a bearer token to `(tenant, user)`. The
-    /// tenant claim comes from here, never from a request body.
-    ///
-    /// # Errors
-    /// [`StoreError::Db`] on failure.
-    pub async fn resolve_token(&self, token: &str) -> Result<Option<(TenantId, UserId)>> {
-        crate::auth::resolve_token(&self.pool, token).await
-    }
-
-    /// Interim auth for stateful protocols (IMAP/POP3 `LOGIN`): verifies a
-    /// username/password and resolves it to `(tenant, user)` without
-    /// issuing a bearer token. `None` on any mismatch. See [`crate::auth`].
-    ///
-    /// # Errors
-    /// [`StoreError::Db`] on failure.
-    pub async fn verify_login(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<Option<(TenantId, UserId)>> {
-        crate::auth::verify_login(&self.pool, username, password).await
+    /// The connection pool, for the identity-persistence module
+    /// ([`crate::identity`]) which lives in a sibling file (Law 3).
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
     }
 
     /// Resolves a recipient email address to its `(tenant, user)` for local
-    /// delivery. `None` if no account has that address. (Email is globally
-    /// unique in a deployment; if two tenants ever share one, this returns
-    /// no account rather than guessing — an ambiguity to resolve in
-    /// provisioning.)
+    /// delivery, checking canonical user addresses **and** aliases
+    /// (`ficina-identity`). `None` if no account has that address, or if it
+    /// is ambiguous. Email/alias addresses are globally unique in a
+    /// deployment; on the impossible event that an address maps to more than
+    /// one account, this returns no account rather than guessing — inbound
+    /// routing never picks a mailbox by chance.
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
     pub async fn account_by_email(&self, email: &str) -> Result<Option<(TenantId, UserId)>> {
-        let rows = sqlx::query!(
+        // Canonical user addresses take precedence over aliases. `LIMIT 2`
+        // detects ambiguity (a cross-tenant email collision → refuse rather
+        // than guess) without scanning the whole set.
+        let users = sqlx::query!(
             "SELECT tenant_id, id FROM users WHERE lower(email) = lower($1) LIMIT 2",
             email
         )
         .fetch_all(&self.pool)
         .await?;
-        if rows.len() == 1 {
-            Ok(Some((
-                TenantId::new(rows[0].tenant_id.clone()),
-                UserId::new(rows[0].id.clone()),
-            )))
-        } else {
-            Ok(None)
+        if users.len() == 1 {
+            return Ok(Some((
+                TenantId::new(users[0].tenant_id.clone()),
+                UserId::new(users[0].id.clone()),
+            )));
         }
+        if !users.is_empty() {
+            return Ok(None); // ambiguous canonical match — refuse
+        }
+        // No canonical user; try an alias (its address is globally unique).
+        let aliases = sqlx::query!(
+            "SELECT tenant_id, user_id FROM aliases WHERE address = lower($1) LIMIT 2",
+            email
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        if aliases.len() == 1 {
+            return Ok(Some((
+                TenantId::new(aliases[0].tenant_id.clone()),
+                UserId::new(aliases[0].user_id.clone()),
+            )));
+        }
+        Ok(None)
     }
 }
 
@@ -193,9 +182,15 @@ impl TenantStore {
         &self.tenant
     }
 
+    /// The connection pool, for the identity-persistence module
+    /// ([`crate::identity`]) which lives in a sibling file (Law 3).
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     /// Confirms a user exists in this tenant; `NotFound` otherwise. Guards
     /// the provisioning paths that take a user id.
-    async fn assert_user(&self, user: &UserId) -> Result<()> {
+    pub(crate) async fn assert_user(&self, user: &UserId) -> Result<()> {
         sqlx::query!(
             "SELECT 1 AS one FROM users WHERE tenant_id = $1 AND id = $2",
             self.tenant.as_str(),
@@ -240,19 +235,5 @@ impl TenantStore {
         .await?
         .ok_or(StoreError::NotFound)?;
         Ok(UserId::new(row.id))
-    }
-
-    /// Sets a user's interim login credentials.
-    ///
-    /// # Errors
-    /// [`StoreError::Crypto`]/[`StoreError::Db`] on failure.
-    pub async fn set_credentials(
-        &self,
-        user: &UserId,
-        username: &str,
-        password: &str,
-    ) -> Result<()> {
-        self.assert_user(user).await?;
-        crate::auth::set_credentials(&self.pool, &self.tenant, user, username, password).await
     }
 }

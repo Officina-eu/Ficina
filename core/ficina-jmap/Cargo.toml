@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 ficina-store = { path = "../ficina-store" }
 ficina-sieve = { path = "../ficina-sieve" }
+ficina-identity = { path = "../ficina-identity" }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

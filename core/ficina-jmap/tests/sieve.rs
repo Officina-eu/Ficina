@@ -170,14 +170,19 @@ async fn scripts_are_isolated_across_accounts_in_one_tenant() {
     // A second user B in the SAME tenant with its own token.
     let email_b = format!("b-{}@example.test", h.user);
     let ub = h.ts.create_user(&email_b).await.unwrap();
-    h.ts.set_credentials(&ub, &email_b, "pw-b").await.unwrap();
+    h.identity
+        .set_password(h.ts.tenant(), &ub, &email_b, "pw-b")
+        .await
+        .unwrap();
     let token_b = h
-        .store
-        .issue_token(&email_b, "pw-b")
+        .identity
+        .password_login(&email_b, "pw-b", None)
         .await
         .unwrap()
         .unwrap()
-        .token;
+        .0
+        .reveal()
+        .to_owned();
     let account_b = ub.to_string();
 
     // B's SieveScript/get returns nothing — A's script is invisible.

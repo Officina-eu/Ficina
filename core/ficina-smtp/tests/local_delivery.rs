@@ -47,9 +47,6 @@ async fn spawn(store: Arc<Store>) -> Harness {
     let spool = Arc::new(Spool::new(dir.path()).unwrap());
     let acceptor =
         Arc::new(ficina_smtp::tls::build_acceptor(None, None, HOSTNAME, true).expect("tls"));
-    let authenticator = Arc::new(ficina_smtp::auth::StaticAuthenticator::new(
-        std::collections::HashMap::new(),
-    ));
     let local = Arc::new(LocalDelivery::from_store(
         store.clone(),
         spool.clone(),
@@ -60,7 +57,7 @@ async fn spawn(store: Arc<Store>) -> Harness {
             HOSTNAME,
             spool.clone(),
             acceptor,
-            authenticator,
+            None,
             25 * 1024 * 1024,
             100,
             256,

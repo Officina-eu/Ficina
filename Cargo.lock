@@ -580,11 +580,34 @@ name = "ficina-control"
 version = "0.0.1"
 
 [[package]]
+name = "ficina-identity"
+version = "0.0.1"
+dependencies = [
+ "argon2",
+ "axum",
+ "base64",
+ "ed25519-dalek",
+ "ficina-store",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "ficina-imap"
 version = "0.0.1"
 dependencies = [
  "base64",
  "bytes",
+ "ficina-identity",
  "ficina-store",
  "rcgen",
  "rustls",
@@ -604,6 +627,7 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "bytes",
+ "ficina-identity",
  "ficina-sieve",
  "ficina-store",
  "futures",
@@ -634,6 +658,7 @@ version = "0.0.1"
 dependencies = [
  "base64",
  "ficina-auth-mail",
+ "ficina-identity",
  "ficina-sieve",
  "ficina-store",
  "hickory-resolver",

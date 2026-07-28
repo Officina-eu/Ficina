@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use ficina_identity::Identity;
 use ficina_store::Store;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
@@ -36,7 +37,7 @@ pub use stream::ImapStream;
 /// # Errors
 /// [`ImapError`] if a TLS acceptor cannot be built or a listener cannot
 /// bind.
-pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
+pub async fn serve(cfg: Config, store: Arc<Store>, identity: Identity) -> Result<()> {
     let cfg = Arc::new(cfg);
     let needs_tls = cfg.imaps_addr.is_some() || cfg.pop3s_addr.is_some() || cfg.imap_addr.is_some();
     let acceptor = if needs_tls {
@@ -58,6 +59,7 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
             l,
             cfg.clone(),
             store.clone(),
+            identity.clone(),
             acceptor.clone(),
             true,
         )));
@@ -69,6 +71,7 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
             l,
             cfg.clone(),
             store.clone(),
+            identity.clone(),
             acceptor.clone(),
             false,
         )));
@@ -77,9 +80,9 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
         let l = TcpListener::bind(addr).await?;
         tracing::info!(%addr, "POP3 implicit-TLS listener up");
         let acceptor = acceptor.clone();
-        let (cfg, store) = (cfg.clone(), store.clone());
+        let (cfg, store, identity) = (cfg.clone(), store.clone(), identity.clone());
         tasks.push(tokio::spawn(async move {
-            pop3::accept(l, cfg, store, acceptor).await
+            pop3::accept(l, cfg, store, identity, acceptor).await
         }));
     }
     for t in tasks {
@@ -95,6 +98,7 @@ async fn accept_imap(
     listener: TcpListener,
     cfg: Arc<Config>,
     store: Arc<Store>,
+    identity: Identity,
     acceptor: Option<TlsAcceptor>,
     implicit_tls: bool,
 ) {
@@ -108,6 +112,7 @@ async fn accept_imap(
         };
         let cfg = cfg.clone();
         let store = store.clone();
+        let identity = identity.clone();
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
             let stream = if implicit_tls {
@@ -126,7 +131,7 @@ async fn accept_imap(
             };
             // STARTTLS is only offered on the cleartext listener.
             let starttls = if implicit_tls { None } else { acceptor };
-            let session = Session::new(stream, cfg, store, starttls);
+            let session = Session::new(stream, cfg, store, identity, starttls);
             if let Err(e) = session.run().await {
                 tracing::debug!(%peer, error = %e, "IMAP session ended");
             }

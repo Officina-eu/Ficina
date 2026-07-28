@@ -5,11 +5,12 @@
 //! every surface changes additively forever (see
 //! `docs/design/jmap-api.md`).
 //!
-//! Every request reaches data only through the store's `for_tenant`
-//! door: the bearer token resolves to `(tenant, account)` and the tenant
-//! claim is never read from a request body. Interim bearer auth is
-//! behind [`state::Account`] resolution and swaps for ficina-identity
-//! (OIDC) later without touching method code.
+//! Every request reaches data only through the store's `for_account`
+//! door: the bearer token resolves to `(tenant, account)` via
+//! [`ficina_identity`] and the tenant claim is never read from a request
+//! body. The OpenID Connect / OAuth 2.0 provider is mounted alongside
+//! (see [`server::app`]), so one HTTP service serves both JMAP and the
+//! IdP.
 
 pub mod api;
 pub mod blob;

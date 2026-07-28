@@ -10,9 +10,13 @@ state *why*.
 1. **Clients** — Ficina web app (PWA → Tauri desktop → mobile shells);
    Outlook/phones via compat adapters (EAS, later MAPI — year two);
    any standard IMAP/DAV/Matrix client.
-2. **Gateway & identity** — single entry point; `ficina-identity` is
-   the OIDC/SAML IdP; 2FA; tenant enforcement happens HERE, before
-   any service sees a request.
+2. **Gateway & identity** — single entry point; `ficina-identity`
+   (built) is the credential authority and OIDC/OAuth2 IdP —
+   argon2id credentials, authorization-code + PKCE, opaque revocable
+   access tokens, EdDSA ID tokens, and TOTP 2FA (SAML later). Every
+   token resolves to a `(tenant, user)` here, and SMTP/IMAP/JMAP
+   authenticate through it, so tenant enforcement is anchored HERE
+   before any service trusts a request. See ADR 0008.
 3. **Core services** —
    built: `ficina-smtp`, `ficina-store`, `ficina-jmap`, `ficina-imap`,
    `ficina-dav`; integrated engines behind our APIs: Synapse (chat,

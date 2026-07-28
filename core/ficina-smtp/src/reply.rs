@@ -95,6 +95,13 @@ impl Reply {
         Self::line(501, "5.5.2 Cannot decode authentication exchange")
     }
 
+    /// 454: the credential authority is temporarily unavailable (RFC 4954
+    /// §6) — a store fault, not a credential rejection, so the client may
+    /// retry rather than treat the login as wrong.
+    pub fn auth_temporary_failure() -> Self {
+        Self::line(454, "4.7.0 Temporary authentication failure")
+    }
+
     /// 504: unrecognized AUTH mechanism (RFC 4954 §4).
     pub fn auth_mechanism_unsupported() -> Self {
         Self::line(504, "5.5.4 Unrecognized authentication mechanism")

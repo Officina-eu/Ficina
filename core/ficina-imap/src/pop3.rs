@@ -1,12 +1,12 @@
 //! POP3 (RFC 1939) over implicit TLS (995), inbox-only. `USER`/`PASS`
-//! authenticate via the same seam as IMAP (`verify_login`); `UIDL` reuses
-//! the inbox's stable per-mailbox UIDs so a client's "leave on server"
-//! bookkeeping matches IMAP. The approved cut seam if a session runs short
-//! — but implemented here.
+//! authenticate through the same `ficina-identity` credential authority as
+//! IMAP; `UIDL` reuses the inbox's stable per-mailbox UIDs so a client's
+//! "leave on server" bookkeeping matches IMAP.
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use ficina_identity::Identity;
 use ficina_store::{AccountStore, MailboxId, MessageId, Store};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
@@ -20,6 +20,7 @@ pub async fn accept(
     listener: TcpListener,
     cfg: Arc<Config>,
     store: Arc<Store>,
+    identity: Identity,
     acceptor: Option<TlsAcceptor>,
 ) {
     let Some(acceptor) = acceptor else {
@@ -36,11 +37,13 @@ pub async fn accept(
         };
         let cfg = cfg.clone();
         let store = store.clone();
+        let identity = identity.clone();
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
             match acceptor.accept(tcp).await {
                 Ok(tls) => {
-                    let session = Pop3Session::new(ImapStream::Tls(Box::new(tls)), cfg, store);
+                    let session =
+                        Pop3Session::new(ImapStream::Tls(Box::new(tls)), cfg, store, identity);
                     if let Err(e) = session.run().await {
                         tracing::debug!(%peer, error = %e, "POP3 session ended");
                     }
@@ -63,6 +66,7 @@ pub struct Pop3Session {
     reader: BufReader<ImapStream>,
     cfg: Arc<Config>,
     store: Arc<Store>,
+    identity: Identity,
     acc: Option<AccountStore>,
     inbox: Option<MailboxId>,
     pending_user: Option<String>,
@@ -73,11 +77,17 @@ pub struct Pop3Session {
 
 impl Pop3Session {
     /// Builds a session over an already-TLS stream.
-    pub fn new(stream: ImapStream, cfg: Arc<Config>, store: Arc<Store>) -> Self {
+    pub fn new(
+        stream: ImapStream,
+        cfg: Arc<Config>,
+        store: Arc<Store>,
+        identity: Identity,
+    ) -> Self {
         Self {
             reader: BufReader::new(stream),
             cfg,
             store,
+            identity,
             acc: None,
             inbox: None,
             pending_user: None,
@@ -136,9 +146,9 @@ impl Pop3Session {
         let Some(user) = self.pending_user.take() else {
             return self.send("-ERR USER first\r\n").await;
         };
-        match self.store.verify_login(&user, pass).await {
-            Ok(Some((tenant, uid))) => {
-                let acc = self.store.for_account(tenant, uid);
+        match self.identity.authenticate_password(&user, pass).await {
+            Ok(Some(principal)) => {
+                let acc = self.store.for_account(principal.tenant, principal.user);
                 let inbox = match acc.inbox().await {
                     Ok(i) => i,
                     Err(_) => return self.send("-ERR server error\r\n").await,

@@ -35,9 +35,23 @@ async fn cross_account_within_one_tenant_is_denied() {
     let (e1, e2) = (format!("u1-{tenant}@x"), format!("u2-{tenant}@x"));
     let u1 = ts.create_user(&e1).await.unwrap();
     let u2 = ts.create_user(&e2).await.unwrap();
-    ts.set_credentials(&u1, &e1, "pw").await.unwrap();
-    ts.set_credentials(&u2, &e2, "pw").await.unwrap();
-    let tok1 = store.issue_token(&e1, "pw").await.unwrap().unwrap().token;
+    let identity = common::test_identity(Arc::clone(&store));
+    identity
+        .set_password(&tenant, &u1, &e1, "pw")
+        .await
+        .unwrap();
+    identity
+        .set_password(&tenant, &u2, &e2, "pw")
+        .await
+        .unwrap();
+    let tok1 = identity
+        .password_login(&e1, "pw", None)
+        .await
+        .unwrap()
+        .unwrap()
+        .0
+        .reveal()
+        .to_owned();
     let acc2 = store.for_account(tenant.clone(), u2.clone());
 
     // User 2 has a private message.
@@ -53,7 +67,11 @@ async fn cross_account_within_one_tenant_is_denied() {
     );
     let inbox2 = acc2.inbox().await.unwrap().to_string();
 
-    let app = ficina_jmap::app(ficina_jmap::app_state(Arc::clone(&store), "http://test"));
+    let app = ficina_jmap::app(ficina_jmap::app_state(
+        Arc::clone(&store),
+        identity.clone(),
+        "http://test",
+    ));
     let acc1 = u1.to_string();
 
     // Email/get of U2's message under U1 → notFound (no body leak).

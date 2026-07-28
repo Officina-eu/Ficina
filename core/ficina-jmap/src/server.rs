@@ -1,4 +1,5 @@
-//! The axum router, the interim `/auth/token` endpoint, and `serve`.
+//! The axum router (JMAP methods + the mounted OIDC provider), the
+//! non-public first-party `/auth/token` password grant, and `serve`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -6,6 +7,7 @@ use std::sync::Arc;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use ficina_identity::Identity;
 use ficina_store::Store;
 use serde_json::{Value, json};
 
@@ -14,11 +16,14 @@ use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{api, blob, push, session};
 
-/// Builds the JMAP router over the given state.
+/// Builds the JMAP router over the given state. The OpenID Connect /
+/// OAuth 2.0 provider (`ficina-identity`) is mounted alongside so a Phase-1
+/// deployment serves JMAP and the IdP from one HTTP service.
 pub fn app(state: AppState) -> Router {
     let upload_limit = state.limits.max_size_upload as usize;
     let request_limit = state.limits.max_size_request;
-    Router::new()
+    let identity_routes = ficina_identity::router(state.identity.clone());
+    let jmap = Router::new()
         .route("/.well-known/jmap", get(session::session))
         // The API route caps at maxSizeRequestObject; uploads get the
         // larger ceiling from the global layer below.
@@ -34,20 +39,27 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/jmap/eventsource", get(push::event_source))
         .layer(DefaultBodyLimit::max(upload_limit))
-        .with_state(state)
+        .with_state(state);
+    jmap.merge(identity_routes)
 }
 
 /// A convenience [`AppState`] with default limits and a fresh push hub.
-pub fn app_state(store: Arc<Store>, base_url: impl Into<String>) -> AppState {
+pub fn app_state(store: Arc<Store>, identity: Identity, base_url: impl Into<String>) -> AppState {
     AppState {
         store,
+        identity,
         push: PushHub::new(),
         limits: Limits::default(),
         base_url: base_url.into(),
     }
 }
 
-/// `POST /auth/token` — interim login (username/password) → bearer token.
+/// `POST /auth/token` — the **non-public** first-party password grant for
+/// programmatic clients (e.g. the raw JMAP exit-gate client): username +
+/// password (+ optional `otp`) → an opaque access token, issued through
+/// `ficina-identity` with the same constant-time path and 2FA enforcement
+/// as the OAuth flow. Public/browser clients use `/oauth/authorize`
+/// instead (ADR 0008).
 async fn token(
     State(state): State<AppState>,
     Json(body): Json<Value>,
@@ -60,14 +72,15 @@ async fn token(
         .get("password")
         .and_then(Value::as_str)
         .ok_or_else(Problem::not_request)?;
+    let otp = body.get("otp").and_then(Value::as_str);
     match state
-        .store
-        .issue_token(username, password)
+        .identity
+        .password_login(username, password, otp)
         .await
         .map_err(|_| Problem::server_error())?
     {
-        Some(issued) => Ok(Json(
-            json!({ "token": issued.token, "accountId": issued.user.as_str() }),
+        Some((token, principal)) => Ok(Json(
+            json!({ "token": token.reveal(), "accountId": principal.user.as_str() }),
         )),
         None => Err(Problem::unauthorized()),
     }

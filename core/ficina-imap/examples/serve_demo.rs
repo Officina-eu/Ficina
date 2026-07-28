@@ -11,6 +11,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use ficina_identity::{Identity, IdentityConfig};
 use ficina_imap::Config;
 use ficina_store::{BlobStore, Store};
 
@@ -23,12 +24,15 @@ async fn main() {
             .expect("connect"),
     );
     store.migrate().await.expect("migrate");
+    let identity = Identity::new(Arc::clone(&store), IdentityConfig::new("https://id.test"))
+        .expect("identity");
 
     let tenant = store.create_tenant("imap-demo").await.unwrap();
     let ts = store.for_tenant(tenant.clone());
     let email = format!("demo-{tenant}@ficina.test");
     let user = ts.create_user(&email).await.unwrap();
-    ts.set_credentials(&user, &email, "demo-pass")
+    identity
+        .set_password(&tenant, &user, &email, "demo-pass")
         .await
         .unwrap();
     let acc = store.for_account(tenant.clone(), user.clone());
@@ -63,5 +67,5 @@ async fn main() {
         allow_self_signed: true,
         ..Config::default()
     };
-    ficina_imap::serve(cfg, store).await.unwrap();
+    ficina_imap::serve(cfg, store, identity).await.unwrap();
 }

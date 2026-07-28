@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
+use ficina_identity::Identity;
 use ficina_store::{AccountStore, MailboxId, MessageId, Store};
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio_rustls::TlsAcceptor;
@@ -46,6 +47,7 @@ pub struct Session {
     reader: BufReader<ImapStream>,
     cfg: Arc<Config>,
     store: Arc<Store>,
+    identity: Identity,
     acceptor: Option<TlsAcceptor>,
     state: State,
     acc: Option<AccountStore>,
@@ -68,6 +70,7 @@ impl Session {
         stream: ImapStream,
         cfg: Arc<Config>,
         store: Arc<Store>,
+        identity: Identity,
         acceptor: Option<TlsAcceptor>,
     ) -> Self {
         let tls_active = stream.is_tls();
@@ -75,6 +78,7 @@ impl Session {
             reader: BufReader::new(stream),
             cfg,
             store,
+            identity,
             acceptor,
             state: State::NotAuth,
             acc: None,
@@ -402,9 +406,11 @@ impl Session {
     }
 
     async fn try_login(&mut self, tag: &str, user: &str, pass: &str) -> std::io::Result<()> {
-        match self.store.verify_login(user, pass).await {
-            Ok(Some((tenant, uid))) => {
-                let acc = self.store.for_account(tenant, uid);
+        // Legacy-protocol password auth (no interactive 2FA — see the
+        // app-password seam in docs/design/identity.md).
+        match self.identity.authenticate_password(user, pass).await {
+            Ok(Some(principal)) => {
+                let acc = self.store.for_account(principal.tenant, principal.user);
                 // Guarantee INBOX exists (RFC 9051 §5.1 — INBOX is always
                 // present); the store provisions it lazily otherwise.
                 let _ = acc.inbox().await;

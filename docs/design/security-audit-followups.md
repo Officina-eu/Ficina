@@ -54,6 +54,56 @@ not a code enforcement — so they are tracked here.
   but explicitly did not require the split, recommending it "the first
   time this file is touched again." Tracked here so it is not lost.
 
+## ficina-identity audit (identity milestone)
+
+The identity security audit + cold review returned **one blocker**
+(non-atomic refresh-token rotation defeating replay-chain revocation under
+concurrency) and a set of lower findings. **Fixed in this milestone:** the
+atomic guarded rotate (`rotate_refresh_token` now `UPDATE … WHERE
+rotated_to IS NULL RETURNING`, a lost race → chain revoke); per-`(client,
+username)` backoff added to the non-public `/auth/token` password grant
+(was only on `/oauth/authorize`); a process-wide **semaphore bounding
+concurrent argon2** hashes (memory-exhaustion DoS lever); ID-token signing
+seeds **zeroized** in memory after use; the tenant-scoped-client guard at
+`/oauth/authorize`; `email_of` DB errors propagated (no silently-dropped
+claim); `Retry-After` on the 429; and stale roadmap-coded comments removed.
+
+**Deferred with rationale (recorded, not launch-blocking for the founder
+dogfood; must-close before broad multi-tenant / self-service exposure):**
+
+- **TOTP per-time-step single-use.** A valid code is replayable within the
+  ±1-step (~90 s) acceptance window (RFC 6238 §5.2 recommends one code per
+  step). Bounded by TLS and not enforced on legacy protocols; needs a
+  per-user `last_totp_step` column and a monotonic check. Follow-up.
+- **`email_verified` claim.** Emitted `true` for any user with an email.
+  Phase-1 accounts are **operator-provisioned** via `identityctl` (the
+  operator vouches for the address), so it is not a self-asserted claim
+  today — but it must become a real per-user verified flag before
+  self-service signup, or be dropped. Follow-up.
+- **argon2 param-change enumeration window.** The unknown-user dummy hash
+  uses the *configured* params while a real verify uses the *stored* PHC
+  params; if a deployment changes `FICINA_IDENTITY_ARGON2_*` after hashes
+  exist, the two costs diverge until each account rehashes on next login —
+  a transient, self-healing timing skew. A fixed decoy PHC captured at the
+  stored baseline would close the window. Follow-up.
+- **ID-token signing key at rest.** Stored as raw bytes in `signing_keys`
+  (design-accepted: single-node DB is the trust boundary). Envelope/KMS
+  encryption of the private key is an ops-hardening follow-up; the
+  in-memory seed is now zeroized.
+- **Global email/alias uniqueness.** `users.email` is unique per tenant
+  only; `aliases.address` is globally unique. `account_by_email` refuses on
+  a cross-tenant canonical-email collision (returns `None` — never
+  misroutes), so it is a mail-*availability* footgun, not a leak, and is
+  harmless while provisioning is operator-only. A global `lower(email)`
+  uniqueness (reconciled with aliases) or an explicit collision policy is
+  required before self-service provisioning. Follow-up.
+- **argon2 off the async worker.** The semaphore bounds concurrency but
+  argon2 still runs inline on the runtime worker (~a few hundred ms).
+  Moving it to `spawn_blocking` is a latency-isolation follow-up.
+- **Sender authorization (send-as).** Binding submission `MAIL FROM` to the
+  authenticated identity is still deferred (see item 2 above) — it needs
+  the group/alias permission model this milestone ships the data for.
+
 ## Doc drift fixed
 
 - The design note listed `ENHANCEDSTATUSCODES` among advertised EHLO

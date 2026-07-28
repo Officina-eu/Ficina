@@ -72,6 +72,12 @@ impl LocalDelivery {
         }
     }
 
+    /// The shared store handle, so the submission role can build a
+    /// `ficina-identity` over the same pool.
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
+    }
+
     /// Whether `email` is a real local mailbox (for the RCPT-time check).
     /// Subaddress-aware: `user+tag@domain` resolves to `user@domain`.
     pub async fn recipient_exists(&self, email: &str) -> bool {

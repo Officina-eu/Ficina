@@ -16,9 +16,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tracing::Instrument;
 
-use crate::auth::{self, Authenticator, Mechanism, StaticAuthenticator};
+use crate::auth::{self, AuthIdentity, Mechanism};
 use crate::authmail::{AuthMail, InboundOutcome, SigningConfig};
-use crate::config::{self, SmtpConfig};
+use crate::config::SmtpConfig;
 use crate::data::{self, DataError};
 use crate::envelope::Envelope;
 use crate::error::SmtpError;
@@ -30,6 +30,7 @@ use crate::stream::SmtpStream;
 use crate::{received, submission, tls};
 use ficina_auth_mail::dkim::keystore::{FileKeyStore, KeyAlgorithm};
 use ficina_auth_mail::resolver::Resolver as AuthResolver;
+use ficina_identity::{Identity, IdentityConfig};
 
 /// Command line limit: 512 octets including CRLF (RFC 5321 §4.5.3.1.4).
 const MAX_COMMAND_LINE: usize = 512;
@@ -46,9 +47,11 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Delay before re-accepting after a transient `accept()` error.
 const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
-/// Failed AUTH attempts tolerated on one connection before it is
-/// dropped (RFC 4954 §4 anti-brute-force; durable per-account limits
-/// arrive with ficina-identity in M9).
+/// Failed AUTH attempts tolerated on one connection before it is dropped
+/// (RFC 4954 §4 anti-brute-force). AUTH now verifies through
+/// `ficina-identity` (constant-time argon2); cross-connection throttling of
+/// the SMTP AUTH path is a future hardening (the OAuth/token endpoints
+/// already carry per-(client, username) backoff).
 const MAX_AUTH_FAILURES: u32 = 3;
 
 /// A buffered SMTP connection (plaintext or TLS). `BufReader` supplies
@@ -63,8 +66,9 @@ pub struct Runtime {
     spool: Arc<Spool>,
     /// TLS acceptor for STARTTLS upgrades and implicit TLS.
     tls_acceptor: Arc<TlsAcceptor>,
-    /// Credential backend for AUTH.
-    authenticator: Arc<dyn Authenticator>,
+    /// Credential authority for submission AUTH. `None` on roles that
+    /// never authenticate (MX).
+    identity: Option<Identity>,
     /// Concurrent-connection cap.
     max_connections: usize,
     /// Apply RFC 6409 submission fixups before spooling (submission).
@@ -85,7 +89,7 @@ impl Runtime {
         params: SessionParams,
         spool: Arc<Spool>,
         tls_acceptor: Arc<TlsAcceptor>,
-        authenticator: Arc<dyn Authenticator>,
+        identity: Option<Identity>,
         max_connections: usize,
         apply_fixups: bool,
     ) -> Self {
@@ -94,7 +98,7 @@ impl Runtime {
             params,
             spool,
             tls_acceptor,
-            authenticator,
+            identity,
             max_connections,
             apply_fixups,
             auth,
@@ -128,7 +132,7 @@ impl Runtime {
         hostname: impl Into<String>,
         spool: Arc<Spool>,
         tls_acceptor: Arc<TlsAcceptor>,
-        authenticator: Arc<dyn Authenticator>,
+        identity: Option<Identity>,
         max_message_size: usize,
         max_rcpt: usize,
         max_connections: usize,
@@ -152,7 +156,7 @@ impl Runtime {
             params,
             spool,
             tls_acceptor,
-            authenticator,
+            identity,
             max_connections,
             false,
         )
@@ -173,7 +177,7 @@ impl Runtime {
         hostname: impl Into<String>,
         spool: Arc<Spool>,
         tls_acceptor: Arc<TlsAcceptor>,
-        authenticator: Arc<dyn Authenticator>,
+        identity: Option<Identity>,
         implicit_tls: bool,
         max_message_size: usize,
         max_rcpt: usize,
@@ -198,7 +202,7 @@ impl Runtime {
             },
             spool,
             tls_acceptor,
-            authenticator,
+            identity,
             max_connections,
             apply_fixups: true,
             auth,
@@ -256,11 +260,29 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         config.allow_self_signed,
     )?);
 
-    let credentials = match &config.credentials_file {
-        Some(path) => config::load_credentials(path)?,
-        None => std::collections::HashMap::new(),
+    // Submission AUTH verifies through ficina-identity over the store. It
+    // is available only when a database is configured (identity is
+    // DB-backed); a submission listener without it is a config error.
+    let identity: Option<Identity> = match &local_delivery {
+        Some(ld) => {
+            let cfg = IdentityConfig::from_env()
+                .unwrap_or_else(|_| IdentityConfig::new(format!("https://{}", config.hostname)));
+            Some(
+                Identity::new(ld.store().clone(), cfg).map_err(|e| SmtpError::Config {
+                    message: format!("identity initialisation failed: {e}"),
+                })?,
+            )
+        }
+        None => None,
     };
-    let authenticator: Arc<dyn Authenticator> = Arc::new(StaticAuthenticator::new(credentials));
+    if identity.is_none()
+        && (config.submission_addr.is_some() || config.implicit_tls_addr.is_some())
+    {
+        return Err(SmtpError::Config {
+            message: "submission listeners require DATABASE_URL (ficina-identity backs AUTH)"
+                .to_owned(),
+        });
+    }
 
     if let Some(outbound) = config.outbound.clone() {
         crate::queue_runner::spawn(Arc::clone(&spool), config.hostname.clone(), outbound);
@@ -287,7 +309,7 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
     if let Some(addr) = config.submission_addr {
         let listener = bind(addr).await?;
         let runtime = Arc::new(
-            submission_runtime(&config, &spool, &tls_acceptor, &authenticator, false)
+            submission_runtime(&config, &spool, &tls_acceptor, &identity, false)
                 .with_auth(Arc::clone(&submission_auth)),
         );
         tracing::info!(%addr, "submission (STARTTLS) listener");
@@ -296,7 +318,7 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
     if let Some(addr) = config.implicit_tls_addr {
         let listener = bind(addr).await?;
         let runtime = Arc::new(
-            submission_runtime(&config, &spool, &tls_acceptor, &authenticator, true)
+            submission_runtime(&config, &spool, &tls_acceptor, &identity, true)
                 .with_auth(Arc::clone(&submission_auth)),
         );
         tracing::info!(%addr, "implicit-TLS submission listener");
@@ -332,7 +354,7 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         },
         spool: Arc::clone(&spool),
         tls_acceptor: Arc::clone(&tls_acceptor),
-        authenticator: Arc::clone(&authenticator),
+        identity: identity.clone(),
         max_connections: config.max_connections,
         apply_fixups: false,
         auth: mx_auth,
@@ -353,7 +375,7 @@ fn submission_runtime(
     config: &SmtpConfig,
     spool: &Arc<Spool>,
     tls_acceptor: &Arc<TlsAcceptor>,
-    authenticator: &Arc<dyn Authenticator>,
+    identity: &Option<Identity>,
     implicit_tls: bool,
 ) -> Runtime {
     Runtime {
@@ -373,7 +395,7 @@ fn submission_runtime(
         },
         spool: Arc::clone(spool),
         tls_acceptor: Arc::clone(tls_acceptor),
-        authenticator: Arc::clone(authenticator),
+        identity: identity.clone(),
         max_connections: config.max_connections,
         apply_fixups: true,
         auth: Arc::new(AuthMail::disabled(&config.hostname)),
@@ -681,21 +703,40 @@ async fn do_auth(
             return Ok(false);
         }
     };
-    match runtime.authenticator.verify(&credentials).await {
-        Some(identity) => {
-            // The login is personal data (CLAUDE.md law 1): keep it out
-            // of default-visible logs; it is available at debug for
-            // audit until ficina-identity (M9) owns auth logging.
-            tracing::debug!(user = %identity.username, "authentication succeeded");
+    // AUTH is only offered on submission roles, which always carry an
+    // identity; treat an absent one as a failed auth rather than panic.
+    let Some(identity) = runtime.identity.as_ref() else {
+        tracing::info!("authentication failed (no credential authority)");
+        write_reply(conn, &Reply::auth_failed()).await?;
+        return Ok(false);
+    };
+    // Legacy-protocol password auth (no interactive 2FA — app-specific
+    // passwords are the follow-up, see docs/design/identity.md). The verify
+    // is constant-time and closes the user-existence timing oracle.
+    match identity
+        .authenticate_password(&credentials.username, &credentials.password)
+        .await
+    {
+        Ok(Some(_principal)) => {
+            // The login is personal data (CLAUDE.md law 1): keep it out of
+            // default-visible logs; available at debug for audit.
+            tracing::debug!(user = %credentials.username, "authentication succeeded");
             tracing::info!("authentication succeeded");
-            session.set_authenticated(identity);
+            session.set_authenticated(AuthIdentity::new(credentials.username.clone()));
             write_reply(conn, &Reply::auth_ok()).await?;
             Ok(true)
         }
-        None => {
+        Ok(None) => {
             // No log of which of user/password was wrong (§7.3).
             tracing::info!("authentication failed");
             write_reply(conn, &Reply::auth_failed()).await?;
+            Ok(false)
+        }
+        Err(_) => {
+            // A store fault is a temporary condition, not a credential
+            // rejection — reply 454 so the client may retry.
+            tracing::warn!("authentication backend error");
+            write_reply(conn, &Reply::auth_temporary_failure()).await?;
             Ok(false)
         }
     }

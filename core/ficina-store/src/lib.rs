@@ -10,11 +10,11 @@
 pub mod account;
 pub mod account_imap;
 pub mod account_sieve;
-pub mod auth;
 pub mod blob;
 pub mod changes;
 pub mod error;
 pub mod id;
+pub mod identity;
 pub mod message;
 pub mod model;
 pub mod store;
@@ -23,13 +23,16 @@ pub mod thread;
 pub use account::AccountStore;
 pub use account_imap::{ImapEntry, ImapMailbox, ImapSearchRow};
 pub use account_sieve::{OutboundAction, SieveDelivery, SieveScriptMeta};
-pub use auth::IssuedToken;
 pub use blob::BlobStore;
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;
 pub use changes::Changes;
 pub use error::{Result, StoreError};
-pub use id::{BlobId, MailboxId, MessageId, TenantId, ThreadId, UserId};
+pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
+pub use identity::{
+    AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, RefreshTokenRow,
+    SigningKeyRow, TotpRow,
+};
 pub use model::{
     Blob, EmailFilter, EmailQuery, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection,
 };

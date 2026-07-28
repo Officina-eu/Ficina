@@ -7,6 +7,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ficina_identity::{Identity, IdentityConfig};
 use ficina_imap::stream::ImapStream;
 use ficina_imap::{Config, Session};
 use ficina_store::{BlobStore, Store, TenantId, UserId};
@@ -34,15 +35,21 @@ pub async fn test_store() -> Arc<Store> {
     Arc::new(store)
 }
 
+/// Builds a test `Identity` over a store handle.
+pub fn test_identity(store: Arc<Store>) -> Identity {
+    Identity::new(store, IdentityConfig::new("https://id.test")).expect("identity")
+}
+
 /// Creates a tenant with one credentialed user; returns `(tenant, user,
 /// email, password)`.
-pub async fn make_user(store: &Store, tag: &str) -> (TenantId, UserId, String, String) {
+pub async fn make_user(store: &Arc<Store>, tag: &str) -> (TenantId, UserId, String, String) {
     let tenant = store.create_tenant(&format!("imap-{tag}")).await.unwrap();
     let ts = store.for_tenant(tenant.clone());
     // Random tenant id in the email keeps the global username index unique.
     let email = format!("{tag}-{tenant}@example.test");
     let user = ts.create_user(&email).await.unwrap();
-    ts.set_credentials(&user, &email, "s3cret-pw")
+    test_identity(Arc::clone(store))
+        .set_password(&tenant, &user, &email, "s3cret-pw")
         .await
         .unwrap();
     (tenant, user, email, "s3cret-pw".to_owned())
@@ -82,6 +89,7 @@ pub async fn spawn_imap(store: Arc<Store>) -> SocketAddr {
     let acceptor: TlsAcceptor =
         ficina_imap::tls::build_acceptor(None, None, "localhost", true).expect("acceptor");
     let cfg = Arc::new(test_config());
+    let identity = test_identity(Arc::clone(&store));
     tokio::spawn(async move {
         loop {
             let (tcp, _) = match listener.accept().await {
@@ -91,9 +99,11 @@ pub async fn spawn_imap(store: Arc<Store>) -> SocketAddr {
             let acceptor = acceptor.clone();
             let cfg = cfg.clone();
             let store = store.clone();
+            let identity = identity.clone();
             tokio::spawn(async move {
                 if let Ok(tls) = acceptor.accept(tcp).await {
-                    let session = Session::new(ImapStream::Tls(Box::new(tls)), cfg, store, None);
+                    let session =
+                        Session::new(ImapStream::Tls(Box::new(tls)), cfg, store, identity, None);
                     let _ = session.run().await;
                 }
             });
@@ -109,6 +119,7 @@ pub async fn spawn_imap_starttls(store: Arc<Store>) -> SocketAddr {
     let acceptor: TlsAcceptor =
         ficina_imap::tls::build_acceptor(None, None, "localhost", true).expect("acceptor");
     let cfg = Arc::new(test_config());
+    let identity = test_identity(Arc::clone(&store));
     tokio::spawn(async move {
         loop {
             let Ok((tcp, _)) = listener.accept().await else {
@@ -116,9 +127,11 @@ pub async fn spawn_imap_starttls(store: Arc<Store>) -> SocketAddr {
             };
             let cfg = cfg.clone();
             let store = store.clone();
+            let identity = identity.clone();
             let acceptor = acceptor.clone();
             tokio::spawn(async move {
-                let session = Session::new(ImapStream::Plain(tcp), cfg, store, Some(acceptor));
+                let session =
+                    Session::new(ImapStream::Plain(tcp), cfg, store, identity, Some(acceptor));
                 let _ = session.run().await;
             });
         }
@@ -133,6 +146,7 @@ pub async fn spawn_pop3(store: Arc<Store>) -> SocketAddr {
     let acceptor: TlsAcceptor =
         ficina_imap::tls::build_acceptor(None, None, "localhost", true).expect("acceptor");
     let cfg = Arc::new(test_config());
+    let identity = test_identity(Arc::clone(&store));
     tokio::spawn(async move {
         loop {
             let Ok((tcp, _)) = listener.accept().await else {
@@ -140,6 +154,7 @@ pub async fn spawn_pop3(store: Arc<Store>) -> SocketAddr {
             };
             let cfg = cfg.clone();
             let store = store.clone();
+            let identity = identity.clone();
             let acceptor = acceptor.clone();
             tokio::spawn(async move {
                 if let Ok(tls) = acceptor.accept(tcp).await {
@@ -147,6 +162,7 @@ pub async fn spawn_pop3(store: Arc<Store>) -> SocketAddr {
                         ImapStream::Tls(Box::new(tls)),
                         cfg,
                         store,
+                        identity,
                     );
                     let _ = session.run().await;
                 }
