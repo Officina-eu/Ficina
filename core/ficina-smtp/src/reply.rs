@@ -127,6 +127,24 @@ impl Reply {
         Self::line(550, "5.7.1 Relaying denied: recipient not local")
     }
 
+    /// 550 5.1.1: the recipient is in a hosted domain but no such mailbox
+    /// exists (RFC 3463 §3.2). Refused at RCPT so a sender gets an honest,
+    /// immediate answer and no mail is silently dropped (the recipient-
+    /// enumeration trade-off is documented in `docs/interop.md`).
+    pub fn no_such_user() -> Self {
+        Self::line(550, "5.1.1 No such user here")
+    }
+
+    /// 451 4.3.0: a transient failure delivering into the store — the
+    /// message is NOT accepted, so the sender retries (no mail loss). Used
+    /// when a recipient's store/blob write fails at DATA.
+    pub fn delivery_tempfail() -> Self {
+        Self::line(
+            451,
+            "4.3.0 Temporary failure delivering to mailbox, try again later",
+        )
+    }
+
     /// 550: rejected by DMARC policy (RFC 7489 — the sending domain
     /// publishes `p=reject` and the message failed authentication).
     pub fn dmarc_reject() -> Self {

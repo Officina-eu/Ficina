@@ -236,6 +236,43 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   same-mailbox MOVE and leave the message untouched (an earlier draft would have
   expunged the sole membership — caught in review, now regression-tested).
 
+## Inbound local delivery (SMTP → store)
+
+- 2026-07-28 · **Unknown local user is refused `550 5.1.1` at RCPT** · when
+  local delivery is configured (MX + `DATABASE_URL` + hosted domains), each
+  hosted-domain `RCPT TO:` is resolved against the store; an unknown mailbox
+  gets `550 5.1.1 No such user here` at RCPT, not a post-DATA drop or bounce.
+  This is a deliberate recipient-enumeration oracle (a prober learns which
+  local addresses exist) — the conscious, mainstream choice: silent-accept-
+  then-drop loses mail the sender was told 250 for, and post-DATA bounces are
+  backscatter. Enumeration is mitigated at the edge (rate limits), not by
+  lying to senders. A non-local recipient is still `550 5.7.1 Relaying denied`
+  first (the two policies compose). See `docs/design/local-delivery.md`.
+- 2026-07-28 · **Every accepted recipient — including `<postmaster>` — is
+  resolved at RCPT** · so no recipient accepted at RCPT can turn out
+  unresolvable at DATA and defer the whole message (which would let a hostile
+  sender append a never-resolvable recipient to force repeated duplicate
+  delivery to the valid ones). `<postmaster>` (RFC 5321 §4.1.1.3) resolves as
+  `postmaster@` the first hosted domain and therefore needs a backing mailbox
+  to receive.
+- 2026-07-28 · **Multi-recipient partial failure → one 4xx (dup over loss)** ·
+  DATA carries a single reply (RFC 5321 §4.1.1.4). A transient store fault for
+  any recipient returns `451 4.3.0` for the whole message so the sender
+  retries — a redelivery to an already-committed recipient (a duplicate,
+  deduped to one blob by content-addressing) is strictly safer than losing
+  mail (RFC 5321 §6.1). Per-recipient DSN is additive later.
+- 2026-07-28 · **Local delivery uses a durable filesystem blob backend** ·
+  message bytes are written to `FICINA_SMTP_BLOB_DIR` (default `./blobs`) via
+  the store's on-disk backend, so a delivered body survives a restart (the DB
+  row is only the commit point after the blob is durable). Multi-node
+  production swaps in Garage/S3 behind the store's `garage` feature.
+- 2026-07-28 · **Inbound local mail bypasses the spool; the spool stays the
+  outbound queue** · received mail for a hosted domain lands in the store, not
+  the relay spool. Any pre-existing all-local spool entries are migrated into
+  the store once at startup (before the outbound queue runner starts); a
+  crash between deliver and spool-removal re-delivers a deduped duplicate on
+  the next start, never a loss.
+
 ## Sieve filtering (ficina-sieve)
 
 - 2026-07-27 · **Sieve runs at the store delivery entry; SMTP local delivery

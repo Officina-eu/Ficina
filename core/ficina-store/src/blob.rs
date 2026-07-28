@@ -60,6 +60,29 @@ impl BlobStore {
         }
     }
 
+    /// A **durable** filesystem backend rooted at `path` — message bytes on
+    /// local disk, content-addressed under `<path>/<tenant>/<hash>`. This is
+    /// the single-node durable backend (used by SMTP local delivery so a
+    /// delivered body survives a restart); multi-node production uses
+    /// [`Self::garage`] (S3). The directory is created if absent.
+    ///
+    /// # Errors
+    /// [`StoreError::Blob`] if the directory cannot be prepared or the
+    /// backend cannot be opened.
+    pub fn local(path: &std::path::Path, max_size: usize) -> Result<Self> {
+        std::fs::create_dir_all(path).map_err(|e| {
+            StoreError::Blob(object_store::Error::Generic {
+                store: "local",
+                source: Box::new(e),
+            })
+        })?;
+        let fs = object_store::local::LocalFileSystem::new_with_prefix(path)?;
+        Ok(Self {
+            inner: Arc::new(fs),
+            max_size,
+        })
+    }
+
     /// A Garage (S3) backend (requires the `garage` feature).
     ///
     /// # Errors

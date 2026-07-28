@@ -634,6 +634,8 @@ version = "0.0.1"
 dependencies = [
  "base64",
  "ficina-auth-mail",
+ "ficina-sieve",
+ "ficina-store",
  "hickory-resolver",
  "jiff",
  "rcgen",

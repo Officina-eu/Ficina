@@ -29,6 +29,7 @@ pub mod envelope;
 pub mod error;
 pub mod healthcheck;
 mod line;
+pub mod local_delivery;
 pub mod mta_sts;
 pub mod queue;
 pub mod queue_runner;

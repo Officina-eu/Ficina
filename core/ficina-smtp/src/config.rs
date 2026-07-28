@@ -13,6 +13,9 @@ pub const ENV_ADDR: &str = "FICINA_SMTP_ADDR";
 pub const ENV_HOSTNAME: &str = "FICINA_SMTP_HOSTNAME";
 /// Environment variable naming the spool directory.
 pub const ENV_SPOOL_DIR: &str = "FICINA_SMTP_SPOOL_DIR";
+/// Environment variable naming the **durable** blob directory for local
+/// delivery (message bytes on disk). Defaults to `./blobs`.
+pub const ENV_BLOB_DIR: &str = "FICINA_SMTP_BLOB_DIR";
 /// Environment variable for the maximum message size in octets.
 pub const ENV_MAX_MESSAGE_SIZE: &str = "FICINA_SMTP_MAX_MESSAGE_SIZE";
 /// Environment variable for the per-transaction recipient limit.
@@ -82,6 +85,7 @@ pub const ENV_MTA_STS_ID: &str = "FICINA_SMTP_MTA_STS_ID";
 const DEFAULT_ADDR: &str = "0.0.0.0:2525";
 const DEFAULT_HOSTNAME: &str = "ficina.test";
 const DEFAULT_SPOOL_DIR: &str = "./spool";
+const DEFAULT_BLOB_DIR: &str = "./blobs";
 /// 25 MiB default, in line with common provider limits.
 const DEFAULT_MAX_MESSAGE_SIZE: usize = 25 * 1024 * 1024;
 /// RFC 5321 §4.5.3.1.8: servers MUST accept at least 100 recipients.
@@ -118,6 +122,9 @@ pub struct SmtpConfig {
     pub hostname: String,
     /// Root of the durable message spool.
     pub spool_dir: PathBuf,
+    /// Root of the durable on-disk blob store for local delivery (message
+    /// bytes). Only used when `database_url` is set.
+    pub blob_dir: PathBuf,
     /// Maximum accepted message size in octets, enforced during read.
     pub max_message_size: usize,
     /// Maximum recipients per transaction (≥ 100 per §4.5.3.1.8).
@@ -153,6 +160,11 @@ pub struct SmtpConfig {
     pub rspamd: Option<RspamdSettings>,
     /// MTA-STS policy endpoint; `None` disables serving the policy.
     pub mta_sts: Option<MtaStsSettings>,
+    /// PostgreSQL URL for the message store. When set (and the MX has a
+    /// non-empty `local_domains` list), inbound mail for a hosted domain is
+    /// delivered into the store (with Sieve at the boundary) instead of the
+    /// spool. `None` keeps the receive-only spool behaviour.
+    pub database_url: Option<String>,
 }
 
 /// Rspamd integration settings (M4b).
@@ -244,6 +256,9 @@ impl SmtpConfig {
 
         let spool_dir = PathBuf::from(
             std::env::var(ENV_SPOOL_DIR).unwrap_or_else(|_| DEFAULT_SPOOL_DIR.to_owned()),
+        );
+        let blob_dir = PathBuf::from(
+            std::env::var(ENV_BLOB_DIR).unwrap_or_else(|_| DEFAULT_BLOB_DIR.to_owned()),
         );
 
         let max_message_size = env_usize(ENV_MAX_MESSAGE_SIZE, DEFAULT_MAX_MESSAGE_SIZE)?;
@@ -338,11 +353,23 @@ impl SmtpConfig {
         let dkim = Self::dkim_from_env()?;
         let rspamd = Self::rspamd_from_env()?;
         let mta_sts = Self::mta_sts_from_env(&hostname)?;
+        let database_url = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty());
+        // Local delivery into the store needs a hosted-domains list, so a
+        // recipient can be classified local before it is resolved.
+        if database_url.is_some() && local_domains.is_empty() {
+            return Err(SmtpError::Config {
+                message: format!(
+                    "DATABASE_URL is set for local delivery but {ENV_LOCAL_DOMAINS} is empty \
+                     (no way to tell which recipients are local)"
+                ),
+            });
+        }
 
         Ok(Self {
             bind_addr,
             hostname,
             spool_dir,
+            blob_dir,
             max_message_size,
             max_rcpt,
             max_connections,
@@ -356,6 +383,7 @@ impl SmtpConfig {
             dkim,
             rspamd,
             mta_sts,
+            database_url,
         })
     }
 

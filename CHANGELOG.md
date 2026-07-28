@@ -6,6 +6,33 @@ contracts.
 
 ## Unreleased
 
+- New: **inbound local delivery** — received mail now files into the account
+  store with **Sieve at the boundary**, closing the SMTP → mailbox path
+  (previously inbound mail terminated at a spool). On the MX role with a
+  database configured, each `RCPT TO:` for a hosted domain is resolved against
+  the store (`Store::account_by_email`, subaddress-aware): an **unknown local
+  user is refused `550 5.1.1` at RCPT** (an honest immediate answer, never a
+  silent drop or post-DATA backscatter), while the anti-open-relay guard still
+  refuses non-local recipients to unauthenticated senders. At end of `DATA` the
+  fully-stamped message (Received + Authentication-Results + body) is delivered
+  to **each** resolved recipient through `AccountStore::deliver_sieve` (parse →
+  spam score → Sieve → file), isolation inherited per recipient. Sieve
+  `redirect`/`vacation` actions are enqueued through the existing outbound queue
+  under the rule owner's identity, with all attacker-influenced header strings
+  (`subject`/`from`/redirect address) **CR/LF-stripped before any header is
+  built**, and the store's redirect-rate budget enforced on the real path.
+  Delivery is **per-recipient, try-then-commit**: a transient store/blob fault
+  yields a conservative whole-message `4xx` so the sender retries (RFC 5321 §6.1
+  — **duplicate delivery is preferred to loss**; blobs dedup by content), and
+  **no failure path loses mail**. Delivered bytes go to a **durable on-disk blob
+  backend** (`BlobStore::local`, `FICINA_SMTP_BLOB_DIR`, default `./blobs`), so a
+  body survives a restart on single-node deployments without Garage/S3. The
+  inbound **spool is retired as the local sink**: its all-local backlog is
+  migrated into the store once at startup (before the queue runner claims), and
+  it remains the outbound queue's durable store (unchanged). Reviewed +
+  security-audited. See `docs/design/local-delivery.md` and the new inbound
+  entries in `docs/interop.md`.
+
 - New: **`ficina-sieve`** + delivery-time filtering — user **Sieve** filter
   scripts (RFC 5228, with **vacation** RFC 5230, **subaddress** RFC 5233,
   **imap4flags** RFC 5232) compiled and run on the server at delivery time.
@@ -26,8 +53,8 @@ contracts.
   execution tested). **Rule management is JMAP for Sieve** (RFC 9661, ADR
   0007): `SieveScript/{get,set,validate}` compile-checked on `set`
   (`invalidScript`), with the sieve capability in the Session resource.
-  Reviewed + security-audited. The SMTP → mailbox local-delivery bridge is
-  **M5** (deferred; the `deliver_sieve` seam is ready). See
+  Reviewed + security-audited. The `deliver_sieve` seam is now exercised on the
+  real inbound path (see "inbound local delivery" above). See
   `docs/design/sieve-filtering.md` and `docs/decisions/0007-sieve-rule-management.md`.
 
 - New: **`ficina-imap`** — IMAP4rev2 (RFC 9051) / IMAP4rev1 (RFC 3501) and

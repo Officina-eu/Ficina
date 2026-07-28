@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 ficina-auth-mail = { path = "../ficina-auth-mail" }
+ficina-store = { path = "../ficina-store" }
+ficina-sieve = { path = "../ficina-sieve" }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

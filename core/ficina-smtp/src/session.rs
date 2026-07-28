@@ -49,6 +49,13 @@ pub enum Directive {
         /// Base64 initial response, if the client supplied one.
         initial: Option<String>,
     },
+    /// Resolve a local recipient against the store: the transport looks up
+    /// `email`, then calls [`Session::resolve_pending`] with the result.
+    /// Emitted only when local delivery is configured.
+    CheckRecipient {
+        /// The recipient address (`local@domain` display form) to resolve.
+        email: String,
+    },
 }
 
 /// Immutable per-listener parameters for a session.
@@ -76,6 +83,11 @@ pub struct SessionParams {
     /// all (development); production MUST set this before enabling
     /// outbound (enforced in `config`/`server::run`).
     pub local_domains: Vec<String>,
+    /// Whether a local-domain `RCPT TO:` must be resolved against the store
+    /// (local delivery configured): the session emits
+    /// [`Directive::CheckRecipient`] instead of accepting outright, so an
+    /// unknown local user is refused `550 5.1.1` at RCPT.
+    pub resolve_local_recipients: bool,
 }
 
 /// Transaction state (§4.1.4).
@@ -103,6 +115,9 @@ pub struct Session {
     txn: Txn,
     /// SMTPUTF8 (RFC 6531) — not advertised yet, always false.
     utf8_enabled: bool,
+    /// A recipient awaiting store resolution (between a `CheckRecipient`
+    /// directive and [`Session::resolve_pending`]).
+    pending_rcpt: Option<ForwardPath>,
 }
 
 impl Session {
@@ -117,6 +132,7 @@ impl Session {
             identity: None,
             txn: Txn::Idle,
             utf8_enabled: false,
+            pending_rcpt: None,
         }
     }
 
@@ -186,6 +202,7 @@ impl Session {
             Command::Data => self.on_data(),
             Command::Rset => {
                 self.txn = Txn::Idle;
+                self.pending_rcpt = None;
                 self.respond(Reply::ok())
             }
             Command::Noop => self.respond(Reply::ok()),
@@ -271,6 +288,7 @@ impl Session {
             from: reverse_path,
             rcpts: Vec::new(),
         };
+        self.pending_rcpt = None;
         self.respond(Reply::ok())
     }
 
@@ -332,8 +350,59 @@ impl Session {
         if rcpts.len() >= max_rcpt {
             return self.respond(Reply::too_many_recipients());
         }
+        // With local delivery configured, EVERY accepted recipient is
+        // resolved against the store before acceptance (an unknown local
+        // user → 550 5.1.1 here, not after DATA — and so it can never reach
+        // DATA as an unresolvable recipient that would defer the whole
+        // message). `<postmaster>` (§4.1.1.3) resolves as `postmaster@` the
+        // first hosted domain — it needs a backing mailbox to receive.
+        // Non-local recipients only reach here via authenticated submission
+        // and are not resolved (that user relays anywhere).
+        if self.params.resolve_local_recipients {
+            let email = match &forward_path {
+                ForwardPath::Mailbox(m)
+                    if self
+                        .params
+                        .local_domains
+                        .iter()
+                        .any(|d| d == &m.host.to_string().to_ascii_lowercase()) =>
+                {
+                    Some(m.to_string())
+                }
+                ForwardPath::Postmaster => self
+                    .params
+                    .local_domains
+                    .first()
+                    .map(|d| format!("postmaster@{d}")),
+                _ => None,
+            };
+            if let Some(email) = email {
+                self.pending_rcpt = Some(forward_path);
+                return Directive::CheckRecipient { email };
+            }
+        }
         rcpts.push(forward_path);
         self.respond(Reply::ok())
+    }
+
+    /// Completes a [`Directive::CheckRecipient`]: with `accepted`, the
+    /// pending recipient joins the transaction (`250`); otherwise it is
+    /// dropped (`550 5.1.1`). A pending recipient with no in-progress
+    /// transaction (RSET raced in) is a bad sequence.
+    pub fn resolve_pending(&mut self, accepted: bool) -> Reply {
+        let Some(path) = self.pending_rcpt.take() else {
+            return Reply::bad_sequence("no recipient awaiting resolution");
+        };
+        if !accepted {
+            return Reply::no_such_user();
+        }
+        match &mut self.txn {
+            Txn::InProgress { rcpts, .. } => {
+                rcpts.push(path);
+                Reply::ok()
+            }
+            Txn::Idle => Reply::bad_sequence("need MAIL before RCPT"),
+        }
     }
 
     /// Whether a recipient is in a hosted domain (or is the domainless
@@ -368,6 +437,7 @@ impl Session {
     /// (RFC 3207 §4.2): the server MUST discard any knowledge obtained
     /// from the client before TLS. The client must EHLO again.
     pub fn reset_after_starttls(&mut self) {
+        self.pending_rcpt = None;
         self.helo = None;
         self.esmtp = false;
         self.tls_active = true;
@@ -428,6 +498,7 @@ impl Session {
     /// Ends the DATA phase (success or failure): the transaction is
     /// consumed either way (§4.1.1.4).
     pub fn end_data(&mut self) {
+        self.pending_rcpt = None;
         self.txn = Txn::Idle;
     }
 }
@@ -451,6 +522,7 @@ mod tests {
             // Most tests exercise policy unrelated to the relay guard;
             // the dedicated relay tests set this explicitly.
             local_domains: Vec::new(),
+            resolve_local_recipients: false,
         }
     }
 
@@ -464,6 +536,29 @@ mod tests {
 
     fn code(d: &Directive) -> u16 {
         reply(d).code()
+    }
+
+    #[test]
+    fn local_delivery_resolves_recipients_including_postmaster_at_rcpt() {
+        // With local delivery on, a local mailbox and <postmaster> both emit
+        // CheckRecipient (resolved at RCPT) rather than an outright 250 — so
+        // no accepted recipient can turn out unresolvable at DATA.
+        let mut p = params(Role::Mx);
+        p.local_domains = vec!["ficina.test".to_owned()];
+        p.resolve_local_recipients = true;
+        let mut s = Session::new(p);
+        s.on_line("EHLO c.example");
+        s.on_line("MAIL FROM:<a@ext.test>");
+        match s.on_line("RCPT TO:<alice@ficina.test>") {
+            Directive::CheckRecipient { email } => assert_eq!(email, "alice@ficina.test"),
+            other => panic!("expected CheckRecipient, got {other:?}"),
+        }
+        match s.on_line("RCPT TO:<postmaster>") {
+            Directive::CheckRecipient { email } => assert_eq!(email, "postmaster@ficina.test"),
+            other => panic!("expected CheckRecipient for postmaster, got {other:?}"),
+        }
+        // Resolution result drives the reply: found → 250, unknown → 550 5.1.1.
+        assert_eq!(s.resolve_pending(true).code(), 250);
     }
 
     #[test]

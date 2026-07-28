@@ -72,6 +72,9 @@ pub struct Runtime {
     /// Trust stack: SPF/DKIM/DMARC verification (MX) and DKIM signing
     /// (submission). Disabled by default; `run` installs a real one.
     auth: Arc<AuthMail>,
+    /// Local delivery into the store (MX only). `None` keeps the receive-
+    /// only spool behaviour.
+    local_delivery: Option<Arc<crate::local_delivery::LocalDelivery>>,
 }
 
 impl Runtime {
@@ -95,7 +98,20 @@ impl Runtime {
             max_connections,
             apply_fixups,
             auth,
+            local_delivery: None,
         }
+    }
+
+    /// Installs local delivery into the store (MX only). Attaching it turns
+    /// on recipient resolution (an unknown local user → 550 at RCPT).
+    #[must_use]
+    pub fn with_local_delivery(
+        mut self,
+        local_delivery: Option<Arc<crate::local_delivery::LocalDelivery>>,
+    ) -> Self {
+        self.params.resolve_local_recipients = local_delivery.is_some();
+        self.local_delivery = local_delivery;
+        self
     }
 
     /// Installs the trust-stack context (SPF/DKIM/DMARC + signing).
@@ -130,6 +146,7 @@ impl Runtime {
             // configured allowlist; embedders/tests that need the
             // anti-relay guard call `with_local_domains`.
             local_domains: Vec::new(),
+            resolve_local_recipients: false,
         };
         Self::new(
             params,
@@ -177,6 +194,7 @@ impl Runtime {
                 // Irrelevant on submission: an authenticated user
                 // relays anywhere (the relay guard is MX-only).
                 local_domains: Vec::new(),
+                resolve_local_recipients: false,
             },
             spool,
             tls_acceptor,
@@ -184,6 +202,7 @@ impl Runtime {
             max_connections,
             apply_fixups: true,
             auth,
+            local_delivery: None,
         }
     }
 }
@@ -202,6 +221,29 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
             source,
         })?,
     );
+
+    // Local delivery into the store (MX only). Connect and run the one-shot
+    // spool → store migration BEFORE the outbound queue runner starts, so
+    // there is no concurrent claim on the spool.
+    let local_delivery = match &config.database_url {
+        Some(url) => {
+            let ld = Arc::new(
+                crate::local_delivery::LocalDelivery::connect(
+                    url,
+                    &config.blob_dir,
+                    Arc::clone(&spool),
+                    config.hostname.clone(),
+                )
+                .await?,
+            );
+            if let Err(error) = ld.migrate_spool().await {
+                tracing::error!(%error, "spool → store migration failed; continuing");
+            }
+            tracing::info!("local delivery into the store is enabled");
+            Some(ld)
+        }
+        None => None,
+    };
 
     let (cert, key) = match &config.tls {
         Some(paths) => (Some(paths.cert.as_path()), Some(paths.key.as_path())),
@@ -286,6 +328,7 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
             require_auth: false,
             require_tls_before_mail: false,
             local_domains: config.local_domains.clone(),
+            resolve_local_recipients: config.database_url.is_some(),
         },
         spool: Arc::clone(&spool),
         tls_acceptor: Arc::clone(&tls_acceptor),
@@ -293,6 +336,7 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         max_connections: config.max_connections,
         apply_fixups: false,
         auth: mx_auth,
+        local_delivery: local_delivery.clone(),
     });
     tracing::info!(
         addr = %config.bind_addr,
@@ -325,6 +369,7 @@ fn submission_runtime(
             // Submission relays for authenticated users to any domain;
             // the MX allowlist does not apply here.
             local_domains: Vec::new(),
+            resolve_local_recipients: false,
         },
         spool: Arc::clone(spool),
         tls_acceptor: Arc::clone(tls_acceptor),
@@ -332,6 +377,7 @@ fn submission_runtime(
         max_connections: config.max_connections,
         apply_fixups: true,
         auth: Arc::new(AuthMail::disabled(&config.hostname)),
+        local_delivery: None,
     }
 }
 
@@ -558,6 +604,17 @@ async fn handle_connection(
                         break;
                     }
                 }
+            }
+            Directive::CheckRecipient { email } => {
+                // Resolve the local recipient against the store; unknown →
+                // 550 5.1.1 at RCPT (never a silent post-DATA drop). Absent a
+                // store (invariant: the flag is only set with one), accept.
+                let exists = match &runtime.local_delivery {
+                    Some(ld) => ld.recipient_exists(&email).await,
+                    None => true,
+                };
+                let reply = session.resolve_pending(exists);
+                write_reply(&mut conn, &reply).await?;
             }
         }
     }
@@ -843,6 +900,25 @@ async fn handle_data_phase(
             message.extend_from_slice(header.as_bytes());
             message.extend_from_slice(trust_headers.as_bytes());
             message.extend_from_slice(&body);
+
+            // Local delivery (MX + store configured): deliver into the store
+            // with Sieve at the boundary, instead of the spool. Every
+            // recipient here resolved to a local account at RCPT.
+            if let Some(local) = runtime.local_delivery.clone() {
+                session.end_data();
+                let outcome = local
+                    .deliver(&message, envelope.mail_from.as_deref(), &envelope.rcpt_to)
+                    .await;
+                let reply = match outcome {
+                    crate::local_delivery::DeliveryOutcome::Delivered => {
+                        tracing::info!(%id, size = body.len(), rcpts = envelope.rcpt_to.len(), "delivered to store");
+                        Reply::ok_queued(&id)
+                    }
+                    crate::local_delivery::DeliveryOutcome::Transient => Reply::delivery_tempfail(),
+                };
+                write_reply(conn, &reply).await?;
+                return Ok(true);
+            }
 
             let spool = Arc::clone(&runtime.spool);
             let id_for_task = id.clone();
