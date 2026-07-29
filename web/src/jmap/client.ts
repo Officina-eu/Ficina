@@ -6,6 +6,7 @@ import {
   CORE_CAPABILITY,
   MAIL_CAPABILITY,
   SUBMISSION_CAPABILITY,
+  type AdminGroup,
   type AdminUser,
   type AiProvider,
   type EmailAddress,
@@ -288,6 +289,38 @@ export class JmapClient {
   /** Remove an alias address (admin). */
   async removeAlias(address: string): Promise<void> {
     await this.#adminPost("/admin/users/alias/remove", { address });
+  }
+
+  /** All groups in the tenant, with members and list address (admin). */
+  async listGroups(): Promise<AdminGroup[]> {
+    const out = (await this.#admin("/admin/groups", { method: "GET" })) as { groups: AdminGroup[] };
+    return out.groups;
+  }
+
+  /** Create a group (admin); returns its id. */
+  async createGroup(name: string): Promise<string> {
+    const out = (await this.#adminPost("/admin/groups", { name })) as { id: string };
+    return out.id;
+  }
+
+  /** Delete a group (admin). */
+  async deleteGroup(id: string): Promise<void> {
+    await this.#admin(`/admin/groups/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  /** Set or clear a group's distribution-list address (admin). */
+  async setGroupAddress(groupId: string, address: string | null): Promise<void> {
+    await this.#adminPost("/admin/groups/address", address === null ? { groupId } : { groupId, address });
+  }
+
+  /** Add a user to a group (admin). */
+  async addGroupMember(groupId: string, userId: string): Promise<void> {
+    await this.#adminPost("/admin/groups/members", { groupId, userId });
+  }
+
+  /** Remove a user from a group (admin). */
+  async removeGroupMember(groupId: string, userId: string): Promise<void> {
+    await this.#adminPost("/admin/groups/members/remove", { groupId, userId });
   }
 
   /** Improve a draft via the tenant's configured AI backend (ADR 0011).

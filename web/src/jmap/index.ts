@@ -14,5 +14,6 @@ export {
   type EmailAddress,
   type AiProvider,
   type AdminUser,
+  type AdminGroup,
   type Session,
 } from "./types";

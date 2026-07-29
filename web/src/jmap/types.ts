@@ -104,6 +104,16 @@ export interface AdminUser {
   aliases: string[];
 }
 
+/** A group in the admin console. `address` present means it's a distribution
+ * list (mail to it fans out to members). */
+export interface AdminGroup {
+  id: string;
+  name: string;
+  address: string | null;
+  memberCount: number;
+  members: { id: string; email: string }[];
+}
+
 /** A JMAP method invocation: [name, arguments, call-id]. */
 export type MethodCall = [string, Record<string, unknown>, string];
 export type MethodResponse = [string, Record<string, unknown>, string];
