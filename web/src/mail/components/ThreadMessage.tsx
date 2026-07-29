@@ -1,7 +1,7 @@
 // One message within a conversation. Collapsed: a clickable summary row
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
-import { Forward, Paperclip, Reply, Trash2 } from "lucide-react";
+import { Forward, Paperclip, Reply, ReplyAll, Trash2 } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Avatar, IconButton, cx } from "../../ds";
@@ -16,8 +16,9 @@ interface ThreadMessageProps {
   /** The signed-in user's address, so their own line reads "me". */
   me: string | undefined;
   onToggle: () => void;
-  /** Reply to / forward / delete this specific message (per-message action bar). */
+  /** Reply / reply-all / forward / delete this message (per-message action bar). */
   onReply: () => void;
+  onReplyAll: () => void;
   onForward: () => void;
   onDelete: () => void;
 }
@@ -34,6 +35,7 @@ export function ThreadMessage({
   me,
   onToggle,
   onReply,
+  onReplyAll,
   onForward,
   onDelete,
 }: ThreadMessageProps) {
@@ -49,13 +51,14 @@ export function ThreadMessage({
         <div className={styles.headText}>
           <div className={styles.headTop}>
             <span className={styles.sender}>{senderName(email)}</span>
+            {expanded && email.from?.[0]?.email !== undefined && (
+              <span className={styles.senderEmail}>{`<${email.from[0].email}>`}</span>
+            )}
             {email.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
             <span className={styles.date}>{formatDate(email.receivedAt)}</span>
           </div>
           <div className={styles.headSub}>
-            {expanded
-              ? `${email.from?.[0]?.email ?? ""} · ${strings.toLabel} ${recipientLine(email.to, me)}`
-              : email.preview}
+            {expanded ? `${strings.toLabel} ${recipientLine(email.to, me)}` : email.preview}
           </div>
         </div>
       </button>
@@ -64,6 +67,7 @@ export function ThreadMessage({
         <div className={styles.body}>
           <div className={styles.msgActions}>
             <IconButton size="sm" label={strings.reply} icon={<Reply />} onClick={onReply} />
+            <IconButton size="sm" label={strings.replyAll} icon={<ReplyAll />} onClick={onReplyAll} />
             <IconButton size="sm" label={strings.forward} icon={<Forward />} onClick={onForward} />
             <IconButton size="sm" label={strings.delete} icon={<Trash2 />} onClick={onDelete} />
           </div>

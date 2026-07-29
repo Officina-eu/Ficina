@@ -75,9 +75,20 @@
 }
 
 .sender {
+  flex-shrink: 0;
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The sender's address, shown beside the name on an expanded message. */
+.senderEmail {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

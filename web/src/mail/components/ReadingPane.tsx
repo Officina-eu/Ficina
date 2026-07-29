@@ -24,7 +24,7 @@ import type { MenuItem } from "../../ds";
 import { KEYWORD_FLAGGED, type EmailFull, type Mailbox } from "../../jmap";
 import { useAuth } from "../../auth";
 import type { Async } from "../state/useAsync";
-import { subjectOr } from "../format";
+import { senderName, subjectOr } from "../format";
 import { ThreadMessage } from "./ThreadMessage";
 import styles from "./ReadingPane.module.css";
 
@@ -196,6 +196,7 @@ export function ReadingPane({
               me={me}
               onToggle={() => toggle(message.id)}
               onReply={() => onReplyMessage(message)}
+              onReplyAll={() => onReplyMessage(message)}
               onForward={() => onForwardMessage(message)}
               onDelete={() => onDeleteMessage(message)}
             />
@@ -206,11 +207,11 @@ export function ReadingPane({
       <div className={styles.quickReply}>
         <div className={styles.quickHead}>
           <Reply size={14} />
-          <span>{strings.reply}</span>
+          <span>{strings.quickReplyTo(senderName(latest))}</span>
         </div>
         <div className={styles.quickBar}>
           <button type="button" className={styles.quickInput} onClick={onReply}>
-            {strings.reply}…
+            {strings.replyToName(senderName(latest))}
           </button>
           <button type="button" className={styles.draftAi} onClick={onReply}>
             <Sparkles size={15} />

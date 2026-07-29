@@ -111,6 +111,8 @@ export const strings = {
   threadMessages: "messages",
   toLabel: "to",
   replyTo: "Reply to",
+  quickReplyTo: (name: string) => `Quick reply to ${name}`,
+  replyToName: (name: string) => `Reply to ${name}…`,
   draftWithAi: "Draft with AI",
 
   // mail — compose
