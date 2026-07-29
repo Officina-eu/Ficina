@@ -39,7 +39,7 @@ export const CATALOG: CatalogEntry[] = [
     name: strings.kindOpenai,
     description: strings.openaiDesc,
     group: "keys",
-    defaultBaseUrl: "https://api.openai.com/v1",
+    defaultBaseUrl: "https://api.openai.com",
     needsKey: true,
   },
   {
@@ -47,7 +47,7 @@ export const CATALOG: CatalogEntry[] = [
     name: strings.kindAnthropic,
     description: strings.anthropicDesc,
     group: "keys",
-    defaultBaseUrl: "https://api.anthropic.com/v1",
+    defaultBaseUrl: "https://api.anthropic.com",
     needsKey: true,
   },
   {

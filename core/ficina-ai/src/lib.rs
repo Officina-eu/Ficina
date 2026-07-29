@@ -122,6 +122,35 @@ pub fn parse_completion(body: &str) -> Result<String, InferenceError> {
     Ok(text)
 }
 
+/// The largest inference response we will buffer. A hostile or broken backend
+/// must not be able to exhaust memory (law #2, full path incl. error paths);
+/// 4 MiB dwarfs any legitimate improved email draft.
+const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Build `{base}/v1/{path}`, tolerating a base that already ends in `/v1` — the
+/// form hosted providers print in their docs (`https://api.openai.com/v1`) — or
+/// carries a trailing slash. Without this, such a base doubles the segment into
+/// `/v1/v1/...` and every request 404s.
+fn endpoint(base_url: &str, path: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    let base = base.strip_suffix("/v1").unwrap_or(base);
+    format!("{base}/v1/{path}")
+}
+
+/// Read a response body, refusing anything larger than [`MAX_RESPONSE_BYTES`].
+/// Streams chunk-by-chunk so an over-large (or lying `Content-Length`) backend
+/// is rejected without first buffering it whole.
+async fn read_body_capped(mut response: reqwest::Response) -> Result<String, InferenceError> {
+    let mut buf = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| InferenceError::Transport)? {
+        if buf.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(InferenceError::Empty);
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    String::from_utf8(buf).map_err(|_| InferenceError::Empty)
+}
+
 /// Improve an email draft via the configured backend. User-invoked only.
 ///
 /// # Errors
@@ -135,10 +164,7 @@ pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, Inference
         return Err(InferenceError::NotConfigured);
     }
 
-    let url = format!(
-        "{}/v1/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let url = endpoint(&config.base_url, "chat/completions");
     let messages = improve_messages(draft);
     let body = ChatRequest {
         model: config.model.trim(),
@@ -166,10 +192,7 @@ pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, Inference
     if !status.is_success() {
         return Err(InferenceError::Backend(status.as_u16()));
     }
-    let text = response
-        .text()
-        .await
-        .map_err(|_| InferenceError::Transport)?;
+    let text = read_body_capped(response).await?;
     parse_completion(&text)
 }
 
@@ -185,7 +208,7 @@ pub async fn check(base_url: &str, api_key: Option<&str>) -> Result<usize, Infer
     if base_url.trim().is_empty() {
         return Err(InferenceError::NotConfigured);
     }
-    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let url = endpoint(base_url, "models");
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
@@ -203,10 +226,7 @@ pub async fn check(base_url: &str, api_key: Option<&str>) -> Result<usize, Infer
     if !response.status().is_success() {
         return Err(InferenceError::Backend(response.status().as_u16()));
     }
-    let body = response
-        .text()
-        .await
-        .map_err(|_| InferenceError::Transport)?;
+    let body = read_body_capped(response).await?;
     let parsed: serde_json::Value =
         serde_json::from_str(&body).map_err(|_| InferenceError::Empty)?;
     Ok(parsed
@@ -237,6 +257,33 @@ mod tests {
         assert_eq!(m[0].role, "system");
         assert_eq!(m[1].role, "user");
         assert_eq!(m[1].content, "Hey, wanna meet tmrw?");
+    }
+
+    #[test]
+    fn endpoint_appends_single_v1_regardless_of_base_shape() {
+        // Ollama / custom: host root, no /v1.
+        assert_eq!(
+            endpoint("http://localhost:11434", "chat/completions"),
+            "http://localhost:11434/v1/chat/completions"
+        );
+        // Hosted providers print the base *with* /v1 — must not double it.
+        assert_eq!(
+            endpoint("https://api.openai.com/v1", "chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint("https://api.anthropic.com/v1", "models"),
+            "https://api.anthropic.com/v1/models"
+        );
+        // Trailing slashes (with or without /v1) are tolerated too.
+        assert_eq!(
+            endpoint("https://api.openai.com/v1/", "models"),
+            "https://api.openai.com/v1/models"
+        );
+        assert_eq!(
+            endpoint("http://localhost:11434/", "models"),
+            "http://localhost:11434/v1/models"
+        );
     }
 
     #[test]

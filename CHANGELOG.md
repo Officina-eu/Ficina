@@ -6,6 +6,27 @@ contracts.
 
 ## Unreleased
 
+- New: **Tenant Admin console + AI inference layer.** A full-screen,
+  tenant-admin-only console (reached from the user menu, gated on the new
+  `ficina:isAdmin` session key) with four working pages: **Users & mailboxes**
+  (create, reset password, grant/revoke admin with self-lockout protection,
+  aliases, delete), **Groups & lists** (groups, membership, and distribution
+  **list addresses** that fan inbound mail out to every member's inbox),
+  **Security & trust** (live SPF/DKIM/DMARC/MX/reverse-DNS/MTA-STS
+  deliverability checks run as real DNS + HTTPS queries against the email
+  domain), and **AI providers**. New backend crate **`ficina-ai`** speaks the
+  OpenAI-compatible Chat Completions contract, so the AI backend is
+  *configured, never bundled* — bring your own: local Ollama, a self-hosted
+  model, or a hosted provider (OpenAI/Anthropic/custom), per tenant. The web
+  Compose **"Improve"** action calls it via a new authenticated, tenant-scoped
+  **`POST /ai/improve`** (new `ficina:aiEnabled` session key hides the control
+  when AI is off). API keys are stored server-side and **never returned to
+  clients** (only a `hasKey` flag) or logged; prompts and completions are
+  never logged (law #1). New HTTP surface: `/admin/users*`, `/admin/groups*`,
+  `/admin/security/checks`, `/admin/ai/*`, `/ai/improve`. New operator env for
+  the admin: `bootstrap-admin` marks the first user; the Security page reads
+  `FICINA_SMTP_LOCAL_DOMAINS` / `FICINA_SMTP_DKIM_*`. Design + threat model:
+  ADR `0011-ai-inference-layer.md`, `docs/design/multi-tenant-trust-boundary.md`.
 - New: **Sending mail** — JMAP **`EmailSubmission/set`** (RFC 8621 §7), so the
   web app's Compose and Reply actually send. A composed message is built as a
   proper RFC 5322 `text/plain` message (all To/Cc, reply threading, and

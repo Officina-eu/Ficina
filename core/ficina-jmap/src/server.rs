@@ -38,8 +38,12 @@ pub fn app(state: AppState) -> Router {
             get(blob::download),
         )
         .route("/jmap/eventsource", get(push::event_source))
-        // AI inference (ADR 0011) — authenticated, tenant-scoped.
-        .route("/ai/improve", post(ai::improve))
+        // AI inference (ADR 0011) — authenticated, tenant-scoped. Its own small
+        // body limit: the draft cap, not the large blob-upload ceiling below.
+        .route(
+            "/ai/improve",
+            post(ai::improve).layer(DefaultBodyLimit::max(ai::MAX_IMPROVE_BYTES)),
+        )
         // Admin console (tenant-admin only): AI provider management.
         .route(
             "/admin/ai/providers",

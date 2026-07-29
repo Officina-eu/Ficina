@@ -14,8 +14,10 @@ use crate::error::Problem;
 use crate::state::{AppState, authenticate};
 
 /// Cap the draft we send for improvement (bytes) — a sane bound independent of
-/// the JMAP request ceiling.
-const MAX_IMPROVE_BYTES: usize = 64 * 1024;
+/// the JMAP request ceiling. Also applied as a per-route body limit in
+/// `server.rs` so an oversized upload is rejected before it is buffered, not
+/// after (the router-wide limit is the much larger blob-upload ceiling).
+pub const MAX_IMPROVE_BYTES: usize = 64 * 1024;
 
 /// `POST /ai/improve` — `{"text": "..."}` → `{"text": "improved"}`.
 ///

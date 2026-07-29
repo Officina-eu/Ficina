@@ -104,7 +104,7 @@ pub async fn set_default(
         .acc
         .set_default_ai_provider(&id)
         .await
-        .map_err(|_| Problem::server_error())?;
+        .map_err(store_admin_err)?;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -205,17 +205,28 @@ pub async fn create_user(
     }
     let ts = state.store.for_tenant(account.tenant.clone());
     let user = ts.create_user(&email).await.map_err(store_admin_err)?;
-    state
-        .identity
-        .set_password(&account.tenant, &user, &email, password)
-        .await
-        .map_err(|_| Problem::server_error())?;
-    state
-        .store
-        .for_account(account.tenant.clone(), user.clone())
-        .inbox()
-        .await
-        .map_err(|_| Problem::server_error())?;
+    // Password + inbox are separate writes; if either fails, roll the user row
+    // back so we never leave a half-created account that owns the email but
+    // cannot log in or receive mail ("done means the full path works").
+    let provisioned = async {
+        state
+            .identity
+            .set_password(&account.tenant, &user, &email, password)
+            .await
+            .map_err(|_| Problem::server_error())?;
+        state
+            .store
+            .for_account(account.tenant.clone(), user.clone())
+            .inbox()
+            .await
+            .map_err(|_| Problem::server_error())?;
+        Ok::<(), Problem>(())
+    }
+    .await;
+    if let Err(e) = provisioned {
+        let _ = ts.delete_user(&user).await; // best-effort cleanup
+        return Err(e);
+    }
     Ok(Json(json!({ "id": user.as_str() })))
 }
 

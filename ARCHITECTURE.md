@@ -21,10 +21,18 @@ state *why*.
    built: `ficina-smtp`, `ficina-store`, `ficina-jmap`, `ficina-imap`,
    `ficina-dav`; integrated engines behind our APIs: Synapse (chat,
    one instance per tenant), LiveKit (meet), Collabora via WOPI
-   endpoints we serve (docs).
-4. **AI layer** — `ficina-ai`: event-bus indexer over all stores,
-   per-tenant semantic index, model-agnostic inference API, MCP
-   server. Sits BELOW services so one query spans mail/chat/files.
+   endpoints we serve (docs). `ficina-jmap` also serves the
+   **tenant-admin console** API (`/admin/*`): users & mailboxes,
+   groups & distribution lists, live deliverability checks, and AI
+   provider config — every route gated on an admin claim resolved at
+   the gateway (layer 2) and re-checked against `users.is_admin`.
+4. **AI layer** — `ficina-ai`. Built: the **model-agnostic inference
+   API** (ADR 0011) — one wire contract, OpenAI-compatible Chat
+   Completions, so the backend is *configured, never bundled*
+   (per-tenant: local Ollama, self-hosted model, or a hosted
+   provider). Still to come: the event-bus indexer over all stores,
+   the per-tenant semantic index, and the MCP server — which sit
+   BELOW services so one query spans mail/chat/files.
 5. **Data** — PostgreSQL (system of record), Garage (S3 blobs),
    vector index (pgvector first). Three boring stores, by design.
 

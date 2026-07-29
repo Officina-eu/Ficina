@@ -1472,9 +1472,13 @@ impl AccountStore {
     }
 
     /// Make one provider the tenant's single default (admin write). Clears any
-    /// existing default first, in a transaction, then sets this one.
+    /// existing default first, in a transaction, then sets this one. A stale or
+    /// foreign `id` matches no row: rather than silently leaving the tenant with
+    /// no default (which switches AI off), the whole operation rolls back and
+    /// returns [`StoreError::NotFound`], preserving the prior default.
     ///
     /// # Errors
+    /// [`StoreError::NotFound`] if no provider with `id` exists for this tenant;
     /// [`StoreError::Db`] on failure.
     pub async fn set_default_ai_provider(&self, id: &str) -> Result<()> {
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
@@ -1482,11 +1486,17 @@ impl AccountStore {
             .bind(self.tenant.as_str())
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE ai_providers SET is_default = TRUE WHERE tenant_id = $1 AND id = $2")
-            .bind(self.tenant.as_str())
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        let set = sqlx::query(
+            "UPDATE ai_providers SET is_default = TRUE WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        if set.rows_affected() == 0 {
+            // tx drops without commit → the clear above is rolled back too.
+            return Err(StoreError::NotFound);
+        }
         tx.commit().await.map_err(StoreError::Db)?;
         Ok(())
     }
