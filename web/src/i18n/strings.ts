@@ -153,6 +153,12 @@ export const strings = {
   composeCollapse: "Collapse",
   showQuoted: "Show quoted text",
   hideQuoted: "Hide quoted text",
+  formatting: "Text formatting",
+  bold: "Bold",
+  italic: "Italic",
+  underline: "Underline",
+  link: "Insert link",
+  linkPrompt: "Link URL:",
   removeRecipient: (name: string) => `Remove ${name}`,
   recipientCount: (n: number) => (n === 1 ? "1 recipient" : `${n} recipients`),
 

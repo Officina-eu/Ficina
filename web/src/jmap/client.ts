@@ -287,20 +287,26 @@ export class JmapClient {
     cc?: EmailAddress[];
     subject: string;
     bodyText: string;
+    bodyHtml?: string;
     inReplyTo?: string[];
     references?: string[];
     attachments?: { blobId: string; type: string; name: string }[];
   }): Promise<string> {
     const accountId = await this.accountId();
+    const bodyValues: Record<string, { value: string }> = { text: { value: params.bodyText } };
     const email: Record<string, unknown> = {
       mailboxIds: { [params.mailboxId]: true },
       keywords: { $draft: true },
       from: [params.from],
       to: params.to,
       subject: params.subject,
-      bodyValues: { text: { value: params.bodyText } },
+      bodyValues,
       textBody: [{ partId: "text", type: "text/plain" }],
     };
+    if (params.bodyHtml !== undefined && params.bodyHtml.length > 0) {
+      bodyValues.html = { value: params.bodyHtml };
+      email.htmlBody = [{ partId: "html", type: "text/html" }];
+    }
     if (params.attachments !== undefined && params.attachments.length > 0) {
       email.attachments = params.attachments.map((a) => ({
         blobId: a.blobId,

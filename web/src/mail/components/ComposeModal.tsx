@@ -12,6 +12,10 @@ import { Spinner, cx } from "../../ds";
 import { useJmapClient } from "../../jmap";
 import type { EmailAddress, EmailFull } from "../../jmap";
 import { formatBytes, formatDate, senderName } from "../format";
+import { textContent } from "../body";
+import { RecipientInput } from "./RecipientInput";
+import { RichTextEditor } from "./RichTextEditor";
+import styles from "./ComposeModal.module.css";
 
 interface PendingAttachment {
   blobId: string;
@@ -19,9 +23,29 @@ interface PendingAttachment {
   type: string;
   size: number;
 }
-import { textContent } from "../body";
-import { RecipientInput } from "./RecipientInput";
-import styles from "./ComposeModal.module.css";
+
+/** True when the composed HTML carries real formatting (not just line breaks),
+ * so it's worth sending a text/html alternative. */
+function hasFormatting(html: string): boolean {
+  return /<(?:b|strong|i|em|u|a|ul|ol|li|h[1-6]|blockquote)\b/i.test(html);
+}
+
+/** A plain-text rendering of composed HTML, for the text/plain alternative. */
+function htmlToText(html: string): string {
+  const withBreaks = html
+    .replace(/<\/(?:div|p|li|h[1-6]|blockquote)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n");
+  const el = document.createElement("div");
+  el.innerHTML = withBreaks;
+  return (el.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Escape text for safe inclusion in an HTML body. */
+function escapeHtml(text: string): string {
+  const el = document.createElement("div");
+  el.textContent = text;
+  return el.innerHTML;
+}
 
 export interface ComposeContext {
   mode: "new" | "reply" | "replyAll" | "forward";
@@ -243,7 +267,18 @@ export function ComposeModal({
     }
     setSending(true);
     setError(null);
-    const fullBody = prefill.quoted.length > 0 ? `${body}\n\n${prefill.quoted}` : body;
+    // The editor holds HTML; derive the text/plain alternative and append the
+    // quoted original (as text, and as HTML when we're sending a formatted body).
+    const text = htmlToText(body);
+    const fullText = prefill.quoted.length > 0 ? `${text}\n\n${prefill.quoted}` : text;
+    let bodyHtml: string | undefined;
+    if (hasFormatting(body)) {
+      const quotedHtml =
+        prefill.quoted.length > 0
+          ? `<br><br><blockquote>${escapeHtml(prefill.quoted).replace(/\n/g, "<br>")}</blockquote>`
+          : "";
+      bodyHtml = `${body}${quotedHtml}`;
+    }
     try {
       const emailId = await client.createDraft({
         mailboxId: draftsMailboxId,
@@ -251,7 +286,8 @@ export function ComposeModal({
         to,
         cc,
         subject,
-        bodyText: fullBody,
+        bodyText: fullText,
+        ...(bodyHtml !== undefined ? { bodyHtml } : {}),
         inReplyTo: prefill.inReplyTo,
         references: prefill.references,
         attachments: attachments.map((a) => ({ blobId: a.blobId, type: a.type, name: a.name })),
@@ -333,10 +369,9 @@ export function ComposeModal({
             </div>
           </div>
 
-          <textarea
-            className={styles.textarea}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
+          <RichTextEditor
+            initialHtml={prefill.body}
+            onChange={setBody}
             placeholder={strings.composeBodyPlaceholder}
             autoFocus={isReply}
           />
