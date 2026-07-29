@@ -1,12 +1,12 @@
-// The left rail — the constant of the one-product frame. Top: the mark and
-// ＋New (compose/create). Middle: one link per registered module, the active
-// one highlighted. Bottom: ✦AI and the account menu. It never scrolls and
-// never changes between modules; only the panel to its right does.
+// The left rail — the constant of the one-product frame (Figma app shell).
+// Top: the mark and ＋New. Middle: one labelled item per registered module,
+// the active one highlighted. Bottom: ✦AI and the account menu. It never
+// scrolls and never changes between modules; only the panel to its right does.
 import { Plus, Sparkles } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { strings } from "../i18n";
-import { IconButton, cx } from "../ds";
+import { cx } from "../ds";
 import { Logo } from "./Logo";
 import { UserMenu } from "./UserMenu";
 import { modules } from "./moduleRegistry";
@@ -24,7 +24,7 @@ export function Rail({ onNew, onAskAi }: RailProps) {
     <nav className={styles.rail} aria-label={strings.appName}>
       <div className={styles.top}>
         <NavLink to="/mail" className={cx(styles.logoLink)} aria-label={strings.appName}>
-          <Logo size={34} />
+          <Logo size={40} />
         </NavLink>
         <button type="button" className={styles.newButton} onClick={onNew} aria-label={strings.newButton}>
           <Plus />
@@ -36,25 +36,21 @@ export function Rail({ onNew, onAskAi }: RailProps) {
           <li key={m.id}>
             <NavLink
               to={m.path}
-              className={({ isActive }) =>
-                `${styles.moduleLink} ${isActive ? styles.active : ""}`
-              }
-              aria-label={m.label}
+              className={({ isActive }) => cx(styles.item, isActive && styles.active)}
               title={m.label}
             >
               <m.Icon strokeWidth={1.75} />
+              <span className={styles.label}>{m.label}</span>
             </NavLink>
           </li>
         ))}
       </ul>
 
       <div className={styles.bottom}>
-        <IconButton
-          tone="rail"
-          label={strings.moduleAi}
-          onClick={onAskAi}
-          icon={<Sparkles strokeWidth={1.75} />}
-        />
+        <button type="button" className={styles.item} onClick={onAskAi}>
+          <Sparkles strokeWidth={1.75} />
+          <span className={styles.label}>{strings.moduleAi}</span>
+        </button>
         <UserMenu />
       </div>
     </nav>

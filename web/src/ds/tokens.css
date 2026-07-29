@@ -140,9 +140,9 @@
   --transition-base: 180ms ease;
 
   /* ---- layout ---- */
-  --rail-width: 68px;
-  --list-width: 380px;
-  --sidebar-width: 240px;
+  --rail-width: 72px;
+  --list-width: 372px;
+  --sidebar-width: 232px;
   --z-rail: 20;
   --z-overlay: 40;
   --z-modal: 50;

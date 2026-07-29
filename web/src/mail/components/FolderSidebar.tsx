@@ -1,0 +1,114 @@
+// The folder sidebar (Figma app shell): the Compose action, the account's
+// system folders with unread counts, and a FOLDERS section for custom
+// mailboxes. Selecting a folder drives the message list.
+import {
+  Archive,
+  Hash,
+  Inbox,
+  PenLine,
+  Send,
+  ShieldAlert,
+  Trash2,
+  FileText,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+import { strings } from "../../i18n";
+import { Spinner } from "../../ds";
+import type { Mailbox } from "../../jmap";
+import type { Async } from "../state/useAsync";
+import styles from "./FolderSidebar.module.css";
+
+const ROLE_ICON: Record<string, LucideIcon> = {
+  inbox: Inbox,
+  drafts: FileText,
+  sent: Send,
+  archive: Archive,
+  junk: ShieldAlert,
+  trash: Trash2,
+};
+
+const ROLE_ORDER: Record<string, number> = {
+  inbox: 0,
+  drafts: 1,
+  sent: 2,
+  archive: 3,
+  junk: 4,
+  trash: 5,
+};
+
+function ordered(list: Mailbox[]): { system: Mailbox[]; custom: Mailbox[] } {
+  const system = list
+    .filter((m) => m.role !== null)
+    .sort((a, b) => (ROLE_ORDER[a.role ?? ""] ?? 50) - (ROLE_ORDER[b.role ?? ""] ?? 50));
+  const custom = list
+    .filter((m) => m.role === null)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  return { system, custom };
+}
+
+interface FolderSidebarProps {
+  mailboxes: Async<Mailbox[]>;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onCompose: () => void;
+}
+
+export function FolderSidebar({ mailboxes, selectedId, onSelect, onCompose }: FolderSidebarProps) {
+  function row(box: Mailbox, Icon: LucideIcon) {
+    const active = box.id === selectedId;
+    return (
+      <button
+        key={box.id}
+        type="button"
+        className={`${styles.item} ${active ? styles.active : ""}`}
+        onClick={() => onSelect(box.id)}
+        aria-current={active ? "true" : undefined}
+      >
+        <Icon className={styles.icon} strokeWidth={1.75} />
+        <span className={styles.name}>{box.name}</span>
+        {box.unreadEmails > 0 && <span className={styles.count}>{box.unreadEmails}</span>}
+      </button>
+    );
+  }
+
+  const { system, custom } = ordered(mailboxes.data ?? []);
+
+  return (
+    <nav className={styles.sidebar} aria-label={strings.mailFolders}>
+      <button type="button" className={styles.compose} onClick={onCompose}>
+        <PenLine size={17} strokeWidth={2} />
+        <span>{strings.compose}</span>
+      </button>
+
+      {mailboxes.status === "loading" && (
+        <div className={styles.state}>
+          <Spinner size={18} />
+        </div>
+      )}
+
+      {mailboxes.status === "error" && (
+        <div className={styles.state}>
+          <p>{strings.mailFolderError}</p>
+          <button type="button" className={styles.retry} onClick={mailboxes.reload}>
+            {strings.mailRetry}
+          </button>
+        </div>
+      )}
+
+      {mailboxes.status === "ready" && (
+        <div className={styles.scroll}>
+          <div className={styles.group}>
+            {system.map((box) => row(box, (box.role !== null ? ROLE_ICON[box.role] : undefined) ?? Hash))}
+          </div>
+          {custom.length > 0 && (
+            <div className={styles.group}>
+              <h2 className={styles.heading}>{strings.mailFolders}</h2>
+              {custom.map((box) => row(box, Hash))}
+            </div>
+          )}
+        </div>
+      )}
+    </nav>
+  );
+}

@@ -72,6 +72,7 @@ export const strings = {
   mailLoading: "Loading your mail…",
   mailFolders: "Folders",
   mailEmpty: "No messages here yet.",
+  mailSearchEmpty: "No messages match your search.",
   mailSelectPrompt: "Select a message to read it.",
   mailListError: "Could not load messages.",
   mailFolderError: "Could not load your folders.",
@@ -80,6 +81,30 @@ export const strings = {
   mailTo: "To",
   mailNoSubject: "(no subject)",
   mailUnknownSender: "Unknown sender",
+
+  // mail — sidebar
+  compose: "Compose",
+  mailSearchPlaceholder: "Search mail…",
+
+  // mail — reading pane
+  reply: "Reply",
+  replyAll: "Reply all",
+  forward: "Forward",
+  archive: "Archive",
+  snooze: "Snooze",
+  flag: "Flag",
+  unflag: "Unflag",
+  markUnread: "Mark as unread",
+  moreActions: "More actions",
+  endOfMessage: "End of message",
+  toLabel: "to",
+  replyTo: "Reply to",
+  draftWithAi: "Draft with AI",
+
+  // mail — not-yet-built (honest placeholders)
+  composeComingSoon: "Composing and replying are coming soon.",
+  aiComingSoon: "The AI assistant is coming soon.",
+  archiveUnavailable: "There's no archive folder to move this to.",
 } as const;
 
 export type StringKey = keyof typeof strings;

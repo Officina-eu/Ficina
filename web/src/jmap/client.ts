@@ -153,14 +153,35 @@ export class JmapClient {
 
   /** Mark a message read/unread by toggling the $seen keyword. */
   async setSeen(id: string, seen: boolean): Promise<void> {
+    await this.#setKeyword(id, "$seen", seen);
+  }
+
+  /** Flag/unflag a message ($flagged keyword). */
+  async setFlagged(id: string, flagged: boolean): Promise<void> {
+    await this.#setKeyword(id, "$flagged", flagged);
+  }
+
+  async #setKeyword(id: string, keyword: string, on: boolean): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      ["Email/set", { accountId, update: { [id]: { [`keywords/${keyword}`]: on ? true : null } } }, "s"],
+    ]);
+    this.#result(res, "s");
+  }
+
+  /** Move a message from one mailbox to another (e.g. archive). */
+  async move(id: string, fromMailboxId: string, toMailboxId: string): Promise<void> {
     const accountId = await this.accountId();
     const res = await this.#request([
       [
         "Email/set",
-        { accountId, update: { [id]: { "keywords/$seen": seen ? true : null } } },
-        "s",
+        {
+          accountId,
+          update: { [id]: { [`mailboxIds/${fromMailboxId}`]: null, [`mailboxIds/${toMailboxId}`]: true } },
+        },
+        "m",
       ],
     ]);
-    this.#result(res, "s");
+    this.#result(res, "m");
   }
 }
