@@ -115,6 +115,9 @@ export const strings = {
   replyToName: (name: string) => `Reply to ${name}…`,
   draftWithAi: "Draft with AI",
   attachments: "Attachments",
+  attach: "Attach files",
+  attachmentUploading: "Uploading…",
+  attachmentUploadFailed: "Couldn't upload that file.",
   downloadAttachment: (name: string) => `Download ${name}`,
   attachmentFailed: "Couldn't download that attachment.",
 

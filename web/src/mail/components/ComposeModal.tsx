@@ -3,15 +3,22 @@
 // on send it creates a draft (Email/set) then submits it (EmailSubmission/set),
 // which sends it and files it to Sent. Bcc recipients ride the envelope only —
 // never the visible headers.
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { ArrowLeft, ArrowRight, Maximize2, Minimize2, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Maximize2, Minimize2, Paperclip, Trash2, X } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Spinner, cx } from "../../ds";
 import { useJmapClient } from "../../jmap";
 import type { EmailAddress, EmailFull } from "../../jmap";
-import { formatDate, senderName } from "../format";
+import { formatBytes, formatDate, senderName } from "../format";
+
+interface PendingAttachment {
+  blobId: string;
+  name: string;
+  type: string;
+  size: number;
+}
 import { textContent } from "../body";
 import { RecipientInput } from "./RecipientInput";
 import styles from "./ComposeModal.module.css";
@@ -190,8 +197,33 @@ export function ComposeModal({
   const [body, setBody] = useState(prefill.body);
   const [showQuoted, setShowQuoted] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  async function onPickFiles(files: FileList) {
+    setError(null);
+    for (const file of Array.from(files)) {
+      setUploading((n) => n + 1);
+      try {
+        const up = await client.uploadFile(file);
+        setAttachments((prev) => [
+          ...prev,
+          { blobId: up.blobId, name: file.name, type: up.type, size: up.size },
+        ]);
+      } catch {
+        setError(strings.attachmentUploadFailed);
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  }
+
+  function removeAttachment(blobId: string) {
+    setAttachments((prev) => prev.filter((a) => a.blobId !== blobId));
+  }
 
   const recipientTotal = useMemo(() => {
     const seen = new Set<string>();
@@ -222,6 +254,7 @@ export function ComposeModal({
         bodyText: fullBody,
         inReplyTo: prefill.inReplyTo,
         references: prefill.references,
+        attachments: attachments.map((a) => ({ blobId: a.blobId, type: a.type, name: a.name })),
       });
       // Bcc rides the envelope only — it is deliberately absent from the draft
       // headers above but present in the submission recipients here.
@@ -321,6 +354,32 @@ export function ComposeModal({
             </div>
           )}
 
+          {(attachments.length > 0 || uploading > 0) && (
+            <div className={styles.attachRow}>
+              {attachments.map((a) => (
+                <span key={a.blobId} className={styles.attachChip}>
+                  <Paperclip size={14} className={styles.attachIcon} />
+                  <span className={styles.attachName}>{a.name}</span>
+                  <span className={styles.attachSize}>{formatBytes(a.size)}</span>
+                  <button
+                    type="button"
+                    className={styles.attachRemove}
+                    onClick={() => removeAttachment(a.blobId)}
+                    aria-label={strings.removeRecipient(a.name)}
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+              {uploading > 0 && (
+                <span className={styles.attachChip}>
+                  <Spinner size={14} />
+                  <span className={styles.attachName}>{strings.attachmentUploading}</span>
+                </span>
+              )}
+            </div>
+          )}
+
           {error !== null && (
             <p className={styles.error} role="alert">
               {error}
@@ -336,8 +395,28 @@ export function ComposeModal({
             >
               <Trash2 size={17} />
             </button>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => fileInput.current?.click()}
+              aria-label={strings.attach}
+            >
+              <Paperclip size={18} />
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              className={styles.fileInput}
+              onChange={(e) => {
+                if (e.target.files !== null && e.target.files.length > 0) {
+                  void onPickFiles(e.target.files);
+                }
+                e.target.value = "";
+              }}
+            />
             <div className={styles.headSpacer} />
-            <button type="submit" className={styles.send} disabled={sending}>
+            <button type="submit" className={styles.send} disabled={sending || uploading > 0}>
               {sending ? (
                 <Spinner size={16} label={strings.composeSending} />
               ) : (

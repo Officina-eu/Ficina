@@ -263,6 +263,22 @@ export class JmapClient {
     this.#result(res, "d");
   }
 
+  /** Upload a file's bytes to the blob store; returns its blob id + type/size.
+   * The blob is unreferenced until a draft embeds it (and is GC'd if never used). */
+  async uploadFile(file: File): Promise<{ blobId: string; type: string; size: number }> {
+    const session = await this.session();
+    const accountId = await this.accountId();
+    const url = session.uploadUrl.replace("{accountId}", encodeURIComponent(accountId));
+    const res = await this.#fetch(url, {
+      method: "POST",
+      headers: { "content-type": file.type.length > 0 ? file.type : "application/octet-stream" },
+      body: file,
+    });
+    if (!res.ok) throw new JmapError(`upload ${res.status}`);
+    const json = (await res.json()) as { blobId: string; type: string; size: number };
+    return { blobId: json.blobId, type: json.type, size: json.size };
+  }
+
   /** Create a draft message; returns the new email id. */
   async createDraft(params: {
     mailboxId: string;
@@ -273,6 +289,7 @@ export class JmapClient {
     bodyText: string;
     inReplyTo?: string[];
     references?: string[];
+    attachments?: { blobId: string; type: string; name: string }[];
   }): Promise<string> {
     const accountId = await this.accountId();
     const email: Record<string, unknown> = {
@@ -284,6 +301,14 @@ export class JmapClient {
       bodyValues: { text: { value: params.bodyText } },
       textBody: [{ partId: "text", type: "text/plain" }],
     };
+    if (params.attachments !== undefined && params.attachments.length > 0) {
+      email.attachments = params.attachments.map((a) => ({
+        blobId: a.blobId,
+        type: a.type,
+        name: a.name,
+        disposition: "attachment",
+      }));
+    }
     if (params.cc !== undefined && params.cc.length > 0) email.cc = params.cc;
     if (params.inReplyTo !== undefined && params.inReplyTo.length > 0) email.inReplyTo = params.inReplyTo;
     if (params.references !== undefined && params.references.length > 0) email.references = params.references;
