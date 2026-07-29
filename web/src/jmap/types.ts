@@ -16,6 +16,8 @@ export interface Session {
   state: string;
   /** Ficina extension: whether AI features are enabled for this tenant. */
   "ficina:aiEnabled"?: boolean;
+  /** Ficina extension: whether the signed-in user is a tenant admin. */
+  "ficina:isAdmin"?: boolean;
 }
 
 export interface EmailAddress {
@@ -76,6 +78,19 @@ export interface EmailAttachment {
   type: string;
   name: string;
   size: number;
+}
+
+/** One configured AI provider (admin console). The API key is never returned —
+ * only whether one is set (`hasKey`). */
+export interface AiProvider {
+  id: string;
+  kind: string;
+  label: string;
+  baseUrl: string;
+  model: string;
+  enabled: boolean;
+  isDefault: boolean;
+  hasKey: boolean;
 }
 
 /** A JMAP method invocation: [name, arguments, call-id]. */

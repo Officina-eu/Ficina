@@ -7,6 +7,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, LoginPage, RequireAuth } from "./auth";
 import { AppShell, ComingSoon, defaultModulePath, modules } from "./shell";
 import { MailModule } from "./mail";
+import { AdminConsole } from "./admin";
 
 export function App() {
   return (
@@ -19,6 +20,9 @@ export function App() {
           <Route path="/auth/callback" element={<Navigate to={defaultModulePath} replace />} />
 
           <Route element={<RequireAuth />}>
+            {/* The admin console has its own full-screen shell (not the mail
+                rail); it gates to tenant admins internally. */}
+            <Route path="/admin/*" element={<AdminConsole />} />
             <Route element={<AppShell />}>
               <Route index element={<Navigate to={defaultModulePath} replace />} />
               {modules.map((m) => (

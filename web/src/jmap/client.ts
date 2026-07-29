@@ -6,6 +6,7 @@ import {
   CORE_CAPABILITY,
   MAIL_CAPABILITY,
   SUBMISSION_CAPABILITY,
+  type AiProvider,
   type EmailAddress,
   type EmailFull,
   type EmailHeaders,
@@ -182,6 +183,66 @@ export class JmapClient {
   async aiEnabled(): Promise<boolean> {
     const session = await this.session();
     return session["ficina:aiEnabled"] === true;
+  }
+
+  /** Whether the signed-in user is a tenant admin (session flag). */
+  async isAdmin(): Promise<boolean> {
+    const session = await this.session();
+    return session["ficina:isAdmin"] === true;
+  }
+
+  async #admin(path: string, init: RequestInit): Promise<unknown> {
+    const res = await this.#fetch(`${window.location.origin}${path}`, init);
+    if (!res.ok) throw new JmapError(`admin ${res.status}`);
+    return res.json();
+  }
+
+  /** All AI providers configured for this tenant (admin). */
+  async listProviders(): Promise<AiProvider[]> {
+    const out = (await this.#admin("/admin/ai/providers", { method: "GET" })) as {
+      providers: AiProvider[];
+    };
+    return out.providers;
+  }
+
+  /** Create or update a provider (admin). Omit `apiKey` to keep the stored key. */
+  async upsertProvider(p: {
+    id: string;
+    kind: string;
+    label: string;
+    baseUrl: string;
+    model: string;
+    enabled: boolean;
+    apiKey?: string;
+  }): Promise<void> {
+    await this.#admin("/admin/ai/providers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(p),
+    });
+  }
+
+  /** Make a provider the tenant's default (admin). */
+  async setDefaultProvider(id: string): Promise<void> {
+    await this.#admin("/admin/ai/providers/default", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+  }
+
+  /** Delete a provider (admin). */
+  async deleteProvider(id: string): Promise<void> {
+    await this.#admin(`/admin/ai/providers/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  /** Test connectivity to a backend without saving it (admin). */
+  async testConnection(baseUrl: string, apiKey?: string): Promise<{ ok: boolean; models: number }> {
+    return (await this.#admin("/admin/ai/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(apiKey !== undefined && apiKey.length > 0 ? { baseUrl, apiKey } : { baseUrl }),
+    })) as { ok: boolean; models: number };
   }
 
   /** Improve a draft via the tenant's configured AI backend (ADR 0011).

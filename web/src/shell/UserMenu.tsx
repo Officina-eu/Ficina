@@ -1,17 +1,36 @@
 // The account control at the foot of the rail: the user's avatar, opening a
 // small popover with who they're signed in as and a sign-out action.
 import { useEffect, useRef, useState } from "react";
-import { LogOut } from "lucide-react";
+import { Link } from "react-router-dom";
+import { LogOut, Shield } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Avatar } from "../ds";
 import { useAuth } from "../auth";
+import { useJmapClient } from "../jmap";
 import styles from "./UserMenu.module.css";
 
 export function UserMenu() {
   const { identity, signOut } = useAuth();
+  const client = useJmapClient();
   const [open, setOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let live = true;
+    void client
+      .isAdmin()
+      .then((ok) => {
+        if (live) setIsAdmin(ok);
+      })
+      .catch(() => {
+        // not admin / unavailable → link stays hidden
+      });
+    return () => {
+      live = false;
+    };
+  }, [client]);
 
   useEffect(() => {
     if (!open) return;
@@ -52,6 +71,17 @@ export function UserMenu() {
             <span className={styles.name}>{name}</span>
             <span className={styles.email}>{email}</span>
           </div>
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className={styles.item}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+            >
+              <Shield size={16} />
+              <span>{strings.adminOpen}</span>
+            </Link>
+          )}
           <button
             type="button"
             className={styles.item}
