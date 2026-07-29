@@ -1,23 +1,35 @@
-// Admin — AI providers. Lists the tenant's configured backends, lets an admin
-// enable/disable each, pick the default the AI features use, edit, or delete,
-// and add a new one. All writes go through the admin-gated /admin/ai routes.
+// Admin — AI providers. A catalog of the backends Ficina can use, grouped into
+// self-hosted (data never leaves your servers) and your-own-API-keys. Each card
+// shows status, a Default badge, Manage, and an enable toggle; configuring one
+// opens the provider modal. Matches the design-system admin screen.
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Server, Star, Trash2 } from "lucide-react";
+import { KeyRound, Server } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Spinner, cx } from "../ds";
 import { useJmapClient } from "../jmap";
 import type { AiProvider } from "../jmap";
+import { CATALOG } from "./catalog";
+import type { CatalogEntry } from "./catalog";
 import { ProviderModal } from "./ProviderModal";
 import styles from "./admin.module.css";
 
-type Editing = { provider?: AiProvider } | null;
+type StatusTone = "ok" | "muted";
+
+function status(entry: CatalogEntry, p: AiProvider | undefined): { label: string; tone: StatusTone } {
+  if (p?.enabled) return { label: strings.providerConnected, tone: "ok" };
+  if (p !== undefined) {
+    if (entry.needsKey && p.hasKey) return { label: strings.providerKeyAdded, tone: "muted" };
+    return { label: strings.providerReady, tone: "muted" };
+  }
+  return { label: strings.providerNotConfigured, tone: "muted" };
+}
 
 export function AiProvidersPage() {
   const client = useJmapClient();
   const [providers, setProviders] = useState<AiProvider[] | null>(null);
   const [error, setError] = useState(false);
-  const [editing, setEditing] = useState<Editing>(null);
+  const [editing, setEditing] = useState<CatalogEntry | null>(null);
 
   const load = useCallback(() => {
     setError(false);
@@ -29,36 +41,65 @@ export function AiProvidersPage() {
 
   useEffect(load, [load]);
 
+  const byKind = (kind: string): AiProvider | undefined => (providers ?? []).find((p) => p.kind === kind);
   const hasDefault = (providers ?? []).some((p) => p.isDefault && p.enabled);
 
-  async function toggle(p: AiProvider) {
-    // Optimistic; reload reconciles.
-    setProviders((prev) =>
-      (prev ?? []).map((x) => (x.id === p.id ? { ...x, enabled: !x.enabled } : x)),
-    );
+  async function toggle(entry: CatalogEntry, p: AiProvider) {
+    setProviders((prev) => (prev ?? []).map((x) => (x.id === p.id ? { ...x, enabled: !x.enabled } : x)));
     try {
       await client.upsertProvider({
         id: p.id,
         kind: p.kind,
-        label: p.label,
+        label: entry.name,
         baseUrl: p.baseUrl,
         model: p.model,
         enabled: !p.enabled,
       });
+      if (!p.enabled && !hasDefault) await client.setDefaultProvider(p.id);
     } finally {
       load();
     }
   }
 
-  async function makeDefault(p: AiProvider) {
-    await client.setDefaultProvider(p.id);
-    load();
+  function card(entry: CatalogEntry) {
+    const p = byKind(entry.kind);
+    const st = status(entry, p);
+    const isDefault = p?.isDefault === true && p.enabled;
+    return (
+      <div key={entry.kind} className={cx(styles.card, isDefault && styles.cardDefault)}>
+        <span className={styles.cardIcon}>
+          {entry.group === "self" ? <Server size={20} strokeWidth={1.75} /> : <KeyRound size={20} strokeWidth={1.75} />}
+        </span>
+        <div className={styles.cardText}>
+          <div className={styles.cardName}>
+            <strong>{entry.name}</strong>
+            <span className={cx(styles.pill, st.tone === "ok" ? styles.pillOk : styles.pillMuted)}>{st.label}</span>
+            {isDefault && <span className={styles.defaultBadge}>{strings.adminDefaultBadge}</span>}
+          </div>
+          <p className={styles.cardDesc}>
+            {p !== undefined && p.baseUrl.length > 0 ? `${p.baseUrl} · ${p.model}` : entry.description}
+          </p>
+        </div>
+        <div className={styles.cardActions}>
+          <button type="button" className={styles.ghost} onClick={() => setEditing(entry)}>
+            {strings.adminManage}
+          </button>
+          <label className={styles.toggle}>
+            <input
+              type="checkbox"
+              checked={p?.enabled === true}
+              disabled={p === undefined}
+              onChange={() => p !== undefined && void toggle(entry, p)}
+            />
+            <span className={styles.track} />
+          </label>
+        </div>
+      </div>
+    );
   }
 
-  async function remove(p: AiProvider) {
-    await client.deleteProvider(p.id);
-    load();
-  }
+  const selfHosted = CATALOG.filter((c) => c.group === "self");
+  const ownKeys = CATALOG.filter((c) => c.group === "keys");
 
   return (
     <div className={styles.page}>
@@ -67,10 +108,6 @@ export function AiProvidersPage() {
           <h1>{strings.adminAiProviders}</h1>
           <p className={styles.pageIntro}>{strings.adminAiIntro}</p>
         </div>
-        <button type="button" className={styles.primary} onClick={() => setEditing({})}>
-          <Plus size={16} />
-          <span>{strings.adminAddProvider}</span>
-        </button>
       </header>
 
       {providers === null && !error && (
@@ -87,60 +124,31 @@ export function AiProvidersPage() {
         </div>
       )}
 
-      {providers !== null && providers.length === 0 && (
-        <div className={styles.empty}>{strings.adminNoProviders}</div>
-      )}
+      {providers !== null && (
+        <>
+          <section className={styles.group}>
+            <h2 className={styles.groupTitle}>{strings.adminAiSelfHosted}</h2>
+            <p className={styles.groupHint}>{strings.adminAiSelfHostedHint}</p>
+            <div className={styles.cards}>{selfHosted.map(card)}</div>
+          </section>
 
-      {providers !== null && providers.length > 0 && (
-        <ul className={styles.providerList}>
-          {providers.map((p) => (
-            <li key={p.id} className={cx(styles.provider, p.isDefault && p.enabled && styles.providerDefault)}>
-              <span className={styles.providerIcon}>
-                <Server size={20} strokeWidth={1.75} />
-              </span>
-              <div className={styles.providerText}>
-                <div className={styles.providerName}>
-                  <strong>{p.label}</strong>
-                  {p.isDefault && p.enabled && (
-                    <span className={styles.defaultBadge}>{strings.adminDefaultBadge}</span>
-                  )}
-                </div>
-                <div className={styles.providerMeta}>
-                  {p.baseUrl} · {p.model}
-                </div>
-              </div>
+          <section className={styles.group}>
+            <h2 className={styles.groupTitle}>{strings.adminAiOwnKeys}</h2>
+            <p className={styles.groupHint}>{strings.adminAiOwnKeysHint}</p>
+            <div className={styles.cards}>{ownKeys.map(card)}</div>
+          </section>
 
-              <div className={styles.providerActions}>
-                {p.enabled && !p.isDefault && (
-                  <button type="button" className={styles.ghost} onClick={() => void makeDefault(p)}>
-                    <Star size={15} />
-                    <span>{strings.adminMakeDefault}</span>
-                  </button>
-                )}
-                <button type="button" className={styles.ghost} onClick={() => setEditing({ provider: p })}>
-                  {strings.adminManage}
-                </button>
-                <button
-                  type="button"
-                  className={styles.iconBtn}
-                  onClick={() => void remove(p)}
-                  aria-label={strings.delete}
-                >
-                  <Trash2 size={16} />
-                </button>
-                <label className={styles.toggle}>
-                  <input type="checkbox" checked={p.enabled} onChange={() => void toggle(p)} />
-                  <span className={styles.track} />
-                </label>
-              </div>
-            </li>
-          ))}
-        </ul>
+          <p className={styles.footnote}>{strings.adminAiFootnote}</p>
+        </>
       )}
 
       {editing !== null && (
         <ProviderModal
-          {...(editing.provider !== undefined ? { provider: editing.provider } : {})}
+          entry={editing}
+          {...(() => {
+            const p = byKind(editing.kind);
+            return p !== undefined ? { provider: p } : {};
+          })()}
           makeDefaultOnSave={!hasDefault}
           onClose={() => setEditing(null)}
           onSaved={() => {

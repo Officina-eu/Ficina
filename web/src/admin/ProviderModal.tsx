@@ -1,30 +1,21 @@
-// Add or edit an AI provider (admin). Presets an endpoint per kind, lets the
-// admin test connectivity before saving, and on save enables the provider (and
-// makes it the default when the tenant has none yet).
+// Configure one AI provider (admin). Matches the design-system "Connect …"
+// modal: an API key with show/hide, the API endpoint, the model, and a
+// Test-connection action that shows an inline "Connection verified" banner
+// before you save. Saving enables the provider (and makes it the default when
+// the tenant has none yet). A single model is used per provider for now.
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Eye, EyeOff, KeyRound, RefreshCw, Server, X } from "lucide-react";
 
 import { strings } from "../i18n";
-import { Button, Spinner } from "../ds";
+import { Spinner } from "../ds";
 import { useJmapClient } from "../jmap";
 import type { AiProvider } from "../jmap";
+import type { CatalogEntry } from "./catalog";
 import styles from "./admin.module.css";
 
-interface KindPreset {
-  kind: string;
-  label: string;
-  baseUrl: string;
-  needsKey: boolean;
-}
-
-const KINDS: KindPreset[] = [
-  { kind: "ollama", label: strings.kindOllama, baseUrl: "http://localhost:11434", needsKey: false },
-  { kind: "openai", label: strings.kindOpenai, baseUrl: "https://api.openai.com", needsKey: true },
-  { kind: "custom", label: strings.kindCustom, baseUrl: "", needsKey: true },
-];
-
 interface ProviderModalProps {
+  entry: CatalogEntry;
   provider?: AiProvider;
   /** True when the tenant has no default yet, so a save should set this one. */
   makeDefaultOnSave: boolean;
@@ -32,38 +23,25 @@ interface ProviderModalProps {
   onSaved: () => void;
 }
 
-export function ProviderModal({ provider, makeDefaultOnSave, onClose, onSaved }: ProviderModalProps) {
+export function ProviderModal({ entry, provider, makeDefaultOnSave, onClose, onSaved }: ProviderModalProps) {
   const client = useJmapClient();
-  const editing = provider !== undefined;
-  const [kind, setKind] = useState(provider?.kind ?? "ollama");
-  const preset = KINDS.find((k) => k.kind === kind) ?? KINDS[2]!;
-
-  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? preset.baseUrl);
+  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? entry.defaultBaseUrl);
   const [model, setModel] = useState(provider?.model ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; models: number } | "fail" | null>(null);
+  const [tested, setTested] = useState<{ ok: boolean; models: number } | "fail" | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function pickKind(next: string) {
-    setKind(next);
-    if (!editing) {
-      const p = KINDS.find((k) => k.kind === next);
-      if (p !== undefined) setBaseUrl(p.baseUrl);
-    }
-    setTestResult(null);
-  }
 
   async function test() {
     if (baseUrl.trim().length === 0 || testing) return;
     setTesting(true);
-    setTestResult(null);
+    setTested(null);
     try {
-      const res = await client.testConnection(baseUrl.trim(), apiKey.trim());
-      setTestResult(res);
+      setTested(await client.testConnection(baseUrl.trim(), apiKey.trim()));
     } catch {
-      setTestResult("fail");
+      setTested("fail");
     } finally {
       setTesting(false);
     }
@@ -81,8 +59,8 @@ export function ProviderModal({ provider, makeDefaultOnSave, onClose, onSaved }:
     try {
       await client.upsertProvider({
         id,
-        kind,
-        label: preset.label,
+        kind: entry.kind,
+        label: entry.name,
         baseUrl: baseUrl.trim(),
         model: model.trim(),
         enabled: true,
@@ -96,34 +74,52 @@ export function ProviderModal({ provider, makeDefaultOnSave, onClose, onSaved }:
     }
   }
 
+  const verified = tested !== null && tested !== "fail" && tested.ok;
+
   return (
     <div className={styles.overlay} onMouseDown={onClose}>
       <div
         className={styles.modal}
         role="dialog"
         aria-modal="true"
-        aria-label={editing ? strings.providerEdit : strings.providerNew}
+        aria-label={entry.needsKey ? strings.connectTitle(entry.name) : strings.configureTitle(entry.name)}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <form onSubmit={save}>
           <div className={styles.modalHead}>
-            <h2>{editing ? strings.providerEdit : strings.providerNew}</h2>
-            <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={strings.composeDiscard}>
+            <span className={styles.modalIcon}>
+              {entry.group === "self" ? <Server size={18} /> : <KeyRound size={18} />}
+            </span>
+            <h2>{entry.needsKey ? strings.connectTitle(entry.name) : strings.configureTitle(entry.name)}</h2>
+            <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={strings.providerCancel}>
               <X size={18} />
             </button>
           </div>
 
           <div className={styles.modalBody}>
-            {!editing && (
+            {entry.needsKey && (
               <label className={styles.field}>
-                <span className={styles.label}>{strings.providerKind}</span>
-                <select className={styles.input} value={kind} onChange={(e) => pickKind(e.target.value)}>
-                  {KINDS.map((k) => (
-                    <option key={k.kind} value={k.kind}>
-                      {k.label}
-                    </option>
-                  ))}
-                </select>
+                <span className={styles.label}>{strings.providerApiKey}</span>
+                <div className={styles.keyRow}>
+                  <input
+                    className={styles.input}
+                    type={showKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={(e) => {
+                      setApiKey(e.target.value);
+                      setTested(null);
+                    }}
+                    placeholder={provider?.hasKey === true ? strings.providerApiKeyKept : "sk-…"}
+                  />
+                  <button
+                    type="button"
+                    className={styles.eyeBtn}
+                    onClick={() => setShowKey((v) => !v)}
+                    aria-label={showKey ? strings.providerHideKey : strings.providerShowKey}
+                  >
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </label>
             )}
 
@@ -134,7 +130,7 @@ export function ProviderModal({ provider, makeDefaultOnSave, onClose, onSaved }:
                 value={baseUrl}
                 onChange={(e) => {
                   setBaseUrl(e.target.value);
-                  setTestResult(null);
+                  setTested(null);
                 }}
                 placeholder="http://localhost:11434"
               />
@@ -146,39 +142,17 @@ export function ProviderModal({ provider, makeDefaultOnSave, onClose, onSaved }:
                 className={styles.input}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder="llama3.2"
+                placeholder={entry.needsKey ? "gpt-4o-mini" : "llama3.2"}
               />
             </label>
 
-            <label className={styles.field}>
-              <span className={styles.label}>{strings.providerApiKey}</span>
-              <input
-                className={styles.input}
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={
-                  provider?.hasKey === true
-                    ? strings.providerApiKeyKept
-                    : preset.needsKey
-                      ? "sk-…"
-                      : strings.providerApiKeyOptional
-                }
-              />
-            </label>
-
-            <div className={styles.testRow}>
-              <button type="button" className={styles.testBtn} onClick={() => void test()} disabled={testing}>
-                {testing ? <Spinner size={14} /> : null}
-                <span>{testing ? strings.providerTesting : strings.providerTest}</span>
-              </button>
-              {testResult !== null && testResult !== "fail" && testResult.ok && (
-                <span className={styles.testOk}>
-                  <Check size={15} /> {strings.providerTestOk(testResult.models)}
-                </span>
-              )}
-              {testResult === "fail" && <span className={styles.testFail}>{strings.providerTestFail}</span>}
-            </div>
+            {verified && (
+              <div className={styles.verified}>
+                <Check size={16} />
+                <span>{strings.providerTestOk((tested as { models: number }).models)}</span>
+              </div>
+            )}
+            {tested === "fail" && <div className={styles.failed}>{strings.providerTestFail}</div>}
 
             {error !== null && (
               <p className={styles.error} role="alert">
@@ -188,12 +162,17 @@ export function ProviderModal({ provider, makeDefaultOnSave, onClose, onSaved }:
           </div>
 
           <div className={styles.modalFoot}>
-            <button type="button" className={styles.textBtn} onClick={onClose}>
-              {strings.composeDiscard}
+            <button type="button" className={styles.testBtn} onClick={() => void test()} disabled={testing}>
+              {testing ? <Spinner size={14} /> : <RefreshCw size={14} />}
+              <span>{testing ? strings.providerTesting : tested !== null ? strings.providerTestAgain : strings.providerTest}</span>
             </button>
-            <Button type="submit" disabled={saving}>
+            <div className={styles.footSpacer} />
+            <button type="button" className={styles.textBtn} onClick={onClose}>
+              {strings.providerCancel}
+            </button>
+            <button type="submit" className={styles.primary} disabled={saving}>
               {saving ? <Spinner size={16} /> : strings.providerSave}
-            </Button>
+            </button>
           </div>
         </form>
       </div>
