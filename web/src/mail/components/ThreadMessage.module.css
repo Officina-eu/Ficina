@@ -1,4 +1,6 @@
 .message {
+  position: relative;
+  z-index: 1;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
@@ -9,13 +11,49 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* The conversation timeline: a spine down the avatar gutter, drawn over the
+   card face (behind the head and body). The avatar column is 34px wide at
+   padding-left var(--space-4) = 16px, so its centre is 33px; a 2px line sits
+   at 32px. Segments in the gaps between cards are drawn by the list container
+   (ReadingPane .messages); a single-message thread has no spine. */
+.message::before {
+  content: "";
+  position: absolute;
+  left: 32px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border-strong);
+  z-index: 0;
+}
+
+.message:first-child::before {
+  top: 30px; /* start at the first sender's avatar, not the card top */
+}
+
+.message:only-child::before {
+  display: none;
+}
+
 .head {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
   padding: var(--space-3) var(--space-4);
   text-align: left;
+}
+
+/* The avatar is a node on the spine: a surface-coloured ring lifts it clear
+   of the line so the timeline reads as passing behind each sender. */
+.node {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 0 3px var(--bg-surface);
 }
 
 .head:hover {
@@ -69,7 +107,12 @@
 }
 
 .body {
-  padding: var(--space-5) var(--space-6);
+  position: relative;
+  z-index: 1;
+  /* Indent the body clear of the timeline spine, aligning it under the sender
+     name (avatar column 34px + the head's gaps). */
+  padding: var(--space-5) var(--space-6) var(--space-5)
+    calc(var(--space-4) + 34px + var(--space-3));
 }
 
 .text {

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { IconButton, Menu, Spinner } from "../../ds";
+import { IconButton, Menu, Spinner, cx } from "../../ds";
 import type { MenuItem } from "../../ds";
 import { KEYWORD_FLAGGED, type EmailFull, type Mailbox } from "../../jmap";
 import { useAuth } from "../../auth";
@@ -180,7 +180,7 @@ export function ReadingPane({
           </div>
         )}
 
-        <div className={styles.messages}>
+        <div className={cx(styles.messages, messages.length > 1 && styles.threaded)}>
           {messages.map((message) => (
             <ThreadMessage
               key={message.id}

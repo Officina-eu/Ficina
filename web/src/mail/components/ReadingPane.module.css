@@ -113,9 +113,25 @@
 
 /* the conversation's messages */
 .messages {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/* The timeline spine continues across the gaps between cards. Each card paints
+   its own segment over its face (ThreadMessage .message::before) and sits above
+   this line (z-index), so only the inter-card gaps show through — joining the
+   sender avatars into one thread. Only shown for multi-message conversations. */
+.threaded::before {
+  content: "";
+  position: absolute;
+  left: 32px;
+  top: 30px;
+  bottom: 30px;
+  width: 2px;
+  background: var(--border-strong);
+  z-index: 0;
 }
 
 /* quick reply */
