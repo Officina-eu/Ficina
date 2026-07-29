@@ -16,6 +16,10 @@ ficina-identity = { path = "../ficina-identity" }
 ficina-smtp-client = { path = "../ficina-smtp-client" }
 # The AI inference layer (ADR 0011) — the /ai/improve route bridges to it.
 ficina-ai = { path = "../ficina-ai" }
+# Live DNS checks for the admin Security & trust page (SPF/DMARC/DKIM/MX/PTR).
+hickory-resolver = { workspace = true }
+# The MTA-STS policy fetch (HTTPS) in the Security & trust checks.
+reqwest = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

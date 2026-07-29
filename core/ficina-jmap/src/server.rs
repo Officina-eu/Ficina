@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
-use crate::{admin, ai, api, blob, push, session};
+use crate::{admin, ai, api, blob, push, security, session};
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
 /// OAuth 2.0 provider (`ficina-identity`) is mounted alongside so a Phase-1
@@ -79,6 +79,8 @@ pub fn app(state: AppState) -> Router {
             "/admin/groups/{id}",
             axum::routing::delete(admin::delete_group),
         )
+        // Admin console: security & trust (live deliverability checks).
+        .route("/admin/security/checks", get(security::checks))
         .layer(DefaultBodyLimit::max(upload_limit))
         .with_state(state);
     jmap.merge(identity_routes)
