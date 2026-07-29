@@ -204,9 +204,12 @@ services:
       # Where EmailSubmission/set sends: the SMTP trusted internal listener,
       # reached over the private docker network (not the internet).
       FICINA_JMAP_SUBMISSION_ADDR: ficina-smtp:2526
-      # For the admin Security & trust page's live DNS checks: the mail domain
-      # and the DKIM selector/domain (mirrors ficina-smtp's DKIM config).
+      # For the admin Security & trust page's live DNS checks: the hosted mail
+      # domain(s) — the same value ficina-smtp treats as local, so SPF/DMARC/MX
+      # are checked at the email domain (e.g. example.com), not the server FQDN
+      # (mail.example.com) — plus the DKIM selector/domain (mirrors smtp's DKIM).
       DOMAIN: ${DOMAIN}
+      FICINA_SMTP_LOCAL_DOMAINS: ${FICINA_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
       FICINA_SMTP_DKIM_SELECTOR: ${FICINA_SMTP_DKIM_SELECTOR:-}
       FICINA_SMTP_DKIM_DOMAIN: ${FICINA_SMTP_DKIM_DOMAIN:-}
       RUST_LOG: ${RUST_LOG:-info}

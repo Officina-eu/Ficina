@@ -35,13 +35,17 @@ fn item(key: &str, title: &str, status: Status, detail: String) -> Value {
     json!({ "key": key, "title": title, "status": status.as_str(), "detail": detail })
 }
 
-/// The mail domain to check: `DOMAIN` (the deployment's mail domain), else the
-/// host of the JMAP base URL with a leading `mail.` stripped.
+/// The email domain to check — the domain that appears in mailbox addresses,
+/// which is where SPF / DMARC / MX must be published. This is the first
+/// `FICINA_SMTP_LOCAL_DOMAINS` entry (the same value ficina-smtp treats as
+/// local). `DOMAIN` is deliberately NOT used: it is the server FQDN
+/// (`mail.example.com`), not the email domain (`example.com`). Falling back to
+/// the JMAP base URL host with a leading `mail.` stripped keeps a sane default.
 fn mail_domain(base_url: &str) -> String {
-    if let Ok(d) = std::env::var("DOMAIN")
-        && !d.trim().is_empty()
+    if let Ok(v) = std::env::var("FICINA_SMTP_LOCAL_DOMAINS")
+        && let Some(first) = v.split(',').map(str::trim).find(|s| !s.is_empty())
     {
-        return d.trim().to_lowercase();
+        return first.to_lowercase();
     }
     let host = base_url
         .split("://")
