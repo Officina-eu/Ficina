@@ -109,6 +109,27 @@ The certificate path can only be exercised for real against a **public
 domain** (Let's Encrypt will not issue for a private/local name) — see the
 local test mode below for laptops.
 
+## DKIM key size and DNS providers
+
+`generate-dkim.sh` makes a **2048-bit RSA** key — the right default, universally
+verified. Two real-world constraints to know:
+
+- **`ring` (our crypto) refuses RSA keys below 2048 bits**, so a 1024-bit RSA
+  key will fail to sign (`signing key could not be parsed`). Don't shrink the
+  RSA key to fit a DNS field.
+- **Some DNS UIs (e.g. Namecheap) reject a TXT value over ~255 characters**,
+  even split into quoted strings — and a 2048-bit RSA DKIM record is ~400
+  chars. If your DNS host can't store it, either move DNS to a provider that
+  handles long TXT records (Cloudflare does, for free), **or** use an
+  **Ed25519** DKIM key: set `FICINA_SMTP_DKIM_ALGORITHM=ed25519`, generate with
+  `openssl genpkey -algorithm ed25519 -out dkim/dkim.key`, and publish
+  `v=DKIM1; k=ed25519; p=<base64 of the 32-byte public key>` (only ~60 chars).
+  Ed25519 DKIM (RFC 8463) is verified by Gmail/Outlook and passes DMARC; note
+  that some older spam-scoring engines (e.g. SpamAssassin) don't yet award the
+  "valid DKIM" bonus for it, which can cost a point on tools like mail-tester
+  without affecting real inbox delivery. For a perfect score everywhere, use
+  RSA-2048 on a long-TXT-capable DNS host.
+
 ## Local test mode (no public domain)
 
 Let's Encrypt cannot issue for a private/local name, so for a laptop smoke
