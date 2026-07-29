@@ -32,11 +32,13 @@
   border-radius: var(--radius-md);
   color: var(--text-on-rail);
   font-size: var(--text-sm);
+  text-decoration: none;
   opacity: 0.8;
   transition: opacity var(--transition-fast);
 }
 
 .back:hover {
+  text-decoration: none;
   opacity: 1;
 }
 
@@ -61,6 +63,7 @@
   border-radius: var(--radius-md);
   color: var(--text-on-rail);
   font-size: var(--text-sm);
+  text-decoration: none;
   opacity: 0.82;
   transition:
     background-color var(--transition-fast),
@@ -68,6 +71,7 @@
 }
 
 .navItem:hover {
+  text-decoration: none;
   opacity: 1;
   background: rgba(255, 255, 255, 0.06);
 }
