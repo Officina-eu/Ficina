@@ -51,6 +51,7 @@ pub fn app_state(store: Arc<Store>, identity: Identity, base_url: impl Into<Stri
         push: PushHub::new(),
         limits: Limits::default(),
         base_url: base_url.into(),
+        submission_addr: std::env::var("FICINA_JMAP_SUBMISSION_ADDR").ok(),
     }
 }
 

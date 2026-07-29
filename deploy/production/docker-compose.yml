@@ -108,6 +108,11 @@ services:
       FICINA_SMTP_LOCAL_DOMAINS: ${FICINA_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
       FICINA_SMTP_SUBMISSION_ADDR: 0.0.0.0:587
       FICINA_SMTP_IMPLICIT_TLS_ADDR: 0.0.0.0:465
+      # Trusted internal submission listener for ficina-jmap's EmailSubmission/set.
+      # NO AUTH — safe ONLY because this port is never published (see the `ports:`
+      # block below: 2526 is absent, so it is reachable only on the private
+      # docker network). Never add 2526 to a published ports mapping.
+      FICINA_SMTP_INTERNAL_SUBMISSION_ADDR: 0.0.0.0:2526
       # Outbound sending: ON in production. Requires LOCAL_DOMAINS (set
       # above) or startup is refused (anti-open-relay).
       FICINA_SMTP_OUTBOUND_ENABLED: ${FICINA_SMTP_OUTBOUND_ENABLED:-true}
@@ -196,6 +201,9 @@ services:
       FICINA_IDENTITY_ISSUER: https://${DOMAIN}
       FICINA_JMAP_BASE_URL: https://${DOMAIN}
       FICINA_JMAP_ADDR: 0.0.0.0:8080
+      # Where EmailSubmission/set sends: the SMTP trusted internal listener,
+      # reached over the private docker network (not the internet).
+      FICINA_JMAP_SUBMISSION_ADDR: ficina-smtp:2526
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - blobs:/var/lib/ficina/blobs

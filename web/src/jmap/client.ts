@@ -5,6 +5,8 @@
 import {
   CORE_CAPABILITY,
   MAIL_CAPABILITY,
+  SUBMISSION_CAPABILITY,
+  type EmailAddress,
   type EmailFull,
   type EmailHeaders,
   type JmapRequest,
@@ -30,11 +32,14 @@ const HEADER_PROPS = [
   "keywords",
   "from",
   "to",
+  "cc",
   "subject",
   "receivedAt",
   "size",
   "preview",
   "hasAttachment",
+  "messageId",
+  "references",
 ];
 
 export class JmapClient {
@@ -70,7 +75,7 @@ export class JmapClient {
   async #request(methodCalls: MethodCall[]): Promise<JmapResponse> {
     const session = await this.session();
     const body: JmapRequest = {
-      using: [CORE_CAPABILITY, MAIL_CAPABILITY],
+      using: [CORE_CAPABILITY, MAIL_CAPABILITY, SUBMISSION_CAPABILITY],
       methodCalls,
     };
     let response: Response;
@@ -183,5 +188,69 @@ export class JmapClient {
       ],
     ]);
     this.#result(res, "m");
+  }
+
+  /** Create a draft message; returns the new email id. */
+  async createDraft(params: {
+    mailboxId: string;
+    from: EmailAddress;
+    to: EmailAddress[];
+    cc?: EmailAddress[];
+    subject: string;
+    bodyText: string;
+    inReplyTo?: string[];
+    references?: string[];
+  }): Promise<string> {
+    const accountId = await this.accountId();
+    const email: Record<string, unknown> = {
+      mailboxIds: { [params.mailboxId]: true },
+      keywords: { $draft: true },
+      from: [params.from],
+      to: params.to,
+      subject: params.subject,
+      bodyValues: { text: { value: params.bodyText } },
+      textBody: [{ partId: "text", type: "text/plain" }],
+    };
+    if (params.cc !== undefined && params.cc.length > 0) email.cc = params.cc;
+    if (params.inReplyTo !== undefined && params.inReplyTo.length > 0) email.inReplyTo = params.inReplyTo;
+    if (params.references !== undefined && params.references.length > 0) email.references = params.references;
+    const res = await this.#request([["Email/set", { accountId, create: { draft: email } }, "c"]]);
+    const result = this.#result(res, "c");
+    const created = (result.created as Record<string, { id: string }> | undefined)?.draft;
+    if (created === undefined) {
+      throw new JmapError("the draft could not be created");
+    }
+    return created.id;
+  }
+
+  /** Submit a draft for delivery; the server sends it and files it to Sent. */
+  async submitEmail(emailId: string, mailFrom: string, rcptTo: string[]): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      [
+        "EmailSubmission/set",
+        {
+          accountId,
+          create: {
+            sub: {
+              emailId,
+              envelope: {
+                mailFrom: { email: mailFrom },
+                rcptTo: rcptTo.map((email) => ({ email })),
+              },
+            },
+          },
+        },
+        "s",
+      ],
+    ]);
+    const result = this.#result(res, "s");
+    const created = (result.created as Record<string, unknown> | undefined)?.sub;
+    if (created === undefined) {
+      const notCreated = (
+        result.notCreated as Record<string, { description?: string; type?: string }> | undefined
+      )?.sub;
+      throw new JmapError(notCreated?.description ?? notCreated?.type ?? "the message could not be sent");
+    }
   }
 }

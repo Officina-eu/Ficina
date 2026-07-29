@@ -101,8 +101,26 @@ export const strings = {
   replyTo: "Reply to",
   draftWithAi: "Draft with AI",
 
+  // mail — compose
+  composeTitle: "New message",
+  composeReplyTitle: "Reply",
+  composeTo: "To",
+  composeCc: "Cc",
+  composeSubject: "Subject",
+  composeRecipientsPlaceholder: "name@example.com, …",
+  composeSubjectPlaceholder: "Subject",
+  composeBodyPlaceholder: "Write your message…",
+  composeSend: "Send",
+  composeSending: "Sending…",
+  composeDiscard: "Discard",
+  composeCcToggle: "Cc",
+  composeNoRecipients: "Add at least one recipient.",
+  composeSendError: "Could not send your message. Please try again.",
+  composeSent: "Message sent.",
+  composeWroteOn: "wrote:",
+  composeReplyPrefix: "Re: ",
+
   // mail — not-yet-built (honest placeholders)
-  composeComingSoon: "Composing and replying are coming soon.",
   aiComingSoon: "The AI assistant is coming soon.",
   archiveUnavailable: "There's no archive folder to move this to.",
 } as const;

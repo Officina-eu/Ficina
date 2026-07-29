@@ -1,0 +1,210 @@
+// The compose window: a new message or a reply. Recipients, subject, and a
+// plain-text body; on send it creates a draft (Email/set) then submits it
+// (EmailSubmission/set), which sends it and files it to Sent. Reply mode
+// prefills the recipient, "Re:" subject, quoted original, and the threading
+// headers (In-Reply-To / References).
+import { useState } from "react";
+import type { FormEvent } from "react";
+import { X } from "lucide-react";
+
+import { strings } from "../../i18n";
+import { Button, Spinner } from "../../ds";
+import { useJmapClient } from "../../jmap";
+import type { EmailAddress, EmailFull } from "../../jmap";
+import { formatDate, senderName } from "../format";
+import { textContent } from "../body";
+import styles from "./ComposeModal.module.css";
+
+export interface ComposeContext {
+  mode: "new" | "reply";
+  replyTo?: EmailFull;
+}
+
+interface ComposeModalProps {
+  context: ComposeContext;
+  fromEmail: string;
+  fromName: string;
+  draftsMailboxId: string | null;
+  onClose: () => void;
+  onSent: () => void;
+}
+
+function parseRecipients(input: string): EmailAddress[] {
+  return input
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter((s) => s.includes("@"))
+    .map((email) => ({ name: null, email }));
+}
+
+function replyPrefill(replyTo: EmailFull): {
+  to: string;
+  subject: string;
+  body: string;
+  inReplyTo: string[];
+  references: string[];
+} {
+  const to = replyTo.from?.[0]?.email ?? "";
+  const base = (replyTo.subject ?? "").replace(/^(re:\s*)+/i, "");
+  const original = textContent(replyTo) ?? replyTo.preview;
+  const header = `${formatDate(replyTo.receivedAt)} — ${senderName(replyTo)} ${strings.composeWroteOn}`;
+  const quoted = original
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  const messageIds = replyTo.messageId ?? [];
+  return {
+    to,
+    subject: strings.composeReplyPrefix + base,
+    body: `\n\n${header}\n${quoted}\n`,
+    inReplyTo: messageIds,
+    references: [...(replyTo.references ?? []), ...messageIds],
+  };
+}
+
+export function ComposeModal({
+  context,
+  fromEmail,
+  fromName,
+  draftsMailboxId,
+  onClose,
+  onSent,
+}: ComposeModalProps) {
+  const client = useJmapClient();
+  const prefill =
+    context.mode === "reply" && context.replyTo !== undefined
+      ? replyPrefill(context.replyTo)
+      : { to: "", subject: "", body: "", inReplyTo: [] as string[], references: [] as string[] };
+
+  const [to, setTo] = useState(prefill.to);
+  const [cc, setCc] = useState("");
+  const [showCc, setShowCc] = useState(false);
+  const [subject, setSubject] = useState(prefill.subject);
+  const [body, setBody] = useState(prefill.body);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  async function onSend(event: FormEvent) {
+    event.preventDefault();
+    const toAddrs = parseRecipients(to);
+    const ccAddrs = showCc ? parseRecipients(cc) : [];
+    if (toAddrs.length === 0 && ccAddrs.length === 0) {
+      setError(strings.composeNoRecipients);
+      return;
+    }
+    if (draftsMailboxId === null) {
+      setError(strings.composeSendError);
+      return;
+    }
+    setSending(true);
+    setError(null);
+    try {
+      const emailId = await client.createDraft({
+        mailboxId: draftsMailboxId,
+        from: { name: fromName.length > 0 ? fromName : null, email: fromEmail },
+        to: toAddrs,
+        cc: ccAddrs,
+        subject,
+        bodyText: body,
+        inReplyTo: prefill.inReplyTo,
+        references: prefill.references,
+      });
+      const rcpts = [...toAddrs, ...ccAddrs].map((a) => a.email);
+      await client.submitEmail(emailId, fromEmail, rcpts);
+      onSent();
+    } catch {
+      setError(strings.composeSendError);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className={styles.overlay} onMouseDown={onClose}>
+      <div
+        className={styles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-label={context.mode === "reply" ? strings.composeReplyTitle : strings.composeTitle}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <form onSubmit={onSend} className={styles.form}>
+          <div className={styles.head}>
+            <h2 className={styles.title}>
+              {context.mode === "reply" ? strings.composeReplyTitle : strings.composeTitle}
+            </h2>
+            <button
+              type="button"
+              className={styles.close}
+              onClick={onClose}
+              aria-label={strings.composeDiscard}
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className={styles.fields}>
+            <div className={styles.field}>
+              <span className={styles.label}>{strings.composeTo}</span>
+              <input
+                className={styles.input}
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder={strings.composeRecipientsPlaceholder}
+                autoFocus={context.mode === "new"}
+              />
+              {!showCc && (
+                <button type="button" className={styles.ccToggle} onClick={() => setShowCc(true)}>
+                  {strings.composeCcToggle}
+                </button>
+              )}
+            </div>
+            {showCc && (
+              <div className={styles.field}>
+                <span className={styles.label}>{strings.composeCc}</span>
+                <input
+                  className={styles.input}
+                  value={cc}
+                  onChange={(e) => setCc(e.target.value)}
+                  placeholder={strings.composeRecipientsPlaceholder}
+                />
+              </div>
+            )}
+            <div className={styles.field}>
+              <span className={styles.label}>{strings.composeSubject}</span>
+              <input
+                className={styles.input}
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder={strings.composeSubjectPlaceholder}
+              />
+            </div>
+          </div>
+
+          <textarea
+            className={styles.textarea}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder={strings.composeBodyPlaceholder}
+            autoFocus={context.mode === "reply"}
+          />
+
+          {error !== null && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className={styles.footer}>
+            <Button type="submit" disabled={sending}>
+              {sending ? <Spinner size={16} label={strings.composeSending} /> : strings.composeSend}
+            </Button>
+            <button type="button" className={styles.discard} onClick={onClose}>
+              {strings.composeDiscard}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

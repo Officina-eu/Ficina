@@ -13,11 +13,14 @@ function headers(partial: Partial<EmailHeaders>): EmailHeaders {
     keywords: {},
     from: null,
     to: null,
+    cc: null,
     subject: null,
     receivedAt: "2026-07-01T09:00:00Z",
     size: 0,
     preview: "",
     hasAttachment: false,
+    messageId: null,
+    references: null,
     ...partial,
   };
 }

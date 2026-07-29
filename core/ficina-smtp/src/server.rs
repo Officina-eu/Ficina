@@ -324,6 +324,24 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         tracing::info!(%addr, "implicit-TLS submission listener");
         tokio::spawn(serve(listener, runtime));
     }
+    // Trusted internal submission listener (no auth): the full submission
+    // pipeline (RFC 6409 fixups + DKIM signing + spool) but with AUTH and the
+    // TLS-before-mail requirement disabled. It exists solely for the co-located
+    // `ficina-jmap`, which authenticates the user and binds MAIL FROM to that
+    // user. It MUST be network-isolated (never a published port) — anything
+    // that reaches it can relay outbound. See docs/design/email-submission.md.
+    if let Some(addr) = config.internal_submission_addr {
+        let listener = bind(addr).await?;
+        let mut runtime = submission_runtime(&config, &spool, &tls_acceptor, &identity, false);
+        runtime.params.require_auth = false;
+        runtime.params.require_tls_before_mail = false;
+        let runtime = Arc::new(runtime.with_auth(Arc::clone(&submission_auth)));
+        tracing::warn!(
+            %addr,
+            "TRUSTED internal submission listener (no auth) — must be network-isolated, never published"
+        );
+        tokio::spawn(serve(listener, runtime));
+    }
 
     // MTA-STS policy endpoint (M4b): serves the rendered policy over
     // plaintext HTTP behind the deploy TLS-terminating proxy.

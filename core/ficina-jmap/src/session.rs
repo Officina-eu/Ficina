@@ -12,6 +12,7 @@ use crate::state::{AppState, authenticate};
 const CAP_CORE: &str = "urn:ietf:params:jmap:core";
 const CAP_MAIL: &str = "urn:ietf:params:jmap:mail";
 const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
+const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
 
 /// `GET /.well-known/jmap` → the Session resource.
 pub async fn session(
@@ -35,11 +36,12 @@ pub async fn session(
             "name": account_id,
             "isPersonal": true,
             "isReadOnly": false,
-            "accountCapabilities": { CAP_MAIL: {}, CAP_SIEVE: {} }
+            "accountCapabilities": { CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {} }
         }),
     );
     let mut primary = Map::new();
     primary.insert(CAP_MAIL.to_owned(), json!(account_id));
+    primary.insert(CAP_SUBMISSION.to_owned(), json!(account_id));
 
     Ok(Json(json!({
         "capabilities": {
@@ -72,6 +74,10 @@ pub async fn session(
                 ],
                 "notificationMethods": Value::Null,
                 "externalLists": Value::Null
+            },
+            CAP_SUBMISSION: {
+                "maxDelayedSend": 0,
+                "submissionExtensions": {}
             }
         },
         "accounts": accounts,

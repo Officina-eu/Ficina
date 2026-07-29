@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/ficina-smtp", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "core/ficina-imap", "core/ficina-sieve", "core/ficina-identity", "control", "migrate"]
+members = ["core/ficina-smtp", "core/ficina-smtp-client", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "core/ficina-imap", "core/ficina-sieve", "core/ficina-identity", "control", "migrate"]
 
 [workspace.package]
 version = "0.0.1"

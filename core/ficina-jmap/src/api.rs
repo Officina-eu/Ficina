@@ -20,6 +20,7 @@ use crate::state::{Account, AppState, authenticate};
 const CAP_CORE: &str = "urn:ietf:params:jmap:core";
 const CAP_MAIL: &str = "urn:ietf:params:jmap:mail";
 const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
+const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
 
 /// `POST /jmap/api` — process a JMAP Request, return the Response.
 pub async fn api(
@@ -42,7 +43,7 @@ pub async fn api(
         .ok_or_else(Problem::not_request)?;
     for cap in using {
         match cap.as_str() {
-            Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) => {}
+            Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) | Some(CAP_SUBMISSION) => {}
             other => {
                 return Err(Problem::unknown_capability().detail(other.unwrap_or("").to_owned()));
             }
@@ -181,13 +182,14 @@ async fn dispatch(
         "SieveScript/get" => crate::sieve::get(account, args).await,
         "SieveScript/set" => crate::sieve::set(account, args).await,
         "SieveScript/validate" => crate::sieve::validate(account, args).await,
+        "EmailSubmission/set" => crate::submission::set(account, args, state).await,
         _ => Err(method_error("unknownMethod")),
     }
 }
 
 // ---- account guard + helpers ------------------------------------------
 
-fn check_account(args: &Value, account: &Account) -> Result<(), Value> {
+pub(crate) fn check_account(args: &Value, account: &Account) -> Result<(), Value> {
     match args.get("accountId").and_then(Value::as_str) {
         Some(id) if id == account.account_id() => Ok(()),
         _ => Err(method_error("accountNotFound")),
@@ -507,9 +509,10 @@ async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
     }))
 }
 
-/// Minimal draft create: builds a raw message from from/to/subject/
-/// textBody and ingests it into the first target mailbox, applying the
-/// requested keywords.
+/// Draft create: builds a proper RFC 5322 `text/plain` message from the JMAP
+/// Email properties (From, all To/Cc, Subject, reply headers, and the text
+/// body — non-ASCII correctly encoded, see [`crate::mime`]) and ingests it into
+/// the first target mailbox, applying the requested keywords.
 async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> {
     let mailbox_ids = props.get("mailboxIds").and_then(Value::as_object);
     let Some(first_mailbox) = mailbox_ids.and_then(|m| m.keys().next()) else {
@@ -522,41 +525,31 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
     // The account door scopes ingest: a foreign target mailbox is
     // NotFound from ingest itself — no separate ownership guard here.
 
-    let subject = props.get("subject").and_then(Value::as_str).unwrap_or("");
-    let from = props
-        .get("from")
-        .and_then(Value::as_array)
-        .and_then(|a| a.first())
-        .and_then(|e| e.get("email"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let to = props
-        .get("to")
-        .and_then(Value::as_array)
-        .and_then(|a| a.first())
-        .and_then(|e| e.get("email"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let text = props
-        .get("bodyValues")
-        .and_then(|bv| bv.as_object())
-        .and_then(|m| m.values().next())
-        .and_then(|v| v.get("value"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    // CR/LF-strip header values (no header injection).
-    let clean = |s: &str| s.replace(['\r', '\n'], " ");
-    let raw = format!(
-        "From: {}\r\nTo: {}\r\nSubject: {}\r\n\r\n{}\r\n",
-        clean(from),
-        clean(to),
-        clean(subject),
-        text
-    );
+    let from = parse_addr_first(props.get("from")).unwrap_or(crate::mime::Addr {
+        name: None,
+        email: String::new(),
+    });
+    let domain = domain_of(&from.email);
+    let outgoing = crate::mime::Outgoing {
+        from,
+        to: parse_addr_list(props.get("to")),
+        cc: parse_addr_list(props.get("cc")),
+        subject: props
+            .get("subject")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        in_reply_to: parse_msgids(props.get("inReplyTo")),
+        references: parse_msgids(props.get("references")),
+        body_text: compose_body_text(props),
+        message_id_domain: domain,
+        message_id_token: new_message_token(),
+    };
+    let raw = crate::mime::build(&outgoing);
 
     let id = account
         .acc
-        .ingest(&mailbox, raw.as_bytes())
+        .ingest(&mailbox, &raw)
         .await
         .map_err(|e| set_error(&e))?;
     // Drafts default to $draft; apply requested keywords (failures are
@@ -583,6 +576,90 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
         "threadId": m.thread_id.as_str(),
         "size": m.size
     }))
+}
+
+/// Parses a JMAP `EmailAddress` object (`{name?, email}`) into a builder Addr.
+fn parse_addr_obj(v: &Value) -> Option<crate::mime::Addr> {
+    let email = v.get("email").and_then(Value::as_str)?;
+    if email.is_empty() {
+        return None;
+    }
+    Some(crate::mime::Addr {
+        name: v
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_owned),
+        email: email.to_owned(),
+    })
+}
+
+/// First address of a JMAP address array (e.g. `from`).
+fn parse_addr_first(v: Option<&Value>) -> Option<crate::mime::Addr> {
+    v.and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .and_then(parse_addr_obj)
+}
+
+/// All addresses of a JMAP address array (e.g. `to`, `cc`).
+fn parse_addr_list(v: Option<&Value>) -> Vec<crate::mime::Addr> {
+    v.and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(parse_addr_obj).collect())
+        .unwrap_or_default()
+}
+
+/// Message-id strings from a JMAP array (`inReplyTo`, `references`).
+fn parse_msgids(v: Option<&Value>) -> Vec<String> {
+    v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The plain-text body to compose from: the `textBody` part's value, else the
+/// first body value. (Distinct from `extract_text_body`, which reads a *stored*
+/// message's bytes for display.)
+fn compose_body_text(props: &Value) -> String {
+    let body_values = props.get("bodyValues").and_then(Value::as_object);
+    if let Some(part) = props
+        .get("textBody")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        && let Some(pid) = part.get("partId").and_then(Value::as_str)
+        && let Some(v) = body_values
+            .and_then(|bv| bv.get(pid))
+            .and_then(|x| x.get("value"))
+            .and_then(Value::as_str)
+    {
+        return v.to_owned();
+    }
+    body_values
+        .and_then(|m| m.values().next())
+        .and_then(|v| v.get("value"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned()
+}
+
+/// The domain of an addr-spec, for seeding the `Message-ID`.
+fn domain_of(email: &str) -> String {
+    match email.rsplit('@').next() {
+        Some(d) if !d.is_empty() && d != email => d.to_owned(),
+        _ => "localhost".to_owned(),
+    }
+}
+
+/// A unique-enough local part for a generated `Message-ID`.
+fn new_message_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{nanos:x}")
 }
 
 /// Applies an Email/set update patch: full or patched `keywords` and

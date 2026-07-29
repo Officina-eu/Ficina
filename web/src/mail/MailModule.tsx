@@ -8,15 +8,19 @@ import { useEffect, useState } from "react";
 import { strings } from "../i18n";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
 import type { EmailFull, EmailHeaders } from "../jmap";
+import { useAuth } from "../auth";
 import { useEmailBody, useEmailHeaders, useMailboxes } from "./state/useMail";
 import { isUnread } from "./format";
 import { FolderSidebar } from "./components/FolderSidebar";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
+import { ComposeModal } from "./components/ComposeModal";
+import type { ComposeContext } from "./components/ComposeModal";
 import styles from "./MailModule.module.css";
 
 export function MailModule() {
   const client = useJmapClient();
+  const { identity } = useAuth();
   const mailboxes = useMailboxes();
 
   const [mailboxId, setMailboxId] = useState<string | null>(null);
@@ -24,12 +28,15 @@ export function MailModule() {
   const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
   const [flags, setFlags] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [toast, setToast] = useState<string | null>(null);
+  const [compose, setCompose] = useState<ComposeContext | null>(null);
 
   const emails = useEmailHeaders(mailboxId);
   const email = useEmailBody(emailId);
 
   const boxes = mailboxes.status === "ready" ? (mailboxes.data ?? []) : [];
   const folderName = boxes.find((b) => b.id === mailboxId)?.name ?? strings.moduleMail;
+  const draftsMailboxId =
+    boxes.find((b) => b.role === "drafts")?.id ?? mailboxId ?? boxes[0]?.id ?? null;
 
   // Default to the Inbox (or the first mailbox) once folders load.
   useEffect(() => {
@@ -88,7 +95,16 @@ export function MailModule() {
       .catch(() => setToast(strings.archiveUnavailable));
   }
 
-  const comingSoon = () => setToast(strings.composeComingSoon);
+  function openReply() {
+    if (email.data !== null) setCompose({ mode: "reply", replyTo: email.data });
+  }
+
+  function onSent() {
+    setCompose(null);
+    setToast(strings.composeSent);
+    emails.reload();
+    mailboxes.reload();
+  }
 
   return (
     <div className={styles.mail}>
@@ -96,7 +112,7 @@ export function MailModule() {
         mailboxes={mailboxes}
         selectedId={mailboxId}
         onSelect={openMailbox}
-        onCompose={comingSoon}
+        onCompose={() => setCompose({ mode: "new" })}
       />
       <MessageList
         folderName={folderName}
@@ -110,10 +126,20 @@ export function MailModule() {
         email={email}
         mailboxes={boxes}
         flagOverrides={flags}
-        onReply={comingSoon}
+        onReply={openReply}
         onToggleFlag={toggleFlag}
         onArchive={archive}
       />
+      {compose !== null && (
+        <ComposeModal
+          context={compose}
+          fromEmail={identity?.email ?? ""}
+          fromName={identity?.name ?? ""}
+          draftsMailboxId={draftsMailboxId}
+          onClose={() => setCompose(null)}
+          onSent={onSent}
+        />
+      )}
       {toast !== null && (
         <div className={styles.toast} role="status">
           {toast}

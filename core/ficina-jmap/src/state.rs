@@ -23,6 +23,10 @@ pub struct AppState {
     pub limits: Limits,
     /// Externally-visible base URL, for building session URLs.
     pub base_url: String,
+    /// `host:port` of the SMTP trusted internal submission listener, used by
+    /// `EmailSubmission/set` to send. `None` disables sending (the capability
+    /// is still advertised but a submit returns `forbiddenToSend`).
+    pub submission_addr: Option<String>,
 }
 
 /// The limits advertised in the Session resource and enforced on every

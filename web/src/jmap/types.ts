@@ -4,6 +4,7 @@
 
 export const MAIL_CAPABILITY = "urn:ietf:params:jmap:mail";
 export const CORE_CAPABILITY = "urn:ietf:params:jmap:core";
+export const SUBMISSION_CAPABILITY = "urn:ietf:params:jmap:submission";
 
 export interface Session {
   apiUrl: string;
@@ -38,11 +39,15 @@ export interface EmailHeaders {
   keywords: Record<string, boolean>;
   from: EmailAddress[] | null;
   to: EmailAddress[] | null;
+  cc: EmailAddress[] | null;
   subject: string | null;
   receivedAt: string;
   size: number;
   preview: string;
   hasAttachment: boolean;
+  /** RFC 5322 Message-ID(s), for reply threading. */
+  messageId: string[] | null;
+  references: string[] | null;
 }
 
 export interface EmailBodyValue {

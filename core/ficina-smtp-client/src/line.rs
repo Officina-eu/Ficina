@@ -8,7 +8,7 @@ use tokio::io::AsyncBufReadExt;
 
 /// Outcome of reading one line under limits.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum RawLine {
+pub enum RawLine {
     /// A complete CRLF-terminated line, terminator stripped.
     Line(Vec<u8>),
     /// Line exceeded `max_len`; the excess up to the next LF was
@@ -34,7 +34,7 @@ pub(crate) enum RawLine {
 
 /// Reads one line of at most `max_len` octets (including CRLF),
 /// draining over-long lines and detecting CRLF violations.
-pub(crate) async fn read_raw_line<R>(
+pub async fn read_raw_line<R>(
     reader: &mut R,
     max_len: usize,
     flood_cap: usize,

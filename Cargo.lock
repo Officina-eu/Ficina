@@ -626,9 +626,11 @@ name = "ficina-jmap"
 version = "0.0.1"
 dependencies = [
  "axum",
+ "base64",
  "bytes",
  "ficina-identity",
  "ficina-sieve",
+ "ficina-smtp-client",
  "ficina-store",
  "futures",
  "serde",
@@ -661,6 +663,7 @@ dependencies = [
  "ficina-auth-mail",
  "ficina-identity",
  "ficina-sieve",
+ "ficina-smtp-client",
  "ficina-store",
  "hickory-resolver",
  "jiff",
@@ -675,6 +678,15 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ficina-smtp-client"
+version = "0.0.1"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

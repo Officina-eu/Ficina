@@ -10,6 +10,10 @@ publish.workspace = true
 ficina-store = { path = "../ficina-store" }
 ficina-sieve = { path = "../ficina-sieve" }
 ficina-identity = { path = "../ficina-identity" }
+# The shared outbound SMTP client — EmailSubmission/set sends through the
+# trusted internal submission listener using the same production client the
+# SMTP delivery path uses.
+ficina-smtp-client = { path = "../ficina-smtp-client" }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -20,6 +24,8 @@ axum = { workspace = true }
 futures = { workspace = true }
 time = { workspace = true }
 bytes = { workspace = true }
+# RFC 2047 encoded-words + base64 message bodies for outgoing mail.
+base64 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

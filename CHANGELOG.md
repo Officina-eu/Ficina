@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- New: **Sending mail** — JMAP **`EmailSubmission/set`** (RFC 8621 §7), so the
+  web app's Compose and Reply actually send. A composed message is built as a
+  proper RFC 5322 `text/plain` message (all To/Cc, reply threading, and
+  European-correct non-ASCII via RFC 2047 encoded-words + base64 body — no
+  header injection) and sent through a new **trusted internal SMTP submission
+  listener** so it is DKIM-signed, queued, and delivered by the existing
+  outbound path, then filed to Sent. **Send-as is enforced on both the SMTP
+  envelope and the visible `From:` header** (a token cannot send as another
+  identity), only drafts are sendable, and recipients are capped per message.
+  The outbound SMTP client is now a shared `ficina-smtp-client` crate used by
+  both the delivery path and this submission path (no duplication). New config:
+  `FICINA_SMTP_INTERNAL_SUBMISSION_ADDR` (never publish this port) and
+  `FICINA_JMAP_SUBMISSION_ADDR`. Design + security review:
+  `docs/design/email-submission.md`.
 - New: **Ficina web app** — the one-product workspace shell, web-first
   (`web/`). The "warm workshop" design system (paper / verdigris / copper /
   ink tokens, self-hosted Inter + EB Garamond, shared primitives), the left

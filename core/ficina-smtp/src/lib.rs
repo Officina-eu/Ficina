@@ -19,8 +19,10 @@ pub mod address;
 pub mod auth;
 pub mod authmail;
 pub mod backoff;
-pub mod client;
-pub mod client_reply;
+// The outbound SMTP client + reply/line parsing live in the shared
+// `ficina-smtp-client` crate (also used by ficina-jmap's submission path).
+// Re-exported here so `crate::client` / `crate::client_reply` keep resolving.
+pub use ficina_smtp_client::{client, client_reply};
 pub mod command;
 pub mod config;
 pub mod data;
@@ -28,7 +30,7 @@ pub mod dsn;
 pub mod envelope;
 pub mod error;
 pub mod healthcheck;
-mod line;
+use ficina_smtp_client::line;
 pub mod local_delivery;
 pub mod mta_sts;
 pub mod queue;

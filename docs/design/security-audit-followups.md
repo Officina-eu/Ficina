@@ -166,3 +166,23 @@ dogfood):**
 - The design note listed `ENHANCEDSTATUSCODES` among advertised EHLO
   capabilities, but `session::capabilities()` does not emit it (we do
   not add enhanced codes to every reply). Removed from the note.
+
+## Email submission (JMAP EmailSubmission/set) — tracked residuals
+
+From the security-auditor pass on the send path (docs/design/email-submission.md).
+The HIGH (From-header spoofing) and the LOW items were fixed in the same change;
+these two remain as tracked follow-ups:
+
+- **Per-user / per-tenant send-rate quota.** The submission path caps recipients
+  per message (100) but has no rate limit, so an authenticated user could drive
+  sustained DKIM-signed outbound (spam / IP-reputation risk). Add a send-rate
+  quota (reuse the `ficina-identity` rate limiter or a store-backed counter)
+  before `submit` in `core/ficina-jmap/src/submission.rs`.
+- **Internal submission listener network exposure.** The trusted no-auth
+  listener binds `0.0.0.0:2526` on the shared `ficina` docker network, so a CVE
+  in any co-networked container (rspamd/caddy/postgres) could pivot to a relay.
+  It is not internet-reachable (unpublished port) and send-as is enforced in
+  ficina-jmap, so this is defence-in-depth. Recommended fix: replace the TCP
+  channel with a **Unix domain socket** shared only between ficina-jmap and
+  ficina-smtp (eliminates the network surface); alternatively a dedicated
+  internal network + interface-bound listener.

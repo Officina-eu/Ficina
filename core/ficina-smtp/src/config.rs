@@ -38,6 +38,15 @@ pub const ENV_QUEUE_INTERVAL_SECS: &str = "FICINA_SMTP_QUEUE_INTERVAL_SECS";
 pub const ENV_SUBMISSION_ADDR: &str = "FICINA_SMTP_SUBMISSION_ADDR";
 /// Environment variable for the implicit-TLS submission listener address.
 pub const ENV_IMPLICIT_TLS_ADDR: &str = "FICINA_SMTP_IMPLICIT_TLS_ADDR";
+/// Environment variable for the TRUSTED INTERNAL submission listener address.
+///
+/// This listener runs the full submission pipeline (RFC 6409 fixups + DKIM +
+/// spool) but with NO AUTH — it trusts its caller (the co-located `ficina-jmap`,
+/// which has already authenticated the user and binds `MAIL FROM` to that
+/// user). It MUST be network-isolated: bound inside the container and never
+/// published to the host/internet. `None` disables it. See
+/// `docs/design/email-submission.md`.
+pub const ENV_INTERNAL_SUBMISSION_ADDR: &str = "FICINA_SMTP_INTERNAL_SUBMISSION_ADDR";
 /// Environment variable for the TLS certificate PEM path.
 pub const ENV_TLS_CERT: &str = "FICINA_SMTP_TLS_CERT";
 /// Environment variable for the TLS private-key PEM path.
@@ -133,6 +142,9 @@ pub struct SmtpConfig {
     pub submission_addr: Option<SocketAddr>,
     /// Implicit-TLS submission (port 465) listener; `None` disables it.
     pub implicit_tls_addr: Option<SocketAddr>,
+    /// Trusted internal submission listener (no auth, docker-network only);
+    /// `None` disables it. Must never be published to the internet.
+    pub internal_submission_addr: Option<SocketAddr>,
     /// TLS certificate + key PEM paths. `None` generates a self-signed
     /// certificate at startup (development only).
     pub tls: Option<TlsPaths>,
@@ -282,6 +294,7 @@ impl SmtpConfig {
 
         let submission_addr = env_addr(ENV_SUBMISSION_ADDR)?;
         let implicit_tls_addr = env_addr(ENV_IMPLICIT_TLS_ADDR)?;
+        let internal_submission_addr = env_addr(ENV_INTERNAL_SUBMISSION_ADDR)?;
 
         let tls = match (std::env::var(ENV_TLS_CERT), std::env::var(ENV_TLS_KEY)) {
             (Ok(cert), Ok(key)) if !cert.is_empty() && !key.is_empty() => Some(TlsPaths {
@@ -363,6 +376,7 @@ impl SmtpConfig {
             outbound,
             submission_addr,
             implicit_tls_addr,
+            internal_submission_addr,
             tls,
             local_domains,
             allow_self_signed,
