@@ -73,6 +73,8 @@ export const strings = {
   mailFolders: "Folders",
   resizeFolders: "Resize the folders panel (drag, or arrow keys; double-click to reset)",
   resizeMessages: "Resize the message list (drag, or arrow keys; double-click to reset)",
+  collapseFolders: "Hide folders",
+  expandFolders: "Show folders",
   mailEmpty: "No messages here yet.",
   mailSearchEmpty: "No messages match your search.",
   mailSelectPrompt: "Select a message to read it.",

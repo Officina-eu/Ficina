@@ -50,11 +50,19 @@ function ordered(list: Mailbox[]): { system: Mailbox[]; custom: Mailbox[] } {
 interface FolderSidebarProps {
   mailboxes: Async<Mailbox[]>;
   selectedId: string | null;
+  /** When collapsed the panel is width-animated to 0 and made non-interactive. */
+  collapsed: boolean;
   onSelect: (id: string) => void;
   onCompose: () => void;
 }
 
-export function FolderSidebar({ mailboxes, selectedId, onSelect, onCompose }: FolderSidebarProps) {
+export function FolderSidebar({
+  mailboxes,
+  selectedId,
+  collapsed,
+  onSelect,
+  onCompose,
+}: FolderSidebarProps) {
   function row(box: Mailbox, Icon: LucideIcon) {
     const active = box.id === selectedId;
     return (
@@ -75,7 +83,12 @@ export function FolderSidebar({ mailboxes, selectedId, onSelect, onCompose }: Fo
   const { system, custom } = ordered(mailboxes.data ?? []);
 
   return (
-    <nav className={styles.sidebar} aria-label={strings.mailFolders}>
+    <nav
+      className={styles.sidebar}
+      aria-label={strings.mailFolders}
+      aria-hidden={collapsed}
+      inert={collapsed}
+    >
       <button type="button" className={styles.compose} onClick={onCompose}>
         <PenLine size={17} strokeWidth={2} />
         <span>{strings.compose}</span>

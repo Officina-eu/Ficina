@@ -3,10 +3,10 @@
 // name, subject, preview, time, an unread dot, and a flag star. Search filters
 // the loaded rows instantly by sender, subject, or preview.
 import { useMemo, useState } from "react";
-import { Paperclip, Search, Star } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Paperclip, Search, Star } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Avatar, Spinner } from "../../ds";
+import { Avatar, IconButton, Spinner } from "../../ds";
 import { KEYWORD_FLAGGED, type EmailHeaders } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import { formatDate, isUnread, senderName, subjectOr } from "../format";
@@ -18,6 +18,8 @@ interface MessageListProps {
   selectedId: string | null;
   readIds: ReadonlySet<string>;
   flagOverrides: ReadonlyMap<string, boolean>;
+  foldersCollapsed: boolean;
+  onToggleFolders: () => void;
   onSelect: (email: EmailHeaders) => void;
 }
 
@@ -32,6 +34,8 @@ export function MessageList({
   selectedId,
   readIds,
   flagOverrides,
+  foldersCollapsed,
+  onToggleFolders,
   onSelect,
 }: MessageListProps) {
   const [query, setQuery] = useState("");
@@ -44,7 +48,15 @@ export function MessageList({
   return (
     <section className={styles.column}>
       <header className={styles.header}>
-        <h1 className={styles.title}>{folderName}</h1>
+        <div className={styles.titleRow}>
+          <IconButton
+            size="sm"
+            label={foldersCollapsed ? strings.expandFolders : strings.collapseFolders}
+            icon={foldersCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+            onClick={onToggleFolders}
+          />
+          <h1 className={styles.title}>{folderName}</h1>
+        </div>
         <div className={styles.search}>
           <Search size={16} className={styles.searchIcon} />
           <input

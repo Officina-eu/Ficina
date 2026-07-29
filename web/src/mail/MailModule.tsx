@@ -35,6 +35,25 @@ export function MailModule() {
   const [flags, setFlags] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [toast, setToast] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeContext | null>(null);
+  const [foldersCollapsed, setFoldersCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("ficina.mail.foldersCollapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleFolders() {
+    setFoldersCollapsed((collapsed) => {
+      const next = !collapsed;
+      try {
+        localStorage.setItem("ficina.mail.foldersCollapsed", next ? "1" : "0");
+      } catch {
+        // ignore — collapse state simply won't persist
+      }
+      return next;
+    });
+  }
 
   const emails = useEmailHeaders(mailboxId);
   const email = useEmailBody(emailId);
@@ -113,7 +132,7 @@ export function MailModule() {
   }
 
   const widthVars = {
-    "--sidebar-width": `${folders.width}px`,
+    "--sidebar-width": foldersCollapsed ? "0px" : `${folders.width}px`,
     "--list-width": `${list.width}px`,
   } as CSSProperties;
 
@@ -122,21 +141,26 @@ export function MailModule() {
       <FolderSidebar
         mailboxes={mailboxes}
         selectedId={mailboxId}
+        collapsed={foldersCollapsed}
         onSelect={openMailbox}
         onCompose={() => setCompose({ mode: "new" })}
       />
-      <ResizeHandle
-        ariaLabel={strings.resizeFolders}
-        onResize={folders.applyDelta}
-        onCommit={folders.commit}
-        onReset={folders.reset}
-      />
+      {!foldersCollapsed && (
+        <ResizeHandle
+          ariaLabel={strings.resizeFolders}
+          onResize={folders.applyDelta}
+          onCommit={folders.commit}
+          onReset={folders.reset}
+        />
+      )}
       <MessageList
         folderName={folderName}
         emails={emails}
         selectedId={emailId}
         readIds={readIds}
         flagOverrides={flags}
+        foldersCollapsed={foldersCollapsed}
+        onToggleFolders={toggleFolders}
         onSelect={openEmail}
       />
       <ResizeHandle
