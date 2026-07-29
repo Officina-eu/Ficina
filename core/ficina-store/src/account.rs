@@ -1306,4 +1306,26 @@ impl AccountStore {
         .ok_or(StoreError::NotFound)?;
         self.blobs.get(self.tenant.as_str(), &row.hash).await
     }
+
+    /// A blob's bytes by id, scoped to this account's tenant but WITHOUT
+    /// requiring a referencing message — for resolving a just-uploaded
+    /// attachment while assembling an outgoing message, since an upload has
+    /// refcount 0 (no message references it yet) until the draft that embeds it
+    /// is created. Tenant isolation still holds: the lookup is keyed by tenant
+    /// and blob ids are unguessable. (Runtime-checked query: this lookup is not
+    /// in the offline `.sqlx` cache, deliberately kept simple.)
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent in this tenant; [`StoreError::Blob`]
+    /// on a blob-store failure.
+    pub async fn blob_bytes_for_send(&self, id: &BlobId) -> Result<Bytes> {
+        let hash: Option<String> =
+            sqlx::query_scalar("SELECT hash FROM blobs WHERE tenant_id = $1 AND id = $2")
+                .bind(self.tenant.as_str())
+                .bind(id.as_str())
+                .fetch_optional(&self.pool)
+                .await?;
+        let hash = hash.ok_or(StoreError::NotFound)?;
+        self.blobs.get(self.tenant.as_str(), &hash).await
+    }
 }

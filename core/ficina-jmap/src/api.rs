@@ -6,7 +6,8 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::{Json, body::Bytes};
 use ficina_store::{
-    EmailFilter, EmailQuery, MailboxId, MessageId, Page, SortDirection, StoreError, ThreadId,
+    BlobId, EmailFilter, EmailQuery, MailboxId, MessageId, Page, SortDirection, StoreError,
+    ThreadId,
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -528,6 +529,40 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
         email: String::new(),
     });
     let domain = domain_of(&from.email);
+
+    // Resolve attachments: fetch each referenced (just-uploaded) blob's bytes to
+    // carry into the multipart build. A missing/foreign blob is a hard error —
+    // better to fail the create than to send silently without the attachment.
+    let mut attachments = Vec::new();
+    if let Some(list) = props.get("attachments").and_then(Value::as_array) {
+        for att in list {
+            let Some(blob_id) = att.get("blobId").and_then(Value::as_str) else {
+                return Err(method_error_desc(
+                    "invalidProperties",
+                    "attachment blobId required",
+                ));
+            };
+            let bytes = account
+                .acc
+                .blob_bytes_for_send(&BlobId::new(blob_id.to_owned()))
+                .await
+                .map_err(|e| set_error(&e))?;
+            attachments.push(crate::mime::Attachment {
+                name: att
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("attachment")
+                    .to_owned(),
+                content_type: att
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("application/octet-stream")
+                    .to_owned(),
+                bytes: bytes.to_vec(),
+            });
+        }
+    }
+
     let outgoing = crate::mime::Outgoing {
         from,
         to: parse_addr_list(props.get("to")),
@@ -540,6 +575,7 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
         in_reply_to: parse_msgids(props.get("inReplyTo")),
         references: parse_msgids(props.get("references")),
         body_text: compose_body_text(props),
+        attachments,
         message_id_domain: domain,
         message_id_token: new_message_token(),
     };

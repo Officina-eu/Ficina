@@ -7,9 +7,10 @@
 //! composed field. Header lines are folded to ≤78 columns (RFC 5322 §2.1.1);
 //! because non-ASCII is always encoded to ASCII first, folding is byte-safe.
 //!
-//! Scope: `text/plain` bodies with To/Cc and reply threading headers. HTML
-//! alternatives and attachments are a later, additive pass (recorded in
-//! `docs/design/email-submission.md`).
+//! Scope: `text/plain` bodies with To/Cc and reply threading headers, plus
+//! `multipart/mixed` when the message carries attachments (base64 parts with a
+//! `Content-Disposition: attachment`). HTML alternatives are a later, additive
+//! pass (recorded in `docs/design/email-submission.md`).
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -21,7 +22,15 @@ pub struct Addr {
     pub email: String,
 }
 
-/// The fields of an outgoing text/plain message.
+/// One outgoing attachment: its decoded bytes plus display name and MIME type.
+pub struct Attachment {
+    pub name: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
+/// The fields of an outgoing message (text/plain, or multipart/mixed when it
+/// carries attachments).
 pub struct Outgoing {
     pub from: Addr,
     pub to: Vec<Addr>,
@@ -32,6 +41,8 @@ pub struct Outgoing {
     /// The `References` chain (bare message-ids).
     pub references: Vec<String>,
     pub body_text: String,
+    /// Attachments; when non-empty the message is built as multipart/mixed.
+    pub attachments: Vec<Attachment>,
     /// The submission hostname, for the `Message-ID` domain if the submission
     /// pipeline does not add one. (It does — this is a belt-and-braces seed.)
     pub message_id_domain: String,
@@ -74,20 +85,80 @@ pub fn build(msg: &Outgoing) -> Vec<u8> {
     headers.push("MIME-Version: 1.0".to_owned());
 
     let (cte, body) = encode_body(&msg.body_text);
-    headers.push("Content-Type: text/plain; charset=utf-8".to_owned());
-    headers.push(format!("Content-Transfer-Encoding: {cte}"));
 
-    let mut out = Vec::with_capacity(body.len() + 512);
-    for h in &headers {
-        out.extend_from_slice(h.as_bytes());
+    if msg.attachments.is_empty() {
+        headers.push("Content-Type: text/plain; charset=utf-8".to_owned());
+        headers.push(format!("Content-Transfer-Encoding: {cte}"));
+        let mut out = Vec::with_capacity(body.len() + 512);
+        write_headers(&mut out, &headers);
         out.extend_from_slice(b"\r\n");
+        out.extend_from_slice(&body);
+        if !out.ends_with(b"\r\n") {
+            out.extend_from_slice(b"\r\n");
+        }
+        return out;
     }
+
+    // multipart/mixed: a text/plain part, then one part per attachment. The
+    // boundary is seeded from the unique message-id token, so it cannot collide
+    // with generated content.
+    let boundary = format!("=_Ficina_{}", sanitize(&msg.message_id_token));
+    headers.push(format!(
+        "Content-Type: multipart/mixed; boundary=\"{boundary}\""
+    ));
+
+    let mut out = Vec::with_capacity(body.len() + 1024);
+    write_headers(&mut out, &headers);
     out.extend_from_slice(b"\r\n");
+
+    // text part
+    out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    out.extend_from_slice(b"Content-Type: text/plain; charset=utf-8\r\n");
+    out.extend_from_slice(format!("Content-Transfer-Encoding: {cte}\r\n\r\n").as_bytes());
     out.extend_from_slice(&body);
     if !out.ends_with(b"\r\n") {
         out.extend_from_slice(b"\r\n");
     }
+
+    // one part per attachment, always base64
+    for att in &msg.attachments {
+        let name = header_param(&att.name);
+        let ctype = sanitize(&att.content_type);
+        out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        out.extend_from_slice(format!("Content-Type: {ctype}; name=\"{name}\"\r\n").as_bytes());
+        out.extend_from_slice(b"Content-Transfer-Encoding: base64\r\n");
+        out.extend_from_slice(
+            format!("Content-Disposition: attachment; filename=\"{name}\"\r\n\r\n").as_bytes(),
+        );
+        out.extend_from_slice(&base64_wrapped(&att.bytes));
+    }
+    out.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
     out
+}
+
+/// Append CRLF-terminated header lines to `out`.
+fn write_headers(out: &mut Vec<u8>, headers: &[String]) {
+    for h in headers {
+        out.extend_from_slice(h.as_bytes());
+        out.extend_from_slice(b"\r\n");
+    }
+}
+
+/// Base64 of `bytes`, wrapped at 76 columns with CRLF (RFC 2045).
+fn base64_wrapped(bytes: &[u8]) -> Vec<u8> {
+    let b64 = B64.encode(bytes);
+    let mut out = Vec::with_capacity(b64.len() + b64.len() / 76 * 2 + 2);
+    for chunk in b64.as_bytes().chunks(76) {
+        out.extend_from_slice(chunk);
+        out.extend_from_slice(b"\r\n");
+    }
+    out
+}
+
+/// Sanitize a filename for a quoted header parameter: drop CR/LF and characters
+/// that would break the quoted-string (`"` and `\`).
+fn header_param(name: &str) -> String {
+    name.replace(['\r', '\n', '"', '\\'], "")
 }
 
 /// Strips CR and LF from a header input (header-injection guard).
@@ -260,6 +331,7 @@ mod tests {
             in_reply_to: Vec::new(),
             references: Vec::new(),
             body_text: body.to_owned(),
+            attachments: Vec::new(),
             message_id_domain: "namel3ss.com".to_owned(),
             message_id_token: "abc123".to_owned(),
         }
@@ -348,5 +420,44 @@ mod tests {
         m.to = vec![addr(None, "bare@example.eu")];
         let s = text(&m);
         assert!(s.contains("To: bare@example.eu\r\n"));
+    }
+
+    #[test]
+    fn attachment_produces_multipart_with_base64_part() {
+        let mut m = base("Report", "See attached.\n");
+        m.attachments = vec![Attachment {
+            name: "report.zip".to_owned(),
+            content_type: "application/zip".to_owned(),
+            bytes: vec![0x50, 0x4B, 0x03, 0x04, 0x0A], // "PK\x03\x04\n"
+        }];
+        let s = text(&m);
+        assert!(s.contains("Content-Type: multipart/mixed; boundary=\"=_Ficina_abc123\""));
+        // the text part
+        assert!(s.contains("Content-Type: text/plain; charset=utf-8"));
+        assert!(s.contains("See attached."));
+        // the attachment part: type, disposition + filename, base64 body
+        assert!(s.contains("Content-Type: application/zip; name=\"report.zip\""));
+        assert!(s.contains("Content-Disposition: attachment; filename=\"report.zip\""));
+        assert!(s.contains("Content-Transfer-Encoding: base64"));
+        assert!(
+            s.contains("UEsDBAo="),
+            "attachment bytes are base64-encoded"
+        );
+        assert!(s.trim_end().ends_with("--=_Ficina_abc123--"));
+    }
+
+    #[test]
+    fn attachment_filename_is_quote_safe() {
+        let mut m = base("s", "b");
+        m.attachments = vec![Attachment {
+            name: "a\"b\\c.txt".to_owned(),
+            content_type: "text/plain".to_owned(),
+            bytes: b"x".to_vec(),
+        }];
+        let s = text(&m);
+        assert!(
+            s.contains("filename=\"abc.txt\""),
+            "quotes/backslashes stripped"
+        );
     }
 }
