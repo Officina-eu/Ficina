@@ -4,8 +4,10 @@
 // soon" toasts for compose/reply/AI (which have no backend yet). It renders
 // inside <AppShell>'s main area, nothing more.
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { strings } from "../i18n";
+import { ResizeHandle, usePanelWidth } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
 import type { EmailFull, EmailHeaders } from "../jmap";
 import { useAuth } from "../auth";
@@ -22,6 +24,10 @@ export function MailModule() {
   const client = useJmapClient();
   const { identity } = useAuth();
   const mailboxes = useMailboxes();
+
+  // Resizable panels (drag the dividers; persisted across sessions).
+  const folders = usePanelWidth("ficina.mail.foldersWidth", 232, 176, 420);
+  const list = usePanelWidth("ficina.mail.listWidth", 372, 300, 640);
 
   const [mailboxId, setMailboxId] = useState<string | null>(null);
   const [emailId, setEmailId] = useState<string | null>(null);
@@ -106,13 +112,24 @@ export function MailModule() {
     mailboxes.reload();
   }
 
+  const widthVars = {
+    "--sidebar-width": `${folders.width}px`,
+    "--list-width": `${list.width}px`,
+  } as CSSProperties;
+
   return (
-    <div className={styles.mail}>
+    <div className={styles.mail} style={widthVars}>
       <FolderSidebar
         mailboxes={mailboxes}
         selectedId={mailboxId}
         onSelect={openMailbox}
         onCompose={() => setCompose({ mode: "new" })}
+      />
+      <ResizeHandle
+        ariaLabel={strings.resizeFolders}
+        onResize={folders.applyDelta}
+        onCommit={folders.commit}
+        onReset={folders.reset}
       />
       <MessageList
         folderName={folderName}
@@ -121,6 +138,12 @@ export function MailModule() {
         readIds={readIds}
         flagOverrides={flags}
         onSelect={openEmail}
+      />
+      <ResizeHandle
+        ariaLabel={strings.resizeMessages}
+        onResize={list.applyDelta}
+        onCommit={list.commit}
+        onReset={list.reset}
       />
       <ReadingPane
         email={email}

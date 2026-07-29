@@ -1,7 +1,6 @@
 .column {
   width: var(--list-width);
   flex-shrink: 0;
-  border-right: 1px solid var(--border-subtle);
   background: var(--bg-surface);
   display: flex;
   flex-direction: column;

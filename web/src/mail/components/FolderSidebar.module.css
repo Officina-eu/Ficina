@@ -2,7 +2,6 @@
   width: var(--sidebar-width);
   flex-shrink: 0;
   background: var(--bg-app);
-  border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   padding: var(--space-3);
