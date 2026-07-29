@@ -4,8 +4,11 @@ import { expect, test } from "vitest";
 import { App } from "./App";
 import { strings } from "./i18n/strings";
 
-test("the root route renders the application name", () => {
+// With no stored session, the app boots to the sign-in screen (RequireAuth
+// sends an unauthenticated visitor to /login). We assert the login title
+// appears — proving the router, auth bootstrap, and shell wiring compose.
+test("an unauthenticated visit lands on the sign-in screen", async () => {
   render(<App />);
-  const heading = screen.getByRole("heading", { level: 1 });
-  expect(heading.textContent).toBe(strings.appName);
+  const heading = await screen.findByRole("heading", { name: strings.loginTitle });
+  expect(heading).toBeTruthy();
 });

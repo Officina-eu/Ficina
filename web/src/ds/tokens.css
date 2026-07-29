@@ -1,0 +1,150 @@
+/*
+ * Ficina design tokens — the single source of visual truth.
+ *
+ * "Warm workshop": paper ground, verdigris primary, copper secondary, warm
+ * ink text. The four brand colors come from the design brief; the warm-neutral
+ * scale and the semantic tokens below are derived from them so the whole UI
+ * (and every later module) reads from ONE palette, never ad-hoc hex values.
+ *
+ * Components MUST use the semantic tokens (--bg-*, --text-*, --border-*,
+ * --accent*), not the raw scale — so a palette change is one edit here.
+ */
+:root {
+  /* ---- brand (from the design brief) ---- */
+  --paper: #faf8f3;
+  --verdigris: #2e6b5e;
+  --copper: #b0642f;
+  --ink: #211d18;
+
+  /* ---- verdigris scale (primary accent) ---- */
+  --verdigris-50: #edf3f1;
+  --verdigris-100: #d9e7e2;
+  --verdigris-200: #b3cec6;
+  --verdigris-400: #3f7d6f;
+  --verdigris-500: #2e6b5e;
+  --verdigris-600: #275c50;
+  --verdigris-700: #204c42;
+  --verdigris-800: #1a3d35;
+
+  /* ---- copper scale (secondary accent) ---- */
+  --copper-50: #f7ede4;
+  --copper-100: #efdbcb;
+  --copper-400: #bd7541;
+  --copper-500: #b0642f;
+  --copper-600: #965328;
+
+  /* ---- warm neutrals (derived from paper→ink) ---- */
+  --warm-0: #ffffff;
+  --warm-50: #faf8f3;
+  --warm-100: #f3eee4;
+  --warm-150: #ece5d8;
+  --warm-200: #e2daca;
+  --warm-300: #d3c9b6;
+  --warm-400: #b3a993;
+  --warm-500: #8b8271;
+  --warm-600: #635c50;
+  --warm-700: #454037;
+  --warm-800: #2c2822;
+  --warm-900: #211d18;
+
+  /* ---- semantic: backgrounds ---- */
+  --bg-app: var(--paper);          /* the workspace canvas */
+  --bg-surface: var(--warm-0);     /* panels, cards, reading pane */
+  --bg-raised: var(--warm-100);    /* hover / subtle fills */
+  --bg-sunken: var(--warm-50);     /* list backgrounds */
+  --bg-rail: var(--verdigris-800); /* the left rail — brand-forward, deep */
+  --bg-rail-hover: var(--verdigris-700);
+  --bg-selected: var(--verdigris-50);  /* selected list row */
+  --bg-overlay: rgba(33, 29, 24, 0.45);
+
+  /* ---- semantic: text ---- */
+  --text-primary: var(--ink);
+  --text-secondary: #6d6556;
+  --text-tertiary: var(--warm-500);
+  --text-on-accent: #ffffff;
+  --text-on-rail: #e9efeb;
+  --text-on-rail-muted: #9fb6ae;
+  --text-link: var(--verdigris-600);
+
+  /* ---- semantic: borders ---- */
+  --border-subtle: var(--warm-150);
+  --border-default: var(--warm-200);
+  --border-strong: var(--warm-300);
+
+  /* ---- semantic: accents & states ---- */
+  --accent: var(--verdigris-500);
+  --accent-hover: var(--verdigris-600);
+  --accent-active: var(--verdigris-700);
+  --accent-tint: var(--verdigris-100);
+  --accent-secondary: var(--copper-500);
+  --accent-secondary-hover: var(--copper-600);
+  --accent-secondary-tint: var(--copper-100);
+
+  --danger: #b23a2c;
+  --danger-tint: #f3ddd8;
+  --success: var(--verdigris-500);
+  --warning: var(--copper-500);
+  --unread: var(--verdigris-500);
+
+  --focus-ring: 0 0 0 3px rgba(46, 107, 94, 0.35);
+
+  /* ---- typography ---- */
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: "EB Garamond", Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+
+  --text-xs: 0.75rem;    /* 12 */
+  --text-sm: 0.8125rem;  /* 13 */
+  --text-base: 0.875rem; /* 14 */
+  --text-md: 0.9375rem;  /* 15 */
+  --text-lg: 1.0625rem;  /* 17 */
+  --text-xl: 1.25rem;    /* 20 */
+  --text-2xl: 1.5rem;    /* 24 */
+  --text-3xl: 1.875rem;  /* 30 */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+
+  /* ---- spacing (4px base) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* ---- radius ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 999px;
+
+  /* ---- elevation (warm-tinted shadows) ---- */
+  --shadow-sm: 0 1px 2px rgba(33, 29, 24, 0.06), 0 1px 1px rgba(33, 29, 24, 0.04);
+  --shadow-md: 0 4px 12px rgba(33, 29, 24, 0.08), 0 2px 4px rgba(33, 29, 24, 0.05);
+  --shadow-lg: 0 12px 32px rgba(33, 29, 24, 0.12), 0 4px 8px rgba(33, 29, 24, 0.06);
+
+  /* ---- motion ---- */
+  --transition-fast: 120ms ease;
+  --transition-base: 180ms ease;
+
+  /* ---- layout ---- */
+  --rail-width: 68px;
+  --list-width: 380px;
+  --sidebar-width: 240px;
+  --z-rail: 20;
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+}

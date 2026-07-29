@@ -1,13 +1,40 @@
-// Root route of the Ficina web application. Placeholder at Phase 0:
-// the real shell (design system, auth flow, navigation) is the first
-// "Webmail & mail UX" item of ROADMAP.md Phase 2.
-import { strings } from "./i18n/strings";
+// The application router. Public route: the login screen. Everything else is
+// behind RequireAuth and rendered inside the shell frame; the module set comes
+// from the registry, so adding a module is a registry entry, not a router
+// change. Only Mail has a real surface this pass; the rest show "coming soon".
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+
+import { AuthProvider, LoginPage, RequireAuth } from "./auth";
+import { AppShell, ComingSoon, defaultModulePath, modules } from "./shell";
+import { MailModule } from "./mail";
 
 export function App() {
   return (
-    <main>
-      <h1>{strings.appName}</h1>
-      <p>{strings.tagline}</p>
-    </main>
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          {/* The OIDC redirect target; the login flow reads the code inline, so
+              a stray navigation here just returns to the app. */}
+          <Route path="/auth/callback" element={<Navigate to={defaultModulePath} replace />} />
+
+          <Route element={<RequireAuth />}>
+            <Route element={<AppShell />}>
+              <Route index element={<Navigate to={defaultModulePath} replace />} />
+              {modules.map((m) => (
+                <Route
+                  key={m.id}
+                  path={`${m.path}/*`}
+                  element={
+                    m.id === "mail" ? <MailModule /> : <ComingSoon title={m.label} Icon={m.Icon} />
+                  }
+                />
+              ))}
+              <Route path="*" element={<Navigate to={defaultModulePath} replace />} />
+            </Route>
+          </Route>
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
