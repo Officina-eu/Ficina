@@ -30,9 +30,17 @@ services mount (single-node; multi-node would swap in Garage/S3).
 - DNS for your domain (`DOMAIN`, e.g. `mail.example.com`):
   - `A`/`AAAA` `mail.example.com` → this server,
   - `MX` for the mail domain → `mail.example.com`,
-  - `PTR` (reverse DNS) for the server IP → `mail.example.com`,
+  - `PTR` (reverse DNS) for the server IP → `mail.example.com`. **This is set
+    at your hosting/IP provider, not in the domain's DNS zone** — many hosts
+    (Hetzner, OVH, DigitalOcean) expose it as a "reverse DNS"/"rDNS" field on
+    the server or floating IP. Gmail and Outlook reject or spam-file mail from
+    an IP whose PTR doesn't match the sending host, so this is not optional in
+    practice. Verify it after setup on the admin **Security & trust** page,
+    which flags a missing or mismatched PTR.
   - `A` `mta-sts.mail.example.com` → this server (for the MTA-STS policy),
-  - SPF/DMARC as you prefer; **DKIM is generated below**.
+  - SPF/DMARC as you prefer; **DKIM is generated below**. The **Security &
+    trust** page runs live SPF/DKIM/DMARC/MX/PTR/MTA-STS checks against the
+    email domain so you can confirm each record end-to-end after deploy.
 
 ## Setup
 

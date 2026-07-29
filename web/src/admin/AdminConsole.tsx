@@ -3,7 +3,7 @@
 // today (AI providers); more are added as their backends land — no dead links.
 import { useEffect, useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { ArrowLeft, ShieldCheck, Sparkles, UserRound, Users } from "lucide-react";
+import { ArrowLeft, ShieldCheck, ShieldOff, Sparkles, UserRound, Users } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Spinner, cx } from "../ds";
@@ -40,7 +40,23 @@ export function AdminConsole() {
       </div>
     );
   }
-  if (status === "denied") return <Navigate to="/mail" replace />;
+  if (status === "denied") {
+    return (
+      <div className={styles.gate}>
+        <div className={styles.denied}>
+          <span className={styles.deniedIcon}>
+            <ShieldOff size={28} strokeWidth={1.75} />
+          </span>
+          <h1>{strings.adminDeniedTitle}</h1>
+          <p>{strings.adminDeniedBody}</p>
+          <Link to="/mail" className={styles.deniedBtn}>
+            <ArrowLeft size={16} />
+            <span>{strings.adminBackToFicina}</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.console}>

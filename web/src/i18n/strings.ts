@@ -166,6 +166,9 @@ export const strings = {
   adminTitle: "Admin",
   adminBackToFicina: "Back to Ficina",
   adminOpen: "Admin console",
+  adminDeniedTitle: "Admin access required",
+  adminDeniedBody:
+    "You don't have administrator access to this workspace. Ask an admin to grant it if you need it.",
   adminSecurity: "Security & trust",
   adminSecurityIntro:
     "How your mail domain looks to the outside world. These checks query live DNS and the MTA-STS policy each time you run them.",
