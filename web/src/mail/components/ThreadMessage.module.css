@@ -11,30 +11,6 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* The conversation timeline: a spine down the avatar gutter, drawn over the
-   card face (behind the head and body). The avatar column is 34px wide at
-   padding-left var(--space-4) = 16px, so its centre is 33px; a 2px line sits
-   at 32px. Segments in the gaps between cards are drawn by the list container
-   (ReadingPane .messages); a single-message thread has no spine. */
-.message::before {
-  content: "";
-  position: absolute;
-  left: 32px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--border-strong);
-  z-index: 0;
-}
-
-.message:first-child::before {
-  top: 30px; /* start at the first sender's avatar, not the card top */
-}
-
-.message:only-child::before {
-  display: none;
-}
-
 .head {
   position: relative;
   z-index: 1;
@@ -44,6 +20,31 @@
   width: 100%;
   padding: var(--space-3) var(--space-4);
   text-align: left;
+}
+
+/* The conversation timeline: a spine through each message HEADER, linking the
+   sender avatars, drawn over the card face behind the header content. It stops
+   at the header, so an expanded message's body stays clear of the line. The
+   avatar column is 34px wide at padding-left var(--space-4) = 16px, so its
+   centre is 33px; a 2px line sits at 32px. The gaps between cards are bridged
+   by the list container (ReadingPane .threaded); a lone message has no spine. */
+.head::before {
+  content: "";
+  position: absolute;
+  left: 32px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border-default);
+  z-index: 0;
+}
+
+.message:first-child .head::before {
+  top: 30px; /* start at the first sender's avatar, not the card top */
+}
+
+.message:only-child .head::before {
+  display: none;
 }
 
 /* The avatar is a node on the spine: a surface-coloured ring lifts it clear
@@ -109,10 +110,28 @@
 .body {
   position: relative;
   z-index: 1;
-  /* Indent the body clear of the timeline spine, aligning it under the sender
-     name (avatar column 34px + the head's gaps). */
-  padding: var(--space-5) var(--space-6) var(--space-5)
-    calc(var(--space-4) + 34px + var(--space-3));
+  padding: var(--space-5) var(--space-6);
+}
+
+/* A floating per-message action bar (reply · forward), revealed on hover of the
+   message — like a desktop mail client. Sits over the top-right of the body. */
+.msgActions {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.message:hover .msgActions,
+.msgActions:focus-within {
+  opacity: 1;
 }
 
 .text {

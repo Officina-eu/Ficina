@@ -1,10 +1,10 @@
 // One message within a conversation. Collapsed: a clickable summary row
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
-import { Paperclip } from "lucide-react";
+import { Forward, Paperclip, Reply } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Avatar, cx } from "../../ds";
+import { Avatar, IconButton, cx } from "../../ds";
 import type { EmailAddress, EmailFull } from "../../jmap";
 import { formatDate, senderName, subjectOr } from "../format";
 import { htmlContent, sandboxedHtml, textContent } from "../body";
@@ -16,6 +16,9 @@ interface ThreadMessageProps {
   /** The signed-in user's address, so their own line reads "me". */
   me: string | undefined;
   onToggle: () => void;
+  /** Reply to / forward this specific message (per-message action bar). */
+  onReply: () => void;
+  onForward: () => void;
 }
 
 function recipientLine(to: EmailAddress[] | null, me: string | undefined): string {
@@ -24,7 +27,14 @@ function recipientLine(to: EmailAddress[] | null, me: string | undefined): strin
   return to.map((a) => (a.name !== null && a.name.length > 0 ? a.name : a.email)).join(", ");
 }
 
-export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessageProps) {
+export function ThreadMessage({
+  email,
+  expanded,
+  me,
+  onToggle,
+  onReply,
+  onForward,
+}: ThreadMessageProps) {
   const text = expanded ? textContent(email) : null;
   const html = expanded && text === null ? htmlContent(email) : null;
 
@@ -50,6 +60,10 @@ export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessagePr
 
       {expanded && (
         <div className={styles.body}>
+          <div className={styles.msgActions}>
+            <IconButton size="sm" label={strings.reply} icon={<Reply />} onClick={onReply} />
+            <IconButton size="sm" label={strings.forward} icon={<Forward />} onClick={onForward} />
+          </div>
           {text !== null && <pre className={styles.text}>{text}</pre>}
           {html !== null && (
             <iframe

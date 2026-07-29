@@ -130,7 +130,7 @@
   top: 30px;
   bottom: 30px;
   width: 2px;
-  background: var(--border-strong);
+  background: var(--border-default);
   z-index: 0;
 }
 

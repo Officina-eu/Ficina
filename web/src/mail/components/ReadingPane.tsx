@@ -45,6 +45,9 @@ interface ReadingPaneProps {
   flagOverrides: ReadonlyMap<string, boolean>;
   onReply: () => void;
   onForward: () => void;
+  /** Reply to / forward one specific message in the thread. */
+  onReplyMessage: (email: EmailFull) => void;
+  onForwardMessage: (email: EmailFull) => void;
   onToggleFlag: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -59,6 +62,8 @@ export function ReadingPane({
   flagOverrides,
   onReply,
   onForward,
+  onReplyMessage,
+  onForwardMessage,
   onToggleFlag,
   onArchive,
   onDelete,
@@ -188,6 +193,8 @@ export function ReadingPane({
               expanded={expanded.has(message.id)}
               me={me}
               onToggle={() => toggle(message.id)}
+              onReply={() => onReplyMessage(message)}
+              onForward={() => onForwardMessage(message)}
             />
           ))}
         </div>

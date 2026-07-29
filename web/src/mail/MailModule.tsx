@@ -233,6 +233,8 @@ export function MailModule() {
         flagOverrides={flags}
         onReply={() => latest !== undefined && setCompose({ mode: "reply", replyTo: latest })}
         onForward={() => latest !== undefined && setCompose({ mode: "forward", replyTo: latest })}
+        onReplyMessage={(m) => setCompose({ mode: "reply", replyTo: m })}
+        onForwardMessage={(m) => setCompose({ mode: "forward", replyTo: m })}
         onToggleFlag={() => latest !== undefined && toggleFlag(latest)}
         onArchive={archiveThread}
         onDelete={deleteThread}
