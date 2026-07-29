@@ -117,6 +117,13 @@
   font-weight: var(--weight-semibold);
 }
 
+.threadCount {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
 .star {
   width: 14px;
   height: 14px;

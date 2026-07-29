@@ -108,6 +108,7 @@ export const strings = {
   mailDeleted: "Message deleted.",
   mailActionFailed: "That didn't work — please try again.",
   endOfMessage: "End of message",
+  threadMessages: "messages",
   toLabel: "to",
   replyTo: "Reply to",
   draftWithAi: "Draft with AI",

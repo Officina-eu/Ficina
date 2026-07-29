@@ -136,6 +136,28 @@ export class JmapClient {
     return (this.#result(res, "g").list as EmailHeaders[]) ?? [];
   }
 
+  /** All messages of a thread, with bodies, oldest-first (for the conversation
+   * view). One request: Thread/get feeds Email/get by back-reference. */
+  async threadEmails(threadId: string): Promise<EmailFull[]> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      ["Thread/get", { accountId, ids: [threadId] }, "t"],
+      [
+        "Email/get",
+        {
+          accountId,
+          "#ids": { resultOf: "t", name: "Thread/get", path: "/list/0/emailIds" },
+          properties: [...HEADER_PROPS, "textBody", "htmlBody", "bodyValues"],
+          fetchTextBodyValues: true,
+          fetchHTMLBodyValues: true,
+        },
+        "e",
+      ],
+    ]);
+    const list = (this.#result(res, "e").list as EmailFull[]) ?? [];
+    return [...list].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
+  }
+
   /** One message with its body, for the reading pane. */
   async email(id: string): Promise<EmailFull | null> {
     const accountId = await this.accountId();
@@ -194,6 +216,36 @@ export class JmapClient {
   async destroy(id: string): Promise<void> {
     const accountId = await this.accountId();
     const res = await this.#request([["Email/set", { accountId, destroy: [id] }, "d"]]);
+    this.#result(res, "d");
+  }
+
+  /** Mark several messages read/unread in one call (whole-conversation). */
+  async setSeenMany(ids: string[], seen: boolean): Promise<void> {
+    if (ids.length === 0) return;
+    const accountId = await this.accountId();
+    const update: Record<string, unknown> = {};
+    for (const id of ids) update[id] = { "keywords/$seen": seen ? true : null };
+    const res = await this.#request([["Email/set", { accountId, update }, "s"]]);
+    this.#result(res, "s");
+  }
+
+  /** Move several messages from one mailbox to another in one call. */
+  async moveMany(ids: string[], fromMailboxId: string, toMailboxId: string): Promise<void> {
+    if (ids.length === 0) return;
+    const accountId = await this.accountId();
+    const update: Record<string, unknown> = {};
+    for (const id of ids) {
+      update[id] = { [`mailboxIds/${fromMailboxId}`]: null, [`mailboxIds/${toMailboxId}`]: true };
+    }
+    const res = await this.#request([["Email/set", { accountId, update }, "m"]]);
+    this.#result(res, "m");
+  }
+
+  /** Permanently delete several messages in one call. */
+  async destroyMany(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const accountId = await this.accountId();
+    const res = await this.#request([["Email/set", { accountId, destroy: ids }, "d"]]);
     this.#result(res, "d");
   }
 

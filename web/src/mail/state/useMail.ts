@@ -35,3 +35,14 @@ export function useEmailBody(emailId: string | null): Async<EmailFull | null> {
     ),
   );
 }
+
+/** All messages of a thread, with bodies, oldest-first (null yields empty). */
+export function useThread(threadId: string | null): Async<EmailFull[]> {
+  const client = useJmapClient();
+  return useAsync(
+    useCallback(
+      () => (threadId === null ? Promise.resolve([]) : client.threadEmails(threadId)),
+      [client, threadId],
+    ),
+  );
+}

@@ -69,12 +69,25 @@
   padding: var(--space-6) var(--space-8);
 }
 
+.subjectRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
 .subject {
   font-size: var(--text-2xl);
   font-weight: var(--weight-bold);
   color: var(--text-primary);
   line-height: var(--leading-tight);
-  margin-bottom: var(--space-3);
+}
+
+.threadCount {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .tags {
@@ -98,73 +111,11 @@
   background: var(--copper-50);
 }
 
-.sender {
+/* the conversation's messages */
+.messages {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-3);
-  padding-bottom: var(--space-5);
-  margin-bottom: var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.senderText {
-  flex: 1;
-  min-width: 0;
-}
-
-.senderTop {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.senderName {
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
-}
-
-.date {
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.senderSub {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.text {
-  font-family: var(--font-body);
-  font-size: var(--text-lg);
-  line-height: var(--leading-relaxed);
-  color: var(--text-primary);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  margin: 0;
-}
-
-.html {
-  width: 100%;
-  min-height: 50vh;
-  border: none;
-  background: #fff;
-  border-radius: var(--radius-md);
-}
-
-.empty {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.endOfMessage {
-  margin-top: var(--space-6);
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
 }
 
 /* quick reply */

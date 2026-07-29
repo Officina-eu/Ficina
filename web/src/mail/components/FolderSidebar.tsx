@@ -56,8 +56,8 @@ interface FolderSidebarProps {
   collapsed: boolean;
   onSelect: (id: string) => void;
   onCompose: () => void;
-  /** Drop a dragged message into a folder (moves it there). */
-  onDropMessage: (emailId: string, mailboxId: string) => void;
+  /** Drop dragged messages (a whole conversation) into a folder — moves them. */
+  onDropMessage: (emailIds: string[], mailboxId: string) => void;
 }
 
 export function FolderSidebar({
@@ -91,9 +91,9 @@ export function FolderSidebar({
         }}
         onDrop={(e) => {
           e.preventDefault();
-          const id = e.dataTransfer.getData(DRAG_EMAIL_MIME);
+          const ids = e.dataTransfer.getData(DRAG_EMAIL_MIME).split(",").filter((s) => s !== "");
           setDragOverId(null);
-          if (id !== "") onDropMessage(id, box.id);
+          if (ids.length > 0) onDropMessage(ids, box.id);
         }}
       >
         <Icon className={styles.icon} strokeWidth={1.75} />

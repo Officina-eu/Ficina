@@ -1,9 +1,9 @@
-// The reading pane (Figma app shell): an action toolbar, the subject, folder/
-// flag tags, the sender block, the message body, and a quick-reply bar. Body
-// safety as before — plain text in Garamond, HTML isolated in a sandboxed,
-// CSP-locked iframe. Compose/reply and the AI summary have no backend yet, so
-// they are honest placeholders (the toolbar's real actions — flag, archive —
-// work).
+// The reading pane — a CONVERSATION view. It shows the whole thread (all its
+// messages, across folders) stacked oldest-first, the newest expanded and the
+// rest collapsed to a click-to-open summary. The action toolbar operates on the
+// conversation: Reply/Forward act on the latest message; Flag toggles it;
+// Archive/Delete/Move act on this folder's copies of the whole thread.
+import { useEffect, useState } from "react";
 import {
   Archive,
   FolderInput,
@@ -19,13 +19,13 @@ import {
 } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Avatar, IconButton, Menu, Spinner } from "../../ds";
+import { IconButton, Menu, Spinner } from "../../ds";
 import type { MenuItem } from "../../ds";
-import { KEYWORD_FLAGGED, type EmailAddress, type EmailFull, type Mailbox } from "../../jmap";
+import { KEYWORD_FLAGGED, type EmailFull, type Mailbox } from "../../jmap";
 import { useAuth } from "../../auth";
 import type { Async } from "../state/useAsync";
-import { formatDate, senderName, subjectOr } from "../format";
-import { htmlContent, sandboxedHtml, textContent } from "../body";
+import { subjectOr } from "../format";
+import { ThreadMessage } from "./ThreadMessage";
 import styles from "./ReadingPane.module.css";
 
 const ROLE_ORDER: Record<string, number> = {
@@ -38,22 +38,22 @@ const ROLE_ORDER: Record<string, number> = {
 };
 
 interface ReadingPaneProps {
-  email: Async<EmailFull | null>;
+  thread: Async<EmailFull[]>;
   mailboxes: Mailbox[];
   /** The folder currently being viewed (excluded from "Move to"). */
   currentMailboxId: string | null;
   flagOverrides: ReadonlyMap<string, boolean>;
-  onReply: (email: EmailFull) => void;
-  onForward: (email: EmailFull) => void;
-  onToggleFlag: (email: EmailFull) => void;
-  onArchive: (email: EmailFull) => void;
-  onDelete: (email: EmailFull) => void;
-  onMove: (email: EmailFull, targetMailboxId: string) => void;
-  onMarkUnread: (email: EmailFull) => void;
+  onReply: () => void;
+  onForward: () => void;
+  onToggleFlag: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  onMove: (targetMailboxId: string) => void;
+  onMarkUnread: () => void;
 }
 
 export function ReadingPane({
-  email,
+  thread,
   mailboxes,
   currentMailboxId,
   flagOverrides,
@@ -66,27 +66,34 @@ export function ReadingPane({
   onMarkUnread,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
+  const messages = thread.status === "ready" ? (thread.data ?? []) : [];
+  const latest = messages.length > 0 ? messages[messages.length - 1] : undefined;
 
-  if (email.status === "loading") {
+  // Expanded set: the newest message opens by default; reset when the thread
+  // changes (keyed by the latest message id).
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    setExpanded(latest !== undefined ? new Set([latest.id]) : new Set());
+  }, [latest?.id]);
+
+  if (thread.status === "loading") {
     return (
       <div className={styles.state}>
         <Spinner size={24} />
       </div>
     );
   }
-  if (email.status === "error") {
+  if (thread.status === "error") {
     return (
       <div className={styles.state}>
         <p>{strings.mailListError}</p>
-        <button type="button" className={styles.retry} onClick={email.reload}>
+        <button type="button" className={styles.retry} onClick={thread.reload}>
           {strings.mailRetry}
         </button>
       </div>
     );
   }
-
-  const message = email.data;
-  if (message === null) {
+  if (latest === undefined) {
     return (
       <div className={styles.state}>
         <p>{strings.mailSelectPrompt}</p>
@@ -94,19 +101,19 @@ export function ReadingPane({
     );
   }
 
-  const flagged = flagOverrides.get(message.id) ?? message.keywords[KEYWORD_FLAGGED] === true;
-  const text = textContent(message);
-  const html = text === null ? htmlContent(message) : null;
+  const flagged = flagOverrides.get(latest.id) ?? latest.keywords[KEYWORD_FLAGGED] === true;
   const folderTags = mailboxes
-    .filter((m) => m.role === null && message.mailboxIds[m.id] === true)
+    .filter((m) => m.role === null && latest.mailboxIds[m.id] === true)
     .map((m) => m.name);
+  const me = identity?.email.toLowerCase();
 
-  function recipientLine(): string {
-    const to = message?.to ?? null;
-    if (to === null || to.length === 0) return "";
-    const me = identity?.email.toLowerCase();
-    if (me !== undefined && to.some((a) => a.email.toLowerCase() === me)) return "me";
-    return to.map((a: EmailAddress) => (a.name !== null && a.name.length > 0 ? a.name : a.email)).join(", ");
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   const moveItems: MenuItem[] = mailboxes
@@ -116,55 +123,51 @@ export function ReadingPane({
         (ROLE_ORDER[a.role ?? ""] ?? 50) - (ROLE_ORDER[b.role ?? ""] ?? 50) ||
         a.name.localeCompare(b.name),
     )
-    .map((m) => ({ key: m.id, label: m.name, onClick: () => onMove(message, m.id) }));
+    .map((m) => ({ key: m.id, label: m.name, onClick: () => onMove(m.id) }));
 
   const moreItems: MenuItem[] = [
-    {
-      key: "unread",
-      label: strings.markUnread,
-      icon: <MailOpen />,
-      onClick: () => onMarkUnread(message),
-    },
-    {
-      key: "delete",
-      label: strings.delete,
-      icon: <Trash2 />,
-      danger: true,
-      onClick: () => onDelete(message),
-    },
+    { key: "unread", label: strings.markUnread, icon: <MailOpen />, onClick: onMarkUnread },
+    { key: "delete", label: strings.delete, icon: <Trash2 />, danger: true, onClick: onDelete },
   ];
 
   return (
     <article className={styles.pane}>
       <div className={styles.toolbar}>
-        <button type="button" className={styles.replyBtn} onClick={() => onReply(message)}>
+        <button type="button" className={styles.replyBtn} onClick={onReply}>
           <Reply size={16} />
           <span>{strings.reply}</span>
         </button>
-        <button type="button" className={styles.textBtn} onClick={() => onReply(message)}>
+        <button type="button" className={styles.textBtn} onClick={onReply}>
           <ReplyAll size={16} />
           <span>{strings.replyAll}</span>
         </button>
-        <button type="button" className={styles.textBtn} onClick={() => onForward(message)}>
+        <button type="button" className={styles.textBtn} onClick={onForward}>
           <Forward size={16} />
           <span>{strings.forward}</span>
         </button>
         <div className={styles.spacer} />
-        <IconButton size="sm" label={strings.archive} icon={<Archive />} onClick={() => onArchive(message)} />
+        <IconButton size="sm" label={strings.archive} icon={<Archive />} onClick={onArchive} />
         <Menu label={strings.moveTo} icon={<FolderInput />} items={moveItems} />
         <IconButton
           size="sm"
           label={flagged ? strings.unflag : strings.flag}
           active={flagged}
           icon={<Star className={flagged ? styles.starOn : ""} />}
-          onClick={() => onToggleFlag(message)}
+          onClick={onToggleFlag}
         />
-        <IconButton size="sm" label={strings.delete} icon={<Trash2 />} onClick={() => onDelete(message)} />
+        <IconButton size="sm" label={strings.delete} icon={<Trash2 />} onClick={onDelete} />
         <Menu label={strings.moreActions} icon={<MoreHorizontal />} items={moreItems} />
       </div>
 
       <div className={styles.bodyScroll}>
-        <h1 className={styles.subject}>{subjectOr(message)}</h1>
+        <div className={styles.subjectRow}>
+          <h1 className={styles.subject}>{subjectOr(latest)}</h1>
+          {messages.length > 1 && (
+            <span className={styles.threadCount}>
+              {messages.length} {strings.threadMessages}
+            </span>
+          )}
+        </div>
 
         {(folderTags.length > 0 || flagged) && (
           <div className={styles.tags}>
@@ -177,52 +180,36 @@ export function ReadingPane({
           </div>
         )}
 
-        <div className={styles.sender}>
-          <Avatar name={senderName(message)} email={message.from?.[0]?.email} size="md" />
-          <div className={styles.senderText}>
-            <div className={styles.senderTop}>
-              <span className={styles.senderName}>{senderName(message)}</span>
-              <span className={styles.date}>{formatDate(message.receivedAt)}</span>
-            </div>
-            <div className={styles.senderSub}>
-              {message.from?.[0]?.email} · {strings.toLabel} {recipientLine()}
-            </div>
-          </div>
+        <div className={styles.messages}>
+          {messages.map((message) => (
+            <ThreadMessage
+              key={message.id}
+              email={message}
+              expanded={expanded.has(message.id)}
+              me={me}
+              onToggle={() => toggle(message.id)}
+            />
+          ))}
         </div>
-
-        {text !== null && <pre className={styles.text}>{text}</pre>}
-        {html !== null && (
-          <iframe
-            className={styles.html}
-            title={subjectOr(message)}
-            sandbox=""
-            srcDoc={sandboxedHtml(html)}
-          />
-        )}
-        {text === null && html === null && <p className={styles.empty}>{message.preview}</p>}
-
-        <div className={styles.endOfMessage}>{strings.endOfMessage}</div>
       </div>
 
       <div className={styles.quickReply}>
         <div className={styles.quickHead}>
           <Reply size={14} />
-          <span>
-            {strings.replyTo} {senderName(message)}
-          </span>
+          <span>{strings.reply}</span>
         </div>
         <div className={styles.quickBar}>
-          <button type="button" className={styles.quickInput} onClick={() => onReply(message)}>
-            {strings.replyTo} {senderName(message)}…
+          <button type="button" className={styles.quickInput} onClick={onReply}>
+            {strings.reply}…
           </button>
-          <button type="button" className={styles.draftAi} onClick={() => onReply(message)}>
+          <button type="button" className={styles.draftAi} onClick={onReply}>
             <Sparkles size={15} />
             <span>{strings.draftWithAi}</span>
           </button>
           <button
             type="button"
             className={styles.send}
-            onClick={() => onReply(message)}
+            onClick={onReply}
             aria-label={strings.reply}
           >
             <Send size={17} />
