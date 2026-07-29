@@ -190,7 +190,7 @@ async fn query_then_get_via_result_reference() {
     assert_eq!(list.len(), 1, "the referenced query id was fetched");
     assert_eq!(list[0]["subject"], json!("Quarterly numbers"));
     assert!(
-        list[0]["bodyValues"]["1"]["value"]
+        list[0]["bodyValues"]["text"]["value"]
             .as_str()
             .unwrap()
             .contains("hello body text")

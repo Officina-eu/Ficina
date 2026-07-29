@@ -69,19 +69,60 @@ fn address_list(raw: &str) -> Value {
     json!(out)
 }
 
+/// One attachment on a JMAP `Email` (RFC 8621 §4.1.4). `blob_id` is the
+/// composite id the download route resolves back to the part.
+pub struct AttachmentJson {
+    pub blob_id: String,
+    pub content_type: String,
+    pub name: String,
+    pub size: usize,
+}
+
+/// The parsed reading view passed to [`email_json`] when the client asked for
+/// the body: the decoded plain-text (with its truncation flag) and/or HTML
+/// body, and the attachment list.
+pub struct ReadBody {
+    pub text: Option<(String, bool)>,
+    pub html: Option<String>,
+    pub attachments: Vec<AttachmentJson>,
+}
+
+/// Derive a short preview from the text body, else a crude tag-stripped HTML
+/// snippet, else empty.
+fn preview_of(body: &ReadBody) -> String {
+    if let Some((text, _)) = &body.text {
+        return text.chars().take(256).collect();
+    }
+    if let Some(html) = &body.html {
+        let mut out = String::new();
+        let mut in_tag = false;
+        for ch in html.chars() {
+            match ch {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => out.push(ch),
+                _ => {}
+            }
+            if out.chars().count() >= 256 {
+                break;
+            }
+        }
+        return out.split_whitespace().collect::<Vec<_>>().join(" ");
+    }
+    String::new()
+}
+
 /// Builds a full JMAP `Email` object from the stored metadata plus the
-/// resolved mailbox ids, keywords, and (optional) body value.
+/// resolved mailbox ids, keywords, and (optional) parsed body.
 ///
-/// `body` is the extracted text body; `truncated` marks whether it was
-/// cut to the `bodyValues` ceiling. `fetch_body` controls whether
-/// `bodyValues` is populated (the client asked for it).
-#[allow(clippy::too_many_arguments)]
+/// `body` is `None` for header-only fetches (the mailbox list); when present
+/// it drives `textBody`/`htmlBody`/`bodyValues`, the attachment list, the
+/// preview, and `hasAttachment`.
 pub fn email_json(
     m: &Message,
     mailbox_ids: &[String],
     keywords: &[String],
-    body: Option<(&str, bool)>,
-    has_attachment: bool,
+    body: Option<&ReadBody>,
 ) -> Value {
     let mut mailboxes = Map::new();
     for id in mailbox_ids {
@@ -92,8 +133,45 @@ pub fn email_json(
         kw.insert(k.clone(), json!(true));
     }
 
-    let preview: String = body
-        .map(|(b, _)| b.chars().take(256).collect())
+    let preview = body.map(preview_of).unwrap_or_default();
+    let has_attachment = body.is_some_and(|b| !b.attachments.is_empty());
+
+    // textBody/htmlBody reference body-value parts by a stable partId; the
+    // attachment parts are listed separately with their download blob ids.
+    let mut text_body = Vec::new();
+    let mut html_body = Vec::new();
+    let mut body_values = Map::new();
+    if let Some(b) = body {
+        if let Some((value, truncated)) = &b.text {
+            text_body.push(json!({ "partId": "text", "type": "text/plain" }));
+            body_values.insert(
+                "text".to_owned(),
+                json!({ "value": value, "isEncodingProblem": false, "isTruncated": truncated }),
+            );
+        }
+        if let Some(html) = &b.html {
+            html_body.push(json!({ "partId": "html", "type": "text/html" }));
+            body_values.insert(
+                "html".to_owned(),
+                json!({ "value": html, "isEncodingProblem": false, "isTruncated": false }),
+            );
+        }
+    }
+    let attachments: Vec<Value> = body
+        .map(|b| {
+            b.attachments
+                .iter()
+                .map(|a| {
+                    json!({
+                        "blobId": a.blob_id,
+                        "type": a.content_type,
+                        "name": a.name,
+                        "size": a.size,
+                        "disposition": "attachment"
+                    })
+                })
+                .collect()
+        })
         .unwrap_or_default();
 
     let mut email = json!({
@@ -111,7 +189,9 @@ pub fn email_json(
         "preview": preview,
         "hasAttachment": has_attachment,
         "messageId": m.message_id_hdr.as_ref().map(|v| vec![v.clone()]),
-        "textBody": [ { "partId": "1", "type": "text/plain", "blobId": m.blob_id.as_str() } ],
+        "textBody": text_body,
+        "htmlBody": html_body,
+        "attachments": attachments,
         // Ficina exposes the parsed auth verdict as a non-standard
         // property so clients can render a trust banner without a header
         // fetch (additive, `ficina:` namespaced).
@@ -120,10 +200,8 @@ pub fn email_json(
         }
     });
 
-    if let Some((value, truncated)) = body {
-        email["bodyValues"] = json!({
-            "1": { "value": value, "isEncodingProblem": false, "isTruncated": truncated }
-        });
+    if body.is_some() {
+        email["bodyValues"] = Value::Object(body_values);
     }
     email
 }

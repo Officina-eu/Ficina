@@ -67,6 +67,25 @@ pub async fn download(
     if account_id != account.account_id() {
         return Err(Problem::not_found());
     }
+
+    // Attachment parts are addressed as "{messageBlobId}~a{index}": load the
+    // message blob (account-scoped, like any blob), MIME-parse it, and serve
+    // the decoded part. The message blob id is the ownership boundary.
+    if let Some((msg_blob, index)) = parse_attachment_id(&blob_id) {
+        let raw = account
+            .acc
+            .blob_bytes(&BlobId::new(msg_blob.to_owned()))
+            .await
+            .map_err(store_problem)?;
+        let (part_bytes, part_type, part_name) =
+            crate::mime_read::attachment_bytes(&raw, index).ok_or_else(Problem::not_found)?;
+        return Ok(serve_download(
+            Bytes::from(part_bytes),
+            &part_type,
+            &part_name,
+        ));
+    }
+
     let id = BlobId::new(blob_id);
     // The account door scopes blob access to blobs referenced by one of
     // this account's messages: an unreferenced/foreign blob is NotFound
@@ -77,22 +96,39 @@ pub async fn download(
     let ctype = meta
         .content_type
         .unwrap_or_else(|| "application/octet-stream".to_owned());
+    Ok(serve_download(bytes, &ctype, &name))
+}
+
+/// Split a composite attachment blob id "{messageBlobId}~a{index}" into the
+/// message blob id and the attachment's zero-based index. `None` for a plain
+/// blob id (no `~a` marker or a non-numeric index).
+fn parse_attachment_id(blob_id: &str) -> Option<(&str, usize)> {
+    let (msg_blob, idx) = blob_id.rsplit_once("~a")?;
+    if msg_blob.is_empty() {
+        return None;
+    }
+    idx.parse::<usize>().ok().map(|i| (msg_blob, i))
+}
+
+/// Serve raw bytes as a downloadable attachment: the given content type,
+/// `nosniff`, and a sanitized `Content-Disposition` filename.
+fn serve_download(bytes: Bytes, ctype: &str, filename: &str) -> Response {
     let mut resp = (StatusCode::OK, bytes).into_response();
     let h = resp.headers_mut();
     h.insert(
         CONTENT_TYPE,
-        HeaderValue::from_str(&ctype)
+        HeaderValue::from_str(ctype)
             .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     h.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
-    let filename = name.replace(['\r', '\n', '"', '\\'], "");
+    let safe = filename.replace(['\r', '\n', '"', '\\'], "");
     h.insert(
         CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+        HeaderValue::from_str(&format!("attachment; filename=\"{safe}\""))
             .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
-    Ok(resp)
+    resp
 }

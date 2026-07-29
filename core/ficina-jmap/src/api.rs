@@ -392,17 +392,15 @@ async fn email_get(account: &Account, args: &Value, state: &AppState) -> Result<
                 let keywords = account.acc.keywords(&mid).await.map_err(store_err)?;
                 let body = if want_body {
                     let raw = account.acc.message_bytes(&mid).await.map_err(store_err)?;
-                    Some(extract_text_body(&raw, max_body))
+                    Some(read_body(&raw, m.blob_id.as_str(), max_body))
                 } else {
                     None
                 };
-                let body_ref = body.as_ref().map(|(s, t)| (s.as_str(), *t));
                 list.push(jtypes::email_json(
                     &m,
                     &mailbox_ids,
                     &keywords,
-                    body_ref,
-                    false,
+                    body.as_ref(),
                 ));
             }
             Err(StoreError::NotFound) => not_found.push(json!(id)),
@@ -884,20 +882,38 @@ fn parse_email_filter(filter: Option<&Value>) -> EmailFilter {
 /// Best-effort text body extraction: the bytes after the header/body
 /// separator, lossily decoded and truncated to `max`. Full MIME
 /// structure is additive later (design note out-of-scope).
-fn extract_text_body(raw: &[u8], max: usize) -> (String, bool) {
-    let body = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .map(|i| &raw[i + 4..])
-        .unwrap_or(&[]);
-    let mut text = String::from_utf8_lossy(body).into_owned();
-    let truncated = text.len() > max;
-    if truncated {
-        let mut end = max;
-        while end > 0 && !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.truncate(end);
+fn read_body(raw: &[u8], blob_id: &str, max: usize) -> jtypes::ReadBody {
+    let parsed = crate::mime_read::parse(raw);
+    let text = parsed.text.map(|t| truncate_utf8(t, max));
+    let attachments = parsed
+        .attachments
+        .into_iter()
+        .map(|a| jtypes::AttachmentJson {
+            // The download route resolves "{messageBlobId}~a{index}" back to
+            // the decoded part (see blob::download).
+            blob_id: format!("{blob_id}~a{}", a.index),
+            content_type: a.content_type,
+            name: a.name,
+            size: a.size,
+        })
+        .collect();
+    jtypes::ReadBody {
+        text,
+        html: parsed.html,
+        attachments,
     }
-    (text, truncated)
+}
+
+/// Truncate a string to at most `max` bytes on a char boundary, reporting
+/// whether it was cut (for `bodyValues.isTruncated`).
+fn truncate_utf8(mut s: String, max: usize) -> (String, bool) {
+    if s.len() <= max {
+        return (s, false);
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s.truncate(end);
+    (s, true)
 }
