@@ -13,7 +13,7 @@ separate Phase-2 build). Everything needed for a mail app to work is here.
 | Service | Purpose | Ports |
 |---|---|---|
 | `ficina-smtp` | receive (25) + authenticated send (587/465) + outbound + spam/trust stack | 25, 587, 465 |
-| `ficina-imap` | read mail from a mail app | 993 (IMAPS), 143 (STARTTLS), 995 (POP3S) |
+| `ficina-imap` | read mail from a mail app | 993 (IMAPS), 995 (POP3S) — 143 closed |
 | `ficina-jmap` | native API **and** the OpenID Connect login provider (behind Caddy) | internal 8080 |
 | `caddy` | automatic Let's Encrypt HTTPS for the login/API origin | 80, 443 |
 | `postgres` | system of record | internal |
@@ -25,7 +25,8 @@ services mount (single-node; multi-node would swap in Garage/S3).
 ## Prerequisites
 
 - A Linux server with Docker + the compose plugin, ports 25/80/443/465/587/
-  993/143/995 reachable from the internet.
+  993/995 reachable from the internet. (Port 143, cleartext-then-STARTTLS
+  IMAP, is deliberately not published — 993 covers IMAP securely.)
 - DNS for your domain (`DOMAIN`, e.g. `mail.example.com`):
   - `A`/`AAAA` `mail.example.com` → this server,
   - `MX` for the mail domain → `mail.example.com`,
@@ -165,6 +166,18 @@ never for production. Do not run `init-certs.sh` locally.
   `docker compose up -d ficina-smtp`.
 - **Stop everything:** `docker compose down` (data volumes persist);
   `docker compose down -v` also deletes the data (irreversible).
+
+## Operations: backups, monitoring, and the runbook
+
+Production hardening (encrypted nightly backups, health-and-alert monitoring,
+security hardening, log rotation) lives in [`ops/`](ops/) as plain scripts and
+systemd units — reproducible, not click-configured. Install steps are in
+[`ops/README.md`](ops/README.md).
+
+The plain-language day-to-day guide — how to check health, what each alert
+means, how to restore from backup, how to add a mailbox, cert renewal, the
+security posture, and the remaining DNS/account items — is
+[`docs/operations-runbook.md`](../../docs/operations-runbook.md).
 
 ## What is deliberately NOT here
 

@@ -2,7 +2,10 @@
 #
 # This runs the full first-class mail path on ONE host and ONE database:
 #   - ficina-smtp : receive (25) + authenticated submission (587/465) + outbound
-#   - ficina-imap : read mail from any mail app (993 IMAPS, 143 STARTTLS, 995 POP3S)
+#   - ficina-imap : read mail from any mail app (993 IMAPS, 995 POP3S). Port
+#                   143 (cleartext-then-STARTTLS) is deliberately NOT published
+#                   to the host — secure implicit-TLS 993 fully covers reading
+#                   mail, so the downgrade-capable port is closed (see README).
 #   - ficina-jmap : the native API + the OpenID Connect login provider (behind Caddy)
 #   - postgres    : system of record
 #   - rspamd      : spam scoring at SMTP time (fail-closed)
@@ -167,9 +170,9 @@ services:
     volumes:
       - blobs:/var/lib/ficina/blobs
       - certs:/certs:ro
+    # 143 is intentionally NOT published (downgrade-capable); 993 covers IMAP.
     ports:
       - "993:993"
-      - "143:143"
       - "995:995"
     networks: [ficina]
     healthcheck:

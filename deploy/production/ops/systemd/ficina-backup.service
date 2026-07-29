@@ -1,0 +1,9 @@
+[Unit]
+OnFailure=ficina-backup-failed.service
+Description=Ficina encrypted backup
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ficina/backups/backup.sh
