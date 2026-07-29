@@ -1,14 +1,11 @@
+/* Messages read as a clean, flat list — no boxed cards. A hairline divides
+   consecutive messages; the timeline spine (below) is the only vertical rule. */
 .message {
   position: relative;
-  z-index: 1;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  overflow: hidden;
 }
 
-.message.expanded {
-  box-shadow: var(--shadow-sm);
+.message + .message {
+  border-top: 1px solid var(--border-subtle);
 }
 
 .head {

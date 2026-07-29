@@ -111,27 +111,15 @@
   background: var(--copper-50);
 }
 
-/* the conversation's messages */
+/* the conversation's messages — a clean flat list divided by hairlines, framed
+   by a single subtle border so it reads as one conversation surface */
 .messages {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-/* The timeline spine continues across the gaps between cards. Each card paints
-   its own segment over its face (ThreadMessage .message::before) and sits above
-   this line (z-index), so only the inter-card gaps show through — joining the
-   sender avatars into one thread. Only shown for multi-message conversations. */
-.threaded::before {
-  content: "";
-  position: absolute;
-  left: 32px;
-  top: 30px;
-  bottom: 30px;
-  width: 2px;
-  background: var(--border-default);
-  z-index: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
 /* quick reply */

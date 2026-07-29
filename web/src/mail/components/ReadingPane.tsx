@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { IconButton, Menu, Spinner, cx } from "../../ds";
+import { IconButton, Menu, Spinner } from "../../ds";
 import type { MenuItem } from "../../ds";
 import { KEYWORD_FLAGGED, type EmailFull, type Mailbox } from "../../jmap";
 import { useAuth } from "../../auth";
@@ -45,9 +45,10 @@ interface ReadingPaneProps {
   flagOverrides: ReadonlyMap<string, boolean>;
   onReply: () => void;
   onForward: () => void;
-  /** Reply to / forward one specific message in the thread. */
+  /** Reply to / forward / delete one specific message in the thread. */
   onReplyMessage: (email: EmailFull) => void;
   onForwardMessage: (email: EmailFull) => void;
+  onDeleteMessage: (email: EmailFull) => void;
   onToggleFlag: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -64,6 +65,7 @@ export function ReadingPane({
   onForward,
   onReplyMessage,
   onForwardMessage,
+  onDeleteMessage,
   onToggleFlag,
   onArchive,
   onDelete,
@@ -185,7 +187,7 @@ export function ReadingPane({
           </div>
         )}
 
-        <div className={cx(styles.messages, messages.length > 1 && styles.threaded)}>
+        <div className={styles.messages}>
           {messages.map((message) => (
             <ThreadMessage
               key={message.id}
@@ -195,6 +197,7 @@ export function ReadingPane({
               onToggle={() => toggle(message.id)}
               onReply={() => onReplyMessage(message)}
               onForward={() => onForwardMessage(message)}
+              onDelete={() => onDeleteMessage(message)}
             />
           ))}
         </div>

@@ -1,7 +1,7 @@
 // One message within a conversation. Collapsed: a clickable summary row
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
-import { Forward, Paperclip, Reply } from "lucide-react";
+import { Forward, Paperclip, Reply, Trash2 } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Avatar, IconButton, cx } from "../../ds";
@@ -16,9 +16,10 @@ interface ThreadMessageProps {
   /** The signed-in user's address, so their own line reads "me". */
   me: string | undefined;
   onToggle: () => void;
-  /** Reply to / forward this specific message (per-message action bar). */
+  /** Reply to / forward / delete this specific message (per-message action bar). */
   onReply: () => void;
   onForward: () => void;
+  onDelete: () => void;
 }
 
 function recipientLine(to: EmailAddress[] | null, me: string | undefined): string {
@@ -34,6 +35,7 @@ export function ThreadMessage({
   onToggle,
   onReply,
   onForward,
+  onDelete,
 }: ThreadMessageProps) {
   const text = expanded ? textContent(email) : null;
   const html = expanded && text === null ? htmlContent(email) : null;
@@ -63,6 +65,7 @@ export function ThreadMessage({
           <div className={styles.msgActions}>
             <IconButton size="sm" label={strings.reply} icon={<Reply />} onClick={onReply} />
             <IconButton size="sm" label={strings.forward} icon={<Forward />} onClick={onForward} />
+            <IconButton size="sm" label={strings.delete} icon={<Trash2 />} onClick={onDelete} />
           </div>
           {text !== null && <pre className={styles.text}>{text}</pre>}
           {html !== null && (
