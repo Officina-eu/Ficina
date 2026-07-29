@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/ficina-smtp", "core/ficina-smtp-client", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "core/ficina-imap", "core/ficina-sieve", "core/ficina-identity", "control", "migrate"]
+members = ["core/ficina-smtp", "core/ficina-smtp-client", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "core/ficina-imap", "core/ficina-sieve", "core/ficina-identity", "core/ficina-ai", "control", "migrate"]
 
 [workspace.package]
 version = "0.0.1"
@@ -35,6 +35,10 @@ base64 = "0.22"
 # multipart walking, transfer-encoding + charset decoding. Reading incoming
 # mail correctly is a parser's job, not something to hand-roll.
 mail-parser = "0.11"
+# HTTP client for the AI inference layer (ficina-ai) — calling an operator-set
+# OpenAI-compatible endpoint (Ollama/vLLM/hosted) needs real TLS + response
+# handling. rustls only (no OpenSSL), matching our TLS stack.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 # Browser-grade charset decoding for RFC 2047 encoded-word header values.
 encoding_rs = "0.8"
 # Trust-stack (ficina-auth-mail) crypto primitives. RSA sign/verify use
