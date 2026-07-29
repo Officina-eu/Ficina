@@ -340,3 +340,19 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   the follow-up. Wrong credentials are refused constant-time with no
   user-existence oracle (IMAP `[AUTHENTICATIONFAILED]`, SMTP `535`, OAuth
   `access_denied` — never distinguishing unknown-user from wrong-password).
+
+## RFC 2047 encoded-word subjects are stored/displayed raw
+
+Observed while verifying JMAP send: a message with a non-ASCII subject (e.g.
+"café déjà prêt") is stored in `messages.subject` as its raw RFC 2047
+encoded-word form (`=?UTF-8?B?…?=`), so the JMAP `Email/get` `subject` and the
+web UI show the encoded text rather than the decoded string, and full-text
+search indexes the encoded form. Recipients are unaffected (Gmail/Outlook
+decode encoded-words on display), so this is a *local display/index* gap, not a
+send bug — the outgoing header is correct (RFC 2047 is exactly how non-ASCII
+subjects must be encoded on the wire).
+
+Fix (tracked): decode RFC 2047 encoded-words for the stored/indexed `subject`
+(and `From`/`To` display names) at ingestion in `ficina-store`, keeping the raw
+header bytes intact for fidelity. Affects both received mail and our own filed
+copies. Not yet done.
