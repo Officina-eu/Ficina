@@ -153,6 +153,54 @@ fn bad(detail: &'static str) -> Problem {
     Problem::with(StatusCode::BAD_REQUEST, detail)
 }
 
+/// Whether tenant→domain ownership is enforced on address assignment (ADR
+/// 0012). Off by default so a single-tenant deployment is unaffected; flipped
+/// on when a deployment hosts mutually-distrusting tenants.
+fn domain_ownership_enforced() -> bool {
+    std::env::var("FICINA_ENFORCE_DOMAIN_OWNERSHIP")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+/// Reject assigning `address` unless the acting tenant owns a verified domain
+/// matching its host (ADR 0012 security spine). Inert when enforcement is off
+/// or no domains are registered (single-tenant/dev). The address must already
+/// be shaped `local@domain`.
+async fn require_domain_owned(
+    state: &AppState,
+    tenant: &ficina_store::TenantId,
+    address: &str,
+) -> Result<(), Problem> {
+    if !domain_ownership_enforced() {
+        return Ok(());
+    }
+    if !state
+        .store
+        .any_domains_registered()
+        .await
+        .map_err(|_| Problem::server_error())?
+    {
+        return Ok(());
+    }
+    let domain = address.rsplit('@').next().unwrap_or("").trim().to_lowercase();
+    if domain.is_empty() {
+        return Err(bad("valid email required"));
+    }
+    if state
+        .store
+        .tenant_owns_verified_domain(tenant, &domain)
+        .await
+        .map_err(|_| Problem::server_error())?
+    {
+        Ok(())
+    } else {
+        Err(Problem::with(
+            StatusCode::FORBIDDEN,
+            "domain-not-owned-or-unverified",
+        ))
+    }
+}
+
 // ---- users & mailboxes -------------------------------------------------
 
 const MIN_PASSWORD: usize = 8;
@@ -203,6 +251,7 @@ pub async fn create_user(
     if password.len() < MIN_PASSWORD {
         return Err(bad("password too short"));
     }
+    require_domain_owned(&state, &account.tenant, &email).await?;
     let ts = state.store.for_tenant(account.tenant.clone());
     let user = ts.create_user(&email).await.map_err(store_admin_err)?;
     // Password + inbox are separate writes; if either fails, roll the user row
@@ -324,6 +373,7 @@ pub async fn add_alias(
     if !address.contains('@') {
         return Err(bad("valid address required"));
     }
+    require_domain_owned(&state, &account.tenant, &address).await?;
     state
         .store
         .for_tenant(account.tenant.clone())
@@ -435,10 +485,11 @@ pub async fn set_group_address(
     let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
     let group_id = str_field(&v, "groupId").ok_or_else(|| bad("groupId required"))?;
     let address = str_field(&v, "address");
-    if let Some(a) = &address
-        && !a.contains('@')
-    {
-        return Err(bad("valid address required"));
+    if let Some(a) = &address {
+        if !a.contains('@') {
+            return Err(bad("valid address required"));
+        }
+        require_domain_owned(&state, &account.tenant, a).await?;
     }
     state
         .store

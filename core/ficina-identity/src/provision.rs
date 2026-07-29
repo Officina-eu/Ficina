@@ -5,7 +5,7 @@
 //! the environment, never a command-line argument (which would leak to the
 //! process table).
 
-use ficina_store::{TenantId, UserId};
+use ficina_store::{PLATFORM_TENANT_NAME, TenantId, UserId};
 
 use crate::{Identity, Result};
 
@@ -47,6 +47,33 @@ impl Identity {
         self.store()
             .for_account(tenant.clone(), user.clone())
             .inbox()
+            .await?;
+        Ok(AdminAccount { tenant, user })
+    }
+
+    /// Creates a **platform operator** (ADR 0012): a user in the reserved
+    /// `_platform` system tenant carrying the global `is_platform_admin` flag,
+    /// which gates the `/control/*` surface. The system tenant is created on
+    /// the first call and reused thereafter. Non-public — CLI/operator only.
+    ///
+    /// # Errors
+    /// [`crate::IdentityError::Store`] if the tenant/user cannot be created
+    /// (including [`ficina_store::StoreError::Conflict`] if an operator with
+    /// this email already exists); [`crate::IdentityError::Crypto`] on a
+    /// hashing failure.
+    pub async fn bootstrap_operator(&self, email: &str, password: &str) -> Result<AdminAccount> {
+        let tenant = match self.store().platform_tenant().await? {
+            Some(existing) => existing,
+            None => self.store().create_tenant(PLATFORM_TENANT_NAME).await?,
+        };
+        let user = self
+            .store()
+            .for_tenant(tenant.clone())
+            .create_user(email)
+            .await?;
+        self.set_password(&tenant, &user, email, password).await?;
+        self.store()
+            .set_platform_admin(&tenant, &user, true)
             .await?;
         Ok(AdminAccount { tenant, user })
     }

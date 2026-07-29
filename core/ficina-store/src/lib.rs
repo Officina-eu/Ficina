@@ -12,6 +12,7 @@ pub mod account_imap;
 pub mod account_sieve;
 pub mod blob;
 pub mod changes;
+pub mod control;
 pub mod error;
 pub mod id;
 pub mod identity;
@@ -28,6 +29,7 @@ pub use blob::BlobStore;
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;
 pub use changes::Changes;
+pub use control::PLATFORM_TENANT_NAME;
 pub use error::{Result, StoreError};
 pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 pub use identity::{
@@ -35,7 +37,7 @@ pub use identity::{
     RefreshTokenRow, SigningKeyRow, TotpRow,
 };
 pub use model::{
-    AiConfigRow, AiProviderRow, Blob, EmailFilter, EmailQuery, GroupRow, MAX_PAGE, Mailbox,
-    Message, MessageSummary, Page, SortDirection, UserRow,
+    AiConfigRow, AiProviderRow, Blob, DomainRow, EmailFilter, EmailQuery, GroupRow, MAX_PAGE,
+    Mailbox, Message, MessageSummary, Page, SortDirection, TenantSummary, UserRow,
 };
 pub use store::{SEEN, Store, TenantStore};

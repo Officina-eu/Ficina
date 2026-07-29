@@ -35,6 +35,7 @@ async fn main() -> ExitCode {
 
     let result = match command.as_str() {
         "bootstrap-admin" => bootstrap_admin(&identity, &args[1..]).await,
+        "bootstrap-operator" => bootstrap_operator(&identity, &args[1..]).await,
         "register-client" => register_client(&identity, &args[1..]).await,
         "ensure-signing-key" => ensure_signing_key(&identity).await,
         "rotate-signing-key" => rotate_signing_key(&identity).await,
@@ -97,6 +98,25 @@ async fn bootstrap_admin(identity: &Identity, args: &[String]) -> Result<(), Str
     Ok(())
 }
 
+async fn bootstrap_operator(identity: &Identity, args: &[String]) -> Result<(), String> {
+    let [email] = args else {
+        return Err("usage: bootstrap-operator <email>".to_owned());
+    };
+    let password = read_password()?;
+    if password.len() < 12 {
+        return Err("operator password must be at least 12 characters".to_owned());
+    }
+    identity.ensure_signing_key().await.map_err(fail)?;
+    let account = identity.bootstrap_operator(email, &password).await.map_err(fail)?;
+    println!(
+        "created platform operator {} ({}) in the system tenant {}",
+        email,
+        account.user.as_str(),
+        account.tenant.as_str()
+    );
+    Ok(())
+}
+
 async fn register_client(identity: &Identity, args: &[String]) -> Result<(), String> {
     let [client_id, name, redirect_uris @ ..] = args else {
         return Err("usage: register-client <client-id> <name> <redirect-uri>...".to_owned());
@@ -153,6 +173,7 @@ fn usage() -> ExitCode {
          \n\
          commands:\n\
          \x20 bootstrap-admin <tenant-name> <email>       create a tenant + first admin\n\
+         \x20 bootstrap-operator <email>                  create a platform operator (control plane)\n\
          \x20 register-client <client-id> <name> <uri>... register a public OAuth client\n\
          \x20 ensure-signing-key                          create an ID-token key if none\n\
          \x20 rotate-signing-key                          add a new signing key\n\

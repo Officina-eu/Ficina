@@ -50,8 +50,10 @@ fn random_bytes() -> [u8; 16] {
     bytes
 }
 
-/// Generates one opaque id token.
-fn generate_token() -> String {
+/// Generates one opaque id token. `pub(crate)` so sibling modules can mint
+/// non-id opaque tokens (e.g. a domain DNS-verification token) from the same
+/// cryptographically-random, non-sequential source.
+pub(crate) fn generate_token() -> String {
     URL_SAFE_NO_PAD.encode(random_bytes())
 }
 

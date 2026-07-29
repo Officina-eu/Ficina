@@ -52,6 +52,31 @@ pub struct AiProviderRow {
     pub is_default: bool,
 }
 
+/// A tenant summary for the platform control plane (ADR 0012): identity,
+/// lifecycle status, and read-only usage aggregated across the tenant. This is
+/// deployment-global data (the operator's view), never a tenant's own data.
+#[derive(Debug, Clone)]
+pub struct TenantSummary {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub created_at: OffsetDateTime,
+    pub user_count: i64,
+    pub storage_bytes: i64,
+}
+
+/// A domain owned by a tenant (ADR 0012). `verified_at` is `None` until the
+/// DNS TXT proof is observed; `verify_token` is the value to publish at
+/// `_ficina-verify.<domain>`.
+#[derive(Debug, Clone)]
+pub struct DomainRow {
+    pub domain: String,
+    pub tenant_id: String,
+    pub verify_token: String,
+    pub verified_at: Option<OffsetDateTime>,
+    pub created_at: OffsetDateTime,
+}
+
 /// A stored blob's metadata (for JMAP download).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blob {
