@@ -120,8 +120,53 @@ export function MailModule() {
       .catch(() => setToast(strings.archiveUnavailable));
   }
 
-  function openReply() {
-    if (email.data !== null) setCompose({ mode: "reply", replyTo: email.data });
+  // Move a message (by id) from the current folder to another. Used by both the
+  // reading-pane "Move to" menu and drag-and-drop onto a folder.
+  function moveById(id: string, targetMailboxId: string) {
+    if (mailboxId === null || targetMailboxId === mailboxId) return;
+    if (id === emailId) setEmailId(null);
+    void client
+      .move(id, mailboxId, targetMailboxId)
+      .then(() => {
+        setToast(strings.mailMoved);
+        emails.reload();
+        mailboxes.reload();
+      })
+      .catch(() => setToast(strings.mailActionFailed));
+  }
+
+  // Delete: to Trash from a normal folder; permanently when already in Trash
+  // (or when there is no Trash folder).
+  function deleteMessage(message: EmailFull) {
+    const trash = boxes.find((b) => b.role === "trash");
+    const inTrash = trash !== undefined && message.mailboxIds[trash.id] === true;
+    if (message.id === emailId) setEmailId(null);
+    const done = () => {
+      setToast(strings.mailDeleted);
+      emails.reload();
+      mailboxes.reload();
+    };
+    const fail = () => setToast(strings.mailActionFailed);
+    if (trash === undefined || inTrash || mailboxId === null) {
+      void client.destroy(message.id).then(done).catch(fail);
+    } else {
+      void client.move(message.id, mailboxId, trash.id).then(done).catch(fail);
+    }
+  }
+
+  function markUnread(message: EmailFull) {
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      next.delete(message.id);
+      return next;
+    });
+    void client
+      .setSeen(message.id, false)
+      .then(() => {
+        emails.reload();
+        mailboxes.reload();
+      })
+      .catch(() => setToast(strings.mailActionFailed));
   }
 
   function onSent() {
@@ -146,6 +191,7 @@ export function MailModule() {
         collapsed={foldersCollapsed}
         onSelect={openMailbox}
         onCompose={() => setCompose({ mode: "new" })}
+        onDropMessage={moveById}
       />
       {!foldersCollapsed && (
         <ResizeHandle
@@ -174,10 +220,15 @@ export function MailModule() {
       <ReadingPane
         email={email}
         mailboxes={boxes}
+        currentMailboxId={mailboxId}
         flagOverrides={flags}
-        onReply={openReply}
+        onReply={(msg) => setCompose({ mode: "reply", replyTo: msg })}
+        onForward={(msg) => setCompose({ mode: "forward", replyTo: msg })}
         onToggleFlag={toggleFlag}
         onArchive={archive}
+        onDelete={deleteMessage}
+        onMove={(msg, targetId) => moveById(msg.id, targetId)}
+        onMarkUnread={markUnread}
       />
       {compose !== null && (
         <ComposeModal

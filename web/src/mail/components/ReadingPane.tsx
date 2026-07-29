@@ -6,17 +6,21 @@
 // work).
 import {
   Archive,
+  FolderInput,
   Forward,
+  MailOpen,
   MoreHorizontal,
   Reply,
   ReplyAll,
   Send,
   Sparkles,
   Star,
+  Trash2,
 } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Avatar, IconButton, Spinner } from "../../ds";
+import { Avatar, IconButton, Menu, Spinner } from "../../ds";
+import type { MenuItem } from "../../ds";
 import { KEYWORD_FLAGGED, type EmailAddress, type EmailFull, type Mailbox } from "../../jmap";
 import { useAuth } from "../../auth";
 import type { Async } from "../state/useAsync";
@@ -24,22 +28,42 @@ import { formatDate, senderName, subjectOr } from "../format";
 import { htmlContent, sandboxedHtml, textContent } from "../body";
 import styles from "./ReadingPane.module.css";
 
+const ROLE_ORDER: Record<string, number> = {
+  inbox: 0,
+  drafts: 1,
+  sent: 2,
+  archive: 3,
+  junk: 4,
+  trash: 5,
+};
+
 interface ReadingPaneProps {
   email: Async<EmailFull | null>;
   mailboxes: Mailbox[];
+  /** The folder currently being viewed (excluded from "Move to"). */
+  currentMailboxId: string | null;
   flagOverrides: ReadonlyMap<string, boolean>;
-  onReply: () => void;
+  onReply: (email: EmailFull) => void;
+  onForward: (email: EmailFull) => void;
   onToggleFlag: (email: EmailFull) => void;
   onArchive: (email: EmailFull) => void;
+  onDelete: (email: EmailFull) => void;
+  onMove: (email: EmailFull, targetMailboxId: string) => void;
+  onMarkUnread: (email: EmailFull) => void;
 }
 
 export function ReadingPane({
   email,
   mailboxes,
+  currentMailboxId,
   flagOverrides,
   onReply,
+  onForward,
   onToggleFlag,
   onArchive,
+  onDelete,
+  onMove,
+  onMarkUnread,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
 
@@ -85,23 +109,49 @@ export function ReadingPane({
     return to.map((a: EmailAddress) => (a.name !== null && a.name.length > 0 ? a.name : a.email)).join(", ");
   }
 
+  const moveItems: MenuItem[] = mailboxes
+    .filter((m) => m.id !== currentMailboxId)
+    .sort(
+      (a, b) =>
+        (ROLE_ORDER[a.role ?? ""] ?? 50) - (ROLE_ORDER[b.role ?? ""] ?? 50) ||
+        a.name.localeCompare(b.name),
+    )
+    .map((m) => ({ key: m.id, label: m.name, onClick: () => onMove(message, m.id) }));
+
+  const moreItems: MenuItem[] = [
+    {
+      key: "unread",
+      label: strings.markUnread,
+      icon: <MailOpen />,
+      onClick: () => onMarkUnread(message),
+    },
+    {
+      key: "delete",
+      label: strings.delete,
+      icon: <Trash2 />,
+      danger: true,
+      onClick: () => onDelete(message),
+    },
+  ];
+
   return (
     <article className={styles.pane}>
       <div className={styles.toolbar}>
-        <button type="button" className={styles.replyBtn} onClick={onReply}>
+        <button type="button" className={styles.replyBtn} onClick={() => onReply(message)}>
           <Reply size={16} />
           <span>{strings.reply}</span>
         </button>
-        <button type="button" className={styles.textBtn} onClick={onReply}>
+        <button type="button" className={styles.textBtn} onClick={() => onReply(message)}>
           <ReplyAll size={16} />
           <span>{strings.replyAll}</span>
         </button>
-        <button type="button" className={styles.textBtn} onClick={onReply}>
+        <button type="button" className={styles.textBtn} onClick={() => onForward(message)}>
           <Forward size={16} />
           <span>{strings.forward}</span>
         </button>
         <div className={styles.spacer} />
         <IconButton size="sm" label={strings.archive} icon={<Archive />} onClick={() => onArchive(message)} />
+        <Menu label={strings.moveTo} icon={<FolderInput />} items={moveItems} />
         <IconButton
           size="sm"
           label={flagged ? strings.unflag : strings.flag}
@@ -109,7 +159,8 @@ export function ReadingPane({
           icon={<Star className={flagged ? styles.starOn : ""} />}
           onClick={() => onToggleFlag(message)}
         />
-        <IconButton size="sm" label={strings.moreActions} icon={<MoreHorizontal />} onClick={onReply} />
+        <IconButton size="sm" label={strings.delete} icon={<Trash2 />} onClick={() => onDelete(message)} />
+        <Menu label={strings.moreActions} icon={<MoreHorizontal />} items={moreItems} />
       </div>
 
       <div className={styles.bodyScroll}>
@@ -161,14 +212,19 @@ export function ReadingPane({
           </span>
         </div>
         <div className={styles.quickBar}>
-          <button type="button" className={styles.quickInput} onClick={onReply}>
+          <button type="button" className={styles.quickInput} onClick={() => onReply(message)}>
             {strings.replyTo} {senderName(message)}…
           </button>
-          <button type="button" className={styles.draftAi} onClick={onReply}>
+          <button type="button" className={styles.draftAi} onClick={() => onReply(message)}>
             <Sparkles size={15} />
             <span>{strings.draftWithAi}</span>
           </button>
-          <button type="button" className={styles.send} onClick={onReply} aria-label={strings.reply}>
+          <button
+            type="button"
+            className={styles.send}
+            onClick={() => onReply(message)}
+            aria-label={strings.reply}
+          >
             <Send size={17} />
           </button>
         </div>

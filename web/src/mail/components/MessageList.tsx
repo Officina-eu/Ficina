@@ -10,6 +10,7 @@ import { Avatar, IconButton, Spinner } from "../../ds";
 import { KEYWORD_FLAGGED, type EmailHeaders } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import { formatDate, isUnread, senderName, subjectOr } from "../format";
+import { DRAG_EMAIL_MIME } from "../dnd";
 import styles from "./MessageList.module.css";
 
 interface MessageListProps {
@@ -102,6 +103,11 @@ export function MessageList({
                   className={`${styles.row} ${active ? styles.active : ""} ${unread ? styles.unread : ""}`}
                   onClick={() => onSelect(email)}
                   aria-current={active ? "true" : undefined}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(DRAG_EMAIL_MIME, email.id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
                 >
                   <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
                   <span className={styles.body}>

@@ -103,6 +103,13 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* Drag-and-drop target highlight (neutral "drop here" affordance). */
+.item.dropTarget {
+  background: var(--bg-raised);
+  outline: 2px dashed var(--border-strong);
+  outline-offset: -2px;
+}
+
 .icon {
   width: 18px;
   height: 18px;

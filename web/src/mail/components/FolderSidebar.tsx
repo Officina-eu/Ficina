@@ -1,6 +1,7 @@
 // The folder sidebar (Figma app shell): the Compose action, the account's
 // system folders with unread counts, and a FOLDERS section for custom
 // mailboxes. Selecting a folder drives the message list.
+import { useState } from "react";
 import {
   Archive,
   Hash,
@@ -17,6 +18,7 @@ import { strings } from "../../i18n";
 import { Spinner, cx } from "../../ds";
 import type { Mailbox } from "../../jmap";
 import type { Async } from "../state/useAsync";
+import { DRAG_EMAIL_MIME } from "../dnd";
 import styles from "./FolderSidebar.module.css";
 
 const ROLE_ICON: Record<string, LucideIcon> = {
@@ -50,10 +52,12 @@ function ordered(list: Mailbox[]): { system: Mailbox[]; custom: Mailbox[] } {
 interface FolderSidebarProps {
   mailboxes: Async<Mailbox[]>;
   selectedId: string | null;
-  /** When collapsed the panel is width-animated to 0 and made non-interactive. */
+  /** When collapsed the panel is a compact icon-only column. */
   collapsed: boolean;
   onSelect: (id: string) => void;
   onCompose: () => void;
+  /** Drop a dragged message into a folder (moves it there). */
+  onDropMessage: (emailId: string, mailboxId: string) => void;
 }
 
 export function FolderSidebar({
@@ -62,17 +66,35 @@ export function FolderSidebar({
   collapsed,
   onSelect,
   onCompose,
+  onDropMessage,
 }: FolderSidebarProps) {
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   function row(box: Mailbox, Icon: LucideIcon) {
     const active = box.id === selectedId;
     return (
       <button
         key={box.id}
         type="button"
-        className={`${styles.item} ${active ? styles.active : ""}`}
+        className={cx(styles.item, active && styles.active, dragOverId === box.id && styles.dropTarget)}
         onClick={() => onSelect(box.id)}
         aria-current={active ? "true" : undefined}
         title={box.name}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes(DRAG_EMAIL_MIME)) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }
+        }}
+        onDragEnter={() => setDragOverId(box.id)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOverId(null);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const id = e.dataTransfer.getData(DRAG_EMAIL_MIME);
+          setDragOverId(null);
+          if (id !== "") onDropMessage(id, box.id);
+        }}
       >
         <Icon className={styles.icon} strokeWidth={1.75} />
         <span className={styles.name}>{box.name}</span>

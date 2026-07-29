@@ -16,7 +16,8 @@ import { textContent } from "../body";
 import styles from "./ComposeModal.module.css";
 
 export interface ComposeContext {
-  mode: "new" | "reply";
+  mode: "new" | "reply" | "forward";
+  /** The source message for a reply or forward. */
   replyTo?: EmailFull;
 }
 
@@ -62,6 +63,34 @@ function replyPrefill(replyTo: EmailFull): {
   };
 }
 
+function forwardPrefill(source: EmailFull): {
+  to: string;
+  subject: string;
+  body: string;
+  inReplyTo: string[];
+  references: string[];
+} {
+  const base = (source.subject ?? "").replace(/^(fwd:\s*)+/i, "");
+  const original = textContent(source) ?? source.preview;
+  const recipients = (source.to ?? [])
+    .map((a) => (a.name !== null && a.name.length > 0 ? a.name : a.email))
+    .join(", ");
+  const block = [
+    "",
+    "",
+    strings.composeForwardedIntro,
+    `${strings.composeLabelFrom} ${senderName(source)} <${source.from?.[0]?.email ?? ""}>`,
+    `${strings.composeLabelDate} ${formatDate(source.receivedAt)}`,
+    `${strings.composeLabelSubject} ${source.subject ?? ""}`,
+    `${strings.composeLabelTo} ${recipients}`,
+    "",
+    original,
+    "",
+  ].join("\n");
+  // Forwarding starts a fresh conversation — no reply threading headers.
+  return { to: "", subject: strings.composeForwardPrefix + base, body: block, inReplyTo: [], references: [] };
+}
+
 export function ComposeModal({
   context,
   fromEmail,
@@ -71,10 +100,21 @@ export function ComposeModal({
   onSent,
 }: ComposeModalProps) {
   const client = useJmapClient();
+  const empty = { to: "", subject: "", body: "", inReplyTo: [] as string[], references: [] as string[] };
   const prefill =
-    context.mode === "reply" && context.replyTo !== undefined
-      ? replyPrefill(context.replyTo)
-      : { to: "", subject: "", body: "", inReplyTo: [] as string[], references: [] as string[] };
+    context.replyTo === undefined
+      ? empty
+      : context.mode === "reply"
+        ? replyPrefill(context.replyTo)
+        : context.mode === "forward"
+          ? forwardPrefill(context.replyTo)
+          : empty;
+  const title =
+    context.mode === "reply"
+      ? strings.composeReplyTitle
+      : context.mode === "forward"
+        ? strings.composeForwardTitle
+        : strings.composeTitle;
 
   const [to, setTo] = useState(prefill.to);
   const [cc, setCc] = useState("");
@@ -125,14 +165,12 @@ export function ComposeModal({
         className={styles.modal}
         role="dialog"
         aria-modal="true"
-        aria-label={context.mode === "reply" ? strings.composeReplyTitle : strings.composeTitle}
+        aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <form onSubmit={onSend} className={styles.form}>
           <div className={styles.head}>
-            <h2 className={styles.title}>
-              {context.mode === "reply" ? strings.composeReplyTitle : strings.composeTitle}
-            </h2>
+            <h2 className={styles.title}>{title}</h2>
             <button
               type="button"
               className={styles.close}
@@ -151,7 +189,7 @@ export function ComposeModal({
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 placeholder={strings.composeRecipientsPlaceholder}
-                autoFocus={context.mode === "new"}
+                autoFocus={context.mode !== "reply"}
               />
               {!showCc && (
                 <button type="button" className={styles.ccToggle} onClick={() => setShowCc(true)}>

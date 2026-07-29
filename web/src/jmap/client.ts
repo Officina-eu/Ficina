@@ -190,6 +190,13 @@ export class JmapClient {
     this.#result(res, "m");
   }
 
+  /** Permanently delete a message. */
+  async destroy(id: string): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([["Email/set", { accountId, destroy: [id] }, "d"]]);
+    this.#result(res, "d");
+  }
+
   /** Create a draft message; returns the new email id. */
   async createDraft(params: {
     mailboxId: string;

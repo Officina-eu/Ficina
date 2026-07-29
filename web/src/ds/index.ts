@@ -2,6 +2,8 @@
 // never from individual files. Global CSS (tokens + base) is imported once in
 // main.tsx.
 export { cx } from "./cx";
+export { Menu } from "./Menu";
+export type { MenuItem } from "./Menu";
 export { ResizeHandle } from "./ResizeHandle";
 export { usePanelWidth, clampWidth } from "./usePanelWidth";
 export type { PanelWidth } from "./usePanelWidth";
