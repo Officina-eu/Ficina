@@ -159,6 +159,25 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [ ] "Where did X go?" onboarding assistant
 - [ ] Contractual guarantees implemented and verifiable: no training on customer data, no inference logs crossing tenant boundary
 
+### Docs & Sheets AI (editor-native)
+
+Depends on the Collabora integration (Phase 2, "Drive & Docs") **and** the AI
+layer above — the editors are a Ficina-owned shell over Collabora (ADR 0010),
+so these ship after the core suite, never in Phase 1. UX source of truth:
+Figma pages "10 · Docs" and "11 · Sheets". Trust model throughout: **the AI
+proposes and diffs; the user accepts** — never a silent overwrite of a
+document or a formula.
+
+- [ ] Docs — clean paste: strip foreign formatting by default on external paste and match destination styles; dismissible "formatting cleaned — keep original" toast
+- [ ] Docs — Ask-AI-from-your-docs: in-editor panel answering from the user's real files/workspace (not just the open doc), every answer **source-cited**; cross-suite (Mail/Drive/Calendar); suggested actions (insert / summarize)
+- [ ] Docs — agentic AI: inline command bar (rewrite / shorten / fix grammar / custom on a selection); AI changes shown as an **accept/reject inline diff**; agent mode for multi-step tasks as a **visible plan** (per-step done/doing/pending, live progress, workspace grounding, Stop control)
+- [ ] Docs — semantic-conflict flag: AI detects co-edits whose *meaning* no longer reconciles (e.g. a unit price vs a total) and surfaces an inline flag with keep-A / keep-B / let-me-fix
+- [ ] Docs — draft-from-workspace-context: on an empty doc, list the sources it will use (email thread, meeting recording + AI notes, related sheets) and generate a first draft from them — the cross-suite killer move
+- [ ] Sheets — explain-and-fix errors: plain-language card for #REF!/#VALUE!/#NAME? (why it broke + one-click fixes), AI proposes / user accepts
+- [ ] Sheets — natural-language formulas: English → the **actual formula, shown and explained** (transparent and auditable — never a black box)
+- [ ] Sheets — formula paste-guard: warn before a raw value overwrites a formula cell (paste-as-value vs keep-formula)
+- [ ] Sheets — ask-your-data: NL question → answer with the **source cells cited + highlighted + a chart**; cross-suite; optional agent mode for multi-step data tasks with a visible plan + approval
+
 ### Exit gate — Phase 3 done when:
 
 - [ ] The demo runs live on real Axon data: "what did I miss this week?" answered correctly across mail, chat, and meetings
@@ -206,6 +225,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [ ] Offline-first local cache (design review first, per ADR 0005)
 - [ ] Mobile apps
 - [ ] MAPI-over-HTTP adapter: native Outlook — the last wall
+- [ ] Remote support / screen control (AnyDesk/TeamViewer-class — the EU IT-management play: one sovereign suite instead of a bolted-on remote tool). **Integrate** a self-hostable engine (RustDesk primary candidate); never build the capture/stream/input-injection engine ourselves — the highest-CVE-density surface in the product (ADR 0009). Ficina owns the UI/UX, session brokering, auth, consent, and audit logging. Launches from **Chat** (primary: the 1:1 DM header + person-profile quick-actions, beside Meet/Call/Email — where "help me" conversations live) and **Meet** (secondary: an in-call control-bar button for take-over-while-talking); a dedicated Remote/Support **rail tab is deferred** until the feature needs its own session management, history, and audit views. Requirements: native per-device agent (browsers cannot grant OS-level control — a hard boundary), E2E-encrypted session, **explicit per-session consent before any input**, an audit-log entry in the controlled user's security log, instant termination by either party, and a self-hosted relay (no third-party cloud). Screen *share* (read-only) is already in Meet; this is remote *control*, correctly sequenced post-launch. UX source of truth: the Figma design (request access / consent prompt / active-control banner with stop-sharing)
 - [ ] Second developer hired and shipping independently (bus factor > 1 proven by a release the founder didn't cut)
 
 ### Exit gate — Phase 6 done when:

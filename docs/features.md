@@ -144,6 +144,113 @@ This table doubles as the answer to a prospect asking "where's feature X?" — e
 - [3] E-signature workflow (eIDAS-aware — European advantage)
 - [3] Retention policies and legal hold per space
 
+## Ficina Docs — the AI-native document editor
+
+Not a cheaper European Word. Ficina Docs differentiates on being **AI-native,
+whole-suite, and sovereign**, attacking documented, widespread Word/Docs
+frustrations that Microsoft/Google structurally cannot fix without dismantling
+their own architecture. The editor is a **Ficina-branded shell over the
+integrated Collabora engine** (via WOPI); Ficina owns the shell, the AI layer,
+and the four inventions below (ADR 0010). Base .docx/.odt editing lives under
+**Drive & Docs** above; this is the differentiator layer. UX source of truth:
+Figma page "10 · Docs".
+
+The four inventions:
+
+- [2] ★ **Clean paste** — on paste from external sources (Word, the web), strip
+  foreign formatting **by default** and match the destination document's
+  styles; show a dismissible toast ("Pasted from <source> — formatting
+  cleaned") with a "Keep original" escape hatch. Targets the #1 documented
+  Word/Docs pain: foreign styles corrupting a document on paste.
+- [2] ★ **Ask-AI-from-your-docs** — an in-editor AI panel that answers from the
+  user's *actual* documents and workspace, not just the open doc ("What did we
+  offer Proceq last quarter?" → pulls the real file from Drive). Every answer
+  carries a **source citation** (which file it came from); cross-suite (Mail,
+  Drive, Calendar); with suggested actions ("insert into the doc", "summarize
+  this section"). It is **agentic, not just Q&A** — see below.
+- [3] ★ **Semantic-conflict flag** — beyond CRDT text-merge: when two
+  collaborators' edits no longer reconcile in *meaning* (one changes a unit
+  price, another the total, so they no longer add up), the AI surfaces an
+  inline flag ("Ficina noticed a possible conflict — these no longer add up")
+  with keep-A / keep-B / let-me-fix. Directly targets the documented
+  silent-corruption of Word/Docs real-time co-authoring, which merges
+  conflicting edits into nonsense with no warning.
+- [3] ★ **Draft-from-workspace-context** — on a new/empty doc, offer to draft it
+  from real workspace context: the AI lists the sources it will use (the
+  relevant email thread, a meeting recording + its AI notes, related
+  spreadsheets) and generates a first draft from them. The cross-suite killer
+  move — only possible because Ficina owns Mail + Meet + Drive + Docs in one
+  sovereign place.
+
+**Ask-AI is agentic** — it acts on the document, always **proposing, never
+silently changing**:
+
+- [2] ★ Inline command: select text → a command bar (Rewrite / Shorten / Fix
+  grammar / custom instruction).
+- [2] ★ Proposed edit: AI changes are shown as an inline **diff** (old struck
+  through, new highlighted) with **Accept / Reject** — nothing applies without
+  approval.
+- [3] ★ Agent mode: multi-step tasks ("add a delivery-terms section and tighten
+  the intro") execute as a visible **plan** with per-step status
+  (done/doing/pending), a live progress note, workspace-context grounding, and
+  a **Stop** control; the doc shows where the AI is actively writing.
+- **Core principle:** the AI proposes and diffs; the user accepts. It never
+  overwrites the document without explicit approval — the trust model that fits
+  a sovereignty product.
+
+Cross-cutting Docs principles:
+
+- [L] No hidden formatting: visible structure, an always-available "clean
+  formatting", and block-safe editing that can't be accidentally broken —
+  while preserving a **print-perfect "paper" view** for formal documents
+  (offers, contracts).
+- [L] Version confidence: persistent plain-language save/version state ("Saved ·
+  v14 · Kevin edited 2 min ago") with a human-readable timeline.
+- [L] ★ Web-first, single-version — no desktop-vs-browser split (the one thing
+  everyone praises Google Docs for).
+
+## Ficina Sheets — the AI-native, auditable spreadsheet
+
+Not a cheaper European Excel. Differentiates on **AI-native + auditable +
+whole-suite + sovereign**. Finance teams abandon spreadsheets over two things
+the research documents clearly: **error-blindness** (a CFO study found 41%
+struggle to identify and correct errors) and **lack of auditability / data
+lineage**. Ficina attacks both directly. The editor is a Ficina-branded shell
+over the integrated Collabora engine (via WOPI), the same pattern as Docs (ADR
+0010); Ficina owns the shell, the AI layer, and the inventions below. Base
+.xlsx/.ods editing lives under **Drive & Docs** above. UX source of truth:
+Figma page "11 · Sheets".
+
+The four inventions:
+
+- [2] ★ **Explain-and-fix errors** — replace cryptic #REF!/#VALUE!/#NAME? with a
+  plain-language card: *why* it broke ("row 14, referenced by D5, was deleted")
+  plus one-click fixes (re-point the range / restore the row). AI proposes, user
+  accepts.
+- [2] ★ **Natural-language formulas** — type plain English ("average revenue per
+  region, excluding France"); Ficina generates the formula, **shows the actual
+  formula**, and explains it in one line. Never a black box — transparent and
+  auditable (treat NL as a draft, keep the transparent formula).
+- [2] ★ **Formula paste-guard** — when a raw value is about to overwrite a
+  formula cell, warn ("E5 holds =SUM(D2:D13) — paste as value anyway, or keep
+  the formula?"). Defends against the documented "pasted value silently ruined
+  my model" failure that Excel has no guard for.
+- [3] ★ **Ask-your-data** — an NL question panel ("which region is trending
+  down?") → an answer with the **source cells cited**, the cells highlighted,
+  and a chart. Cross-suite (can pull from Drive/Mail). Every answer traceable
+  to its cells.
+
+Cross-cutting Sheets principles:
+
+- [2] ★ Auditability first: cell lineage ("where did this number come from + who
+  changed it"); answers and AI edits always cite their source cells.
+- [L] AI proposes, user accepts — never silently changes a value or a formula
+  (the trust model shared with Docs; critical for audit-ready finance models).
+- [L] Cross-platform migration safety: handle Excel-dialect formulas
+  (semicolon/comma) on import so formulas don't break moving in.
+- [3] Optional agent mode for multi-step data tasks ("build a Q3 forecast from
+  the actuals tab") with a visible plan + approval, mirroring the Docs agent.
+
 ## Ficina AI (the differentiator layer — every item ★)
 
 - [L] Semantic search across mail, chat, files in one query bar
