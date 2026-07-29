@@ -70,12 +70,17 @@ services:
   certbot:
     image: certbot/certbot:v3.1.0
     restart: unless-stopped
+    environment:
+      # The gid the Ficina services run as; the deploy hook grants this group
+      # read access to the certificate.
+      FICINA_GID: ${FICINA_GID:-999}
     entrypoint: >
       sh -c 'trap exit TERM;
              while :; do certbot renew --standalone --quiet;
                          sleep 12h & wait $${!}; done'
     volumes:
       - certs:/etc/letsencrypt
+      - ./certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/50-ficina-perms.sh:ro
     ports:
       - "80:80"
     networks: [ficina]
@@ -90,7 +95,10 @@ services:
       rspamd: { condition: service_started }
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
+      # The SMTP service reads its own FICINA_SMTP_BLOB_DIR; the shared value
+      # is set too so the whole stack points at one blob backend.
       FICINA_BLOB_DIR: /var/lib/ficina/blobs
+      FICINA_SMTP_BLOB_DIR: /var/lib/ficina/blobs
       FICINA_SMTP_SPOOL_DIR: /var/spool/ficina
       FICINA_SMTP_ADDR: 0.0.0.0:25
       FICINA_SMTP_HOSTNAME: ${DOMAIN:?set DOMAIN in .env}
