@@ -178,6 +178,26 @@ export class JmapClient {
     return list[0] ?? null;
   }
 
+  /** Whether AI features are enabled for this tenant (session flag). */
+  async aiEnabled(): Promise<boolean> {
+    const session = await this.session();
+    return session["ficina:aiEnabled"] === true;
+  }
+
+  /** Improve a draft via the tenant's configured AI backend (ADR 0011).
+   * Returns the improved text; throws if AI is unavailable or the backend fails
+   * (the caller keeps the user's original draft either way). */
+  async improveDraft(text: string): Promise<string> {
+    const res = await this.#fetch(`${window.location.origin}/ai/improve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new JmapError(`improve ${res.status}`);
+    const json = (await res.json()) as { text: string };
+    return json.text;
+  }
+
   /** Fetch an attachment's bytes as a Blob (authorized), for saving. Resolves
    * the session download URL template with the account, blob id, and name. */
   async downloadAttachment(blobId: string, name: string): Promise<Blob> {

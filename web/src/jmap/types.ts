@@ -14,6 +14,8 @@ export interface Session {
   /** capability URN → account id */
   primaryAccounts: Record<string, string>;
   state: string;
+  /** Ficina extension: whether AI features are enabled for this tenant. */
+  "ficina:aiEnabled"?: boolean;
 }
 
 export interface EmailAddress {

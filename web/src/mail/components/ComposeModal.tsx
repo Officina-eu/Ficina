@@ -3,9 +3,18 @@
 // on send it creates a draft (Email/set) then submits it (EmailSubmission/set),
 // which sends it and files it to Sent. Bcc recipients ride the envelope only —
 // never the visible headers.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { ArrowLeft, ArrowRight, Maximize2, Minimize2, Paperclip, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Maximize2,
+  Minimize2,
+  Paperclip,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Spinner, cx } from "../../ds";
@@ -219,7 +228,46 @@ export function ComposeModal({
   const [showBcc, setShowBcc] = useState(false);
   const [subject, setSubject] = useState(prefill.subject);
   const [body, setBody] = useState(prefill.body);
+  // The editor is uncontrolled; `editorSeed` is what it mounts with and
+  // `editorKey` remounts it when AI rewrites the whole draft.
+  const [editorSeed, setEditorSeed] = useState(prefill.body);
+  const [editorKey, setEditorKey] = useState(0);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [improving, setImproving] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void client
+      .aiEnabled()
+      .then((on) => {
+        if (live) setAiEnabled(on);
+      })
+      .catch(() => {
+        // AI simply stays hidden if the session can't be read.
+      });
+    return () => {
+      live = false;
+    };
+  }, [client]);
+
+  async function improve() {
+    const draft = htmlToText(body);
+    if (draft.trim().length === 0 || improving) return;
+    setImproving(true);
+    setError(null);
+    try {
+      const improved = await client.improveDraft(draft);
+      const html = escapeHtml(improved).replace(/\n/g, "<br>");
+      setEditorSeed(html);
+      setBody(html);
+      setEditorKey((k) => k + 1);
+    } catch {
+      setError(strings.aiImproveFailed);
+    } finally {
+      setImproving(false);
+    }
+  }
   const [expanded, setExpanded] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -370,7 +418,8 @@ export function ComposeModal({
           </div>
 
           <RichTextEditor
-            initialHtml={prefill.body}
+            key={editorKey}
+            initialHtml={editorSeed}
             onChange={setBody}
             placeholder={strings.composeBodyPlaceholder}
             autoFocus={isReply}
@@ -450,6 +499,17 @@ export function ComposeModal({
                 e.target.value = "";
               }}
             />
+            {aiEnabled && (
+              <button
+                type="button"
+                className={styles.improve}
+                onClick={() => void improve()}
+                disabled={improving}
+              >
+                {improving ? <Spinner size={15} /> : <Sparkles size={15} />}
+                <span>{strings.improve}</span>
+              </button>
+            )}
             <div className={styles.headSpacer} />
             <button type="submit" className={styles.send} disabled={sending || uploading > 0}>
               {sending ? (

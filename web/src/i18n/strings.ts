@@ -159,6 +159,8 @@ export const strings = {
   underline: "Underline",
   link: "Insert link",
   linkPrompt: "Link URL:",
+  improve: "Improve",
+  aiImproveFailed: "The AI couldn't rewrite that just now.",
   removeRecipient: (name: string) => `Remove ${name}`,
   recipientCount: (n: number) => (n === 1 ? "1 recipient" : `${n} recipients`),
 
