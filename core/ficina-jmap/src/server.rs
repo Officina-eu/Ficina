@@ -64,6 +64,21 @@ pub fn app(state: AppState) -> Router {
             "/admin/users/{id}",
             axum::routing::delete(admin::delete_user),
         )
+        // Admin console: groups & lists.
+        .route(
+            "/admin/groups",
+            get(admin::list_groups).post(admin::create_group),
+        )
+        .route("/admin/groups/address", post(admin::set_group_address))
+        .route("/admin/groups/members", post(admin::add_group_member))
+        .route(
+            "/admin/groups/members/remove",
+            post(admin::remove_group_member),
+        )
+        .route(
+            "/admin/groups/{id}",
+            axum::routing::delete(admin::delete_group),
+        )
         .layer(DefaultBodyLimit::max(upload_limit))
         .with_state(state);
     jmap.merge(identity_routes)

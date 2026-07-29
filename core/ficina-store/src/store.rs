@@ -164,6 +164,29 @@ impl Store {
         }
         Ok(None)
     }
+
+    /// The member accounts of a distribution list whose address is `email`, for
+    /// inbound fan-out. Empty when `email` is not a list address. Members are
+    /// users (never nested lists), so expansion is single-level and loop-free.
+    /// Runtime-checked query (kept out of the offline `.sqlx` cache).
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn list_members_by_address(&self, email: &str) -> Result<Vec<(TenantId, UserId)>> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT gm.tenant_id, gm.user_id FROM groups g \
+             JOIN group_members gm ON gm.group_id = g.id \
+             WHERE g.address = lower($1)",
+        )
+        .bind(email)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+        Ok(rows
+            .into_iter()
+            .map(|(t, u)| (TenantId::new(t), UserId::new(u)))
+            .collect())
+    }
 }
 
 /// A tenant-scoped handle for tenant-level provisioning. Holds its

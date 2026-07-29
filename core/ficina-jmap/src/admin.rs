@@ -9,7 +9,7 @@
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, body::Bytes};
-use ficina_store::{AiProviderRow, StoreError, UserId};
+use ficina_store::{AiProviderRow, GroupId, StoreError, UserId};
 use serde_json::{Value, json};
 
 use crate::error::Problem;
@@ -336,6 +336,144 @@ pub async fn remove_alias(
         .store
         .for_tenant(account.tenant.clone())
         .remove_alias(&address)
+        .await
+        .map_err(|_| Problem::server_error())?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ---- groups & lists ----------------------------------------------------
+
+/// `GET /admin/groups` → `{ groups: [...] }` with each group's members and
+/// optional distribution-list address.
+pub async fn list_groups(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let ts = state.store.for_tenant(account.tenant.clone());
+    let groups = ts
+        .list_groups()
+        .await
+        .map_err(|_| Problem::server_error())?;
+    let mut list = Vec::with_capacity(groups.len());
+    for g in &groups {
+        let members = ts
+            .group_members_detailed(&GroupId::new(g.id.clone()))
+            .await
+            .unwrap_or_default();
+        list.push(json!({
+            "id": g.id,
+            "name": g.name,
+            "address": g.address,
+            "memberCount": g.member_count,
+            "members": members
+                .into_iter()
+                .map(|(id, email)| json!({ "id": id, "email": email }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+    Ok(Json(json!({ "groups": list })))
+}
+
+/// `POST /admin/groups` — create a group. Body `{ name }`.
+pub async fn create_group(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let name = str_field(&v, "name").ok_or_else(|| bad("name required"))?;
+    let id = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .create_group(&name)
+        .await
+        .map_err(store_admin_err)?;
+    Ok(Json(json!({ "id": id.as_str() })))
+}
+
+/// `DELETE /admin/groups/{id}` — delete a group (its memberships cascade).
+pub async fn delete_group(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    state
+        .store
+        .for_tenant(account.tenant.clone())
+        .delete_group(&GroupId::new(id))
+        .await
+        .map_err(|_| Problem::server_error())?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /admin/groups/address` — set or clear a group's list address. Body
+/// `{ groupId, address? }`. An empty/absent address turns the list off.
+pub async fn set_group_address(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let group_id = str_field(&v, "groupId").ok_or_else(|| bad("groupId required"))?;
+    let address = str_field(&v, "address");
+    if let Some(a) = &address
+        && !a.contains('@')
+    {
+        return Err(bad("valid address required"));
+    }
+    state
+        .store
+        .for_tenant(account.tenant.clone())
+        .set_group_address(&GroupId::new(group_id), address.as_deref())
+        .await
+        .map_err(store_admin_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /admin/groups/members` — add a user to a group. Body `{ groupId, userId }`.
+pub async fn add_group_member(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let group_id = str_field(&v, "groupId").ok_or_else(|| bad("groupId required"))?;
+    let user_id = str_field(&v, "userId").ok_or_else(|| bad("userId required"))?;
+    state
+        .store
+        .for_tenant(account.tenant.clone())
+        .add_group_member(&GroupId::new(group_id), &UserId::new(user_id))
+        .await
+        .map_err(store_admin_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /admin/groups/members/remove` — remove a user from a group. Body
+/// `{ groupId, userId }`.
+pub async fn remove_group_member(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let group_id = str_field(&v, "groupId").ok_or_else(|| bad("groupId required"))?;
+    let user_id = str_field(&v, "userId").ok_or_else(|| bad("userId required"))?;
+    state
+        .store
+        .for_tenant(account.tenant.clone())
+        .remove_group_member(&GroupId::new(group_id), &UserId::new(user_id))
         .await
         .map_err(|_| Problem::server_error())?;
     Ok(Json(json!({ "ok": true })))

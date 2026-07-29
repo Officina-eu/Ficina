@@ -682,6 +682,85 @@ impl TenantStore {
         Ok(rows.into_iter().map(|r| UserId::new(r.user_id)).collect())
     }
 
+    /// All groups in this tenant with their optional list address and member
+    /// count, for the admin console. Runtime-checked query.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn list_groups(&self) -> Result<Vec<crate::model::GroupRow>> {
+        let rows = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
+            "SELECT g.id, g.name, g.address, \
+               (SELECT count(*) FROM group_members m WHERE m.group_id = g.id)::bigint AS members \
+             FROM groups g WHERE g.tenant_id = $1 ORDER BY g.name",
+        )
+        .bind(self.tenant().as_str())
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, address, member_count)| crate::model::GroupRow {
+                id,
+                name,
+                address,
+                member_count,
+            })
+            .collect())
+    }
+
+    /// Deletes a group (its memberships cascade). Runtime-checked query.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn delete_group(&self, group: &GroupId) -> Result<()> {
+        sqlx::query("DELETE FROM groups WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant().as_str())
+            .bind(group.as_str())
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Sets (or clears with `None`) a group's distribution-list address; stored
+    /// lowercase. Runtime-checked query.
+    ///
+    /// # Errors
+    /// [`StoreError::Conflict`] if the address is already in use;
+    /// [`StoreError::Db`] on other failure.
+    pub async fn set_group_address(&self, group: &GroupId, address: Option<&str>) -> Result<()> {
+        let normalized = address.map(|a| a.trim().to_lowercase());
+        sqlx::query("UPDATE groups SET address = $3 WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant().as_str())
+            .bind(group.as_str())
+            .bind(normalized)
+            .execute(self.pool())
+            .await
+            .map_err(|e| match &e {
+                sqlx::Error::Database(db) if db.is_unique_violation() => {
+                    StoreError::Conflict("group address in use".to_owned())
+                }
+                _ => StoreError::Db(e),
+            })?;
+        Ok(())
+    }
+
+    /// A group's members as `(user_id, email)` pairs within this tenant, for the
+    /// admin UI. Runtime-checked query.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn group_members_detailed(&self, group: &GroupId) -> Result<Vec<(String, String)>> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT u.id, u.email FROM group_members m \
+             JOIN users u ON u.id = m.user_id AND u.tenant_id = m.tenant_id \
+             WHERE m.group_id = $1 AND m.tenant_id = $2 ORDER BY u.email",
+        )
+        .bind(group.as_str())
+        .bind(self.tenant().as_str())
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
+    }
+
     /// Confirms a group exists in this tenant; `NotFound` otherwise.
     async fn assert_group(&self, group: &GroupId) -> Result<()> {
         sqlx::query!(

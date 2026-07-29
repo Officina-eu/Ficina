@@ -15,6 +15,16 @@ pub struct AiConfigRow {
     pub enabled: bool,
 }
 
+/// A group row for the admin console: name, optional distribution-list address,
+/// and member count.
+#[derive(Debug, Clone)]
+pub struct GroupRow {
+    pub id: String,
+    pub name: String,
+    pub address: Option<String>,
+    pub member_count: i64,
+}
+
 /// A user row for the admin console: identity plus read-only usage (message
 /// count and storage bytes). Secrets (password hash, TOTP) are never here.
 #[derive(Debug, Clone)]

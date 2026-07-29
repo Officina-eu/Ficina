@@ -81,7 +81,8 @@ impl LocalDelivery {
     /// Whether `email` is a real local mailbox (for the RCPT-time check).
     /// Subaddress-aware: `user+tag@domain` resolves to `user@domain`.
     pub async fn recipient_exists(&self, email: &str) -> bool {
-        matches!(self.resolve_account(email).await, Ok(Some(_)))
+        // A user/alias, or a distribution-list address with at least one member.
+        matches!(self.resolve_recipients(email).await, Ok(targets) if !targets.is_empty())
     }
 
     /// Resolves a recipient to its account, trying the address as-is then
@@ -101,11 +102,26 @@ impl LocalDelivery {
         }
     }
 
+    /// Expands a recipient to its target account(s): one for a user/alias, or
+    /// the member accounts for a distribution-list address. Empty means the
+    /// address matches nothing local.
+    async fn resolve_recipients(
+        &self,
+        email: &str,
+    ) -> Result<Vec<(ficina_store::TenantId, ficina_store::UserId)>, ficina_store::StoreError> {
+        if let Some(ids) = self.resolve_account(email).await? {
+            return Ok(vec![ids]);
+        }
+        // Not a user/alias — a distribution-list address fans out to members.
+        self.store.list_members_by_address(email).await
+    }
+
     /// Delivers `message` to each local recipient through the account's
-    /// Sieve script. Per-recipient and independent; a transient store fault
-    /// for **any** recipient returns [`DeliveryOutcome::Transient`] (the
-    /// conservative multi-recipient reply — RFC 5321 §6.1, duplicate over
-    /// loss). Sieve's outbound actions are enqueued for the outbound queue.
+    /// Sieve script. A list address fans out to every member's inbox.
+    /// Per-target and independent; a transient store fault for **any** target
+    /// returns [`DeliveryOutcome::Transient`] (the conservative multi-recipient
+    /// reply — RFC 5321 §6.1, duplicate over loss). Sieve's outbound actions
+    /// are enqueued for the outbound queue.
     pub async fn deliver(
         &self,
         message: &[u8],
@@ -113,11 +129,11 @@ impl LocalDelivery {
         rcpts: &[String],
     ) -> DeliveryOutcome {
         for rcpt in rcpts {
-            let account = match self.resolve_account(rcpt).await {
-                Ok(Some(ids)) => ids,
+            let targets = match self.resolve_recipients(rcpt).await {
+                Ok(targets) if !targets.is_empty() => targets,
                 // Accepted at RCPT but gone now (rare TOCTOU), or a DB error:
                 // transient, so the sender retries rather than lose the mail.
-                Ok(None) => {
+                Ok(_) => {
                     tracing::warn!("recipient not found at DATA time; deferring");
                     return DeliveryOutcome::Transient;
                 }
@@ -126,28 +142,50 @@ impl LocalDelivery {
                     return DeliveryOutcome::Transient;
                 }
             };
-            let acc = self.store.for_account(account.0, account.1);
-            match acc.deliver_sieve(message, mail_from, rcpt).await {
-                Ok(delivery) => {
-                    for warning in &delivery.warnings {
-                        tracing::info!(warning = %warning, "sieve delivery warning");
-                    }
-                    // Enqueue redirect/vacation. An enqueue failure does NOT
-                    // defer the whole message — the message IS filed; the
-                    // outbound action is best-effort and logged.
-                    for action in delivery.outbound {
-                        if let Err(error) = self.enqueue(action, message, mail_from, rcpt).await {
-                            tracing::error!(%error, "failed to enqueue sieve outbound action");
-                        }
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(%error, "store delivery failed; deferring");
+            for (tenant, user) in targets {
+                if !self
+                    .deliver_one(tenant, user, message, mail_from, rcpt)
+                    .await
+                {
                     return DeliveryOutcome::Transient;
                 }
             }
         }
         DeliveryOutcome::Delivered
+    }
+
+    /// Files `message` into one account via its Sieve script and enqueues any
+    /// outbound actions. Returns `false` on a transient store fault (the caller
+    /// defers the whole message).
+    async fn deliver_one(
+        &self,
+        tenant: ficina_store::TenantId,
+        user: ficina_store::UserId,
+        message: &[u8],
+        mail_from: Option<&str>,
+        rcpt: &str,
+    ) -> bool {
+        let acc = self.store.for_account(tenant, user);
+        match acc.deliver_sieve(message, mail_from, rcpt).await {
+            Ok(delivery) => {
+                for warning in &delivery.warnings {
+                    tracing::info!(warning = %warning, "sieve delivery warning");
+                }
+                // Enqueue redirect/vacation. An enqueue failure does NOT defer
+                // the whole message — the message IS filed; the outbound action
+                // is best-effort and logged.
+                for action in delivery.outbound {
+                    if let Err(error) = self.enqueue(action, message, mail_from, rcpt).await {
+                        tracing::error!(%error, "failed to enqueue sieve outbound action");
+                    }
+                }
+                true
+            }
+            Err(error) => {
+                tracing::error!(%error, "store delivery failed; deferring");
+                false
+            }
+        }
     }
 
     /// Enqueues a Sieve outbound action into the spool for the outbound
