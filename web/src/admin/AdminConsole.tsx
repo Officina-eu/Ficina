@@ -51,21 +51,21 @@ export function AdminConsole() {
         <div className={styles.brand}>{strings.adminTitle}</div>
         <nav className={styles.sideNav}>
           <NavLink
-            to="users"
+            to="/admin/users"
             className={({ isActive }) => cx(styles.navItem, isActive && styles.navActive)}
           >
             <UserRound size={17} strokeWidth={1.75} />
             <span>{strings.adminUsers}</span>
           </NavLink>
           <NavLink
-            to="groups"
+            to="/admin/groups"
             className={({ isActive }) => cx(styles.navItem, isActive && styles.navActive)}
           >
             <Users size={17} strokeWidth={1.75} />
             <span>{strings.adminGroups}</span>
           </NavLink>
           <NavLink
-            to="ai"
+            to="/admin/ai"
             className={({ isActive }) => cx(styles.navItem, isActive && styles.navActive)}
           >
             <Sparkles size={17} strokeWidth={1.75} />
@@ -75,11 +75,11 @@ export function AdminConsole() {
       </aside>
       <main className={styles.content}>
         <Routes>
-          <Route index element={<Navigate to="users" replace />} />
+          <Route index element={<Navigate to="/admin/users" replace />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="groups" element={<GroupsPage />} />
           <Route path="ai" element={<AiProvidersPage />} />
-          <Route path="*" element={<Navigate to="users" replace />} />
+          <Route path="*" element={<Navigate to="/admin/users" replace />} />
         </Routes>
       </main>
     </div>
