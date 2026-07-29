@@ -6,6 +6,7 @@ import {
   CORE_CAPABILITY,
   MAIL_CAPABILITY,
   SUBMISSION_CAPABILITY,
+  type AdminUser,
   type AiProvider,
   type EmailAddress,
   type EmailFull,
@@ -243,6 +244,50 @@ export class JmapClient {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(apiKey !== undefined && apiKey.length > 0 ? { baseUrl, apiKey } : { baseUrl }),
     })) as { ok: boolean; models: number };
+  }
+
+  #adminPost(path: string, body: unknown): Promise<unknown> {
+    return this.#admin(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** All users in the tenant (admin). */
+  async listUsers(): Promise<AdminUser[]> {
+    const out = (await this.#admin("/admin/users", { method: "GET" })) as { users: AdminUser[] };
+    return out.users;
+  }
+
+  /** Create a user with a mailbox (admin). */
+  async createUser(email: string, password: string): Promise<void> {
+    await this.#adminPost("/admin/users", { email, password });
+  }
+
+  /** Reset a user's password (admin). */
+  async resetPassword(userId: string, password: string): Promise<void> {
+    await this.#adminPost("/admin/users/password", { userId, password });
+  }
+
+  /** Grant or revoke a user's tenant-admin flag (admin). */
+  async setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
+    await this.#adminPost("/admin/users/admin", { userId, isAdmin });
+  }
+
+  /** Delete a user and their mail (admin). */
+  async deleteUser(userId: string): Promise<void> {
+    await this.#admin(`/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+  }
+
+  /** Add an alias address to a user (admin). */
+  async addAlias(userId: string, address: string): Promise<void> {
+    await this.#adminPost("/admin/users/alias", { userId, address });
+  }
+
+  /** Remove an alias address (admin). */
+  async removeAlias(address: string): Promise<void> {
+    await this.#adminPost("/admin/users/alias/remove", { address });
   }
 
   /** Improve a draft via the tenant's configured AI backend (ADR 0011).

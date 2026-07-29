@@ -13,5 +13,6 @@ export {
   type EmailAttachment,
   type EmailAddress,
   type AiProvider,
+  type AdminUser,
   type Session,
 } from "./types";

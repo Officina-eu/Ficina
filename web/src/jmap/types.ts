@@ -93,6 +93,17 @@ export interface AiProvider {
   hasKey: boolean;
 }
 
+/** A user in the admin console: identity + read-only usage + aliases. */
+export interface AdminUser {
+  id: string;
+  email: string;
+  isAdmin: boolean;
+  createdAt: string;
+  messageCount: number;
+  storageBytes: number;
+  aliases: string[];
+}
+
 /** A JMAP method invocation: [name, arguments, call-id]. */
 export type MethodCall = [string, Record<string, unknown>, string];
 export type MethodResponse = [string, Record<string, unknown>, string];

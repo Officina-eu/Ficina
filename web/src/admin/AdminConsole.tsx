@@ -3,12 +3,13 @@
 // today (AI providers); more are added as their backends land — no dead links.
 import { useEffect, useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, Sparkles, Users } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Spinner, cx } from "../ds";
 import { useJmapClient } from "../jmap";
 import { AiProvidersPage } from "./AiProvidersPage";
+import { UsersPage } from "./UsersPage";
 import styles from "./admin.module.css";
 
 export function AdminConsole() {
@@ -49,6 +50,13 @@ export function AdminConsole() {
         <div className={styles.brand}>{strings.adminTitle}</div>
         <nav className={styles.sideNav}>
           <NavLink
+            to="users"
+            className={({ isActive }) => cx(styles.navItem, isActive && styles.navActive)}
+          >
+            <Users size={17} strokeWidth={1.75} />
+            <span>{strings.adminUsers}</span>
+          </NavLink>
+          <NavLink
             to="ai"
             className={({ isActive }) => cx(styles.navItem, isActive && styles.navActive)}
           >
@@ -59,9 +67,10 @@ export function AdminConsole() {
       </aside>
       <main className={styles.content}>
         <Routes>
-          <Route index element={<Navigate to="ai" replace />} />
+          <Route index element={<Navigate to="users" replace />} />
+          <Route path="users" element={<UsersPage />} />
           <Route path="ai" element={<AiProvidersPage />} />
-          <Route path="*" element={<Navigate to="ai" replace />} />
+          <Route path="*" element={<Navigate to="users" replace />} />
         </Routes>
       </main>
     </div>
