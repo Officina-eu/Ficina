@@ -45,9 +45,7 @@ export function ThreadMessage({
   return (
     <article className={cx(styles.message, expanded && styles.expanded)}>
       <button type="button" className={styles.head} onClick={onToggle} aria-expanded={expanded}>
-        <span className={styles.node}>
-          <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
-        </span>
+        <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
         <div className={styles.headText}>
           <div className={styles.headTop}>
             <span className={styles.sender}>{senderName(email)}</span>

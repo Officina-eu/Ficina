@@ -1,57 +1,25 @@
-/* Messages read as a clean, flat list — no boxed cards. A hairline divides
-   consecutive messages; the timeline spine (below) is the only vertical rule. */
+/* Each message is its own card (Figma thread screen): a bordered, rounded
+   surface; the expanded one lifts slightly. Cards are spaced by the list
+   container's gap — no vertical connector. */
 .message {
   position: relative;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
 }
 
-.message + .message {
-  border-top: 1px solid var(--border-subtle);
+.message.expanded {
+  box-shadow: var(--shadow-sm);
 }
 
 .head {
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
   padding: var(--space-3) var(--space-4);
   text-align: left;
-}
-
-/* The conversation timeline: a spine through each message HEADER, linking the
-   sender avatars, drawn over the card face behind the header content. It stops
-   at the header, so an expanded message's body stays clear of the line. The
-   avatar column is 34px wide at padding-left var(--space-4) = 16px, so its
-   centre is 33px; a 2px line sits at 32px. The gaps between cards are bridged
-   by the list container (ReadingPane .threaded); a lone message has no spine. */
-.head::before {
-  content: "";
-  position: absolute;
-  left: 32px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--border-default);
-  z-index: 0;
-}
-
-.message:first-child .head::before {
-  top: 30px; /* start at the first sender's avatar, not the card top */
-}
-
-.message:only-child .head::before {
-  display: none;
-}
-
-/* The avatar is a node on the spine: a surface-coloured ring lifts it clear
-   of the line so the timeline reads as passing behind each sender. */
-.node {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-  border-radius: var(--radius-full);
-  box-shadow: 0 0 0 3px var(--bg-surface);
 }
 
 .head:hover {

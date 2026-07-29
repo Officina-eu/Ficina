@@ -116,15 +116,11 @@
   background: var(--copper-50);
 }
 
-/* the conversation's messages — a clean flat list divided by hairlines, framed
-   by a single subtle border so it reads as one conversation surface */
+/* the conversation's messages — separate cards, spaced (Figma thread screen) */
 .messages {
-  position: relative;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
+  gap: var(--space-3);
 }
 
 /* quick reply */
