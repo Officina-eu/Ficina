@@ -91,8 +91,14 @@ improved text — no preamble, explanation, or quotation.";
 /// the prompt is testable without a backend.
 pub fn improve_messages(draft: &str) -> Vec<ChatMessage> {
     vec![
-        ChatMessage { role: "system".to_owned(), content: IMPROVE_SYSTEM.to_owned() },
-        ChatMessage { role: "user".to_owned(), content: draft.to_owned() },
+        ChatMessage {
+            role: "system".to_owned(),
+            content: IMPROVE_SYSTEM.to_owned(),
+        },
+        ChatMessage {
+            role: "user".to_owned(),
+            content: draft.to_owned(),
+        },
     ]
 }
 
@@ -129,7 +135,10 @@ pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, Inference
         return Err(InferenceError::NotConfigured);
     }
 
-    let url = format!("{}/v1/chat/completions", config.base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/chat/completions",
+        config.base_url.trim_end_matches('/')
+    );
     let messages = improve_messages(draft);
     let body = ChatRequest {
         model: config.model.trim(),
@@ -149,13 +158,62 @@ pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, Inference
         request = request.bearer_auth(key.trim());
     }
 
-    let response = request.send().await.map_err(|_| InferenceError::Transport)?;
+    let response = request
+        .send()
+        .await
+        .map_err(|_| InferenceError::Transport)?;
     let status = response.status();
     if !status.is_success() {
         return Err(InferenceError::Backend(status.as_u16()));
     }
-    let text = response.text().await.map_err(|_| InferenceError::Transport)?;
+    let text = response
+        .text()
+        .await
+        .map_err(|_| InferenceError::Transport)?;
     parse_completion(&text)
+}
+
+/// A lightweight connectivity check for the admin "Test connection" action:
+/// `GET {base}/v1/models`. Returns the number of models the endpoint reports.
+/// Unlike [`improve`] it does not gate on `enabled` — the admin is testing a
+/// config that may not be saved yet.
+///
+/// # Errors
+/// [`InferenceError::NotConfigured`] for an empty base URL; `Backend`/`Transport`
+/// on an HTTP failure; `Empty` if the response is not the expected shape.
+pub async fn check(base_url: &str, api_key: Option<&str>) -> Result<usize, InferenceError> {
+    if base_url.trim().is_empty() {
+        return Err(InferenceError::NotConfigured);
+    }
+    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|_| InferenceError::Transport)?;
+    let mut request = client.get(&url);
+    if let Some(key) = api_key
+        && !key.trim().is_empty()
+    {
+        request = request.bearer_auth(key.trim());
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|_| InferenceError::Transport)?;
+    if !response.status().is_success() {
+        return Err(InferenceError::Backend(response.status().as_u16()));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|_| InferenceError::Transport)?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).map_err(|_| InferenceError::Empty)?;
+    Ok(parsed
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(Vec::len)
+        .unwrap_or(0))
 }
 
 #[cfg(test)]
@@ -183,22 +241,37 @@ mod tests {
 
     #[test]
     fn parse_completion_extracts_and_trims_content() {
-        let body = r#"{"choices":[{"message":{"role":"assistant","content":"  Improved text.  "}}]}"#;
+        let body =
+            r#"{"choices":[{"message":{"role":"assistant","content":"  Improved text.  "}}]}"#;
         assert_eq!(parse_completion(body).unwrap(), "Improved text.");
     }
 
     #[test]
     fn parse_completion_rejects_empty_and_garbage() {
         assert!(matches!(parse_completion("{}"), Err(InferenceError::Empty)));
-        assert!(matches!(parse_completion("not json"), Err(InferenceError::Empty)));
+        assert!(matches!(
+            parse_completion("not json"),
+            Err(InferenceError::Empty)
+        ));
         let no_text = r#"{"choices":[{"message":{"role":"assistant","content":"   "}}]}"#;
-        assert!(matches!(parse_completion(no_text), Err(InferenceError::Empty)));
+        assert!(matches!(
+            parse_completion(no_text),
+            Err(InferenceError::Empty)
+        ));
     }
 
     #[tokio::test]
     async fn disabled_config_short_circuits_without_network() {
         let out = improve(&cfg(false, "http://localhost:11434", "llama3.2"), "hi").await;
         assert!(matches!(out, Err(InferenceError::Disabled)));
+    }
+
+    #[tokio::test]
+    async fn check_requires_base_url() {
+        assert!(matches!(
+            check("", None).await,
+            Err(InferenceError::NotConfigured)
+        ));
     }
 
     #[tokio::test]

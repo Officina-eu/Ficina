@@ -30,7 +30,7 @@ pub async fn session(
     // hides AI affordances. A read failure degrades to "off", never an error.
     let ai_enabled = account
         .acc
-        .ai_config()
+        .default_ai_config()
         .await
         .ok()
         .flatten()
@@ -99,6 +99,8 @@ pub async fn session(
         "state": state_str,
         // Ficina extension (additive): whether AI features are enabled for this
         // tenant, so the client shows or hides AI affordances (ADR 0011).
-        "ficina:aiEnabled": ai_enabled
+        "ficina:aiEnabled": ai_enabled,
+        // Whether the signed-in user is a tenant admin (gates the admin console).
+        "ficina:isAdmin": account.is_admin
     })))
 }

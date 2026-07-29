@@ -21,7 +21,7 @@ https://{$DOMAIN} {
 	# endpoint (discovery, authorize, token, userinfo, jwks, revoke). Everything
 	# else is the web app. `/auth/token` is backend; `/auth/callback` is a client
 	# route (falls through to the SPA).
-	@backend path /jmap/* /ai/* /oauth/* /.well-known/* /auth/token
+	@backend path /jmap/* /ai/* /admin/* /oauth/* /.well-known/* /auth/token
 	handle @backend {
 		reverse_proxy ficina-jmap:8080
 	}

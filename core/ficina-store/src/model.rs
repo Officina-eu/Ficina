@@ -4,14 +4,30 @@ use time::OffsetDateTime;
 
 use crate::id::{BlobId, MailboxId, MessageId, ThreadId};
 
-/// Per-tenant AI backend configuration (ADR 0011). `api_key` is a secret and is
-/// never serialized to clients or written to logs.
+/// The resolved AI backend a tenant's default provider points at (ADR 0011),
+/// mapped for the inference client. `api_key` is a secret, never returned to
+/// clients or logged.
 #[derive(Debug, Clone)]
 pub struct AiConfigRow {
     pub base_url: String,
     pub model: String,
     pub api_key: Option<String>,
     pub enabled: bool,
+}
+
+/// One configured AI provider (admin console). Several may exist per tenant;
+/// exactly one enabled provider is the default the AI features use. `api_key`
+/// is a secret — the admin API exposes only whether a key is set.
+#[derive(Debug, Clone)]
+pub struct AiProviderRow {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+    pub enabled: bool,
+    pub is_default: bool,
 }
 
 /// A stored blob's metadata (for JMAP download).

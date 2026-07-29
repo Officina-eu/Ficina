@@ -42,7 +42,7 @@ pub async fn improve(
 
     let row = account
         .acc
-        .ai_config()
+        .default_ai_config()
         .await
         .map_err(|_| Problem::server_error())?
         .ok_or_else(|| ai_problem(&InferenceError::NotConfigured))?;

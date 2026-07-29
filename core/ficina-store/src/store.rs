@@ -221,6 +221,21 @@ impl TenantStore {
         Ok(id)
     }
 
+    /// Marks a user as a tenant admin (or not). Admin-only surfaces gate on
+    /// this. Runtime-checked query (kept out of the offline `.sqlx` cache).
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn set_admin(&self, user: &UserId, is_admin: bool) -> Result<()> {
+        sqlx::query("UPDATE users SET is_admin = $3 WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant.as_str())
+            .bind(user.as_str())
+            .bind(is_admin)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Looks up a user id by email within this tenant.
     ///
     /// # Errors

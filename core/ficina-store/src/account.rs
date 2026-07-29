@@ -26,7 +26,8 @@ use crate::error::{Result, StoreError};
 use crate::id::{BlobId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 use crate::message;
 use crate::model::{
-    AiConfigRow, Blob, EmailQuery, Mailbox, Message, MessageSummary, Page, SortDirection,
+    AiConfigRow, AiProviderRow, Blob, EmailQuery, Mailbox, Message, MessageSummary, Page,
+    SortDirection,
 };
 use crate::store::{MAX_KEYWORD_LEN, MAX_KEYWORDS, SEEN};
 use crate::thread;
@@ -1331,16 +1332,31 @@ impl AccountStore {
         self.blobs.get(self.tenant.as_str(), &hash).await
     }
 
-    /// This tenant's AI backend configuration (ADR 0011), or `None` if unset.
-    /// Read-only here — configuration is operator-set (psql/CLI), never a
-    /// user-facing write, so the outbound endpoint URL is not an SSRF vector.
-    /// (Runtime-checked query: kept out of the offline `.sqlx` cache.)
+    /// Whether the signed-in user is a tenant admin (ADR: admin console). Gates
+    /// admin-only surfaces. Runtime-checked query.
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
-    pub async fn ai_config(&self) -> Result<Option<AiConfigRow>> {
+    pub async fn is_admin(&self) -> Result<bool> {
+        let v: Option<bool> =
+            sqlx::query_scalar("SELECT is_admin FROM users WHERE tenant_id = $1 AND id = $2")
+                .bind(self.tenant.as_str())
+                .bind(self.user.as_str())
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(v.unwrap_or(false))
+    }
+
+    /// The enabled default AI provider mapped for the inference client, or
+    /// `None` if the tenant has no enabled default (AI is then off). Runtime
+    /// query. (ADR 0011)
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn default_ai_config(&self) -> Result<Option<AiConfigRow>> {
         let row = sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-            "SELECT base_url, model, api_key, enabled FROM ai_config WHERE tenant_id = $1",
+            "SELECT base_url, model, api_key, enabled FROM ai_providers \
+             WHERE tenant_id = $1 AND is_default AND enabled LIMIT 1",
         )
         .bind(self.tenant.as_str())
         .fetch_optional(&self.pool)
@@ -1351,5 +1367,120 @@ impl AccountStore {
             api_key,
             enabled,
         }))
+    }
+
+    /// All AI providers configured for this tenant (admin console). Runtime
+    /// query. The `api_key` is included for the caller to redact — it is never
+    /// serialized to clients.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn list_ai_providers(&self) -> Result<Vec<AiProviderRow>> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                bool,
+                bool,
+            ),
+        >(
+            "SELECT id, kind, label, base_url, model, api_key, enabled, is_default \
+             FROM ai_providers WHERE tenant_id = $1 ORDER BY updated_at",
+        )
+        .bind(self.tenant.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, kind, label, base_url, model, api_key, enabled, is_default)| AiProviderRow {
+                    id,
+                    kind,
+                    label,
+                    base_url,
+                    model,
+                    api_key,
+                    enabled,
+                    is_default,
+                },
+            )
+            .collect())
+    }
+
+    /// Insert or update an AI provider (admin write). On update, a `None`
+    /// `api_key` keeps the stored key. The `WHERE tenant_id` guard on the
+    /// conflict update makes a foreign id a no-op, never a cross-tenant write.
+    /// Runtime query.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_ai_provider(
+        &self,
+        id: &str,
+        kind: &str,
+        label: &str,
+        base_url: &str,
+        model: &str,
+        api_key: Option<&str>,
+        enabled: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO ai_providers (id, tenant_id, kind, label, base_url, model, api_key, enabled) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+             ON CONFLICT (id) DO UPDATE SET \
+               kind = $3, label = $4, base_url = $5, model = $6, \
+               api_key = COALESCE($7, ai_providers.api_key), enabled = $8, updated_at = now() \
+             WHERE ai_providers.tenant_id = $2",
+        )
+        .bind(id)
+        .bind(self.tenant.as_str())
+        .bind(kind)
+        .bind(label)
+        .bind(base_url)
+        .bind(model)
+        .bind(api_key)
+        .bind(enabled)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete an AI provider (admin write), tenant-scoped.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn delete_ai_provider(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM ai_providers WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant.as_str())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Make one provider the tenant's single default (admin write). Clears any
+    /// existing default first, in a transaction, then sets this one.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn set_default_ai_provider(&self, id: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        sqlx::query("UPDATE ai_providers SET is_default = FALSE WHERE tenant_id = $1")
+            .bind(self.tenant.as_str())
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE ai_providers SET is_default = TRUE WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant.as_str())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await.map_err(StoreError::Db)?;
+        Ok(())
     }
 }

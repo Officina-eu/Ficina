@@ -38,6 +38,11 @@ impl Identity {
             .create_user(email)
             .await?;
         self.set_password(&tenant, &user, email, password).await?;
+        // The bootstrap user is the tenant admin (gates the admin console).
+        self.store()
+            .for_tenant(tenant.clone())
+            .set_admin(&user, true)
+            .await?;
         // Give the admin a usable mailbox for dogfooding.
         self.store()
             .for_account(tenant.clone(), user.clone())

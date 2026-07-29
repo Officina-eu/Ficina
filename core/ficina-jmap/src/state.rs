@@ -75,12 +75,29 @@ pub struct Account {
     /// The account-scoped store handle — the only path to this user's
     /// mail data.
     pub acc: AccountStore,
+    /// Whether this user is a tenant admin (gates admin-only surfaces).
+    pub is_admin: bool,
 }
 
 impl Account {
     /// The JMAP accountId (the user id).
     pub fn account_id(&self) -> &str {
         self.user.as_str()
+    }
+
+    /// Guard for admin-only endpoints.
+    ///
+    /// # Errors
+    /// [`Problem`] 403 when the user is not a tenant admin.
+    pub fn require_admin(&self) -> Result<(), Problem> {
+        if self.is_admin {
+            Ok(())
+        } else {
+            Err(Problem::with(
+                axum::http::StatusCode::FORBIDDEN,
+                "admin only",
+            ))
+        }
     }
 }
 
@@ -102,10 +119,12 @@ pub async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Accou
     let acc = state
         .store
         .for_account(principal.tenant.clone(), principal.user.clone());
+    let is_admin = acc.is_admin().await.unwrap_or(false);
     Ok(Account {
         tenant: principal.tenant,
         user: principal.user,
         acc,
+        is_admin,
     })
 }
 
