@@ -82,6 +82,33 @@ async fn same_subject_without_references_does_not_merge() {
 }
 
 #[tokio::test]
+async fn duplicate_message_id_joins_one_thread() {
+    // A message the account both sends and receives lands twice with the
+    // *same* Message-ID (the Sent copy and the delivered copy), and a
+    // self-addressed or list-echoed message arrives twice likewise. Even
+    // with no References to link them, both copies — and any reply that
+    // references that Message-ID — must resolve to a single thread.
+    let store = common::test_store().await;
+    let (ts, _user, inbox) = common::fresh_account(&store, "dupmid").await;
+
+    let sent_copy = common::deliver(&ts, &inbox, "<orig@x>", &[], "Lunch?").await;
+    let inbox_copy = common::deliver(&ts, &inbox, "<orig@x>", &[], "Lunch?").await;
+    let reply = common::deliver(&ts, &inbox, "<reply@x>", &["<orig@x>"], "Re: Lunch?").await;
+
+    let t = thread_of(&ts, &sent_copy).await;
+    assert_eq!(
+        thread_of(&ts, &inbox_copy).await,
+        t,
+        "both copies share a thread"
+    );
+    assert_eq!(
+        thread_of(&ts, &reply).await,
+        t,
+        "the reply joins that thread"
+    );
+}
+
+#[tokio::test]
 async fn randomized_forests_group_by_chain() {
     // A deterministic pseudo-random forest of reply chains, delivered in
     // a shuffled order. Every message in a chain must share one thread;

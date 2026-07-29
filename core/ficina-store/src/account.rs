@@ -540,10 +540,16 @@ impl AccountStore {
         .await?;
         let blob_id = blob_row.id;
 
-        // Thread: join the thread of any earlier message THIS ACCOUNT sent
-        // that we reference (threads resolve per-account).
+        // Thread: join the thread of any earlier message THIS ACCOUNT holds
+        // that we reference, OR an existing copy of this same message (same
+        // Message-ID). Threads resolve per-account.
         let (thread_id, thread_created) = self
-            .resolve_thread(&mut tx, &parsed.referenced_ids, &parsed.subject)
+            .resolve_thread(
+                &mut tx,
+                &parsed.referenced_ids,
+                parsed.message_id.as_deref(),
+                &parsed.subject,
+            )
             .await?;
 
         let message_id = MessageId::generate();
@@ -639,16 +645,28 @@ impl AccountStore {
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         referenced_ids: &[String],
+        own_message_id: Option<&str>,
         subject: &str,
     ) -> Result<(ThreadId, bool)> {
-        if !referenced_ids.is_empty() {
+        // Match against the ids this message references AND its own Message-ID,
+        // so a reply joins its parent's thread and a second copy of the same
+        // message (Sent + Inbox copies, a Cc/Bcc-to-self, or a mailing-list
+        // echo) joins the existing thread rather than starting a new one.
+        let mut keys: Vec<String> = referenced_ids.to_vec();
+        if let Some(mid) = own_message_id
+            && !mid.is_empty()
+            && !keys.iter().any(|k| k == mid)
+        {
+            keys.push(mid.to_owned());
+        }
+        if !keys.is_empty() {
             let existing = sqlx::query!(
                 "SELECT thread_id FROM messages \
                  WHERE tenant_id = $1 AND user_id = $2 AND message_id_hdr = ANY($3::text[]) \
                  ORDER BY created_at LIMIT 1",
                 self.tenant.as_str(),
                 self.user.as_str(),
-                referenced_ids
+                &keys
             )
             .fetch_optional(&mut **tx)
             .await?;
