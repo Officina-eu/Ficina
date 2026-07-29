@@ -132,7 +132,9 @@ export function MailModule() {
   }
 
   const widthVars = {
-    "--sidebar-width": foldersCollapsed ? "0px" : `${folders.width}px`,
+    // Collapsed = a compact icon-only column (folders stay one-click reachable),
+    // not fully hidden.
+    "--sidebar-width": foldersCollapsed ? "56px" : `${folders.width}px`,
     "--list-width": `${list.width}px`,
   } as CSSProperties;
 

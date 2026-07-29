@@ -14,7 +14,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Spinner } from "../../ds";
+import { Spinner, cx } from "../../ds";
 import type { Mailbox } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import styles from "./FolderSidebar.module.css";
@@ -72,6 +72,7 @@ export function FolderSidebar({
         className={`${styles.item} ${active ? styles.active : ""}`}
         onClick={() => onSelect(box.id)}
         aria-current={active ? "true" : undefined}
+        title={box.name}
       >
         <Icon className={styles.icon} strokeWidth={1.75} />
         <span className={styles.name}>{box.name}</span>
@@ -83,15 +84,10 @@ export function FolderSidebar({
   const { system, custom } = ordered(mailboxes.data ?? []);
 
   return (
-    <nav
-      className={styles.sidebar}
-      aria-label={strings.mailFolders}
-      aria-hidden={collapsed}
-      inert={collapsed}
-    >
-      <button type="button" className={styles.compose} onClick={onCompose}>
+    <nav className={cx(styles.sidebar, collapsed && styles.collapsed)} aria-label={strings.mailFolders}>
+      <button type="button" className={styles.compose} onClick={onCompose} title={strings.compose}>
         <PenLine size={17} strokeWidth={2} />
-        <span>{strings.compose}</span>
+        <span className={styles.composeLabel}>{strings.compose}</span>
       </button>
 
       {mailboxes.status === "loading" && (

@@ -28,6 +28,33 @@
   transition: background-color var(--transition-fast);
 }
 
+/* Collapsed: a compact icon-only column — labels hidden, icons centred,
+   names shown on hover (the buttons carry a title). */
+.collapsed {
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+  /* No resize handle in collapsed mode, so provide the divider here. */
+  border-right: 1px solid var(--border-subtle);
+}
+
+.collapsed .compose {
+  padding: 0;
+}
+
+.collapsed .composeLabel,
+.collapsed .name,
+.collapsed .count,
+.collapsed .heading {
+  display: none;
+}
+
+.collapsed .item {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .compose:hover {
   background: var(--accent-hover);
 }
