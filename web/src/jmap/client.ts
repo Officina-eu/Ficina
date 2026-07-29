@@ -10,6 +10,7 @@ import {
   type AdminUser,
   type AiProvider,
   type EmailAddress,
+  type SecurityCheck,
   type EmailFull,
   type EmailHeaders,
   type JmapRequest,
@@ -321,6 +322,14 @@ export class JmapClient {
   /** Remove a user from a group (admin). */
   async removeGroupMember(groupId: string, userId: string): Promise<void> {
     await this.#adminPost("/admin/groups/members/remove", { groupId, userId });
+  }
+
+  /** Run the live deliverability checks for the mail domain (admin). */
+  async securityChecks(): Promise<{ domain: string; checks: SecurityCheck[] }> {
+    return (await this.#admin("/admin/security/checks", { method: "GET" })) as {
+      domain: string;
+      checks: SecurityCheck[];
+    };
   }
 
   /** Improve a draft via the tenant's configured AI backend (ADR 0011).

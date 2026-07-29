@@ -114,6 +114,14 @@ export interface AdminGroup {
   members: { id: string; email: string }[];
 }
 
+/** One deliverability check result (admin Security & trust). */
+export interface SecurityCheck {
+  key: string;
+  title: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+}
+
 /** A JMAP method invocation: [name, arguments, call-id]. */
 export type MethodCall = [string, Record<string, unknown>, string];
 export type MethodResponse = [string, Record<string, unknown>, string];
