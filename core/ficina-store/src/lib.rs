@@ -35,6 +35,7 @@ pub use identity::{
     RefreshTokenRow, SigningKeyRow, TotpRow,
 };
 pub use model::{
-    Blob, EmailFilter, EmailQuery, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection,
+    AiConfigRow, Blob, EmailFilter, EmailQuery, MAX_PAGE, Mailbox, Message, MessageSummary, Page,
+    SortDirection,
 };
 pub use store::{SEEN, Store, TenantStore};

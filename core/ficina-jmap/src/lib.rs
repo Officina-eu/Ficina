@@ -12,6 +12,7 @@
 //! (see [`server::app`]), so one HTTP service serves both JMAP and the
 //! IdP.
 
+pub mod ai;
 pub mod api;
 pub mod blob;
 pub mod error;

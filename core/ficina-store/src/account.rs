@@ -25,7 +25,9 @@ use crate::blob::{BlobStore, hash_hex};
 use crate::error::{Result, StoreError};
 use crate::id::{BlobId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 use crate::message;
-use crate::model::{Blob, EmailQuery, Mailbox, Message, MessageSummary, Page, SortDirection};
+use crate::model::{
+    AiConfigRow, Blob, EmailQuery, Mailbox, Message, MessageSummary, Page, SortDirection,
+};
 use crate::store::{MAX_KEYWORD_LEN, MAX_KEYWORDS, SEEN};
 use crate::thread;
 
@@ -1327,5 +1329,27 @@ impl AccountStore {
                 .await?;
         let hash = hash.ok_or(StoreError::NotFound)?;
         self.blobs.get(self.tenant.as_str(), &hash).await
+    }
+
+    /// This tenant's AI backend configuration (ADR 0011), or `None` if unset.
+    /// Read-only here — configuration is operator-set (psql/CLI), never a
+    /// user-facing write, so the outbound endpoint URL is not an SSRF vector.
+    /// (Runtime-checked query: kept out of the offline `.sqlx` cache.)
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn ai_config(&self) -> Result<Option<AiConfigRow>> {
+        let row = sqlx::query_as::<_, (String, String, Option<String>, bool)>(
+            "SELECT base_url, model, api_key, enabled FROM ai_config WHERE tenant_id = $1",
+        )
+        .bind(self.tenant.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(base_url, model, api_key, enabled)| AiConfigRow {
+            base_url,
+            model,
+            api_key,
+            enabled,
+        }))
     }
 }

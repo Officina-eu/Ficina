@@ -648,6 +648,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "ficina-ai",
  "ficina-identity",
  "ficina-sieve",
  "ficina-smtp-client",

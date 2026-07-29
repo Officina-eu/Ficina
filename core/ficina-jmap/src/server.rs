@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
-use crate::{api, blob, push, session};
+use crate::{ai, api, blob, push, session};
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
 /// OAuth 2.0 provider (`ficina-identity`) is mounted alongside so a Phase-1
@@ -38,6 +38,8 @@ pub fn app(state: AppState) -> Router {
             get(blob::download),
         )
         .route("/jmap/eventsource", get(push::event_source))
+        // AI inference (ADR 0011) — authenticated, tenant-scoped.
+        .route("/ai/improve", post(ai::improve))
         .layer(DefaultBodyLimit::max(upload_limit))
         .with_state(state);
     jmap.merge(identity_routes)

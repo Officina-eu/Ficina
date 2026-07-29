@@ -26,6 +26,15 @@ pub async fn session(
         .state()
         .await
         .map_err(|_| Problem::server_error())?;
+    // Whether AI is enabled for this tenant (ADR 0011), so the client shows or
+    // hides AI affordances. A read failure degrades to "off", never an error.
+    let ai_enabled = account
+        .acc
+        .ai_config()
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|c| c.enabled);
     let l = &state.limits;
     let base = &state.base_url;
 
@@ -87,6 +96,9 @@ pub async fn session(
         "downloadUrl": format!("{base}/jmap/download/{{accountId}}/{{blobId}}/{{name}}"),
         "uploadUrl": format!("{base}/jmap/upload/{{accountId}}"),
         "eventSourceUrl": format!("{base}/jmap/eventsource?types={{types}}&closeafter={{closeafter}}&ping={{ping}}"),
-        "state": state_str
+        "state": state_str,
+        // Ficina extension (additive): whether AI features are enabled for this
+        // tenant, so the client shows or hides AI affordances (ADR 0011).
+        "ficina:aiEnabled": ai_enabled
     })))
 }

@@ -94,6 +94,41 @@ one-line insert.)
 
 ---
 
+## 3a. Turn on AI (optional, per tenant)
+
+AI features (the compose **Improve** action; more later) are **off by
+default** and **bring-your-own-backend** (ADR 0011): you point a tenant at any
+**OpenAI-compatible** endpoint. The simplest sovereign option is a local
+**Ollama** on the same host — no key, nothing leaves your server:
+
+```sh
+# on the host, once: run Ollama and pull a small model
+#   (any OpenAI-compatible server works — vLLM, or a hosted provider with a key)
+ollama serve &                 # listens on http://localhost:11434
+ollama pull llama3.2
+
+cd /opt/ficina/deploy/production
+# Point the tenant at it and enable. Find the tenant id with:
+#   docker compose exec -T postgres psql -U ficina -d ficina -c "SELECT id, name FROM tenants;"
+docker compose exec -T postgres psql -U ficina -d ficina <<'SQL'
+INSERT INTO ai_config (tenant_id, base_url, model, api_key, enabled)
+VALUES ('<tenant_id>', 'http://host.docker.internal:11434', 'llama3.2', NULL, TRUE)
+ON CONFLICT (tenant_id) DO UPDATE
+  SET base_url = EXCLUDED.base_url, model = EXCLUDED.model,
+      api_key = EXCLUDED.api_key, enabled = EXCLUDED.enabled, updated_at = now();
+SQL
+docker compose restart ficina-jmap    # picks up the new config
+```
+
+For a hosted provider instead, set `base_url` to its API root (e.g.
+`https://api.mistral.ai`), `model` to one it serves, and `api_key` to your key.
+To turn AI **off** for a tenant: `UPDATE ai_config SET enabled = FALSE WHERE
+tenant_id = '<tenant_id>';`. The endpoint is **operator-set on purpose** — it is
+never a user-editable field, so it cannot be pointed at internal services.
+`api_key` is a secret: it is never returned to clients or written to logs.
+
+---
+
 ## 4. Restore from backup
 
 Backups are **encrypted** with restic and run nightly at 03:30. They contain

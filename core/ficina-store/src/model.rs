@@ -4,6 +4,16 @@ use time::OffsetDateTime;
 
 use crate::id::{BlobId, MailboxId, MessageId, ThreadId};
 
+/// Per-tenant AI backend configuration (ADR 0011). `api_key` is a secret and is
+/// never serialized to clients or written to logs.
+#[derive(Debug, Clone)]
+pub struct AiConfigRow {
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+    pub enabled: bool,
+}
+
 /// A stored blob's metadata (for JMAP download).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blob {

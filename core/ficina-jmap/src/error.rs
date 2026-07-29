@@ -84,6 +84,12 @@ impl Problem {
     pub fn server_error() -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "about:blank")
     }
+
+    /// A problem with an explicit status and a safe, client-visible detail
+    /// (never internal error text). For endpoints outside the JMAP envelope.
+    pub fn with(status: StatusCode, detail: impl Into<String>) -> Self {
+        Self::new(status, "about:blank").detail(detail)
+    }
 }
 
 impl IntoResponse for Problem {

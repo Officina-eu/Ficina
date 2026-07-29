@@ -14,6 +14,8 @@ ficina-identity = { path = "../ficina-identity" }
 # trusted internal submission listener using the same production client the
 # SMTP delivery path uses.
 ficina-smtp-client = { path = "../ficina-smtp-client" }
+# The AI inference layer (ADR 0011) — the /ai/improve route bridges to it.
+ficina-ai = { path = "../ficina-ai" }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
