@@ -44,9 +44,13 @@ pub struct ParsedMessage {
 pub fn parse(raw: &[u8]) -> ParsedMessage {
     let msg = Message::parse(raw);
 
-    let subject = header(&msg, "Subject").map(unfold).unwrap_or_default();
-    let from_addr = header(&msg, "From").map(unfold).unwrap_or_default();
-    let to_addrs = header(&msg, "To").map(unfold).unwrap_or_default();
+    // Unfold, then RFC 2047-decode encoded-words so accented subjects and
+    // display names are stored (and full-text-indexed) as readable UTF-8. The
+    // addr-spec inside <…> is never an encoded-word, so addresses are intact.
+    let decode_hdr = |v: &str| crate::rfc2047::decode(&unfold(v));
+    let subject = header(&msg, "Subject").map(decode_hdr).unwrap_or_default();
+    let from_addr = header(&msg, "From").map(decode_hdr).unwrap_or_default();
+    let to_addrs = header(&msg, "To").map(decode_hdr).unwrap_or_default();
 
     let message_id = header(&msg, "Message-ID")
         .map(unfold)
@@ -198,5 +202,17 @@ Hello there, this is the body.\r\n";
         assert_eq!(spf.as_deref(), Some("fail"));
         assert!(dkim.is_none());
         assert_eq!(dmarc.as_deref(), Some("fail"));
+    }
+
+    #[test]
+    fn decodes_rfc2047_subject_and_display_name() {
+        let raw = b"From: =?UTF-8?B?SMOpbMOobmU=?= <helene@proceq.eu>\r\n\
+Subject: =?ISO-8859-1?Q?caf=E9_pr=EAt?=\r\n\
+\r\n\
+body\r\n";
+        let p = parse(raw);
+        // Subject decoded to readable UTF-8; the address is untouched.
+        assert_eq!(p.subject, "café prêt");
+        assert_eq!(p.from_addr, "Hélène <helene@proceq.eu>");
     }
 }

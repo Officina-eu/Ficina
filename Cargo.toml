@@ -31,6 +31,8 @@ rustls-pki-types = { version = "1", features = ["std"] }
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 # Base64 for SASL AUTH (RFC 4954) and DKIM (RFC 6376) tags.
 base64 = "0.22"
+# Browser-grade charset decoding for RFC 2047 encoded-word header values.
+encoding_rs = "0.8"
 # Trust-stack (ficina-auth-mail) crypto primitives. RSA sign/verify use
 # `ring` (constant-time, already in-tree via rustls) rather than the
 # `rsa` crate, which carries the unfixed Marvin timing sidechannel

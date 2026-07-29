@@ -352,7 +352,11 @@ decode encoded-words on display), so this is a *local display/index* gap, not a
 send bug — the outgoing header is correct (RFC 2047 is exactly how non-ASCII
 subjects must be encoded on the wire).
 
-Fix (tracked): decode RFC 2047 encoded-words for the stored/indexed `subject`
-(and `From`/`To` display names) at ingestion in `ficina-store`, keeping the raw
-header bytes intact for fidelity. Affects both received mail and our own filed
-copies. Not yet done.
+Fixed: `ficina-store` now RFC 2047-decodes the `subject` and the `From`/`To`
+display names at ingestion (`rfc2047::decode`, applied in `message::parse`) —
+any charset via `encoding_rs`, `B`/`Q` encodings, with adjacent-encoded-word
+whitespace dropped (§6.2). The addr-spec inside `<…>` is never an encoded-word,
+so addresses are untouched; the raw message bytes are unchanged (fidelity
+preserved). Applies to newly-ingested mail (received + our own filed copies); a
+backfill of rows stored before this landed is a separate, optional migration
+(none in production but the test data).
