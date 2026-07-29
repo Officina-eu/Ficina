@@ -1,33 +1,25 @@
-// The compose window: a new message or a reply. Recipients, subject, and a
-// plain-text body; on send it creates a draft (Email/set) then submits it
-// (EmailSubmission/set), which sends it and files it to Sent. Reply mode
-// prefills the recipient, "Re:" subject, quoted original, and the threading
-// headers (In-Reply-To / References).
-import { useState } from "react";
+// The compose window: a new message, reply, reply-all, or forward. Recipients
+// are chips (To / Cc / Bcc), the quoted original is tucked behind a toggle, and
+// on send it creates a draft (Email/set) then submits it (EmailSubmission/set),
+// which sends it and files it to Sent. Bcc recipients ride the envelope only —
+// never the visible headers.
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Maximize2, Minimize2, Trash2, X } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Button, Spinner } from "../../ds";
+import { Spinner, cx } from "../../ds";
 import { useJmapClient } from "../../jmap";
 import type { EmailAddress, EmailFull } from "../../jmap";
 import { formatDate, senderName } from "../format";
 import { textContent } from "../body";
+import { RecipientInput } from "./RecipientInput";
 import styles from "./ComposeModal.module.css";
 
 export interface ComposeContext {
   mode: "new" | "reply" | "replyAll" | "forward";
   /** The source message for a reply or forward. */
   replyTo?: EmailFull;
-}
-
-interface Prefill {
-  to: string;
-  cc: string;
-  subject: string;
-  body: string;
-  inReplyTo: string[];
-  references: string[];
 }
 
 interface ComposeModalProps {
@@ -39,33 +31,30 @@ interface ComposeModalProps {
   onSent: () => void;
 }
 
-function parseRecipients(input: string): EmailAddress[] {
-  return input
-    .split(/[,;]/)
-    .map((s) => s.trim())
-    .filter((s) => s.includes("@"))
-    .map((email) => ({ name: null, email }));
+interface Prefill {
+  to: EmailAddress[];
+  cc: EmailAddress[];
+  subject: string;
+  /** The new message text (empty for a reply/forward — the user writes it). */
+  body: string;
+  /** The quoted original / forwarded block, shown behind a toggle and appended
+   * to the body on send. */
+  quoted: string;
+  inReplyTo: string[];
+  references: string[];
+  showCc: boolean;
 }
 
-function replyPrefill(replyTo: EmailFull): Prefill {
-  const to = replyTo.from?.[0]?.email ?? "";
-  const base = (replyTo.subject ?? "").replace(/^(re:\s*)+/i, "");
-  const original = textContent(replyTo) ?? replyTo.preview;
-  const header = `${formatDate(replyTo.receivedAt)} — ${senderName(replyTo)} ${strings.composeWroteOn}`;
-  const quoted = original
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n");
-  const messageIds = replyTo.messageId ?? [];
-  return {
-    to,
-    cc: "",
-    subject: strings.composeReplyPrefix + base,
-    body: `\n\n${header}\n${quoted}\n`,
-    inReplyTo: messageIds,
-    references: [...(replyTo.references ?? []), ...messageIds],
-  };
-}
+const EMPTY: Prefill = {
+  to: [],
+  cc: [],
+  subject: "",
+  body: "",
+  quoted: "",
+  inReplyTo: [],
+  references: [],
+  showCc: false,
+};
 
 /** Dedupe addresses, dropping empties and any already-seen (case-insensitive)
  * — `seen` is seeded with the addresses to exclude (e.g. the signed-in user). */
@@ -94,24 +83,24 @@ export function replyAllRecipients(
   return { to, cc };
 }
 
-function replyAllPrefill(replyTo: EmailFull, me: string): Prefill {
-  const { to, cc } = replyAllRecipients(replyTo, me);
-  return {
-    ...replyPrefill(replyTo),
-    to: to.map((a) => a.email).join(", "),
-    cc: cc.map((a) => a.email).join(", "),
-  };
+/** The "On <date>, <sender> wrote:" quoted-reply block. */
+function quoteBlock(replyTo: EmailFull): string {
+  const original = textContent(replyTo) ?? replyTo.preview;
+  const header = `${formatDate(replyTo.receivedAt)} — ${senderName(replyTo)} ${strings.composeWroteOn}`;
+  const quoted = original
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return `${header}\n${quoted}`;
 }
 
-function forwardPrefill(source: EmailFull): Prefill {
-  const base = (source.subject ?? "").replace(/^(fwd:\s*)+/i, "");
+/** The "---------- Forwarded message ----------" block. */
+function forwardBlock(source: EmailFull): string {
   const original = textContent(source) ?? source.preview;
   const recipients = (source.to ?? [])
     .map((a) => (a.name !== null && a.name.length > 0 ? a.name : a.email))
     .join(", ");
-  const block = [
-    "",
-    "",
+  return [
     strings.composeForwardedIntro,
     `${strings.composeLabelFrom} ${senderName(source)} <${source.from?.[0]?.email ?? ""}>`,
     `${strings.composeLabelDate} ${formatDate(source.receivedAt)}`,
@@ -119,17 +108,65 @@ function forwardPrefill(source: EmailFull): Prefill {
     `${strings.composeLabelTo} ${recipients}`,
     "",
     original,
-    "",
   ].join("\n");
-  // Forwarding starts a fresh conversation — no reply threading headers.
-  return {
-    to: "",
-    cc: "",
-    subject: strings.composeForwardPrefix + base,
-    body: block,
-    inReplyTo: [],
-    references: [],
+}
+
+function stripRe(subject: string | null, prefix: RegExp): string {
+  return (subject ?? "").replace(prefix, "");
+}
+
+function buildPrefill(context: ComposeContext, me: string): Prefill {
+  const src = context.replyTo;
+  if (src === undefined) return EMPTY;
+  const threading = {
+    inReplyTo: src.messageId ?? [],
+    references: [...(src.references ?? []), ...(src.messageId ?? [])],
   };
+  const firstFrom = src.from?.[0] !== undefined ? [src.from[0]] : [];
+
+  if (context.mode === "reply") {
+    return {
+      ...EMPTY,
+      ...threading,
+      to: firstFrom,
+      subject: strings.composeReplyPrefix + stripRe(src.subject, /^(re:\s*)+/i),
+      quoted: quoteBlock(src),
+    };
+  }
+  if (context.mode === "replyAll") {
+    const { to, cc } = replyAllRecipients(src, me);
+    return {
+      ...EMPTY,
+      ...threading,
+      to,
+      cc,
+      showCc: cc.length > 0,
+      subject: strings.composeReplyPrefix + stripRe(src.subject, /^(re:\s*)+/i),
+      quoted: quoteBlock(src),
+    };
+  }
+  if (context.mode === "forward") {
+    // Forwarding starts a fresh conversation — no threading headers.
+    return {
+      ...EMPTY,
+      subject: strings.composeForwardPrefix + stripRe(src.subject, /^(fwd:\s*)+/i),
+      quoted: forwardBlock(src),
+    };
+  }
+  return EMPTY;
+}
+
+function title(mode: ComposeContext["mode"]): string {
+  switch (mode) {
+    case "reply":
+      return strings.composeReplyTitle;
+    case "replyAll":
+      return strings.composeReplyAllTitle;
+    case "forward":
+      return strings.composeForwardTitle;
+    default:
+      return strings.composeTitle;
+  }
 }
 
 export function ComposeModal({
@@ -141,40 +178,30 @@ export function ComposeModal({
   onSent,
 }: ComposeModalProps) {
   const client = useJmapClient();
-  const empty: Prefill = { to: "", cc: "", subject: "", body: "", inReplyTo: [], references: [] };
-  const prefill: Prefill =
-    context.replyTo === undefined
-      ? empty
-      : context.mode === "reply"
-        ? replyPrefill(context.replyTo)
-        : context.mode === "replyAll"
-          ? replyAllPrefill(context.replyTo, fromEmail)
-          : context.mode === "forward"
-            ? forwardPrefill(context.replyTo)
-            : empty;
+  const prefill = useMemo(() => buildPrefill(context, fromEmail), [context, fromEmail]);
   const isReply = context.mode === "reply" || context.mode === "replyAll";
-  const title =
-    context.mode === "replyAll"
-      ? strings.replyAll
-      : context.mode === "reply"
-        ? strings.composeReplyTitle
-        : context.mode === "forward"
-          ? strings.composeForwardTitle
-          : strings.composeTitle;
 
-  const [to, setTo] = useState(prefill.to);
-  const [cc, setCc] = useState(prefill.cc);
-  const [showCc, setShowCc] = useState(prefill.cc.length > 0);
+  const [to, setTo] = useState<EmailAddress[]>(prefill.to);
+  const [cc, setCc] = useState<EmailAddress[]>(prefill.cc);
+  const [bcc, setBcc] = useState<EmailAddress[]>([]);
+  const [showCc, setShowCc] = useState(prefill.showCc);
+  const [showBcc, setShowBcc] = useState(false);
   const [subject, setSubject] = useState(prefill.subject);
   const [body, setBody] = useState(prefill.body);
+  const [showQuoted, setShowQuoted] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
+  const recipientTotal = useMemo(() => {
+    const seen = new Set<string>();
+    for (const a of [...to, ...cc, ...bcc]) seen.add(a.email.toLowerCase());
+    return seen.size;
+  }, [to, cc, bcc]);
+
   async function onSend(event: FormEvent) {
     event.preventDefault();
-    const toAddrs = parseRecipients(to);
-    const ccAddrs = showCc ? parseRecipients(cc) : [];
-    if (toAddrs.length === 0 && ccAddrs.length === 0) {
+    if (to.length === 0 && cc.length === 0 && bcc.length === 0) {
       setError(strings.composeNoRecipients);
       return;
     }
@@ -184,23 +211,25 @@ export function ComposeModal({
     }
     setSending(true);
     setError(null);
+    const fullBody = prefill.quoted.length > 0 ? `${body}\n\n${prefill.quoted}` : body;
     try {
       const emailId = await client.createDraft({
         mailboxId: draftsMailboxId,
         from: { name: fromName.length > 0 ? fromName : null, email: fromEmail },
-        to: toAddrs,
-        cc: ccAddrs,
+        to,
+        cc,
         subject,
-        bodyText: body,
+        bodyText: fullBody,
         inReplyTo: prefill.inReplyTo,
         references: prefill.references,
       });
-      const rcpts = [...toAddrs, ...ccAddrs].map((a) => a.email);
+      // Bcc rides the envelope only — it is deliberately absent from the draft
+      // headers above but present in the submission recipients here.
+      const rcpts = [...to, ...cc, ...bcc].map((a) => a.email);
       await client.submitEmail(emailId, fromEmail, rcpts);
       onSent();
     } catch {
       setError(strings.composeSendError);
-    } finally {
       setSending(false);
     }
   }
@@ -208,56 +237,62 @@ export function ComposeModal({
   return (
     <div className={styles.overlay} onMouseDown={onClose}>
       <div
-        className={styles.modal}
+        className={cx(styles.modal, expanded && styles.expanded)}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={title(context.mode)}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <form onSubmit={onSend} className={styles.form}>
-          <div className={styles.head}>
-            <h2 className={styles.title}>{title}</h2>
+          <header className={styles.head}>
+            <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={strings.composeBack}>
+              <ArrowLeft size={18} />
+            </button>
+            <h2 className={styles.title}>{title(context.mode)}</h2>
+            {recipientTotal > 0 && (
+              <span className={styles.countPill}>{strings.recipientCount(recipientTotal)}</span>
+            )}
+            <div className={styles.headSpacer} />
             <button
               type="button"
-              className={styles.close}
-              onClick={onClose}
-              aria-label={strings.composeDiscard}
+              className={styles.iconBtn}
+              onClick={() => setExpanded((v) => !v)}
+              aria-label={expanded ? strings.composeCollapse : strings.composeExpand}
             >
+              {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+            <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={strings.composeDiscard}>
               <X size={18} />
             </button>
-          </div>
+          </header>
 
           <div className={styles.fields}>
-            <div className={styles.field}>
-              <span className={styles.label}>{strings.composeTo}</span>
+            <RecipientInput
+              label={strings.composeTo}
+              value={to}
+              onChange={setTo}
+              autoFocus={!isReply}
+              trailing={
+                <>
+                  {!showCc && (
+                    <button type="button" className={styles.ccBtn} onClick={() => setShowCc(true)}>
+                      {strings.composeCc}
+                    </button>
+                  )}
+                  {!showBcc && (
+                    <button type="button" className={styles.ccBtn} onClick={() => setShowBcc(true)}>
+                      {strings.composeBcc}
+                    </button>
+                  )}
+                </>
+              }
+            />
+            {showCc && <RecipientInput label={strings.composeCc} value={cc} onChange={setCc} />}
+            {showBcc && <RecipientInput label={strings.composeBcc} value={bcc} onChange={setBcc} />}
+            <div className={styles.subjectRow}>
+              <span className={styles.subjectLabel}>{strings.composeSubject}</span>
               <input
-                className={styles.input}
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                placeholder={strings.composeRecipientsPlaceholder}
-                autoFocus={!isReply}
-              />
-              {!showCc && (
-                <button type="button" className={styles.ccToggle} onClick={() => setShowCc(true)}>
-                  {strings.composeCcToggle}
-                </button>
-              )}
-            </div>
-            {showCc && (
-              <div className={styles.field}>
-                <span className={styles.label}>{strings.composeCc}</span>
-                <input
-                  className={styles.input}
-                  value={cc}
-                  onChange={(e) => setCc(e.target.value)}
-                  placeholder={strings.composeRecipientsPlaceholder}
-                />
-              </div>
-            )}
-            <div className={styles.field}>
-              <span className={styles.label}>{strings.composeSubject}</span>
-              <input
-                className={styles.input}
+                className={styles.subjectInput}
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder={strings.composeSubjectPlaceholder}
@@ -273,20 +308,46 @@ export function ComposeModal({
             autoFocus={isReply}
           />
 
+          {prefill.quoted.length > 0 && (
+            <div className={styles.quotedWrap}>
+              <button
+                type="button"
+                className={styles.quotedToggle}
+                onClick={() => setShowQuoted((v) => !v)}
+              >
+                {showQuoted ? strings.hideQuoted : strings.showQuoted}
+              </button>
+              {showQuoted && <pre className={styles.quoted}>{prefill.quoted}</pre>}
+            </div>
+          )}
+
           {error !== null && (
             <p className={styles.error} role="alert">
               {error}
             </p>
           )}
 
-          <div className={styles.footer}>
-            <Button type="submit" disabled={sending}>
-              {sending ? <Spinner size={16} label={strings.composeSending} /> : strings.composeSend}
-            </Button>
-            <button type="button" className={styles.discard} onClick={onClose}>
-              {strings.composeDiscard}
+          <footer className={styles.footer}>
+            <button
+              type="button"
+              className={styles.discard}
+              onClick={onClose}
+              aria-label={strings.composeDiscard}
+            >
+              <Trash2 size={17} />
             </button>
-          </div>
+            <div className={styles.headSpacer} />
+            <button type="submit" className={styles.send} disabled={sending}>
+              {sending ? (
+                <Spinner size={16} label={strings.composeSending} />
+              ) : (
+                <>
+                  <span>{strings.composeSend}</span>
+                  <ArrowRight size={16} />
+                </>
+              )}
+            </button>
+          </footer>
         </form>
       </div>
     </div>
