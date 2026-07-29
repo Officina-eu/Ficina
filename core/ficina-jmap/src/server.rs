@@ -51,6 +51,19 @@ pub fn app(state: AppState) -> Router {
             axum::routing::delete(admin::delete_provider),
         )
         .route("/admin/ai/test", post(admin::test_connection))
+        // Admin console: users & mailboxes.
+        .route(
+            "/admin/users",
+            get(admin::list_users).post(admin::create_user),
+        )
+        .route("/admin/users/password", post(admin::reset_password))
+        .route("/admin/users/admin", post(admin::set_user_admin))
+        .route("/admin/users/alias", post(admin::add_alias))
+        .route("/admin/users/alias/remove", post(admin::remove_alias))
+        .route(
+            "/admin/users/{id}",
+            axum::routing::delete(admin::delete_user),
+        )
         .layer(DefaultBodyLimit::max(upload_limit))
         .with_state(state);
     jmap.merge(identity_routes)

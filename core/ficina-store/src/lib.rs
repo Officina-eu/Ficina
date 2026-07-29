@@ -36,6 +36,6 @@ pub use identity::{
 };
 pub use model::{
     AiConfigRow, AiProviderRow, Blob, EmailFilter, EmailQuery, MAX_PAGE, Mailbox, Message,
-    MessageSummary, Page, SortDirection,
+    MessageSummary, Page, SortDirection, UserRow,
 };
 pub use store::{SEEN, Store, TenantStore};

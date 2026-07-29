@@ -15,6 +15,18 @@ pub struct AiConfigRow {
     pub enabled: bool,
 }
 
+/// A user row for the admin console: identity plus read-only usage (message
+/// count and storage bytes). Secrets (password hash, TOTP) are never here.
+#[derive(Debug, Clone)]
+pub struct UserRow {
+    pub id: String,
+    pub email: String,
+    pub is_admin: bool,
+    pub created_at: OffsetDateTime,
+    pub message_count: i64,
+    pub storage_bytes: i64,
+}
+
 /// One configured AI provider (admin console). Several may exist per tenant;
 /// exactly one enabled provider is the default the AI features use. `api_key`
 /// is a secret — the admin API exposes only whether a key is set.

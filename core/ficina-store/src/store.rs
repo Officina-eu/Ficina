@@ -236,6 +236,56 @@ impl TenantStore {
         Ok(())
     }
 
+    /// All users in this tenant with read-only usage (message count + storage
+    /// bytes), for the admin console. Runtime-checked query (kept out of the
+    /// offline `.sqlx` cache); usage is aggregated per user.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn list_users(&self) -> Result<Vec<crate::model::UserRow>> {
+        let rows = sqlx::query_as::<_, (String, String, bool, time::OffsetDateTime, i64, i64)>(
+            "SELECT u.id, u.email, u.is_admin, u.created_at, \
+               (SELECT count(*) FROM messages m \
+                WHERE m.tenant_id = u.tenant_id AND m.user_id = u.id)::bigint AS msgs, \
+               (SELECT coalesce(sum(b.size), 0) FROM messages m \
+                JOIN blobs b ON b.tenant_id = m.tenant_id AND b.id = m.blob_id \
+                WHERE m.tenant_id = u.tenant_id AND m.user_id = u.id)::bigint AS bytes \
+             FROM users u WHERE u.tenant_id = $1 ORDER BY u.created_at",
+        )
+        .bind(self.tenant.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, email, is_admin, created_at, message_count, storage_bytes)| {
+                    crate::model::UserRow {
+                        id,
+                        email,
+                        is_admin,
+                        created_at,
+                        message_count,
+                        storage_bytes,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// Deletes a user in this tenant (mailboxes, messages, memberships, aliases
+    /// cascade via FK). Runtime-checked query.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn delete_user(&self, user: &UserId) -> Result<()> {
+        sqlx::query("DELETE FROM users WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant.as_str())
+            .bind(user.as_str())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Looks up a user id by email within this tenant.
     ///
     /// # Errors
