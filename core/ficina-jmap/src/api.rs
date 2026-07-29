@@ -575,6 +575,7 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
         in_reply_to: parse_msgids(props.get("inReplyTo")),
         references: parse_msgids(props.get("references")),
         body_text: compose_body_text(props),
+        body_html: compose_body_html(props),
         attachments,
         message_id_domain: domain,
         message_id_token: new_message_token(),
@@ -676,6 +677,23 @@ fn compose_body_text(props: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned()
+}
+
+/// The HTML body to compose from, if the draft has an `htmlBody` part with a
+/// non-empty value.
+fn compose_body_html(props: &Value) -> Option<String> {
+    let body_values = props.get("bodyValues").and_then(Value::as_object);
+    let pid = props
+        .get("htmlBody")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .and_then(|p| p.get("partId"))
+        .and_then(Value::as_str)?;
+    let value = body_values
+        .and_then(|bv| bv.get(pid))
+        .and_then(|x| x.get("value"))
+        .and_then(Value::as_str)?;
+    (!value.trim().is_empty()).then(|| value.to_owned())
 }
 
 /// The domain of an addr-spec, for seeding the `Message-ID`.

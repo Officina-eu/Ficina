@@ -1,4 +1,4 @@
-//! Building an RFC 5322 / MIME `text/plain` message for outgoing mail.
+//! Building an RFC 5322 / MIME message for outgoing mail.
 //!
 //! European-correct by construction: non-ASCII display names and subjects are
 //! emitted as RFC 2047 `B` encoded-words (each ≤75 chars), and a non-ASCII
@@ -7,10 +7,10 @@
 //! composed field. Header lines are folded to ≤78 columns (RFC 5322 §2.1.1);
 //! because non-ASCII is always encoded to ASCII first, folding is byte-safe.
 //!
-//! Scope: `text/plain` bodies with To/Cc and reply threading headers, plus
-//! `multipart/mixed` when the message carries attachments (base64 parts with a
-//! `Content-Disposition: attachment`). HTML alternatives are a later, additive
-//! pass (recorded in `docs/design/email-submission.md`).
+//! Structure: a `text/plain` body by default; a `multipart/alternative`
+//! (text + HTML) when an HTML body is present; and a `multipart/mixed` wrapping
+//! either of those plus one base64 part per attachment
+//! (`Content-Disposition: attachment`).
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -29,8 +29,8 @@ pub struct Attachment {
     pub bytes: Vec<u8>,
 }
 
-/// The fields of an outgoing message (text/plain, or multipart/mixed when it
-/// carries attachments).
+/// The fields of an outgoing message (text/plain, multipart/alternative with an
+/// HTML body, and/or multipart/mixed when it carries attachments).
 pub struct Outgoing {
     pub from: Addr,
     pub to: Vec<Addr>,
@@ -41,6 +41,9 @@ pub struct Outgoing {
     /// The `References` chain (bare message-ids).
     pub references: Vec<String>,
     pub body_text: String,
+    /// Optional HTML body. When present the message carries both a text/plain
+    /// and a text/html part in a `multipart/alternative`.
+    pub body_html: Option<String>,
     /// Attachments; when non-empty the message is built as multipart/mixed.
     pub attachments: Vec<Attachment>,
     /// The submission hostname, for the `Message-ID` domain if the submission
@@ -84,55 +87,68 @@ pub fn build(msg: &Outgoing) -> Vec<u8> {
     }
     headers.push("MIME-Version: 1.0".to_owned());
 
-    let (cte, body) = encode_body(&msg.body_text);
+    let has_html = msg.body_html.as_ref().is_some_and(|h| !h.trim().is_empty());
+    let mut out = Vec::with_capacity(msg.body_text.len() + 1024);
 
+    // Structure by what the message carries:
+    //   text only            → top-level text/plain
+    //   text + html          → top-level multipart/alternative
+    //   + attachments        → top-level multipart/mixed wrapping the above
     if msg.attachments.is_empty() {
-        headers.push("Content-Type: text/plain; charset=utf-8".to_owned());
-        headers.push(format!("Content-Transfer-Encoding: {cte}"));
-        let mut out = Vec::with_capacity(body.len() + 512);
-        write_headers(&mut out, &headers);
-        out.extend_from_slice(b"\r\n");
-        out.extend_from_slice(&body);
-        if !out.ends_with(b"\r\n") {
+        if has_html {
+            let alt = format!("=_alt_{}", sanitize(&msg.message_id_token));
+            headers.push(format!(
+                "Content-Type: multipart/alternative; boundary=\"{alt}\""
+            ));
+            write_headers(&mut out, &headers);
             out.extend_from_slice(b"\r\n");
+            write_alternative(
+                &mut out,
+                &alt,
+                &msg.body_text,
+                msg.body_html.as_deref().unwrap_or(""),
+            );
+        } else {
+            let (cte, body) = encode_body(&msg.body_text);
+            headers.push("Content-Type: text/plain; charset=utf-8".to_owned());
+            headers.push(format!("Content-Transfer-Encoding: {cte}"));
+            write_headers(&mut out, &headers);
+            out.extend_from_slice(b"\r\n");
+            out.extend_from_slice(&body);
+            ensure_crlf(&mut out);
         }
         return out;
     }
 
-    // multipart/mixed: a text/plain part, then one part per attachment. The
-    // boundary is seeded from the unique message-id token, so it cannot collide
-    // with generated content.
-    let boundary = format!("=_Ficina_{}", sanitize(&msg.message_id_token));
-    headers.push(format!(
-        "Content-Type: multipart/mixed; boundary=\"{boundary}\""
-    ));
-
-    let mut out = Vec::with_capacity(body.len() + 1024);
+    // multipart/mixed: the main body part (text/plain or multipart/alternative)
+    // followed by one part per attachment. Boundaries are seeded from the unique
+    // message-id token so they cannot collide with generated content.
+    let mix = format!("=_mix_{}", sanitize(&msg.message_id_token));
+    headers.push(format!("Content-Type: multipart/mixed; boundary=\"{mix}\""));
     write_headers(&mut out, &headers);
     out.extend_from_slice(b"\r\n");
 
-    // text part
-    out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-    out.extend_from_slice(b"Content-Type: text/plain; charset=utf-8\r\n");
-    out.extend_from_slice(format!("Content-Transfer-Encoding: {cte}\r\n\r\n").as_bytes());
-    out.extend_from_slice(&body);
-    if !out.ends_with(b"\r\n") {
-        out.extend_from_slice(b"\r\n");
+    out.extend_from_slice(format!("--{mix}\r\n").as_bytes());
+    if has_html {
+        let alt = format!("=_alt_{}", sanitize(&msg.message_id_token));
+        out.extend_from_slice(
+            format!("Content-Type: multipart/alternative; boundary=\"{alt}\"\r\n\r\n").as_bytes(),
+        );
+        write_alternative(
+            &mut out,
+            &alt,
+            &msg.body_text,
+            msg.body_html.as_deref().unwrap_or(""),
+        );
+    } else {
+        write_text_part(&mut out, &msg.body_text);
     }
 
-    // one part per attachment, always base64
     for att in &msg.attachments {
-        let name = header_param(&att.name);
-        let ctype = sanitize(&att.content_type);
-        out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        out.extend_from_slice(format!("Content-Type: {ctype}; name=\"{name}\"\r\n").as_bytes());
-        out.extend_from_slice(b"Content-Transfer-Encoding: base64\r\n");
-        out.extend_from_slice(
-            format!("Content-Disposition: attachment; filename=\"{name}\"\r\n\r\n").as_bytes(),
-        );
-        out.extend_from_slice(&base64_wrapped(&att.bytes));
+        out.extend_from_slice(format!("--{mix}\r\n").as_bytes());
+        write_attachment_part(&mut out, att);
     }
-    out.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    out.extend_from_slice(format!("--{mix}--\r\n").as_bytes());
     out
 }
 
@@ -142,6 +158,53 @@ fn write_headers(out: &mut Vec<u8>, headers: &[String]) {
         out.extend_from_slice(h.as_bytes());
         out.extend_from_slice(b"\r\n");
     }
+}
+
+/// Ensure `out` ends with CRLF (part/message boundary hygiene).
+fn ensure_crlf(out: &mut Vec<u8>) {
+    if !out.ends_with(b"\r\n") {
+        out.extend_from_slice(b"\r\n");
+    }
+}
+
+/// A text/plain body part (headers + blank + encoded body + CRLF).
+fn write_text_part(out: &mut Vec<u8>, text: &str) {
+    let (cte, body) = encode_body(text);
+    out.extend_from_slice(b"Content-Type: text/plain; charset=utf-8\r\n");
+    out.extend_from_slice(format!("Content-Transfer-Encoding: {cte}\r\n\r\n").as_bytes());
+    out.extend_from_slice(&body);
+    ensure_crlf(out);
+}
+
+/// A text/html body part.
+fn write_html_part(out: &mut Vec<u8>, html: &str) {
+    let (cte, body) = encode_body(html);
+    out.extend_from_slice(b"Content-Type: text/html; charset=utf-8\r\n");
+    out.extend_from_slice(format!("Content-Transfer-Encoding: {cte}\r\n\r\n").as_bytes());
+    out.extend_from_slice(&body);
+    ensure_crlf(out);
+}
+
+/// A multipart/alternative block: the text/plain part then the text/html part
+/// (least-to-most faithful, per RFC 2046 §5.1.4).
+fn write_alternative(out: &mut Vec<u8>, boundary: &str, text: &str, html: &str) {
+    out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    write_text_part(out, text);
+    out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    write_html_part(out, html);
+    out.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+}
+
+/// A base64 attachment part with a quote-safe filename.
+fn write_attachment_part(out: &mut Vec<u8>, att: &Attachment) {
+    let name = header_param(&att.name);
+    let ctype = sanitize(&att.content_type);
+    out.extend_from_slice(format!("Content-Type: {ctype}; name=\"{name}\"\r\n").as_bytes());
+    out.extend_from_slice(b"Content-Transfer-Encoding: base64\r\n");
+    out.extend_from_slice(
+        format!("Content-Disposition: attachment; filename=\"{name}\"\r\n\r\n").as_bytes(),
+    );
+    out.extend_from_slice(&base64_wrapped(&att.bytes));
 }
 
 /// Base64 of `bytes`, wrapped at 76 columns with CRLF (RFC 2045).
@@ -331,6 +394,7 @@ mod tests {
             in_reply_to: Vec::new(),
             references: Vec::new(),
             body_text: body.to_owned(),
+            body_html: None,
             attachments: Vec::new(),
             message_id_domain: "namel3ss.com".to_owned(),
             message_id_token: "abc123".to_owned(),
@@ -431,7 +495,7 @@ mod tests {
             bytes: vec![0x50, 0x4B, 0x03, 0x04, 0x0A], // "PK\x03\x04\n"
         }];
         let s = text(&m);
-        assert!(s.contains("Content-Type: multipart/mixed; boundary=\"=_Ficina_abc123\""));
+        assert!(s.contains("Content-Type: multipart/mixed; boundary=\"=_mix_abc123\""));
         // the text part
         assert!(s.contains("Content-Type: text/plain; charset=utf-8"));
         assert!(s.contains("See attached."));
@@ -443,7 +507,46 @@ mod tests {
             s.contains("UEsDBAo="),
             "attachment bytes are base64-encoded"
         );
-        assert!(s.trim_end().ends_with("--=_Ficina_abc123--"));
+        assert!(s.trim_end().ends_with("--=_mix_abc123--"));
+    }
+
+    #[test]
+    fn html_body_produces_multipart_alternative() {
+        let mut m = base("Hi", "plain version");
+        m.body_html = Some("<p>rich <b>version</b></p>".to_owned());
+        let s = text(&m);
+        assert!(s.contains("Content-Type: multipart/alternative; boundary=\"=_alt_abc123\""));
+        assert!(s.contains("Content-Type: text/plain; charset=utf-8"));
+        assert!(s.contains("plain version"));
+        assert!(s.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(s.contains("<p>rich <b>version</b></p>"));
+        assert!(s.trim_end().ends_with("--=_alt_abc123--"));
+    }
+
+    #[test]
+    fn html_plus_attachment_nests_alternative_in_mixed() {
+        let mut m = base("Hi", "plain");
+        m.body_html = Some("<b>rich</b>".to_owned());
+        m.attachments = vec![Attachment {
+            name: "f.txt".to_owned(),
+            content_type: "text/plain".to_owned(),
+            bytes: b"x".to_vec(),
+        }];
+        let s = text(&m);
+        assert!(s.contains("Content-Type: multipart/mixed; boundary=\"=_mix_abc123\""));
+        assert!(s.contains("Content-Type: multipart/alternative; boundary=\"=_alt_abc123\""));
+        assert!(s.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(s.contains("Content-Disposition: attachment; filename=\"f.txt\""));
+        assert!(s.trim_end().ends_with("--=_mix_abc123--"));
+    }
+
+    #[test]
+    fn blank_html_stays_plain_text() {
+        let mut m = base("Hi", "just text");
+        m.body_html = Some("   ".to_owned());
+        let s = text(&m);
+        assert!(s.contains("Content-Type: text/plain; charset=utf-8"));
+        assert!(!s.contains("multipart"));
     }
 
     #[test]
