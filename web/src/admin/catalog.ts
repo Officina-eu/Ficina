@@ -1,8 +1,8 @@
-// The AI-provider catalog the admin screen presents. Only kinds our inference
-// layer can actually drive are listed (all speak the OpenAI-compatible Chat
-// Completions contract): self-hosted Ollama, OpenAI, and a custom endpoint.
-// Anthropic (native, non-OpenAI API) and a hosted "Ficina AI" are not shown
-// until their backends exist — no card that can't work.
+// The AI-provider catalog the admin screen presents. Every kind here speaks the
+// OpenAI-compatible Chat Completions contract our inference layer drives:
+// self-hosted Ollama, the built-in Ficina AI (point it at your EU-hosted or
+// local endpoint), OpenAI, Anthropic (via its OpenAI-compatible endpoint), and
+// a custom endpoint.
 import { strings } from "../i18n";
 
 export interface CatalogEntry {
@@ -12,6 +12,8 @@ export interface CatalogEntry {
   group: "self" | "keys";
   defaultBaseUrl: string;
   needsKey: boolean;
+  /** Shown with a "Built in" tag. */
+  builtIn?: boolean;
 }
 
 export const CATALOG: CatalogEntry[] = [
@@ -24,11 +26,28 @@ export const CATALOG: CatalogEntry[] = [
     needsKey: false,
   },
   {
+    kind: "ficina",
+    name: strings.kindFicina,
+    description: strings.ficinaDesc,
+    group: "self",
+    defaultBaseUrl: "",
+    needsKey: false,
+    builtIn: true,
+  },
+  {
     kind: "openai",
     name: strings.kindOpenai,
     description: strings.openaiDesc,
     group: "keys",
     defaultBaseUrl: "https://api.openai.com/v1",
+    needsKey: true,
+  },
+  {
+    kind: "anthropic",
+    name: strings.kindAnthropic,
+    description: strings.anthropicDesc,
+    group: "keys",
+    defaultBaseUrl: "https://api.anthropic.com/v1",
     needsKey: true,
   },
   {

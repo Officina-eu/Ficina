@@ -8,7 +8,7 @@ import type { FormEvent } from "react";
 import { Check, Eye, EyeOff, KeyRound, RefreshCw, Server, X } from "lucide-react";
 
 import { strings } from "../i18n";
-import { Spinner } from "../ds";
+import { Spinner, cx } from "../ds";
 import { useJmapClient } from "../jmap";
 import type { AiProvider } from "../jmap";
 import type { CatalogEntry } from "./catalog";
@@ -26,8 +26,20 @@ interface ProviderModalProps {
 export function ProviderModal({ entry, provider, makeDefaultOnSave, onClose, onSaved }: ProviderModalProps) {
   const client = useJmapClient();
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? entry.defaultBaseUrl);
-  const [model, setModel] = useState(provider?.model ?? "");
+  const [models, setModels] = useState<string[]>(
+    provider?.model !== undefined && provider.model.length > 0
+      ? provider.model.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+      : [],
+  );
+  const [modelDraft, setModelDraft] = useState("");
   const [apiKey, setApiKey] = useState("");
+
+  function addModel() {
+    const m = modelDraft.trim();
+    if (m.length === 0 || models.includes(m)) return;
+    setModels([...models, m]);
+    setModelDraft("");
+  }
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [tested, setTested] = useState<{ ok: boolean; models: number } | "fail" | null>(null);
@@ -49,7 +61,9 @@ export function ProviderModal({ entry, provider, makeDefaultOnSave, onClose, onS
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (baseUrl.trim().length === 0 || model.trim().length === 0) {
+    const draft = modelDraft.trim();
+    const allModels = draft.length > 0 && !models.includes(draft) ? [...models, draft] : models;
+    if (baseUrl.trim().length === 0 || allModels.length === 0) {
       setError(strings.providerRequired);
       return;
     }
@@ -62,7 +76,8 @@ export function ProviderModal({ entry, provider, makeDefaultOnSave, onClose, onS
         kind: entry.kind,
         label: entry.name,
         baseUrl: baseUrl.trim(),
-        model: model.trim(),
+        // The first model is the one the AI features use; the rest are recorded.
+        model: allModels.join(","),
         enabled: true,
         ...(apiKey.trim().length > 0 ? { apiKey: apiKey.trim() } : {}),
       });
@@ -136,15 +151,39 @@ export function ProviderModal({ entry, provider, makeDefaultOnSave, onClose, onS
               />
             </label>
 
-            <label className={styles.field}>
-              <span className={styles.label}>{strings.providerModel}</span>
-              <input
-                className={styles.input}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={entry.needsKey ? "gpt-4o-mini" : "llama3.2"}
-              />
-            </label>
+            <div className={styles.field}>
+              <span className={styles.label}>{strings.providerModels}</span>
+              <div className={styles.chips}>
+                {models.map((m, i) => (
+                  <span key={m} className={cx(styles.chip, i === 0 && styles.chipPrimary)}>
+                    <span className={styles.chipLabel}>{m}</span>
+                    <button
+                      type="button"
+                      className={styles.chipX}
+                      onClick={() => setModels(models.filter((x) => x !== m))}
+                      aria-label={strings.providerRemoveModel(m)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  className={styles.chipInput}
+                  value={modelDraft}
+                  onChange={(e) => setModelDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      addModel();
+                    }
+                  }}
+                  placeholder={models.length === 0 ? (entry.needsKey ? "gpt-4o-mini" : "llama3.2") : strings.providerModelPlaceholder}
+                />
+                <button type="button" className={styles.addChip} onClick={addModel}>
+                  {strings.providerAddModel}
+                </button>
+              </div>
+            </div>
 
             {verified && (
               <div className={styles.verified}>

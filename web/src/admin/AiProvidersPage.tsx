@@ -3,7 +3,7 @@
 // shows status, a Default badge, Manage, and an enable toggle; configuring one
 // opens the provider modal. Matches the design-system admin screen.
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, Server } from "lucide-react";
+import { KeyRound, Plus, Server } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Spinner, cx } from "../ds";
@@ -73,6 +73,7 @@ export function AiProvidersPage() {
         <div className={styles.cardText}>
           <div className={styles.cardName}>
             <strong>{entry.name}</strong>
+            {entry.builtIn === true && <span className={styles.builtIn}>{strings.builtInTag}</span>}
             <span className={cx(styles.pill, st.tone === "ok" ? styles.pillOk : styles.pillMuted)}>{st.label}</span>
             {isDefault && <span className={styles.defaultBadge}>{strings.adminDefaultBadge}</span>}
           </div>
@@ -108,6 +109,14 @@ export function AiProvidersPage() {
           <h1>{strings.adminAiProviders}</h1>
           <p className={styles.pageIntro}>{strings.adminAiIntro}</p>
         </div>
+        <button
+          type="button"
+          className={styles.primary}
+          onClick={() => setEditing(CATALOG.find((c) => c.kind === "custom") ?? null)}
+        >
+          <Plus size={16} />
+          <span>{strings.adminAddProvider}</span>
+        </button>
       </header>
 
       {providers === null && !error && (

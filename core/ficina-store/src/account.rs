@@ -1363,7 +1363,14 @@ impl AccountStore {
         .await?;
         Ok(row.map(|(base_url, model, api_key, enabled)| AiConfigRow {
             base_url,
-            model,
+            // A provider may enable several models (stored comma-separated); the
+            // first is the active model the AI features request.
+            model: model
+                .split(',')
+                .next()
+                .map(str::trim)
+                .unwrap_or("")
+                .to_owned(),
             api_key,
             enabled,
         }))
