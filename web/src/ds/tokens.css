@@ -14,7 +14,7 @@
   --paper: #faf8f3;
   --verdigris: #2e6b5e;
   --copper: #b0642f;
-  --ink: #211d18;
+  --ink: #221e17; /* Figma text/primary */
 
   /* ---- verdigris scale (primary accent) ---- */
   --verdigris-50: #edf3f1;
@@ -49,27 +49,27 @@
 
   /* ---- semantic: backgrounds ---- */
   --bg-app: var(--paper);          /* the workspace canvas */
-  --bg-surface: var(--warm-0);     /* panels, cards, reading pane */
-  --bg-raised: var(--warm-100);    /* hover / subtle fills */
+  --bg-surface: #ffffff;           /* panels, cards, reading pane (Figma bg/surface) */
+  --bg-raised: #f3efe7;            /* hover / input fills (Figma bg/raised) */
   --bg-sunken: var(--warm-50);     /* list backgrounds */
-  --bg-rail: var(--verdigris-800); /* the left rail — brand-forward, deep */
-  --bg-rail-hover: var(--verdigris-700);
+  --bg-rail: #2b2a26;             /* the sidebar — warm charcoal (Figma bg/sidebar) */
+  --bg-rail-hover: #37352f;       /* a step lighter for hover/active on the rail */
   --bg-selected: var(--verdigris-50);  /* selected list row */
   --bg-overlay: rgba(33, 29, 24, 0.45);
 
   /* ---- semantic: text ---- */
-  --text-primary: var(--ink);
-  --text-secondary: #6d6556;
+  --text-primary: var(--ink);          /* Figma text/primary */
+  --text-secondary: #6b6357;           /* Figma text/secondary */
   --text-tertiary: var(--warm-500);
   --text-on-accent: #ffffff;
-  --text-on-rail: #e9efeb;
-  --text-on-rail-muted: #9fb6ae;
+  --text-on-rail: #eee9de;             /* Figma text/onDark */
+  --text-on-rail-muted: #9a9384;       /* Figma text/onDarkDim */
   --text-link: var(--verdigris-600);
 
   /* ---- semantic: borders ---- */
   --border-subtle: var(--warm-150);
-  --border-default: var(--warm-200);
-  --border-strong: var(--warm-300);
+  --border-default: #e5dfd3;  /* Figma border/default */
+  --border-strong: #d2caba;   /* Figma border/strong */
 
   /* ---- semantic: accents & states ---- */
   --accent: var(--verdigris-500);

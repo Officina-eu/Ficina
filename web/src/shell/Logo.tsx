@@ -6,9 +6,11 @@ import styles from "./Logo.module.css";
 interface LogoProps {
   size?: number;
   withWordmark?: boolean;
+  /** Light wordmark for placement on the dark brand panel / rail. */
+  onDark?: boolean;
 }
 
-export function Logo({ size = 32, withWordmark = false }: LogoProps) {
+export function Logo({ size = 32, withWordmark = false, onDark = false }: LogoProps) {
   return (
     <span className={styles.logo}>
       <svg
@@ -27,7 +29,11 @@ export function Logo({ size = 32, withWordmark = false }: LogoProps) {
         {/* copper rivet */}
         <circle cx="22" cy="22" r="2" fill="var(--copper-500)" />
       </svg>
-      {withWordmark && <span className={styles.wordmark}>Ficina</span>}
+      {withWordmark && (
+        <span className={onDark ? `${styles.wordmark} ${styles.onDark}` : styles.wordmark}>
+          Ficina
+        </span>
+      )}
     </span>
   );
 }

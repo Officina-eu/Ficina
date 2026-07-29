@@ -1,8 +1,10 @@
-// The sign-in screen. It owns the credential form (the IdP renders none) and
-// maps the provider's outcomes to plain, human error text — revealing the
-// authentication-code field only when the account has 2FA enrolled.
+// The sign-in experience (Figma "02 · Login & Onboarding"): a split screen —
+// a charcoal brand panel beside the credentials form — that hands off to the
+// dedicated Two-factor screen when the account has 2FA. The app owns the form
+// (the IdP renders none) and maps provider outcomes to plain error text.
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { KeyRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { strings } from "../i18n";
@@ -10,7 +12,10 @@ import { Button, Spinner } from "../ds";
 import { Logo } from "../shell/Logo";
 import { useAuth } from "./AuthProvider";
 import { AuthError } from "./oidcClient";
+import { TwoFactorScreen } from "./TwoFactorScreen";
 import styles from "./LoginPage.module.css";
+
+type Step = "credentials" | "twofactor";
 
 export function LoginPage() {
   const { signIn } = useAuth();
@@ -20,25 +25,30 @@ export function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [otp, setOtp] = useState("");
-  const [showOtp, setShowOtp] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [step, setStep] = useState<Step>("credentials");
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
+  async function attempt(otp?: string) {
     setSubmitting(true);
     setError(null);
+    setNote(null);
     try {
-      await signIn(email, password, showOtp ? otp : undefined);
+      await signIn(email, password, otp, remember);
       navigate(redirectTo, { replace: true });
     } catch (err) {
-      if (err instanceof AuthError) {
+      if (err instanceof AuthError && err.kind === "second_factor") {
+        if (otp === undefined) {
+          // Credentials were accepted; the account needs a second factor.
+          setStep("twofactor");
+        } else {
+          // A code was submitted and rejected.
+          setError(strings.errorBadOtp);
+        }
+      } else if (err instanceof AuthError) {
         switch (err.kind) {
-          case "second_factor":
-            setShowOtp(true);
-            setError(strings.errorSecondFactor);
-            break;
           case "bad_credentials":
             setError(strings.errorBadCredentials);
             break;
@@ -59,69 +69,119 @@ export function LoginPage() {
     }
   }
 
+  if (step === "twofactor") {
+    return (
+      <TwoFactorScreen
+        onVerify={(code) => void attempt(code)}
+        onBack={() => {
+          setStep("credentials");
+          setError(null);
+        }}
+        error={error}
+        submitting={submitting}
+      />
+    );
+  }
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    void attempt();
+  }
+
   return (
-    <div className={styles.page}>
-      <form className={styles.card} onSubmit={onSubmit}>
-        <div className={styles.brand}>
-          <Logo size={40} withWordmark />
+    <div className={styles.split}>
+      <aside className={styles.brand}>
+        <div className={styles.brandTop}>
+          <Logo size={40} withWordmark onDark />
         </div>
-        <h1 className={styles.title}>{strings.loginTitle}</h1>
-        <p className={styles.subtitle}>{strings.loginSubtitle}</p>
+        <div className={styles.brandBody}>
+          <h1 className={styles.headline}>{strings.brandHeadline}</h1>
+          <p className={styles.brandSub}>{strings.brandSubtitle}</p>
+        </div>
+        <div className={styles.brandFooter}>
+          <span className={styles.dot} aria-hidden="true" />
+          {strings.brandEuBadge}
+        </div>
+      </aside>
 
-        <label className={styles.field}>
-          <span className={styles.label}>{strings.emailLabel}</span>
-          <input
-            className={styles.input}
-            type="email"
-            autoComplete="username"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoFocus
-          />
-        </label>
+      <main className={styles.formPanel}>
+        <form className={styles.form} onSubmit={onSubmit}>
+          <div className={styles.formHead}>
+            <h2 className={styles.heading}>{strings.signInHeading}</h2>
+            <p className={styles.subtitle}>{strings.signInSubtitle}</p>
+          </div>
 
-        <label className={styles.field}>
-          <span className={styles.label}>{strings.passwordLabel}</span>
-          <input
-            className={styles.input}
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
-
-        {showOtp && (
           <label className={styles.field}>
-            <span className={styles.label}>{strings.otpLabel}</span>
+            <span className={styles.label}>{strings.emailLabel}</span>
             <input
               className={styles.input}
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]*"
-              maxLength={8}
-              value={otp}
-              onChange={(e) => setOtp(e.target.value)}
+              type="email"
+              autoComplete="username"
+              placeholder={strings.emailPlaceholder}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
               autoFocus
+            />
+          </label>
+
+          <label className={styles.field}>
+            <span className={styles.label}>{strings.passwordLabel}</span>
+            <input
+              className={styles.input}
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
             />
-            <span className={styles.hint}>{strings.otpHint}</span>
           </label>
-        )}
 
-        {error !== null && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
+          <div className={styles.row}>
+            <label className={styles.remember}>
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
+              <span>{strings.rememberMe}</span>
+            </label>
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => setNote(strings.forgotPasswordNote)}
+            >
+              {strings.forgotPassword}
+            </button>
+          </div>
 
-        <Button type="submit" block disabled={submitting}>
-          {submitting ? <Spinner size={16} label={strings.signingIn} /> : strings.signInButton}
-        </Button>
-      </form>
+          {error !== null && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          {note !== null && <p className={styles.note}>{note}</p>}
+
+          <Button type="submit" block disabled={submitting}>
+            {submitting ? <Spinner size={16} label={strings.signingIn} /> : strings.signInButton}
+          </Button>
+
+          <div className={styles.divider}>
+            <span className={styles.rule} />
+            <span className={styles.or}>{strings.orDivider}</span>
+            <span className={styles.rule} />
+          </div>
+
+          <button
+            type="button"
+            className={styles.sso}
+            onClick={() => setNote(strings.ssoComingSoon)}
+          >
+            <KeyRound size={18} />
+            <span>{strings.signInWithSso}</span>
+          </button>
+        </form>
+      </main>
     </div>
   );
 }

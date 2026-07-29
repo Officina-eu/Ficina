@@ -13,6 +13,7 @@ import {
   clearSession,
   getAccessToken,
   getRefreshToken,
+  refreshTokenIsPersistent,
   setAccessToken,
   setRefreshToken,
 } from "./session";
@@ -23,7 +24,7 @@ type Status = "loading" | "anonymous" | "authenticated";
 interface AuthContextValue {
   status: Status;
   identity: Identity | null;
-  signIn: (username: string, password: string, otp?: string) => Promise<void>;
+  signIn: (username: string, password: string, otp?: string, remember?: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   /** fetch() with bearer auth + transparent refresh. Throws on a dead session. */
   authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>;
@@ -38,9 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
 
   const applyResult = useCallback(
-    (r: { identity: Identity; accessToken: string; refreshToken: string; expiresIn: number }) => {
+    (
+      r: { identity: Identity; accessToken: string; refreshToken: string; expiresIn: number },
+      persistent: boolean,
+    ) => {
       setAccessToken(r.accessToken, r.expiresIn);
-      setRefreshToken(r.refreshToken);
+      setRefreshToken(r.refreshToken, persistent);
       if (r.identity.sub.length > 0) setIdentity(r.identity);
     },
     [],
@@ -54,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const p = (async () => {
       const result = await oidcRefresh(rt);
       if (result === null) return null;
-      applyResult(result);
+      applyResult(result, refreshTokenIsPersistent());
       return result.accessToken;
     })().finally(() => {
       refreshInFlight.current = null;
@@ -72,9 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    async (username: string, password: string, otp?: string) => {
+    async (username: string, password: string, otp?: string, remember = false) => {
       const result = await oidcLogin(username, password, otp);
-      applyResult(result);
+      applyResult(result, remember);
       setStatus("authenticated");
     },
     [applyResult],

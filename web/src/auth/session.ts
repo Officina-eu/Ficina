@@ -43,21 +43,36 @@ export function accessTokenStale(): boolean {
   return accessToken === null || Date.now() > accessExpiresAt - 30_000;
 }
 
-// Refresh token: sessionStorage.
-export function setRefreshToken(token: string): void {
+// Refresh token: sessionStorage by default; localStorage when the user chose
+// "Remember me" (survives browser restart). Only one of the two ever holds it.
+export function setRefreshToken(token: string, persistent = false): void {
   try {
-    sessionStorage.setItem(REFRESH_KEY, token);
+    const [store, other] = persistent
+      ? [localStorage, sessionStorage]
+      : [sessionStorage, localStorage];
+    store.setItem(REFRESH_KEY, token);
+    other.removeItem(REFRESH_KEY);
   } catch {
-    // Storage disabled (private mode quota) — session simply won't survive
+    // Storage disabled (private mode quota) — the session simply won't survive
     // reload; the app still works for the active tab via the in-memory token.
   }
 }
 
 export function getRefreshToken(): string | null {
   try {
-    return sessionStorage.getItem(REFRESH_KEY);
+    return localStorage.getItem(REFRESH_KEY) ?? sessionStorage.getItem(REFRESH_KEY);
   } catch {
     return null;
+  }
+}
+
+/** Whether the stored refresh token is the persistent ("remember me") one, so
+ * a token renewal keeps it in the same place. */
+export function refreshTokenIsPersistent(): boolean {
+  try {
+    return localStorage.getItem(REFRESH_KEY) !== null;
+  } catch {
+    return false;
   }
 }
 
@@ -66,6 +81,7 @@ export function clearSession(): void {
   accessExpiresAt = 0;
   try {
     sessionStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(REFRESH_KEY);
   } catch {
     // ignore
   }

@@ -9,6 +9,6 @@ import { strings } from "./i18n/strings";
 // appears — proving the router, auth bootstrap, and shell wiring compose.
 test("an unauthenticated visit lands on the sign-in screen", async () => {
   render(<App />);
-  const heading = await screen.findByRole("heading", { name: strings.loginTitle });
+  const heading = await screen.findByRole("heading", { name: strings.signInHeading });
   expect(heading).toBeTruthy();
 });

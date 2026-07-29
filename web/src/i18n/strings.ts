@@ -25,17 +25,44 @@ export const strings = {
   comingSoonTitle: "Coming soon",
   comingSoonBody: "This part of your workspace is on the way. Mail is ready now.",
 
-  // auth
-  loginTitle: "Sign in to Ficina",
-  loginSubtitle: "Your sovereign European workspace.",
+  // auth — brand panel
+  brandHeadline: "Your workspace.\nYour servers.\nYour rules.",
+  brandSubtitle:
+    "Mail, calendar, chat, and files — sovereign, AI-native, and hosted in Europe.",
+  brandEuBadge: "Hosted on your infrastructure · EU",
+
+  // auth — sign in
+  signInHeading: "Sign in",
+  signInSubtitle: "Welcome back. Enter your credentials to continue.",
   emailLabel: "Email",
+  emailPlaceholder: "you@yourdomain.com",
   passwordLabel: "Password",
-  otpLabel: "Authentication code",
-  otpHint: "Enter the 6-digit code from your authenticator app.",
+  rememberMe: "Remember me",
+  forgotPassword: "Forgot password?",
+  forgotPasswordNote: "To reset your password, contact your administrator.",
   signInButton: "Sign in",
   signingIn: "Signing in…",
+  orDivider: "or",
+  signInWithSso: "Sign in with SSO",
+  ssoComingSoon: "Single sign-on is coming soon.",
+
+  // auth — two-factor
+  twoFactorTitle: "Two-factor authentication",
+  twoFactorSubtitle: "Enter the 6-digit code from your authenticator app",
+  twoFactorRecoverySubtitle: "Enter one of your recovery codes",
+  twoFactorCodeLabel: "Authentication code",
+  recoveryCodeLabel: "Recovery code",
+  recoveryPlaceholder: "xxxx-xxxx",
+  verify: "Verify",
+  verifying: "Verifying…",
+  useRecoveryCode: "Use a recovery code instead",
+  useAuthenticator: "Use your authenticator app instead",
+  backToSignIn: "Back to sign in",
+
+  // auth — errors
   errorBadCredentials: "That email or password is not right. Please try again.",
   errorSecondFactor: "Enter your authentication code to continue.",
+  errorBadOtp: "That code is not right. Please try again.",
   errorRateLimited: "Too many attempts. Please wait a moment and try again.",
   errorGeneric: "Something went wrong signing in. Please try again.",
   errorNetwork: "Cannot reach the server. Check your connection and try again.",
