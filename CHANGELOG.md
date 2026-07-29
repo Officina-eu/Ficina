@@ -6,6 +6,18 @@ contracts.
 
 ## Unreleased
 
+- New: **Ficina web app** — the one-product workspace shell, web-first
+  (`web/`). The "warm workshop" design system (paper / verdigris / copper /
+  ink tokens, self-hosted Inter + EB Garamond, shared primitives), the left
+  rail + layout frame with a module registry that Agenda/Chat/Drive/Docs plug
+  into later, first-party **OIDC + PKCE** sign-in against `ficina-identity`
+  (2FA field revealed on demand), and a **Mail read surface** — folders,
+  message list, and a reading pane that renders plain text in Garamond and
+  isolates untrusted HTML in a sandboxed, CSP-locked iframe that blocks remote
+  content (no tracking pixels). Served at the same origin as the API behind
+  Caddy; sign-in verified end-to-end on the live deployment. Compose/reply,
+  PWA/offline, and the other modules are the next items. Design note
+  `docs/design/web-shell.md`.
 - New: **`ficina-identity`** — the credential authority and an **OpenID
   Connect / OAuth 2.0 provider** (Ficina-as-IdP). It replaces every interim
   auth path: SMTP AUTH, IMAP/POP3 `LOGIN`, and the JMAP bearer now

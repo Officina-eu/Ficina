@@ -219,6 +219,7 @@ services:
       DOMAIN: ${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web:/srv:ro
       - certs:/certs:ro
       - caddy_data:/data
     ports:

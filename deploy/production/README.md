@@ -167,6 +167,29 @@ never for production. Do not run `init-certs.sh` locally.
 - **Stop everything:** `docker compose down` (data volumes persist);
   `docker compose down -v` also deletes the data (irreversible).
 
+## The web app
+
+The Ficina web app (the browser workspace — Mail first) is served at the same
+origin as the API: Caddy serves the built SPA for normal paths and reverse-
+proxies the backend paths (`/oauth/*`, `/jmap/*`, `/.well-known/*`,
+`/auth/token`) to `ficina-jmap`. Same origin means no CORS and a first-party
+OIDC login redirect. The files live in a mounted directory (`./web`, mapped to
+`/srv` in the Caddy container), so publishing is a static-file copy — no
+restart.
+
+```sh
+# one time: register the web app as a public OIDC client (PKCE, no secret)
+docker compose exec ficina-jmap identityctl register-client \
+  web "Ficina Web" https://<DOMAIN>/auth/callback
+
+# build + publish (from a machine with the repo + Node):
+DEPLOY_HOST=root@<DOMAIN> DEPLOY_KEY=~/.ssh/<key> ./deploy-web.sh
+```
+
+Then open `https://<DOMAIN>/` and sign in with a mailbox's email + password
+(the authentication-code field appears only if the account has 2FA). The app's
+architecture is in [`docs/design/web-shell.md`](../../docs/design/web-shell.md).
+
 ## Operations: backups, monitoring, and the runbook
 
 Production hardening (encrypted nightly backups, health-and-alert monitoring,

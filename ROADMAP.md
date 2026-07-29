@@ -97,7 +97,8 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Webmail & mail UX
 
-- [ ] Web app shell: design system, auth flow, navigation — the one-product frame
+- [x] Web app shell: design system, auth flow, navigation — the one-product frame (React/Vite/TS app: "warm workshop" design tokens + self-hosted Inter/EB Garamond + shared primitives; the left rail + layout frame + a module registry that makes Agenda/Chat/Drive/Docs one entry each; first-party OIDC authorization-code + PKCE login against `ficina-identity` with 2FA-on-demand; a typed JMAP client with bearer + transparent refresh. Served at the same origin as the API behind Caddy (SPA + `/oauth`+`/jmap`+`/.well-known` proxied), strict CSP; login verified end-to-end on the live deployment. Design note `docs/design/web-shell.md`)
+  - This item is the *frame*; the mail body below it is read-only so far (folders → message list → reading pane), with compose/reply and the rest as their own items
 - [ ] Mail: read/compose/reply, conversation view + flat toggle, folders/subfolders, drag-drop
 - [ ] Organization primitives: flags with due dates, categories/colors, archive keystroke, unread counts
 - [ ] Undo send, send later, snooze
