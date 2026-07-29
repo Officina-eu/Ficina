@@ -250,8 +250,10 @@ export function MailModule() {
         currentMailboxId={mailboxId}
         flagOverrides={flags}
         onReply={() => latest !== undefined && setCompose({ mode: "reply", replyTo: latest })}
+        onReplyAll={() => latest !== undefined && setCompose({ mode: "replyAll", replyTo: latest })}
         onForward={() => latest !== undefined && setCompose({ mode: "forward", replyTo: latest })}
         onReplyMessage={(m) => setCompose({ mode: "reply", replyTo: m })}
+        onReplyAllMessage={(m) => setCompose({ mode: "replyAll", replyTo: m })}
         onForwardMessage={(m) => setCompose({ mode: "forward", replyTo: m })}
         onDeleteMessage={deleteMessage}
         onToggleFlag={() => latest !== undefined && toggleFlag(latest)}

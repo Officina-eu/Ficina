@@ -44,9 +44,11 @@ interface ReadingPaneProps {
   currentMailboxId: string | null;
   flagOverrides: ReadonlyMap<string, boolean>;
   onReply: () => void;
+  onReplyAll: () => void;
   onForward: () => void;
-  /** Reply to / forward / delete one specific message in the thread. */
+  /** Reply / reply-all / forward / delete one specific message in the thread. */
   onReplyMessage: (email: EmailFull) => void;
+  onReplyAllMessage: (email: EmailFull) => void;
   onForwardMessage: (email: EmailFull) => void;
   onDeleteMessage: (email: EmailFull) => void;
   onToggleFlag: () => void;
@@ -62,8 +64,10 @@ export function ReadingPane({
   currentMailboxId,
   flagOverrides,
   onReply,
+  onReplyAll,
   onForward,
   onReplyMessage,
+  onReplyAllMessage,
   onForwardMessage,
   onDeleteMessage,
   onToggleFlag,
@@ -144,7 +148,7 @@ export function ReadingPane({
           <Reply size={16} />
           <span>{strings.reply}</span>
         </button>
-        <button type="button" className={styles.textBtn} onClick={onReply}>
+        <button type="button" className={styles.textBtn} onClick={onReplyAll}>
           <ReplyAll size={16} />
           <span>{strings.replyAll}</span>
         </button>
@@ -196,7 +200,7 @@ export function ReadingPane({
               me={me}
               onToggle={() => toggle(message.id)}
               onReply={() => onReplyMessage(message)}
-              onReplyAll={() => onReplyMessage(message)}
+              onReplyAll={() => onReplyAllMessage(message)}
               onForward={() => onForwardMessage(message)}
               onDelete={() => onDeleteMessage(message)}
             />

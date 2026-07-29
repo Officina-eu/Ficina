@@ -16,9 +16,18 @@ import { textContent } from "../body";
 import styles from "./ComposeModal.module.css";
 
 export interface ComposeContext {
-  mode: "new" | "reply" | "forward";
+  mode: "new" | "reply" | "replyAll" | "forward";
   /** The source message for a reply or forward. */
   replyTo?: EmailFull;
+}
+
+interface Prefill {
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+  inReplyTo: string[];
+  references: string[];
 }
 
 interface ComposeModalProps {
@@ -38,13 +47,7 @@ function parseRecipients(input: string): EmailAddress[] {
     .map((email) => ({ name: null, email }));
 }
 
-function replyPrefill(replyTo: EmailFull): {
-  to: string;
-  subject: string;
-  body: string;
-  inReplyTo: string[];
-  references: string[];
-} {
+function replyPrefill(replyTo: EmailFull): Prefill {
   const to = replyTo.from?.[0]?.email ?? "";
   const base = (replyTo.subject ?? "").replace(/^(re:\s*)+/i, "");
   const original = textContent(replyTo) ?? replyTo.preview;
@@ -56,6 +59,7 @@ function replyPrefill(replyTo: EmailFull): {
   const messageIds = replyTo.messageId ?? [];
   return {
     to,
+    cc: "",
     subject: strings.composeReplyPrefix + base,
     body: `\n\n${header}\n${quoted}\n`,
     inReplyTo: messageIds,
@@ -63,13 +67,43 @@ function replyPrefill(replyTo: EmailFull): {
   };
 }
 
-function forwardPrefill(source: EmailFull): {
-  to: string;
-  subject: string;
-  body: string;
-  inReplyTo: string[];
-  references: string[];
-} {
+/** Dedupe addresses, dropping empties and any already-seen (case-insensitive)
+ * — `seen` is seeded with the addresses to exclude (e.g. the signed-in user). */
+function collect(addrs: EmailAddress[], seen: Set<string>): EmailAddress[] {
+  const out: EmailAddress[] = [];
+  for (const a of addrs) {
+    const key = a.email.trim().toLowerCase();
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
+}
+
+/** Reply-all recipients: To gets the sender plus every original To recipient;
+ * Cc keeps the original Cc. The signed-in user (`me`) and any duplicate address
+ * are removed throughout, and a Cc already present in To is dropped. Pure and
+ * exported for testing. */
+export function replyAllRecipients(
+  source: Pick<EmailFull, "from" | "to" | "cc">,
+  me: string,
+): { to: EmailAddress[]; cc: EmailAddress[] } {
+  const seen = new Set<string>([me.trim().toLowerCase()]);
+  const to = collect([...(source.from ?? []), ...(source.to ?? [])], seen);
+  const cc = collect(source.cc ?? [], seen);
+  return { to, cc };
+}
+
+function replyAllPrefill(replyTo: EmailFull, me: string): Prefill {
+  const { to, cc } = replyAllRecipients(replyTo, me);
+  return {
+    ...replyPrefill(replyTo),
+    to: to.map((a) => a.email).join(", "),
+    cc: cc.map((a) => a.email).join(", "),
+  };
+}
+
+function forwardPrefill(source: EmailFull): Prefill {
   const base = (source.subject ?? "").replace(/^(fwd:\s*)+/i, "");
   const original = textContent(source) ?? source.preview;
   const recipients = (source.to ?? [])
@@ -88,7 +122,14 @@ function forwardPrefill(source: EmailFull): {
     "",
   ].join("\n");
   // Forwarding starts a fresh conversation — no reply threading headers.
-  return { to: "", subject: strings.composeForwardPrefix + base, body: block, inReplyTo: [], references: [] };
+  return {
+    to: "",
+    cc: "",
+    subject: strings.composeForwardPrefix + base,
+    body: block,
+    inReplyTo: [],
+    references: [],
+  };
 }
 
 export function ComposeModal({
@@ -100,25 +141,30 @@ export function ComposeModal({
   onSent,
 }: ComposeModalProps) {
   const client = useJmapClient();
-  const empty = { to: "", subject: "", body: "", inReplyTo: [] as string[], references: [] as string[] };
-  const prefill =
+  const empty: Prefill = { to: "", cc: "", subject: "", body: "", inReplyTo: [], references: [] };
+  const prefill: Prefill =
     context.replyTo === undefined
       ? empty
       : context.mode === "reply"
         ? replyPrefill(context.replyTo)
-        : context.mode === "forward"
-          ? forwardPrefill(context.replyTo)
-          : empty;
+        : context.mode === "replyAll"
+          ? replyAllPrefill(context.replyTo, fromEmail)
+          : context.mode === "forward"
+            ? forwardPrefill(context.replyTo)
+            : empty;
+  const isReply = context.mode === "reply" || context.mode === "replyAll";
   const title =
-    context.mode === "reply"
-      ? strings.composeReplyTitle
-      : context.mode === "forward"
-        ? strings.composeForwardTitle
-        : strings.composeTitle;
+    context.mode === "replyAll"
+      ? strings.replyAll
+      : context.mode === "reply"
+        ? strings.composeReplyTitle
+        : context.mode === "forward"
+          ? strings.composeForwardTitle
+          : strings.composeTitle;
 
   const [to, setTo] = useState(prefill.to);
-  const [cc, setCc] = useState("");
-  const [showCc, setShowCc] = useState(false);
+  const [cc, setCc] = useState(prefill.cc);
+  const [showCc, setShowCc] = useState(prefill.cc.length > 0);
   const [subject, setSubject] = useState(prefill.subject);
   const [body, setBody] = useState(prefill.body);
   const [error, setError] = useState<string | null>(null);
@@ -189,7 +235,7 @@ export function ComposeModal({
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 placeholder={strings.composeRecipientsPlaceholder}
-                autoFocus={context.mode !== "reply"}
+                autoFocus={!isReply}
               />
               {!showCc && (
                 <button type="button" className={styles.ccToggle} onClick={() => setShowCc(true)}>
@@ -224,7 +270,7 @@ export function ComposeModal({
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder={strings.composeBodyPlaceholder}
-            autoFocus={context.mode === "reply"}
+            autoFocus={isReply}
           />
 
           {error !== null && (
