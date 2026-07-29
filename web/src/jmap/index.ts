@@ -10,6 +10,7 @@ export {
   type EmailFull,
   type EmailBodyPart,
   type EmailBodyValue,
+  type EmailAttachment,
   type EmailAddress,
   type Session,
 } from "./types";

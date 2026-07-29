@@ -59,11 +59,21 @@ export interface EmailFull extends EmailHeaders {
   textBody: EmailBodyPart[];
   htmlBody: EmailBodyPart[];
   bodyValues: Record<string, EmailBodyValue>;
+  attachments: EmailAttachment[];
 }
 
 export interface EmailBodyPart {
   partId: string | null;
   type: string;
+}
+
+/** A downloadable attachment on a message (JMAP EmailBodyPart, disposition
+ * "attachment"). `blobId` resolves via the session download URL. */
+export interface EmailAttachment {
+  blobId: string;
+  type: string;
+  name: string;
+  size: number;
 }
 
 /** A JMAP method invocation: [name, arguments, call-id]. */

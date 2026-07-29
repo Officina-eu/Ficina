@@ -79,6 +79,7 @@ describe("body", () => {
       textBody: [{ partId: "1", type: "text/plain" }],
       htmlBody: [],
       bodyValues: { "1": { value: "hello world", isTruncated: false } },
+      attachments: [],
     };
   }
   it("extracts the plain-text body", () => {

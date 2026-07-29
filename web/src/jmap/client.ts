@@ -147,7 +147,7 @@ export class JmapClient {
         {
           accountId,
           "#ids": { resultOf: "t", name: "Thread/get", path: "/list/0/emailIds" },
-          properties: [...HEADER_PROPS, "textBody", "htmlBody", "bodyValues"],
+          properties: [...HEADER_PROPS, "textBody", "htmlBody", "bodyValues", "attachments"],
           fetchTextBodyValues: true,
           fetchHTMLBodyValues: true,
         },
@@ -167,7 +167,7 @@ export class JmapClient {
         {
           accountId,
           ids: [id],
-          properties: [...HEADER_PROPS, "textBody", "htmlBody", "bodyValues"],
+          properties: [...HEADER_PROPS, "textBody", "htmlBody", "bodyValues", "attachments"],
           fetchTextBodyValues: true,
           fetchHTMLBodyValues: true,
         },
@@ -176,6 +176,20 @@ export class JmapClient {
     ]);
     const list = this.#result(res, "e").list as EmailFull[];
     return list[0] ?? null;
+  }
+
+  /** Fetch an attachment's bytes as a Blob (authorized), for saving. Resolves
+   * the session download URL template with the account, blob id, and name. */
+  async downloadAttachment(blobId: string, name: string): Promise<Blob> {
+    const session = await this.session();
+    const accountId = await this.accountId();
+    const url = session.downloadUrl
+      .replace("{accountId}", encodeURIComponent(accountId))
+      .replace("{blobId}", encodeURIComponent(blobId))
+      .replace("{name}", encodeURIComponent(name));
+    const res = await this.#fetch(url, { method: "GET" });
+    if (!res.ok) throw new JmapError(`download ${res.status}`);
+    return res.blob();
   }
 
   /** Mark a message read/unread by toggling the $seen keyword. */

@@ -114,6 +114,9 @@ export const strings = {
   quickReplyTo: (name: string) => `Quick reply to ${name}`,
   replyToName: (name: string) => `Reply to ${name}…`,
   draftWithAi: "Draft with AI",
+  attachments: "Attachments",
+  downloadAttachment: (name: string) => `Download ${name}`,
+  attachmentFailed: "Couldn't download that attachment.",
 
   // mail — compose
   composeTitle: "New message",

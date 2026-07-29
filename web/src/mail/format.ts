@@ -23,6 +23,20 @@ export function isUnread(headers: Pick<EmailHeaders, "keywords">): boolean {
   return headers.keywords[KEYWORD_SEEN] !== true;
 }
 
+/** Human-readable byte size (locale-aware number, binary units). */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const rounded = unit === 0 ? value : Math.round(value * 10) / 10;
+  return `${rounded.toLocaleString()} ${units[unit]}`;
+}
+
 /** Compact, locale-aware timestamp: time today, day+month this year, else
  * day+month+year. `now` is injectable for deterministic tests. */
 export function formatDate(iso: string, now: Date = new Date()): string {
