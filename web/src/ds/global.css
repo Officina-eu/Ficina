@@ -74,11 +74,13 @@ svg {
   max-width: 100%;
 }
 
-/* Keyboard focus is always visible; pointer focus is not noisy. */
+/* Keyboard focus stays visible for accessibility, but neutral — a thin ink
+   outline, never the accent colour (no green glow on inputs/buttons). Inputs
+   set `outline: none` and show focus via their own border, so this applies to
+   buttons, links, and other controls. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-radius: var(--radius-sm);
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
 }
 
 /* Warm, unobtrusive scrollbars that match the paper ground. */

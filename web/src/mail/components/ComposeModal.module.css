@@ -65,6 +65,12 @@
   align-items: center;
   gap: var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
+  transition: border-color var(--transition-fast);
+}
+
+/* Neutral focus indication for the borderless fields (no green). */
+.field:focus-within {
+  border-bottom-color: var(--text-tertiary);
 }
 
 .label {

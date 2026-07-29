@@ -22,8 +22,7 @@
 .box:focus {
   outline: none;
   background: var(--bg-surface);
-  border-color: var(--accent);
-  box-shadow: var(--focus-ring);
+  border-color: var(--border-strong);
 }
 
 .box:disabled {
