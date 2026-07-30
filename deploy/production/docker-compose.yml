@@ -223,6 +223,35 @@ services:
       retries: 3
       start_period: 10s
 
+  # The multi-tenant control plane (ADR 0012): the platform-operator surface
+  # for tenant lifecycle + domain ownership, at /control/*. A distinct service
+  # (own credentials, own blast radius) from the tenant JMAP/admin API. It does
+  # NOT run migrations — ficina-jmap owns the single migrator — so it starts
+  # after jmap is healthy (schema applied).
+  ficina-control:
+    build:
+      context: ../..
+      dockerfile: control/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      ficina-jmap: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
+      FICINA_BLOB_DIR: /var/lib/ficina/blobs
+      FICINA_IDENTITY_ISSUER: https://${DOMAIN}
+      FICINA_CONTROL_ADDR: 0.0.0.0:8090
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - blobs:/var/lib/ficina/blobs
+    networks: [ficina]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ficina-control", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # HTTPS for the web/login origin. Caddy does NOT manage certificates here
   # (auto_https is off in the Caddyfile); it reads the shared certbot cert
   # from /certs and terminates TLS on 443, forwarding to the JMAP service.
@@ -231,6 +260,7 @@ services:
     restart: unless-stopped
     depends_on:
       ficina-jmap: { condition: service_started }
+      ficina-control: { condition: service_started }
     environment:
       DOMAIN: ${DOMAIN}
     volumes:

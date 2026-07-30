@@ -182,7 +182,12 @@ async fn require_domain_owned(
     {
         return Ok(());
     }
-    let domain = address.rsplit('@').next().unwrap_or("").trim().to_lowercase();
+    let domain = address
+        .rsplit('@')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     if domain.is_empty() {
         return Err(bad("valid email required"));
     }

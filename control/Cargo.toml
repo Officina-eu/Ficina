@@ -1,10 +1,29 @@
 [package]
 name = "ficina-control"
-description = "Ficina multi-tenant control plane (placeholder — Phase 2)"
+description = "Ficina multi-tenant control plane: tenant lifecycle, domains, operators"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[dependencies]
+ficina-store = { path = "../core/ficina-store" }
+ficina-identity = { path = "../core/ficina-identity" }
+# DNS TXT lookup to verify a tenant's domain ownership (same resolver the
+# Security & trust checks use).
+hickory-resolver = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+axum = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

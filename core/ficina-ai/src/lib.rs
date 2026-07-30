@@ -142,7 +142,11 @@ fn endpoint(base_url: &str, path: &str) -> String {
 /// is rejected without first buffering it whole.
 async fn read_body_capped(mut response: reqwest::Response) -> Result<String, InferenceError> {
     let mut buf = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| InferenceError::Transport)? {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| InferenceError::Transport)?
+    {
         if buf.len() + chunk.len() > MAX_RESPONSE_BYTES {
             return Err(InferenceError::Empty);
         }

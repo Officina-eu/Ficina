@@ -26,6 +26,14 @@ https://{$DOMAIN} {
 		reverse_proxy ficina-jmap:8080
 	}
 
+	# The multi-tenant control plane (ADR 0012): the platform-operator surface,
+	# a distinct service from the tenant API. Auth-gated to platform operators;
+	# a future hardening restricts this path to an ops network.
+	@control path /control/*
+	handle @control {
+		reverse_proxy ficina-control:8090
+	}
+
 	# The web app: static files with client-side-routing fallback to index.html.
 	handle {
 		root * /srv

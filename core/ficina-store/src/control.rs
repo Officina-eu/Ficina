@@ -48,11 +48,12 @@ impl Store {
     /// # Errors
     /// [`StoreError::Db`] on failure.
     pub async fn platform_tenant(&self) -> Result<Option<TenantId>> {
-        let id: Option<String> =
-            sqlx::query_scalar("SELECT id FROM tenants WHERE name = $1 ORDER BY created_at LIMIT 1")
-                .bind(PLATFORM_TENANT_NAME)
-                .fetch_optional(self.pool())
-                .await?;
+        let id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM tenants WHERE name = $1 ORDER BY created_at LIMIT 1",
+        )
+        .bind(PLATFORM_TENANT_NAME)
+        .fetch_optional(self.pool())
+        .await?;
         Ok(id.map(TenantId::new))
     }
 
@@ -67,14 +68,13 @@ impl Store {
         user: &UserId,
         is_platform_admin: bool,
     ) -> Result<()> {
-        let done = sqlx::query(
-            "UPDATE users SET is_platform_admin = $3 WHERE tenant_id = $1 AND id = $2",
-        )
-        .bind(tenant.as_str())
-        .bind(user.as_str())
-        .bind(is_platform_admin)
-        .execute(self.pool())
-        .await?;
+        let done =
+            sqlx::query("UPDATE users SET is_platform_admin = $3 WHERE tenant_id = $1 AND id = $2")
+                .bind(tenant.as_str())
+                .bind(user.as_str())
+                .bind(is_platform_admin)
+                .execute(self.pool())
+                .await?;
         if done.rows_affected() == 0 {
             return Err(StoreError::NotFound);
         }
@@ -123,11 +123,10 @@ impl Store {
     /// # Errors
     /// [`StoreError::Db`] on failure.
     pub async fn tenant_status(&self, tenant: &TenantId) -> Result<Option<String>> {
-        let status: Option<String> =
-            sqlx::query_scalar("SELECT status FROM tenants WHERE id = $1")
-                .bind(tenant.as_str())
-                .fetch_optional(self.pool())
-                .await?;
+        let status: Option<String> = sqlx::query_scalar("SELECT status FROM tenants WHERE id = $1")
+            .bind(tenant.as_str())
+            .fetch_optional(self.pool())
+            .await?;
         Ok(status)
     }
 
@@ -208,20 +207,66 @@ impl Store {
     /// [`StoreError::Db`] on failure.
     pub async fn domain_record(&self, domain: &str) -> Result<Option<DomainRow>> {
         let domain = domain.trim().to_lowercase();
-        let row = sqlx::query_as::<_, (String, String, String, Option<OffsetDateTime>, OffsetDateTime)>(
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<OffsetDateTime>,
+                OffsetDateTime,
+            ),
+        >(
             "SELECT domain, tenant_id, verify_token, verified_at, created_at \
              FROM domains WHERE domain = $1",
         )
         .bind(&domain)
         .fetch_optional(self.pool())
         .await?;
-        Ok(row.map(|(domain, tenant_id, verify_token, verified_at, created_at)| DomainRow {
-            domain,
-            tenant_id,
-            verify_token,
-            verified_at,
-            created_at,
-        }))
+        Ok(row.map(
+            |(domain, tenant_id, verify_token, verified_at, created_at)| DomainRow {
+                domain,
+                tenant_id,
+                verify_token,
+                verified_at,
+                created_at,
+            },
+        ))
+    }
+
+    /// Every registered domain across the deployment (operator view), newest
+    /// first. Deployment-global — not a tenant's data.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn list_all_domains(&self) -> Result<Vec<DomainRow>> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<OffsetDateTime>,
+                OffsetDateTime,
+            ),
+        >(
+            "SELECT domain, tenant_id, verify_token, verified_at, created_at \
+             FROM domains ORDER BY created_at DESC",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(domain, tenant_id, verify_token, verified_at, created_at)| DomainRow {
+                    domain,
+                    tenant_id,
+                    verify_token,
+                    verified_at,
+                    created_at,
+                },
+            )
+            .collect())
     }
 
     /// Stamps a domain verified (the DNS TXT proof was observed by the caller).
@@ -300,7 +345,16 @@ impl TenantStore {
     /// # Errors
     /// [`StoreError::Db`] on failure.
     pub async fn list_domains(&self) -> Result<Vec<DomainRow>> {
-        let rows = sqlx::query_as::<_, (String, String, String, Option<OffsetDateTime>, OffsetDateTime)>(
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<OffsetDateTime>,
+                OffsetDateTime,
+            ),
+        >(
             "SELECT domain, tenant_id, verify_token, verified_at, created_at \
              FROM domains WHERE tenant_id = $1 ORDER BY created_at",
         )
@@ -309,13 +363,15 @@ impl TenantStore {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(domain, tenant_id, verify_token, verified_at, created_at)| DomainRow {
-                domain,
-                tenant_id,
-                verify_token,
-                verified_at,
-                created_at,
-            })
+            .map(
+                |(domain, tenant_id, verify_token, verified_at, created_at)| DomainRow {
+                    domain,
+                    tenant_id,
+                    verify_token,
+                    verified_at,
+                    created_at,
+                },
+            )
             .collect())
     }
 }

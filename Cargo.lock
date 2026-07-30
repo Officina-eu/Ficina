@@ -598,6 +598,19 @@ dependencies = [
 [[package]]
 name = "ficina-control"
 version = "0.0.1"
+dependencies = [
+ "axum",
+ "ficina-identity",
+ "ficina-store",
+ "hickory-resolver",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "ficina-identity"

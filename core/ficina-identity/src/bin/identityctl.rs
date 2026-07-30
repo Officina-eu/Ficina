@@ -107,7 +107,10 @@ async fn bootstrap_operator(identity: &Identity, args: &[String]) -> Result<(), 
         return Err("operator password must be at least 12 characters".to_owned());
     }
     identity.ensure_signing_key().await.map_err(fail)?;
-    let account = identity.bootstrap_operator(email, &password).await.map_err(fail)?;
+    let account = identity
+        .bootstrap_operator(email, &password)
+        .await
+        .map_err(fail)?;
     println!(
         "created platform operator {} ({}) in the system tenant {}",
         email,
