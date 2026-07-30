@@ -273,6 +273,34 @@ export function MailModule() {
     markSeenIds(currentFolderIds, false);
   }
 
+  // Report spam: move the conversation to Junk; when already in Junk, "Not spam"
+  // moves it back to the Inbox.
+  function reportSpam() {
+    const current = boxes.find((b) => b.id === mailboxId);
+    const junk = boxes.find((b) => b.role === "junk");
+    const inbox = boxes.find((b) => b.role === "inbox");
+    if (current?.role === "junk") {
+      if (inbox !== undefined) moveIds(currentFolderIds, inbox.id);
+    } else if (junk !== undefined) {
+      moveIds(currentFolderIds, junk.id);
+    } else {
+      setToast(strings.junkUnavailable);
+    }
+  }
+
+  // Forward the open message as an .eml attachment (a fresh "Fwd:" compose).
+  function forwardAttachment() {
+    if (latest === undefined) return;
+    const base = (latest.subject ?? "message").replace(/[^\w.-]+/g, "_").slice(0, 60);
+    setCompose({
+      mode: "new",
+      subject: `${strings.composeForwardPrefix}${latest.subject ?? ""}`,
+      attachments: [
+        { blobId: latest.blobId, type: "message/rfc822", name: `${base}.eml`, size: latest.size },
+      ],
+    });
+  }
+
   const widthVars = {
     // Collapsed = a compact icon-only column (folders stay one-click reachable).
     "--sidebar-width": foldersCollapsed ? "56px" : `${folders.width}px`,
@@ -332,6 +360,9 @@ export function MailModule() {
         onMove={moveThread}
         onMarkUnread={markThreadUnread}
         onSnooze={(until) => snoozeIds(currentFolderIds, until)}
+        onReportSpam={reportSpam}
+        onForwardAttachment={forwardAttachment}
+        isJunk={boxes.find((b) => b.id === mailboxId)?.role === "junk"}
       />
       {compose !== null && (
         <ComposeModal

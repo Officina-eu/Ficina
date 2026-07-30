@@ -35,6 +35,7 @@ type AuthorizedFetch = (input: string, init?: RequestInit) => Promise<Response>;
 const HEADER_PROPS = [
   "id",
   "threadId",
+  "blobId",
   "mailboxIds",
   "keywords",
   "from",

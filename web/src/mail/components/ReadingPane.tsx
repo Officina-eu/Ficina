@@ -6,13 +6,18 @@
 import { useEffect, useState } from "react";
 import {
   Archive,
+  Code2,
+  Download,
   FolderInput,
   Forward,
   MailOpen,
   MoreHorizontal,
+  Paperclip,
+  Printer,
   Reply,
   ReplyAll,
   Send,
+  ShieldAlert,
   Sparkles,
   Star,
   Trash2,
@@ -25,7 +30,7 @@ import { KEYWORD_FLAGGED, type EmailFull, type Mailbox, useJmapClient } from "..
 import { useAuth } from "../../auth";
 import type { Async } from "../state/useAsync";
 import { senderName, subjectOr } from "../format";
-import { threadDigest } from "../body";
+import { htmlContent, textContent, threadDigest } from "../body";
 import { ThreadMessage } from "./ThreadMessage";
 import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./ReadingPane.module.css";
@@ -33,6 +38,15 @@ import styles from "./ReadingPane.module.css";
 /** Below this many characters a thread isn't worth summarizing — the message is
  * already short enough to read directly, and a one-line "summary" adds noise. */
 const SUMMARY_MIN_CHARS = 600;
+
+/** Escape text for safe interpolation into the print window's HTML. */
+function escapeForPrint(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 type SummaryState =
   | { status: "off" }
@@ -63,6 +77,12 @@ interface ReadingPaneProps {
   onMove: (targetMailboxId: string) => void;
   onMarkUnread: () => void;
   onSnooze: (until: number) => void;
+  /** Move the conversation to Junk (or back to Inbox when already there). */
+  onReportSpam: () => void;
+  /** Compose a new message with this message attached as an .eml. */
+  onForwardAttachment: () => void;
+  /** Whether the open conversation is in the Junk folder (flips Report/Not spam). */
+  isJunk: boolean;
 }
 
 export function ReadingPane({
@@ -79,6 +99,9 @@ export function ReadingPane({
   onMove,
   onMarkUnread,
   onSnooze,
+  onReportSpam,
+  onForwardAttachment,
+  isJunk,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
   const client = useJmapClient();
@@ -180,8 +203,85 @@ export function ReadingPane({
     )
     .map((m) => ({ key: m.id, label: m.name, onClick: () => onMove(m.id) }));
 
+  /** The message these single-message actions apply to (the newest). */
+  const target = latest;
+  const emlName = `${(subjectOr(target) || "message").replace(/[^\w.-]+/g, "_").slice(0, 60)}.eml`;
+
+  async function fetchRaw(): Promise<Blob> {
+    return client.downloadAttachment(target.blobId, emlName);
+  }
+
+  // "Show original": the raw RFC 822 in a new tab, as plain text (no HTML parse).
+  async function showOriginal() {
+    try {
+      const raw = await (await fetchRaw()).text();
+      const w = window.open("", "_blank", "noopener");
+      if (w === null) return;
+      w.document.title = strings.showOriginal;
+      const pre = w.document.createElement("pre");
+      pre.textContent = raw;
+      pre.style.cssText =
+        "white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;padding:20px;margin:0";
+      w.document.body.appendChild(pre);
+    } catch {
+      // downloading the raw message failed — nothing to show
+    }
+  }
+
+  async function downloadEml() {
+    try {
+      const blob = await fetchRaw();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = emlName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }
+
+  // Print the whole conversation in a new window (CSP blocks scripts in bodies).
+  function printThread() {
+    const parts = messages
+      .map((m) => {
+        const who = senderName(m);
+        const when = new Date(m.receivedAt).toLocaleString();
+        const text = textContent(m);
+        const bodyHtml =
+          text !== null
+            ? `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${escapeForPrint(text)}</pre>`
+            : (htmlContent(m) ?? `<p>${escapeForPrint(m.preview)}</p>`);
+        return `<section style="margin:0 0 24px;padding-bottom:16px;border-bottom:1px solid #ddd"><div style="color:#555;font-size:13px;margin-bottom:8px"><strong>${escapeForPrint(who)}</strong> · ${escapeForPrint(when)}</div>${bodyHtml}</section>`;
+      })
+      .join("");
+    const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'"><title>${escapeForPrint(subjectOr(target))}</title><style>body{font-family:Inter,system-ui,sans-serif;color:#111;padding:32px;max-width:720px;margin:auto}h1{font-size:20px;font-weight:600}</style></head><body><h1>${escapeForPrint(subjectOr(target))}</h1>${parts}</body></html>`;
+    const w = window.open("", "_blank", "noopener");
+    if (w === null) return;
+    w.document.write(doc);
+    w.document.close();
+    w.focus();
+    w.print();
+  }
+
   const moreItems: MenuItem[] = [
     { key: "unread", label: strings.markUnread, icon: <MailOpen />, onClick: onMarkUnread },
+    {
+      key: "spam",
+      label: isJunk ? strings.notSpam : strings.reportSpam,
+      icon: <ShieldAlert />,
+      onClick: onReportSpam,
+    },
+    {
+      key: "fwd-att",
+      label: strings.forwardAsAttachment,
+      icon: <Paperclip />,
+      onClick: onForwardAttachment,
+    },
+    { key: "print", label: strings.print, icon: <Printer />, onClick: () => printThread() },
+    { key: "original", label: strings.showOriginal, icon: <Code2 />, onClick: () => void showOriginal() },
+    { key: "download", label: strings.downloadEml, icon: <Download />, onClick: () => void downloadEml() },
     { key: "delete", label: strings.delete, icon: <Trash2 />, danger: true, onClick: onDelete },
   ];
 

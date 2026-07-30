@@ -39,6 +39,8 @@ export interface Mailbox {
 export interface EmailHeaders {
   id: string;
   threadId: string;
+  /** The raw RFC 822 message blob (for "show original", .eml, forward-as-attachment). */
+  blobId: string;
   mailboxIds: Record<string, boolean>;
   keywords: Record<string, boolean>;
   from: EmailAddress[] | null;

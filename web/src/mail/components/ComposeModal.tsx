@@ -99,6 +99,10 @@ export interface ComposeContext {
   mode: "new" | "reply" | "replyAll" | "forward";
   /** The source message for a reply or forward. */
   replyTo?: EmailFull;
+  /** Seed the subject (e.g. "Fwd: …" for forward-as-attachment). */
+  subject?: string;
+  /** Seed attachments, e.g. the original message as an .eml. */
+  attachments?: { blobId: string; type: string; name: string; size: number }[];
 }
 
 /** A message queued for sending, handed to the parent so it can hold it during
@@ -252,7 +256,8 @@ function buildPrefill(context: ComposeContext, me: string): Prefill {
       quoted: forwardBlock(src),
     };
   }
-  return EMPTY;
+  // "new" — may carry a seeded subject (e.g. forward-as-attachment).
+  return { ...EMPTY, subject: context.subject ?? "" };
 }
 
 function title(mode: ComposeContext["mode"]): string {
@@ -339,7 +344,7 @@ export function ComposeModal({
   // or full-screen. Docked/minimized never block the mailbox behind them.
   const [view, setView] = useState<"normal" | "min" | "full">("normal");
   const minimized = view === "min";
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>(context.attachments ?? []);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);

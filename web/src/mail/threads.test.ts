@@ -5,6 +5,7 @@ import { groupThreads } from "./threads";
 
 function email(partial: Partial<EmailHeaders> & { id: string; threadId: string }): EmailHeaders {
   return {
+    blobId: "blob1",
     mailboxIds: {},
     keywords: {},
     from: null,

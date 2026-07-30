@@ -9,6 +9,7 @@ function headers(partial: Partial<EmailHeaders>): EmailHeaders {
   return {
     id: "e1",
     threadId: "t1",
+    blobId: "blob1",
     mailboxIds: {},
     keywords: {},
     from: null,
