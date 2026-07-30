@@ -3,11 +3,11 @@
 // optimistic read/flag state, and conversation-level actions (reply/forward on
 // the latest message; flag, archive, delete, move, mark-unread, and
 // drag-and-drop on the whole thread within the current folder).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { strings } from "../i18n";
-import { ResizeHandle, usePanelWidth } from "../ds";
+import { ResizeHandle, cx, usePanelWidth } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
 import type { EmailFull } from "../jmap";
 import { useAuth } from "../auth";
@@ -17,7 +17,7 @@ import { FolderSidebar } from "./components/FolderSidebar";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
 import { ComposeModal } from "./components/ComposeModal";
-import type { ComposeContext } from "./components/ComposeModal";
+import type { ComposeContext, QueuedSend } from "./components/ComposeModal";
 import styles from "./MailModule.module.css";
 
 export function MailModule() {
@@ -93,6 +93,56 @@ export function MailModule() {
     mailboxes.reload();
   };
   const fail = () => setToast(strings.mailActionFailed);
+
+  // Undo send: a created draft is held for a few seconds before it is actually
+  // submitted, so a mistaken send can be taken back — Undo just leaves it in
+  // Drafts. One send is held at a time.
+  const [pendingSend, setPendingSend] = useState<QueuedSend | null>(null);
+  const pendingRef = useRef<QueuedSend | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function flushSend() {
+    const queued = pendingRef.current;
+    if (queued === null) return;
+    pendingRef.current = null;
+    setPendingSend(null);
+    if (undoTimer.current !== null) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+    try {
+      await client.submitEmail(queued.emailId, queued.fromEmail, queued.rcpts);
+      afterChange(strings.composeSent);
+      if (threadId !== null) thread.reload(); // a sent reply joins the open thread
+    } catch {
+      setToast(strings.composeSendError);
+    }
+  }
+
+  function queueSend(queued: QueuedSend) {
+    if (pendingRef.current !== null) void flushSend(); // never hold two at once
+    setCompose(null);
+    pendingRef.current = queued;
+    setPendingSend(queued);
+    undoTimer.current = setTimeout(() => void flushSend(), 5000);
+  }
+
+  function undoSend() {
+    if (undoTimer.current !== null) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+    pendingRef.current = null;
+    setPendingSend(null);
+    setToast(strings.composeSendUndone);
+    emails.reload();
+    mailboxes.reload();
+  }
+
+  // Don't silently drop a queued send if the module unmounts mid-window.
+  const flushRef = useRef(flushSend);
+  flushRef.current = flushSend;
+  useEffect(() => () => void flushRef.current(), []);
 
   function openMailbox(id: string) {
     setMailboxId(id);
@@ -196,14 +246,6 @@ export function MailModule() {
       .catch(fail);
   }
 
-  function onSent() {
-    setCompose(null);
-    setToast(strings.composeSent);
-    emails.reload();
-    mailboxes.reload();
-    if (threadId !== null) thread.reload();
-  }
-
   const widthVars = {
     // Collapsed = a compact icon-only column (folders stay one-click reachable).
     "--sidebar-width": foldersCollapsed ? "56px" : `${folders.width}px`,
@@ -269,10 +311,18 @@ export function MailModule() {
           fromName={identity?.name ?? ""}
           draftsMailboxId={draftsMailboxId}
           onClose={() => setCompose(null)}
-          onSent={onSent}
+          onQueueSend={queueSend}
         />
       )}
-      {toast !== null && (
+      {pendingSend !== null && (
+        <div className={cx(styles.toast, styles.undoToast)} role="status">
+          <span>{strings.composeUndoWindow}</span>
+          <button type="button" className={styles.undoButton} onClick={undoSend}>
+            {strings.composeUndoSend}
+          </button>
+        </div>
+      )}
+      {toast !== null && pendingSend === null && (
         <div className={styles.toast} role="status">
           {toast}
         </div>

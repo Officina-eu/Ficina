@@ -62,13 +62,22 @@ export interface ComposeContext {
   replyTo?: EmailFull;
 }
 
+/** A message queued for sending, handed to the parent so it can hold it during
+ * the Undo window before actually submitting. */
+export interface QueuedSend {
+  emailId: string;
+  fromEmail: string;
+  rcpts: string[];
+}
+
 interface ComposeModalProps {
   context: ComposeContext;
   fromEmail: string;
   fromName: string;
   draftsMailboxId: string | null;
   onClose: () => void;
-  onSent: () => void;
+  /** Hand off a created draft to send after the Undo window. */
+  onQueueSend: (queued: QueuedSend) => void;
 }
 
 interface Prefill {
@@ -215,7 +224,7 @@ export function ComposeModal({
   fromName,
   draftsMailboxId,
   onClose,
-  onSent,
+  onQueueSend,
 }: ComposeModalProps) {
   const client = useJmapClient();
   const prefill = useMemo(() => buildPrefill(context, fromEmail), [context, fromEmail]);
@@ -341,10 +350,11 @@ export function ComposeModal({
         attachments: attachments.map((a) => ({ blobId: a.blobId, type: a.type, name: a.name })),
       });
       // Bcc rides the envelope only — it is deliberately absent from the draft
-      // headers above but present in the submission recipients here.
+      // headers above but present in the submission recipients here. The draft
+      // now exists; hand it to the parent, which holds it for the Undo window
+      // and submits after. Undo just leaves it in Drafts.
       const rcpts = [...to, ...cc, ...bcc].map((a) => a.email);
-      await client.submitEmail(emailId, fromEmail, rcpts);
-      onSent();
+      onQueueSend({ emailId, fromEmail, rcpts });
     } catch {
       setError(strings.composeSendError);
       setSending(false);

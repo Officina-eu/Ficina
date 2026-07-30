@@ -18,3 +18,22 @@
   box-shadow: var(--shadow-lg);
   z-index: var(--z-toast);
 }
+
+/* The Undo-send bar: the toast plus an inline action. */
+.undoToast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.undoButton {
+  color: var(--copper-300, var(--accent));
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.undoButton:hover {
+  color: var(--text-on-rail);
+}
