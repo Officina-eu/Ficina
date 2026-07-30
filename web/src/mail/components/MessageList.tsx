@@ -1,10 +1,12 @@
 // The message list for the selected folder — one row per CONVERSATION (thread),
-// Gmail-style: a compact single line (star · sender · subject — snippet · time),
-// with the time swapped for archive / delete / read-toggle actions on hover.
-// Unread threads read bold; the folder header carries a collapse toggle + search.
+// Gmail-style: a checkbox + star, then a two-line block (sender · time / subject
+// — snippet). Unread threads read bold; on row hover the time swaps for archive
+// / delete / read-toggle. Selecting rows turns the folder header into a bulk
+// action bar (select-all · archive · delete · read/unread).
 import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
+  Check,
   Mail,
   MailOpen,
   PanelLeftClose,
@@ -13,6 +15,7 @@ import {
   Search,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { strings } from "../../i18n";
@@ -34,11 +37,20 @@ interface MessageListProps {
   foldersCollapsed: boolean;
   onToggleFolders: () => void;
   onSelect: (thread: ThreadRow) => void;
-  /** Per-row (hover) actions on a whole conversation. */
-  onArchive: (thread: ThreadRow) => void;
-  onDelete: (thread: ThreadRow) => void;
-  onToggleRead: (thread: ThreadRow) => void;
+  /** Batch conversation actions (a single row passes `[thread]`). */
+  onArchive: (threads: ThreadRow[]) => void;
+  onDelete: (threads: ThreadRow[]) => void;
+  onMarkRead: (threads: ThreadRow[], read: boolean) => void;
   onToggleFlag: (thread: ThreadRow) => void;
+}
+
+/** A small checkbox box (avoids depending on a specific lucide check-square name). */
+function CheckBox({ on }: { on: boolean }) {
+  return (
+    <span className={cx(styles.check, on && styles.checkOn)} aria-hidden="true">
+      {on && <Check size={13} strokeWidth={3} />}
+    </span>
+  );
 }
 
 export function MessageList({
@@ -52,13 +64,13 @@ export function MessageList({
   onSelect,
   onArchive,
   onDelete,
-  onToggleRead,
+  onMarkRead,
   onToggleFlag,
 }: MessageListProps) {
   const client = useJmapClient();
   const [query, setQuery] = useState("");
-  // Server-side full-text search across the account (`null` = folder view).
   const [results, setResults] = useState<EmailHeaders[] | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const isSearch = query.trim() !== "";
 
   useEffect(() => {
@@ -67,18 +79,14 @@ export function MessageList({
       setResults(null);
       return undefined;
     }
-    setResults(null); // show the spinner while the query runs
+    setResults(null);
     let live = true;
     const timer = setTimeout(() => {
       client
         .searchEmails(q)
-        .then((r) => {
-          if (live) setResults(r);
-        })
-        .catch(() => {
-          if (live) setResults([]);
-        });
-    }, 250); // debounce keystrokes
+        .then((r) => live && setResults(r))
+        .catch(() => live && setResults([]));
+    }, 250);
     return () => {
       live = false;
       clearTimeout(timer);
@@ -93,30 +101,97 @@ export function MessageList({
   const loading = isSearch ? results === null : emails.status === "loading";
   const error = !isSearch && emails.status === "error";
 
+  // Clear selection when the folder or the visible set changes.
+  useEffect(() => setSelected(new Set()), [folderName, isSearch]);
+
+  const selectedThreads = useMemo(
+    () => threads.filter((t) => selected.has(t.threadId)),
+    [threads, selected],
+  );
+  const allSelected = threads.length > 0 && selected.size === threads.length;
+  const anyUnreadSelected = selectedThreads.some((t) => t.hasUnread);
+
+  function toggleOne(threadId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(threadId)) next.delete(threadId);
+      else next.add(threadId);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(threads.map((t) => t.threadId)));
+  }
+
+  function runBulk(action: (ts: ThreadRow[]) => void) {
+    action(selectedThreads);
+    setSelected(new Set());
+  }
+
   return (
     <section className={styles.column}>
-      <header className={styles.header}>
-        <div className={styles.titleRow}>
+      {selected.size > 0 ? (
+        <header className={cx(styles.header, styles.bulkBar)}>
+          <button
+            type="button"
+            className={styles.bulkCheck}
+            onClick={toggleAll}
+            aria-label={allSelected ? strings.selectNone : strings.selectAll}
+          >
+            <CheckBox on={allSelected} />
+          </button>
+          <span className={styles.bulkCount}>{strings.selectedCount(selected.size)}</span>
+          <div className={styles.headSpacer} />
           <IconButton
             size="sm"
-            label={foldersCollapsed ? strings.expandFolders : strings.collapseFolders}
-            icon={foldersCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-            onClick={onToggleFolders}
+            label={strings.archive}
+            icon={<Archive />}
+            onClick={() => runBulk(onArchive)}
           />
-          <h1 className={styles.title}>{folderName}</h1>
-        </div>
-        <div className={styles.search}>
-          <Search size={16} className={styles.searchIcon} />
-          <input
-            className={styles.searchInput}
-            type="search"
-            placeholder={strings.mailSearchPlaceholder}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label={strings.mailSearchPlaceholder}
+          <IconButton
+            size="sm"
+            label={strings.delete}
+            icon={<Trash2 />}
+            onClick={() => runBulk(onDelete)}
           />
-        </div>
-      </header>
+          <IconButton
+            size="sm"
+            label={anyUnreadSelected ? strings.markRead : strings.markUnread}
+            icon={anyUnreadSelected ? <MailOpen /> : <Mail />}
+            onClick={() => runBulk((ts) => onMarkRead(ts, anyUnreadSelected))}
+          />
+          <IconButton
+            size="sm"
+            label={strings.selectNone}
+            icon={<X />}
+            onClick={() => setSelected(new Set())}
+          />
+        </header>
+      ) : (
+        <header className={styles.header}>
+          <div className={styles.titleRow}>
+            <IconButton
+              size="sm"
+              label={foldersCollapsed ? strings.expandFolders : strings.collapseFolders}
+              icon={foldersCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+              onClick={onToggleFolders}
+            />
+            <h1 className={styles.title}>{folderName}</h1>
+          </div>
+          <div className={styles.search}>
+            <Search size={16} className={styles.searchIcon} />
+            <input
+              className={styles.searchInput}
+              type="search"
+              placeholder={strings.mailSearchPlaceholder}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label={strings.mailSearchPlaceholder}
+            />
+          </div>
+        </header>
+      )}
 
       {loading && (
         <div className={styles.state}>
@@ -142,15 +217,26 @@ export function MessageList({
           {threads.map((thread) => {
             const email = thread.latest;
             const active = thread.threadId === selectedThreadId;
+            const isSel = selected.has(thread.threadId);
             return (
               <li
                 key={thread.threadId}
                 className={cx(
                   styles.row,
                   active && styles.active,
+                  isSel && styles.selectedRow,
                   thread.hasUnread && styles.unread,
                 )}
               >
+                <button
+                  type="button"
+                  className={styles.checkBtn}
+                  onClick={() => toggleOne(thread.threadId)}
+                  aria-label={isSel ? strings.selectNone : strings.selectAll}
+                  aria-pressed={isSel}
+                >
+                  <CheckBox on={isSel} />
+                </button>
                 <button
                   type="button"
                   className={styles.flagBtn}
@@ -170,17 +256,21 @@ export function MessageList({
                     e.dataTransfer.effectAllowed = "move";
                   }}
                 >
-                  <span className={styles.sender}>
-                    {senderName(email)}
-                    {thread.count > 1 && <span className={styles.count}> ({thread.count})</span>}
+                  <span className={styles.line1}>
+                    <span className={styles.sender}>
+                      {senderName(email)}
+                      {thread.count > 1 && <span className={styles.count}> ({thread.count})</span>}
+                    </span>
                   </span>
-                  <span className={styles.subjectWrap}>
+                  <span className={styles.line2}>
                     <span className={styles.subject}>{subjectOr(email)}</span>
                     {email.preview.length > 0 && (
                       <span className={styles.snippet}> — {email.preview}</span>
                     )}
+                    {thread.hasAttachment && (
+                      <Paperclip className={styles.clip} aria-hidden="true" />
+                    )}
                   </span>
-                  {thread.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
                 </button>
                 <div className={styles.rowRight}>
                   <span className={styles.time}>{formatDate(email.receivedAt)}</span>
@@ -190,7 +280,7 @@ export function MessageList({
                       className={styles.actionBtn}
                       aria-label={strings.archive}
                       title={strings.archive}
-                      onClick={() => onArchive(thread)}
+                      onClick={() => onArchive([thread])}
                     >
                       <Archive size={16} />
                     </button>
@@ -199,7 +289,7 @@ export function MessageList({
                       className={styles.actionBtn}
                       aria-label={strings.delete}
                       title={strings.delete}
-                      onClick={() => onDelete(thread)}
+                      onClick={() => onDelete([thread])}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -208,7 +298,7 @@ export function MessageList({
                       className={styles.actionBtn}
                       aria-label={thread.hasUnread ? strings.markRead : strings.markUnread}
                       title={thread.hasUnread ? strings.markRead : strings.markUnread}
-                      onClick={() => onToggleRead(thread)}
+                      onClick={() => onMarkRead([thread], thread.hasUnread)}
                     >
                       {thread.hasUnread ? <MailOpen size={16} /> : <Mail size={16} />}
                     </button>

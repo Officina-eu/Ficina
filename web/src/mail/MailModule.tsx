@@ -295,9 +295,9 @@ export function MailModule() {
         foldersCollapsed={foldersCollapsed}
         onToggleFolders={toggleFolders}
         onSelect={openThread}
-        onArchive={(t) => archiveIds(t.memberIds)}
-        onDelete={(t) => deleteIds(t.memberIds)}
-        onToggleRead={(t) => markSeenIds(t.memberIds, t.hasUnread)}
+        onArchive={(ts) => archiveIds(ts.flatMap((t) => t.memberIds))}
+        onDelete={(ts) => deleteIds(ts.flatMap((t) => t.memberIds))}
+        onMarkRead={(ts, read) => markSeenIds(ts.flatMap((t) => t.memberIds), read)}
         onToggleFlag={(t) => toggleFlag(t.latest)}
       />
       <ResizeHandle
