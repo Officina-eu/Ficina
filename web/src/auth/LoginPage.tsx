@@ -4,7 +4,7 @@
 // (the IdP renders none) and maps provider outcomes to plain error text.
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { KeyRound } from "lucide-react";
+import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { strings } from "../i18n";
@@ -25,6 +25,7 @@ export function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [step, setStep] = useState<Step>("credentials");
   const [error, setError] = useState<string | null>(null);
@@ -127,14 +128,26 @@ export function LoginPage() {
 
           <label className={styles.field}>
             <span className={styles.label}>{strings.passwordLabel}</span>
-            <input
-              className={styles.input}
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className={styles.passwordWrap}>
+              <input
+                className={`${styles.input} ${styles.passwordInput}`}
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className={styles.reveal}
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? strings.hidePassword : strings.showPassword}
+                aria-pressed={showPassword}
+                title={showPassword ? strings.hidePassword : strings.showPassword}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </label>
 
           <div className={styles.row}>

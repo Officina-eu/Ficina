@@ -37,6 +37,8 @@ export const strings = {
   emailLabel: "Email",
   emailPlaceholder: "you@yourdomain.com",
   passwordLabel: "Password",
+  showPassword: "Show password",
+  hidePassword: "Hide password",
   rememberMe: "Remember me",
   forgotPassword: "Forgot password?",
   forgotPasswordNote: "To reset your password, contact your administrator.",

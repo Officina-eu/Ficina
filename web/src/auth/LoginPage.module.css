@@ -124,6 +124,41 @@
   color: var(--text-tertiary);
 }
 
+/* password field with a reveal toggle */
+.passwordWrap {
+  position: relative;
+  display: flex;
+}
+
+.passwordInput {
+  flex: 1;
+  min-width: 0;
+  padding-right: 44px;
+}
+
+.reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 46px;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-md);
+  transition: color var(--transition-fast);
+}
+
+.reveal:hover {
+  color: var(--text-secondary);
+}
+
+.reveal:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: -2px;
+}
+
 .input:focus {
   outline: none;
   background: var(--bg-surface);
