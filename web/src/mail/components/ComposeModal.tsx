@@ -37,12 +37,50 @@ interface PendingAttachment {
 /** True when the composed HTML carries real formatting (not just line breaks),
  * so it's worth sending a text/html alternative. */
 function hasFormatting(html: string): boolean {
-  return /<(?:b|strong|i|em|u|a|ul|ol|li|h[1-6]|blockquote)\b/i.test(html);
+  return (
+    /<(?:b|strong|i|em|u|a|ul|ol|li|h[1-6]|blockquote|pre)\b/i.test(html) ||
+    /data-ficina-(?:latex|lang)=/i.test(html)
+  );
 }
 
-/** A plain-text rendering of composed HTML, for the text/plain alternative. */
+/** Strip tags from a captured HTML fragment, returning its plain text. */
+function stripTags(html: string): string {
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  return el.textContent ?? "";
+}
+
+/** Decode HTML entities in an attribute value (e.g. `&amp;` → `&`). */
+function decodeAttr(value: string): string {
+  const el = document.createElement("textarea");
+  el.innerHTML = value;
+  return el.value;
+}
+
+/**
+ * A plain-text rendering of composed HTML, for the text/plain alternative. Math
+ * and code blocks are reconstructed from their markers so a plain-text reader
+ * still gets the LaTeX and fenced code, not stripped MathML glyphs.
+ */
 function htmlToText(html: string): string {
-  const withBreaks = html
+  const withBlocks = html
+    // code blocks → fenced code
+    .replace(
+      /<pre\b[^>]*data-ficina-lang="([^"]*)"[^>]*>([\s\S]*?)<\/pre>/gi,
+      (_m, lang: string, inner: string) =>
+        `\n\`\`\`${decodeAttr(lang)}\n${stripTags(inner)}\n\`\`\`\n`,
+    )
+    // display equations → LaTeX on its own line
+    .replace(
+      /<div\b[^>]*data-ficina-latex="([^"]*)"[^>]*>[\s\S]*?<\/div>/gi,
+      (_m, latex: string) => `\n${decodeAttr(latex)}\n`,
+    )
+    // inline equations → inline LaTeX
+    .replace(
+      /<span\b[^>]*data-ficina-latex="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi,
+      (_m, latex: string) => ` ${decodeAttr(latex)} `,
+    );
+  const withBreaks = withBlocks
     .replace(/<\/(?:div|p|li|h[1-6]|blockquote)>/gi, "\n")
     .replace(/<br\s*\/?>/gi, "\n");
   const el = document.createElement("div");

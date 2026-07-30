@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **Math & code in emails.** The compose toolbar can insert an **equation**
+  (the LaTeX editor with a live preview) and a **code block** (dark, with a
+  language picker). Equations are sent as **MathML** and code as a
+  self-contained **inline-styled block**, so they render in Ficina's reading
+  pane and other modern clients; the message's plain-text part carries the raw
+  LaTeX and fenced code as the universal fallback. KaTeX/Prism are code-split —
+  loaded only when a user inserts one, never on the normal mail path (ADR 0015).
 - New: **Ficina Docs — real documents.** Technical authoring is now a working
   editor, not a demo: each user creates, opens, renames, and deletes their own
   **documents** (tenant- and owner-scoped store; a document is reachable only by

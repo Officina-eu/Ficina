@@ -32,6 +32,13 @@
   color: var(--text-primary);
 }
 
+.divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 var(--space-1);
+  background: var(--border-subtle);
+}
+
 .editor {
   flex: 1;
   min-height: 180px;

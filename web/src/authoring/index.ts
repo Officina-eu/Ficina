@@ -7,6 +7,8 @@ export { DocumentEditor } from "./DocumentEditor";
 export { EquationEditor } from "./EquationEditor";
 export { CodeBlock } from "./CodeBlock";
 export { CrossReferencePicker, ReferenceChip } from "./CrossReference";
+export { AuthoringInsertModal } from "./AuthoringInsertModal";
+export { codeEmailHtml, equationEmailHtml } from "./emailBlocks";
 export type { Block, DocumentDoc, DocumentSummary } from "./document";
 export {
   type DocItem,

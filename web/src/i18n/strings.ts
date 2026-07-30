@@ -466,6 +466,13 @@ export const strings = {
   eqNumbered: "Numbered",
   eqEmptyBlock: "Empty equation — click to edit",
 
+  // compose — insert math/code into an email
+  composeInsertEquation: "Insert equation",
+  composeInsertCode: "Insert code block",
+  codeInsertTitle: "Insert code block",
+  insertCancel: "Cancel",
+  insertConfirm: "Insert",
+
   // Docs — the module (browser + editor chrome)
   docsTitle: "Ficina Docs",
   docsNew: "New document",
