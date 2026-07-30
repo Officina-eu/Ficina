@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
-use crate::{admin, ai, api, blob, push, security, session};
+use crate::{admin, ai, api, blob, push, security, session, settings};
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
 /// OAuth 2.0 provider (`ficina-identity`) is mounted alongside so a Phase-1
@@ -95,6 +95,10 @@ pub fn app(state: AppState) -> Router {
         .route("/admin/security/checks", get(security::checks))
         // Admin console: audit log (this tenant's administrative actions).
         .route("/admin/audit", get(admin::list_audit))
+        // Mail settings: the user's signature + the tenant footer.
+        .route("/settings/mail", get(settings::mail_settings))
+        .route("/settings/signature", post(settings::set_signature))
+        .route("/admin/org-footer", post(settings::set_org_footer))
         .layer(DefaultBodyLimit::max(upload_limit))
         .with_state(state);
     jmap.merge(identity_routes)

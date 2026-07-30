@@ -75,9 +75,20 @@ interface ComposeModalProps {
   fromEmail: string;
   fromName: string;
   draftsMailboxId: string | null;
+  /** The user's signature (HTML) — inserted into the editable body. */
+  signature: string;
+  /** The tenant's organization footer (HTML) — appended after the signature. */
+  orgFooter: string;
   onClose: () => void;
   /** Hand off a created draft to send after the Undo window. */
   onQueueSend: (queued: QueuedSend) => void;
+}
+
+/** The signature + org footer as an HTML block to seed the editor with, or ""
+ * when both are empty. Two line breaks leave room to type above it. */
+function signatureBlock(signature: string, orgFooter: string): string {
+  const parts = [signature, orgFooter].map((s) => s.trim()).filter((s) => s.length > 0);
+  return parts.length === 0 ? "" : `<br><br>${parts.join("<br>")}`;
 }
 
 interface Prefill {
@@ -223,11 +234,19 @@ export function ComposeModal({
   fromEmail,
   fromName,
   draftsMailboxId,
+  signature,
+  orgFooter,
   onClose,
   onQueueSend,
 }: ComposeModalProps) {
   const client = useJmapClient();
   const prefill = useMemo(() => buildPrefill(context, fromEmail), [context, fromEmail]);
+  // The signature block seeds the editor beneath the cursor. Used only as the
+  // initial editor content (compose is opened after settings load).
+  const initialBody = useMemo(
+    () => prefill.body + signatureBlock(signature, orgFooter),
+    [prefill.body, signature, orgFooter],
+  );
   const isReply = context.mode === "reply" || context.mode === "replyAll";
 
   const [to, setTo] = useState<EmailAddress[]>(prefill.to);
@@ -236,10 +255,10 @@ export function ComposeModal({
   const [showCc, setShowCc] = useState(prefill.showCc);
   const [showBcc, setShowBcc] = useState(false);
   const [subject, setSubject] = useState(prefill.subject);
-  const [body, setBody] = useState(prefill.body);
+  const [body, setBody] = useState(initialBody);
   // The editor is uncontrolled; `editorSeed` is what it mounts with and
   // `editorKey` remounts it when AI rewrites the whole draft.
-  const [editorSeed, setEditorSeed] = useState(prefill.body);
+  const [editorSeed, setEditorSeed] = useState(initialBody);
   const [editorKey, setEditorKey] = useState(0);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [improving, setImproving] = useState(false);

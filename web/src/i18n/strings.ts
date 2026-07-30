@@ -165,6 +165,19 @@ export const strings = {
   improve: "Improve",
   aiImproveFailed: "The AI couldn't rewrite that just now.",
 
+  // account settings (signature + org footer)
+  settingsOpen: "Settings",
+  settingsTitle: "Mail settings",
+  settingsSignature: "Your signature",
+  settingsSignatureHint: "Added to the bottom of messages you send…",
+  settingsOrgFooter: "Organization footer",
+  settingsOrgFooterHint: "Added to every user's outgoing mail, after their signature.",
+  settingsOrgFooterPlaceholder: "e.g. company name, address, legal notice…",
+  settingsSave: "Save",
+  settingsSaved: "Saved.",
+  settingsSaveError: "Couldn't save your settings.",
+  settingsLoadError: "Couldn't load your settings.",
+
   // admin console
   adminTitle: "Admin",
   adminBackToFicina: "Back to Ficina",

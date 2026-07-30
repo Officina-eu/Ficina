@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- New: **Mail signatures + organization footer.** Each user sets a rich-text
+  **signature** (account menu → Settings) inserted into new messages and
+  replies; tenant admins set a tenant-wide **organization footer** appended
+  after every user's signature. Endpoints: `GET /settings/mail`,
+  `POST /settings/signature` (any user), `POST /admin/org-footer` (admin);
+  stored per user / per tenant, empty clears.
+- New: **Undo send.** A sent message is held for a few seconds with an **Undo**
+  action before it actually submits; Undo leaves it in Drafts. A queued send is
+  never lost (it flushes on window-elapse or navigation).
 - New: **Per-tenant DKIM signing keys.** Verifying a domain now provisions its
   own Ed25519 DKIM key (ADR 0014); outbound mail is signed with the key for the
   message's `From` domain, so each tenant signs as itself (DMARC-aligned). The

@@ -335,6 +335,26 @@ export class JmapClient {
     };
   }
 
+  // ---- mail settings (signature + org footer) -------------------------
+
+  /** The signed-in user's signature and the tenant's org footer (HTML). */
+  async mailSettings(): Promise<{ signature: string; orgFooter: string }> {
+    return (await this.#admin("/settings/mail", { method: "GET" })) as {
+      signature: string;
+      orgFooter: string;
+    };
+  }
+
+  /** Save the caller's signature (HTML; empty clears it). */
+  async setSignature(signature: string): Promise<void> {
+    await this.#adminPost("/settings/signature", { signature });
+  }
+
+  /** Set the tenant's organization footer (admin; HTML; empty clears it). */
+  async setOrgFooter(footer: string): Promise<void> {
+    await this.#adminPost("/admin/org-footer", { footer });
+  }
+
   /** This tenant's recent administrative actions, newest first (admin). */
   async adminAuditLog(): Promise<AuditEntry[]> {
     const out = (await this.#admin("/admin/audit", { method: "GET" })) as {

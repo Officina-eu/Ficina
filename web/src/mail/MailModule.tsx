@@ -35,6 +35,11 @@ export function MailModule() {
   const [flags, setFlags] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [toast, setToast] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeContext | null>(null);
+  // The user's signature + tenant footer, inserted into new/reply drafts.
+  const [mailSettings, setMailSettings] = useState<{ signature: string; orgFooter: string }>({
+    signature: "",
+    orgFooter: "",
+  });
   const [foldersCollapsed, setFoldersCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem("ficina.mail.foldersCollapsed") === "1";
@@ -86,6 +91,22 @@ export function MailModule() {
     const timer = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // Load the signature + org footer once, for the compose surface.
+  useEffect(() => {
+    let live = true;
+    void client
+      .mailSettings()
+      .then((s) => {
+        if (live) setMailSettings(s);
+      })
+      .catch(() => {
+        // best-effort — compose just opens without a signature
+      });
+    return () => {
+      live = false;
+    };
+  }, [client]);
 
   const afterChange = (message: string) => {
     setToast(message);
@@ -310,6 +331,8 @@ export function MailModule() {
           fromEmail={identity?.email ?? ""}
           fromName={identity?.name ?? ""}
           draftsMailboxId={draftsMailboxId}
+          signature={mailSettings.signature}
+          orgFooter={mailSettings.orgFooter}
           onClose={() => setCompose(null)}
           onQueueSend={queueSend}
         />

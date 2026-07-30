@@ -442,6 +442,21 @@
   border-color: var(--border-strong);
 }
 
+/* A bordered container for the rich-text signature/footer editors. */
+.sigEditor {
+  min-height: 96px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+
+.sigEditor:focus-within {
+  border-color: var(--border-strong);
+}
+
 .testRow {
   display: flex;
   align-items: center;

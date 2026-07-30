@@ -21,6 +21,7 @@ pub mod identity;
 pub mod message;
 pub mod model;
 pub mod rfc2047;
+pub mod settings;
 pub mod store;
 pub mod thread;
 
