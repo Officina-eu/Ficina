@@ -465,6 +465,12 @@ export const strings = {
   eqError: (message: string) => `Can't render this LaTeX: ${message}`,
   eqNumbered: "Numbered",
   eqEmptyBlock: "Empty equation — click to edit",
+  eqFormatLabel: "Math formatting",
+  eqBold: "Bold (select text first)",
+  eqItalic: "Italic (select text first)",
+  eqUpright: "Upright / roman",
+  eqBlackboard: "Blackboard (ℝ, ℕ …)",
+  eqPlainText: "Plain text in math",
 
   // compose — insert math/code into an email
   composeInsertEquation: "Insert equation",

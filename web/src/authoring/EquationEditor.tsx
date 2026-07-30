@@ -3,7 +3,7 @@
 // centered KaTeX preview, a common-symbol quick bar, and an Insert button.
 // Rendering is browser-local; invalid LaTeX shows inline and never breaks the page.
 import { useMemo, useRef, useState } from "react";
-import { Sigma, X } from "lucide-react";
+import { Bold, Italic, Sigma, X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { cx } from "../ds";
@@ -84,6 +84,24 @@ export function EquationEditor({
     });
   }
 
+  // Wrap the selected LaTeX (or the caret) in a math style command, e.g.
+  // \mathbf{…} for bold. With a selection, the caret lands after the wrap; with
+  // none, it lands inside the braces so the user can type.
+  function wrapSelection(command: string) {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? value.length;
+    const selected = value.slice(start, end);
+    const wrapped = `\\${command}{${selected}}`;
+    onChange(value.slice(0, start) + wrapped + value.slice(end));
+    const caret =
+      selected.length > 0 ? start + wrapped.length : start + command.length + 2;
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(caret, caret);
+    });
+  }
+
   return (
     <div className={styles.overlay} onMouseDown={onClose}>
       <div
@@ -123,16 +141,65 @@ export function EquationEditor({
         </div>
 
         {view === "latex" && (
-          <textarea
-            ref={inputRef}
-            className={styles.input}
-            value={value}
-            spellCheck={false}
-            placeholder={strings.eqPlaceholder}
-            onChange={(e) => onChange(e.target.value)}
-            aria-label={strings.eqInputLabel}
-            rows={1}
-          />
+          <>
+            <div className={styles.formats} role="group" aria-label={strings.eqFormatLabel}>
+              <button
+                type="button"
+                className={styles.format}
+                title={strings.eqBold}
+                aria-label={strings.eqBold}
+                onClick={() => wrapSelection("mathbf")}
+              >
+                <Bold size={15} />
+              </button>
+              <button
+                type="button"
+                className={styles.format}
+                title={strings.eqItalic}
+                aria-label={strings.eqItalic}
+                onClick={() => wrapSelection("mathit")}
+              >
+                <Italic size={15} />
+              </button>
+              <button
+                type="button"
+                className={cx(styles.format, styles.formatText)}
+                title={strings.eqUpright}
+                aria-label={strings.eqUpright}
+                onClick={() => wrapSelection("mathrm")}
+              >
+                rm
+              </button>
+              <button
+                type="button"
+                className={cx(styles.format, styles.formatText)}
+                title={strings.eqBlackboard}
+                aria-label={strings.eqBlackboard}
+                onClick={() => wrapSelection("mathbb")}
+              >
+                ℝ
+              </button>
+              <button
+                type="button"
+                className={cx(styles.format, styles.formatText)}
+                title={strings.eqPlainText}
+                aria-label={strings.eqPlainText}
+                onClick={() => wrapSelection("text")}
+              >
+                abc
+              </button>
+            </div>
+            <textarea
+              ref={inputRef}
+              className={styles.input}
+              value={value}
+              spellCheck={false}
+              placeholder={strings.eqPlaceholder}
+              onChange={(e) => onChange(e.target.value)}
+              aria-label={strings.eqInputLabel}
+              rows={1}
+            />
+          </>
         )}
 
         <div className={styles.previewWrap}>
