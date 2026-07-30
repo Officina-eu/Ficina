@@ -16,7 +16,6 @@ import {
   Printer,
   Reply,
   ReplyAll,
-  Send,
   ShieldAlert,
   Sparkles,
   Star,
@@ -349,33 +348,6 @@ export function ReadingPane({
               onToggle={() => toggle(message.id)}
             />
           ))}
-        </div>
-      </div>
-
-      <div className={styles.quickReply}>
-        <div className={styles.quickHead}>
-          <Reply size={14} />
-          <span className={styles.quickHeadLabel}>{strings.quickReplyTo(senderName(latest))}</span>
-          <span className={styles.quickHeadHint}>{strings.quickReplyHint}</span>
-        </div>
-        <div className={styles.quickBar}>
-          <div className={styles.replyField}>
-            <button type="button" className={styles.quickInput} onClick={onReply}>
-              {strings.replyToName(senderName(latest))}
-            </button>
-            <button type="button" className={styles.draftAi} onClick={onReply}>
-              <Sparkles size={14} />
-              <span>{strings.draftWithAi}</span>
-            </button>
-          </div>
-          <button
-            type="button"
-            className={styles.send}
-            onClick={onReply}
-            aria-label={strings.reply}
-          >
-            <Send size={17} />
-          </button>
         </div>
       </div>
     </article>
