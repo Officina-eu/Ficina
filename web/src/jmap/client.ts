@@ -369,6 +369,16 @@ export class JmapClient {
     await this.#adminPost("/admin/domains/delete", { domain });
   }
 
+  /** Rotate the DKIM key for one of this tenant's domains (admin, ADR 0014). */
+  async adminRotateDkim(
+    domain: string,
+  ): Promise<{ domain: string; dkim: ControlDomain["dkim"] }> {
+    return (await this.#adminPost("/admin/domains/dkim/rotate", { domain })) as {
+      domain: string;
+      dkim: ControlDomain["dkim"];
+    };
+  }
+
   // ---- control plane (platform operator; ADR 0012) --------------------
 
   /** Whether the signed-in user is a platform operator (gates the console). */

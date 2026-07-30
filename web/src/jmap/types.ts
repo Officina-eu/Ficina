@@ -154,6 +154,9 @@ export interface ControlDomain {
   verifiedAt: string | null;
   verifyRecord: { name: string; type: string; value: string };
   createdAt: string;
+  /** The active DKIM record to publish (ADR 0014), present once verified; null
+   * if no key yet. Only the tenant-admin `/admin/domains` listing includes it. */
+  dkim?: { name: string; type: string; value: string; selector: string } | null;
 }
 
 /** A JMAP method invocation: [name, arguments, call-id]. */

@@ -137,15 +137,32 @@ pub async fn verify_domain(
         .set_domain_verified(&record.domain)
         .await
         .map_err(store_err)?;
+    // A verified domain gets its own DKIM signing key (ADR 0014), best-effort.
+    let tenant = TenantId::new(record.tenant_id.clone());
+    if matches!(
+        state.store.active_dkim_material(&record.domain).await,
+        Ok(None)
+    ) {
+        if let Some(key) = ficina_auth_mail::dkim::keystore::generate_ed25519_key() {
+            if let Err(error) = state
+                .store
+                .install_active_dkim_key(
+                    &tenant,
+                    &record.domain,
+                    &key.selector,
+                    key.seed.as_ref(),
+                    &key.public_raw,
+                )
+                .await
+            {
+                tracing::warn!(%error, domain = %record.domain, "DKIM key install failed");
+            }
+        } else {
+            tracing::warn!(domain = %record.domain, "DKIM key generation failed");
+        }
+    }
     tracing::info!(domain = %record.domain, "control: domain verified");
-    audit(
-        &state,
-        &TenantId::new(record.tenant_id.clone()),
-        "domain.verify",
-        Some(&record.domain),
-        None,
-    )
-    .await;
+    audit(&state, &tenant, "domain.verify", Some(&record.domain), None).await;
     Ok(Json(json!({ "domain": record.domain, "verified": true })))
 }
 

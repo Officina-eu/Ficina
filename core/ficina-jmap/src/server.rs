@@ -90,6 +90,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/admin/domains/verify", post(admin::verify_domain))
         .route("/admin/domains/delete", post(admin::delete_domain))
+        .route("/admin/domains/dkim/rotate", post(admin::rotate_dkim))
         // Admin console: security & trust (live deliverability checks).
         .route("/admin/security/checks", get(security::checks))
         // Admin console: audit log (this tenant's administrative actions).

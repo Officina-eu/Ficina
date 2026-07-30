@@ -600,6 +600,7 @@ name = "ficina-control"
 version = "0.0.1"
 dependencies = [
  "axum",
+ "ficina-auth-mail",
  "ficina-identity",
  "ficina-store",
  "hickory-resolver",
@@ -662,6 +663,7 @@ dependencies = [
  "base64",
  "bytes",
  "ficina-ai",
+ "ficina-auth-mail",
  "ficina-identity",
  "ficina-sieve",
  "ficina-smtp-client",
@@ -715,6 +717,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]

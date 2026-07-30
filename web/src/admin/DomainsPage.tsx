@@ -72,6 +72,19 @@ export function DomainsPage() {
     }
   }
 
+  async function rotateDkim(d: ControlDomain) {
+    if (!window.confirm(strings.dkimRotateConfirm(d.domain))) return;
+    setNote(null);
+    try {
+      await client.adminRotateDkim(d.domain);
+      setNote(strings.dkimRotated(d.domain));
+    } catch {
+      setNote(strings.domainActionError);
+    } finally {
+      load();
+    }
+  }
+
   return (
     <div className={styles.page}>
       <header className={styles.pageHead}>
@@ -144,11 +157,21 @@ export function DomainsPage() {
                     {d.verifyRecord.value}
                   </p>
                 )}
+                {d.verified && d.dkim != null && (
+                  <p className={styles.checkDetail}>
+                    {strings.dkimPublish} — {d.dkim.name} TXT = {d.dkim.value}
+                  </p>
+                )}
               </div>
               <div className={styles.userActions}>
                 {!d.verified && (
                   <button type="button" className={styles.ghost} onClick={() => void verify(d)}>
                     {strings.domainVerify}
+                  </button>
+                )}
+                {d.verified && d.dkim != null && (
+                  <button type="button" className={styles.ghost} onClick={() => void rotateDkim(d)}>
+                    {strings.dkimRotate}
                   </button>
                 )}
                 <button

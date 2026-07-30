@@ -14,6 +14,7 @@ pub mod audit;
 pub mod blob;
 pub mod changes;
 pub mod control;
+pub mod dkim;
 pub mod error;
 pub mod id;
 pub mod identity;
@@ -31,6 +32,7 @@ pub use blob::BlobStore;
 pub use blob::GarageConfig;
 pub use changes::Changes;
 pub use control::PLATFORM_TENANT_NAME;
+pub use dkim::DkimSigningMaterial;
 pub use error::{Result, StoreError};
 pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 pub use identity::{
@@ -38,7 +40,8 @@ pub use identity::{
     RefreshTokenRow, SigningKeyRow, TotpRow,
 };
 pub use model::{
-    AiConfigRow, AiProviderRow, AuditEntry, Blob, DomainRow, EmailFilter, EmailQuery, GroupRow,
-    MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection, TenantSummary, UserRow,
+    AiConfigRow, AiProviderRow, AuditEntry, Blob, DkimKeyRow, DomainRow, EmailFilter, EmailQuery,
+    GroupRow, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection, TenantSummary,
+    UserRow,
 };
 pub use store::{SEEN, Store, TenantStore};

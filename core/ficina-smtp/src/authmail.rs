@@ -10,13 +10,44 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use ficina_auth_mail::authres::AuthenticationResults;
-use ficina_auth_mail::dkim::keystore::KeyStore;
+use ficina_auth_mail::dkim::keystore::{
+    KeyFuture, KeyStore, KeyStoreError, ed25519_signing_key_from_seed,
+};
 use ficina_auth_mail::dkim::{self, Message, SignParams};
 use ficina_auth_mail::dmarc::{self, Disposition, DmarcResult};
 use ficina_auth_mail::resolver::Resolver;
 use ficina_auth_mail::spf::{self, Mailbox, SpfQuery};
+use ficina_store::Store;
 
 use crate::rspamd::{RspamdAction, RspamdClient, RspamdMeta};
+
+/// A one-key keystore over an already-resolved per-domain DKIM key (ADR 0014),
+/// so the shared `dkim::sign` can consume a stored Ed25519 seed. Rebuilds the
+/// PKCS#8 key on demand and holds only the short-lived seed.
+struct SingleKeyStore {
+    domain: String,
+    selector: String,
+    seed: zeroize::Zeroizing<Vec<u8>>,
+}
+
+impl KeyStore for SingleKeyStore {
+    fn get<'a>(&'a self, domain: &'a str, selector: &'a str) -> KeyFuture<'a> {
+        Box::pin(async move {
+            if domain.eq_ignore_ascii_case(&self.domain) && selector == self.selector {
+                ed25519_signing_key_from_seed(&self.seed).ok_or_else(|| KeyStoreError::Unusable {
+                    domain: domain.to_owned(),
+                    selector: selector.to_owned(),
+                    reason: "stored DKIM seed unusable".to_owned(),
+                })
+            } else {
+                Err(KeyStoreError::NotFound {
+                    domain: domain.to_owned(),
+                    selector: selector.to_owned(),
+                })
+            }
+        })
+    }
+}
 
 /// DKIM signing configuration for the submission path.
 pub struct SigningConfig {
@@ -35,6 +66,10 @@ pub struct AuthMail {
     hostname: String,
     resolver: Option<Arc<dyn Resolver>>,
     signing: Option<SigningConfig>,
+    /// Per-tenant DKIM keys (ADR 0014): when set, a message is signed with the
+    /// stored key for its `From` domain, falling back to `signing` (the
+    /// configured file key) when the domain has no stored key.
+    dkim_store: Option<Arc<Store>>,
     rspamd: Option<Arc<RspamdClient>>,
 }
 
@@ -75,6 +110,7 @@ impl AuthMail {
             hostname: hostname.into(),
             resolver: None,
             signing: None,
+            dkim_store: None,
             rspamd: None,
         }
     }
@@ -97,6 +133,15 @@ impl AuthMail {
     #[must_use]
     pub fn with_signing(mut self, signing: SigningConfig) -> Self {
         self.signing = Some(signing);
+        self
+    }
+
+    /// Installs the store used to resolve per-tenant DKIM keys by the `From`
+    /// domain (ADR 0014). The configured file key (`with_signing`) remains the
+    /// fallback for domains without a stored key.
+    #[must_use]
+    pub fn with_dkim_store(mut self, store: Arc<Store>) -> Self {
+        self.dkim_store = Some(store);
         self
     }
 
@@ -270,8 +315,33 @@ impl AuthMail {
     /// `DKIM-Signature:` header line (with CRLF) to prepend, or `None`
     /// when signing is not configured or the key is unavailable.
     pub async fn sign_outbound(&self, raw_message: &[u8]) -> Option<String> {
-        let signing = self.signing.as_ref()?;
         let message = Message::parse(raw_message);
+
+        // Per-tenant key (ADR 0014): sign with the stored key for the message's
+        // `From` domain when one exists. `header_from_domain` refuses a From
+        // with multiple domains, so `d=` is never attacker-chosen. On any miss
+        // or failure we fall through to the configured file key below — the
+        // single-tenant path is byte-identical to before.
+        if let Some(store) = &self.dkim_store
+            && let Some(domain) = header_from_domain(&message)
+            && let Ok(Some(material)) = store.active_dkim_material(&domain).await
+        {
+            let single = SingleKeyStore {
+                domain: domain.clone(),
+                selector: material.selector.clone(),
+                seed: zeroize::Zeroizing::new(material.seed),
+            };
+            let params = SignParams::new(&domain, &material.selector);
+            match dkim::sign(&single, &message, &params).await {
+                Ok(value) => return Some(format!("DKIM-Signature: {value}\r\n")),
+                Err(error) => {
+                    tracing::error!(%error, "per-tenant DKIM signing failed; trying the configured key");
+                }
+            }
+        }
+
+        // Fallback: the configured deployment key (the single-tenant path).
+        let signing = self.signing.as_ref()?;
         let params = SignParams::new(&signing.domain, &signing.selector);
         match dkim::sign(signing.keys.as_ref(), &message, &params).await {
             Ok(value) => Some(format!("DKIM-Signature: {value}\r\n")),

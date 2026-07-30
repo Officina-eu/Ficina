@@ -156,6 +156,67 @@ impl KeyStore for FileKeyStore {
     }
 }
 
+/// A freshly generated Ed25519 DKIM key (RFC 8463): a DNS-safe selector, the
+/// 32-byte seed to store (private, zeroized), and the 32-byte raw public key to
+/// publish in DNS.
+pub struct GeneratedKey {
+    /// A DNS-label-safe selector derived from the public key (stable, unique).
+    pub selector: String,
+    /// The Ed25519 secret seed — persist this, never log it.
+    pub seed: Zeroizing<[u8; 32]>,
+    /// The raw 32-byte public key, for the `p=` tag of the DNS record.
+    pub public_raw: [u8; 32],
+}
+
+/// Generates a new Ed25519 DKIM signing key from the system CSPRNG, or `None`
+/// on RNG failure. RSA is not generated in-process (the pure-Rust `rsa` crate
+/// is forbidden — ADR 0008 / 0014); operators needing RSA supply it via the
+/// file keystore. The selector is `fic<12 hex>` derived from the public key —
+/// DNS-label-safe and unique per key, so rotation always uses a fresh selector.
+pub fn generate_ed25519_key() -> Option<GeneratedKey> {
+    use ring::rand::SecureRandom;
+    use sha2::{Digest, Sha256};
+    let mut seed = Zeroizing::new([0u8; 32]);
+    ring::rand::SystemRandom::new().fill(seed.as_mut()).ok()?;
+    let signing = ed25519_dalek::SigningKey::from_bytes(&seed);
+    let public_raw = signing.verifying_key().to_bytes();
+    let digest = Sha256::digest(public_raw);
+    let selector = format!(
+        "fic{}",
+        digest[..6]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
+    Some(GeneratedKey {
+        selector,
+        seed,
+        public_raw,
+    })
+}
+
+/// Rebuilds a [`SigningKey`] (PKCS#8 DER, which the signer consumes) from a
+/// stored Ed25519 seed, or `None` if the seed is not 32 bytes or PKCS#8
+/// encoding fails.
+pub fn ed25519_signing_key_from_seed(seed: &[u8]) -> Option<SigningKey> {
+    use ed25519_dalek::pkcs8::EncodePrivateKey;
+    let seed: [u8; 32] = seed.try_into().ok()?;
+    let signing = ed25519_dalek::SigningKey::from_bytes(&seed);
+    let der = signing.to_pkcs8_der().ok()?;
+    Some(SigningKey {
+        algorithm: KeyAlgorithm::Ed25519Sha256,
+        pkcs8_der: Zeroizing::new(der.as_bytes().to_vec()),
+    })
+}
+
+/// The DKIM DNS TXT record value for an Ed25519 public key (RFC 8463):
+/// `v=DKIM1; k=ed25519; p=<base64>`.
+pub fn ed25519_txt_record(public_raw: &[u8]) -> String {
+    use base64::Engine;
+    let p = base64::engine::general_purpose::STANDARD.encode(public_raw);
+    format!("v=DKIM1; k=ed25519; p={p}")
+}
+
 /// Loads a PKCS#8 PEM private key, refusing group/world-readable files.
 /// Returns a non-sensitive error string on failure.
 fn load_pkcs8_pem(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
@@ -205,6 +266,7 @@ fn pem_to_der(pem: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]
@@ -212,6 +274,28 @@ mod tests {
         let store = FileKeyStore::new();
         let result = futures_lite_block(store.get("example.com", "sel"));
         assert!(matches!(result, Err(KeyStoreError::NotFound { .. })));
+    }
+
+    #[test]
+    fn generated_ed25519_key_round_trips_and_signs() {
+        let generated = generate_ed25519_key().expect("keygen");
+        assert_eq!(generated.public_raw.len(), 32);
+        // The seed rebuilds into a usable PKCS#8 signing key...
+        let key = ed25519_signing_key_from_seed(generated.seed.as_ref()).expect("from seed");
+        assert_eq!(key.algorithm, KeyAlgorithm::Ed25519Sha256);
+        // ...and that DER is the same key (its public matches what we publish).
+        use ed25519_dalek::pkcs8::DecodePrivateKey;
+        let sk = ed25519_dalek::SigningKey::from_pkcs8_der(&key.pkcs8_der).expect("decode der");
+        assert_eq!(sk.verifying_key().to_bytes(), generated.public_raw);
+        // A wrong-length seed is rejected, not panicked on.
+        assert!(ed25519_signing_key_from_seed(&[0u8; 16]).is_none());
+    }
+
+    #[test]
+    fn ed25519_txt_record_is_well_formed() {
+        let rec = ed25519_txt_record(&[0u8; 32]);
+        assert!(rec.starts_with("v=DKIM1; k=ed25519; p="));
+        assert!(rec.ends_with('='));
     }
 
     #[test]

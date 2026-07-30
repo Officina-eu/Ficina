@@ -16,6 +16,8 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Zeroize the short-lived DKIM seed pulled from the store during signing.
+zeroize = { workspace = true }
 # Envelope sidecar serialization for the spool (M2 reads it back).
 serde = { workspace = true }
 serde_json = { workspace = true }

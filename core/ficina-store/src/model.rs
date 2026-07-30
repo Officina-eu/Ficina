@@ -79,6 +79,18 @@ pub struct AuditEntry {
     pub created_at: OffsetDateTime,
 }
 
+/// A DKIM key for the admin/operator Domains view (ADR 0014). The secret seed
+/// is NEVER in here — only the selector and the raw public key needed to build
+/// the DNS record.
+#[derive(Debug, Clone)]
+pub struct DkimKeyRow {
+    pub selector: String,
+    pub algorithm: String,
+    pub public_raw: Vec<u8>,
+    pub active: bool,
+    pub created_at: OffsetDateTime,
+}
+
 /// A domain owned by a tenant (ADR 0012). `verified_at` is `None` until the
 /// DNS TXT proof is observed; `verify_token` is the value to publish at
 /// `_ficina-verify.<domain>`.

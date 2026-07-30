@@ -302,7 +302,8 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
             }
         };
     let mx_auth = Arc::new(build_mx_auth(&config, auth_resolver.clone()));
-    let submission_auth = Arc::new(build_submission_auth(&config, auth_resolver)?);
+    let dkim_store = local_delivery.as_ref().map(|ld| ld.store().clone());
+    let submission_auth = Arc::new(build_submission_auth(&config, auth_resolver, dkim_store)?);
 
     // Optional submission listeners bind first and run as spawned
     // tasks; the MX listener runs on this task (and never returns).
@@ -442,10 +443,16 @@ fn build_mx_auth(config: &SmtpConfig, resolver: Option<Arc<dyn AuthResolver>>) -
 fn build_submission_auth(
     config: &SmtpConfig,
     resolver: Option<Arc<dyn AuthResolver>>,
+    store: Option<Arc<ficina_store::Store>>,
 ) -> Result<AuthMail, SmtpError> {
     let mut auth = AuthMail::disabled(&config.hostname);
     if let Some(resolver) = resolver {
         auth = auth.with_resolver(resolver);
+    }
+    // Per-tenant DKIM keys (ADR 0014): resolve the signing key by the From
+    // domain, with the configured file key below as the fallback.
+    if let Some(store) = store {
+        auth = auth.with_dkim_store(store);
     }
     if let Some(dkim) = &config.dkim {
         let algorithm = if dkim.ed25519 {

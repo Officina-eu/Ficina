@@ -186,6 +186,11 @@ export const strings = {
   adminDomainsError: "Couldn't load domains.",
   adminDomainsEmpty: "No domains yet. Add one to verify it.",
   adminAddDomain: "Add domain",
+  dkimPublish: "Publish this DKIM record so your mail is signed",
+  dkimRotate: "Rotate DKIM",
+  dkimRotateConfirm: (domain: string) =>
+    `Rotate the DKIM key for ${domain}? Publish the new record; keep the old one until mail stops using it.`,
+  dkimRotated: (domain: string) => `New DKIM key for ${domain} — publish the updated record.`,
 
   // admin — audit log
   adminAudit: "Audit log",

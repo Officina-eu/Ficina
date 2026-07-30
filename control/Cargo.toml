@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 ficina-store = { path = "../core/ficina-store" }
 ficina-identity = { path = "../core/ficina-identity" }
+# Per-domain DKIM key generation when a domain is verified (ADR 0014).
+ficina-auth-mail = { path = "../core/ficina-auth-mail" }
 # DNS TXT lookup to verify a tenant's domain ownership (same resolver the
 # Security & trust checks use).
 hickory-resolver = { workspace = true }

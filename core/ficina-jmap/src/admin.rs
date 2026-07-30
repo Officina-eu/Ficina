@@ -618,20 +618,67 @@ fn domain_json(d: &ficina_store::DomainRow) -> Value {
     })
 }
 
-/// `GET /admin/domains` → `{ domains: [...] }` — this tenant's own domains.
+/// Ensure a verified domain has an active DKIM signing key (ADR 0014).
+/// Best-effort: a keygen or store failure is logged, never fails the verify.
+async fn ensure_dkim_key(state: &AppState, tenant: &ficina_store::TenantId, domain: &str) {
+    match state.store.active_dkim_material(domain).await {
+        Ok(Some(_)) => return, // already has an active key
+        Ok(None) => {}
+        Err(_) => return,
+    }
+    let Some(key) = ficina_auth_mail::dkim::keystore::generate_ed25519_key() else {
+        tracing::warn!(domain, "DKIM key generation failed");
+        return;
+    };
+    if let Err(error) = state
+        .store
+        .install_active_dkim_key(
+            tenant,
+            domain,
+            &key.selector,
+            key.seed.as_ref(),
+            &key.public_raw,
+        )
+        .await
+    {
+        tracing::warn!(%error, domain, "DKIM key install failed");
+    }
+}
+
+/// The active DKIM DNS record for `domain` (ADR 0014), or `null` if the domain
+/// has no key yet: `<selector>._domainkey.<domain>` TXT = the Ed25519 key.
+async fn dkim_record_json(ts: &ficina_store::TenantStore, domain: &str) -> Value {
+    let keys = ts.list_dkim_keys(domain).await.unwrap_or_default();
+    match keys.iter().find(|k| k.active) {
+        Some(k) => json!({
+            "name": format!("{}._domainkey.{}", k.selector, domain),
+            "type": "TXT",
+            "value": ficina_auth_mail::dkim::keystore::ed25519_txt_record(&k.public_raw),
+            "selector": k.selector,
+        }),
+        None => Value::Null,
+    }
+}
+
+/// `GET /admin/domains` → `{ domains: [...] }` — this tenant's own domains, each
+/// with its active DKIM record to publish.
 pub async fn list_domains(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, Problem> {
     let account = authenticate(&state, &headers).await?;
     account.require_admin()?;
-    let domains = state
-        .store
-        .for_tenant(account.tenant.clone())
+    let ts = state.store.for_tenant(account.tenant.clone());
+    let domains = ts
         .list_domains()
         .await
         .map_err(|_| Problem::server_error())?;
-    let list: Vec<Value> = domains.iter().map(domain_json).collect();
+    let mut list = Vec::with_capacity(domains.len());
+    for d in &domains {
+        let mut obj = domain_json(d);
+        obj["dkim"] = dkim_record_json(&ts, &d.domain).await;
+        list.push(obj);
+    }
     Ok(Json(json!({ "domains": list })))
 }
 
@@ -692,6 +739,8 @@ pub async fn verify_domain(
         .set_domain_verified(&record.domain)
         .await
         .map_err(store_admin_err)?;
+    // A verified domain gets its own DKIM signing key (ADR 0014).
+    ensure_dkim_key(&state, &account.tenant, &record.domain).await;
     audit(
         &state,
         &account,
@@ -729,8 +778,60 @@ pub async fn delete_domain(
         .delete_domain(&domain)
         .await
         .map_err(store_admin_err)?;
+    // Remove the domain's DKIM keys too (dkim_keys references the tenant, not
+    // the domain, so it does not cascade).
+    if let Err(error) = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .delete_dkim_keys(&domain)
+        .await
+    {
+        tracing::warn!(%error, "failed to remove DKIM keys for deleted domain");
+    }
     audit(&state, &account, "domain.delete", Some(&domain), None).await;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /admin/domains/dkim/rotate` — generate a fresh active DKIM key for one
+/// of this tenant's domains (selector rollover, ADR 0014). Body `{ domain }`.
+/// The previous key stays published (inactive) until the operator removes it,
+/// so in-flight mail still verifies.
+pub async fn rotate_dkim(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let domain = str_field(&v, "domain").ok_or_else(|| bad("domain required"))?;
+    let owned = state
+        .store
+        .domain_record(&domain)
+        .await
+        .map_err(|_| Problem::server_error())?
+        .is_some_and(|r| r.tenant_id == account.tenant.as_str());
+    if !owned {
+        return Err(Problem::not_found());
+    }
+    let key = ficina_auth_mail::dkim::keystore::generate_ed25519_key()
+        .ok_or_else(Problem::server_error)?;
+    state
+        .store
+        .install_active_dkim_key(
+            &account.tenant,
+            &domain,
+            &key.selector,
+            key.seed.as_ref(),
+            &key.public_raw,
+        )
+        .await
+        .map_err(store_admin_err)?;
+    audit(&state, &account, "dkim.rotate", Some(&domain), None).await;
+    let ts = state.store.for_tenant(account.tenant.clone());
+    Ok(Json(
+        json!({ "domain": domain, "dkim": dkim_record_json(&ts, &domain).await }),
+    ))
 }
 
 // ---- audit log (tenant-admin; ADR 0012) --------------------------------

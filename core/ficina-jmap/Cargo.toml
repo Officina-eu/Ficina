@@ -16,6 +16,8 @@ ficina-identity = { path = "../ficina-identity" }
 ficina-smtp-client = { path = "../ficina-smtp-client" }
 # The AI inference layer (ADR 0011) — the /ai/improve route bridges to it.
 ficina-ai = { path = "../ficina-ai" }
+# Per-domain DKIM key generation when a domain is verified (ADR 0014).
+ficina-auth-mail = { path = "../ficina-auth-mail" }
 # Live DNS checks for the admin Security & trust page (SPF/DMARC/DKIM/MX/PTR).
 hickory-resolver = { workspace = true }
 # The MTA-STS policy fetch (HTTPS) in the Security & trust checks.
