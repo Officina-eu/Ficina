@@ -1,4 +1,11 @@
-# Multi-tenant trust boundary — deferred hardening
+# Multi-tenant trust boundary — hardening status
+
+> **Update (ADR 0012 shipped):** finding 1 (tenant→domain ownership) is
+> now **addressed** — the `domains` table, the `ficina-control` operator
+> plane that registers + DNS-verifies domains, and the address-assignment
+> guard all exist; enforcement is live behind `FICINA_ENFORCE_DOMAIN_OWNERSHIP`
+> (default off until a deployment registers its domains, then flip). Finding 2
+> (AI-endpoint SSRF) remains open, tracked below for the egress-policy slice.
 
 A security sweep of the tenant-admin console + AI inference layer
 returned **no critical or high findings**: tenant scoping on every

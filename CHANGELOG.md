@@ -6,6 +6,23 @@ contracts.
 
 ## Unreleased
 
+- New: **Multi-tenant control plane (`ficina-control`).** A dedicated
+  platform-operator service (ADR 0012), separate from the tenant API, for
+  governing a shared deployment: **tenant lifecycle** (list, provision a
+  tenant + its first admin, suspend/resume, delete with an id-echo
+  confirmation) and **tenant→domain ownership** (register a domain, verify it
+  by a `_ficina-verify` DNS TXT proof, list, remove). Operators are a new
+  principal — a user carrying `is_platform_admin`, created by `identityctl
+  bootstrap-operator`, authenticated by the same opaque token path as everyone
+  else; an operator token authorizes `/control/*` governance only and is
+  **never** a key into any tenant's mail. Address assignment
+  (`create_user`/alias/list) can now be constrained to a tenant's verified
+  domains — the fix for the cross-tenant mail-capture risk — behind
+  `FICINA_ENFORCE_DOMAIN_OWNERSHIP` (default off; flip once domains are
+  registered). New service: compose `ficina-control` + Caddy `/control/*`
+  route. Schema (additive): `users.is_platform_admin`, `tenants.status`, a
+  `domains` table. Design + threat model: ADR
+  `0012-multi-tenant-control-plane.md`, `docs/design/multi-tenant-trust-boundary.md`.
 - New: **Tenant Admin console + AI inference layer.** A full-screen,
   tenant-admin-only console (reached from the user menu, gated on the new
   `ficina:isAdmin` session key) with four working pages: **Users & mailboxes**
