@@ -127,6 +127,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [ ] Drive: spaces, permissions, share links (password/expiry), trash/restore, version history
 - [ ] WOPI endpoints (CheckFileInfo/GetFile/PutFile) served by Drive
 - [ ] Collabora embedded, Ficina-themed; Docs/Sheets/Slides live per `features.md`
+- [ ] Technical authoring: browser-local math (KaTeX) + code (Prism) + Ficina auto-numbering/cross-references — standalone module first, docks into the Docs shell (ADR 0015)
 - [ ] Fidelity CI: real-document corpus round-trips to desktop Office without mangling
 - [ ] Desktop sync client v1
 

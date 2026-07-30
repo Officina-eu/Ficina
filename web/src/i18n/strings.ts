@@ -422,6 +422,62 @@ export const strings = {
   // mail — not-yet-built (honest placeholders)
   aiComingSoon: "The AI assistant is coming soon.",
   archiveUnavailable: "There's no archive folder to move this to.",
+
+  // technical authoring (Docs) — equations, code, cross-references
+  authoringTitle: "Technical authoring",
+  authoringSubtitle:
+    "Write specs with math, equations, and code — rendered in your browser, nothing sent to a server.",
+  authoringEquations: "Equations",
+  authoringEquationsHint:
+    "Type LaTeX and see it render live. Toggle inline vs a numbered display equation; use the symbol bar for common notation.",
+  authoringCode: "Code blocks",
+  authoringCodeHint:
+    "Syntax-highlighted code. Pick the language explicitly, copy with one click; line numbers included.",
+  authoringCrossRefs: "Cross-references & auto-numbering",
+  authoringCrossRefsHint:
+    "Equations, tables, figures, and sections number themselves. Reference chips stay correct when you reorder or insert items.",
+  authoringRefLead: "Combining the result of",
+  authoringRefTail: "gives the numerical model used throughout this document.",
+  authoringClearRefs: "Clear",
+  authoringOutline: "Document outline — reorder and watch the numbers update",
+  authoringMoveUp: "Move up",
+  authoringMoveDown: "Move down",
+
+  // equation editor
+  eqViewLabel: "Editing view",
+  eqViewLatex: "LaTeX",
+  eqViewVisual: "Visual",
+  eqModeLabel: "Equation mode",
+  eqInline: "Inline",
+  eqDisplay: "Display",
+  eqNumbered: "Numbered",
+  eqPlaceholder: "e.g.  E = mc^2",
+  eqInputLabel: "LaTeX source",
+  eqPreview: "Preview",
+  eqEmpty: "Nothing to preview yet — start typing LaTeX above.",
+  eqError: (message: string) => `Can't render this LaTeX: ${message}`,
+
+  // code block
+  codeSearchLanguage: "Search language…",
+  codeNoLanguage: "No matching language",
+  codeCopy: "Copy",
+  codeCopied: "Copied",
+  codeInputLabel: "Code",
+
+  // cross-reference chips + picker
+  refSection: "Section",
+  refEquation: "Eq.",
+  refTable: "Table",
+  refFigure: "Figure",
+  refBroken: "broken reference",
+  refInsert: "Insert cross-reference",
+  refInsertTitle: "Insert cross-reference",
+  refClose: "Close",
+  refNoneOfKind: "Nothing of this kind yet.",
+  refTabEquations: "Equations",
+  refTabSections: "Sections",
+  refTabTables: "Tables",
+  refTabFigures: "Figures",
 } as const;
 
 export type StringKey = keyof typeof strings;

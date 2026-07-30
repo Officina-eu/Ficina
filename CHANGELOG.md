@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- New: **Technical authoring in Ficina Docs.** Write specs with math and code,
+  all rendered **in the browser** (no draft equation or line of code leaves the
+  client): an **equation editor** with a LaTeX input, a live **KaTeX** preview, a
+  LaTeX/Visual toggle, a common-symbol quick bar, and inline vs numbered display
+  equations; **code blocks** with **Prism** highlighting, a searchable language
+  picker (explicit, never guessed), copy, and line numbers; and **cross-references
+  with auto-numbering** — equations, tables, figures, and sections number
+  themselves and reference chips ("Eq. 3", "Table 1", "Section 2.3") stay correct
+  when items are reordered or inserted, with an insert-cross-reference picker
+  (tabs). Ships as a standalone Ficina Docs surface (reached via Drive) that will
+  dock into the Collabora Docs shell when that lands. KaTeX + Prism are MIT; the
+  numbering/reference layer is Ficina's own (ADR 0015). The libraries are
+  code-split, so the mail app never loads them.
 - New: **Cc and Bcc.** Compose sends to Cc and Bcc recipients; the reading pane
   shows the full To / Cc / Bcc of each message. Bcc is written into the sender's
   own copy (so Sent records who was blind-copied) but the server **strips the

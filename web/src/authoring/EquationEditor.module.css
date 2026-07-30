@@ -1,0 +1,165 @@
+.editor {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* segmented toggle (LaTeX/Visual, Inline/Display) */
+.segment {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.segBtn {
+  padding: 3px var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.segOn {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.numbered {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.numbered.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* symbol quick bar */
+.symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.symbol {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.symbol:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-sunken);
+}
+
+/* LaTeX source input */
+.input {
+  display: block;
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.input:focus {
+  outline: none;
+}
+
+/* preview */
+.previewWrap {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+
+.previewLabel {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.preview {
+  position: relative;
+  min-height: 40px;
+  color: var(--text-primary);
+}
+
+.previewBlock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-3) var(--space-6);
+}
+
+.previewInline {
+  display: block;
+  font-size: var(--text-base);
+}
+
+/* the numbered display equation's "(n)", pinned to the right like a real doc */
+.eqNumber {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.empty {
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-size: var(--text-sm);
+}

@@ -27,7 +27,9 @@ export const modules: ModuleDef[] = [
   { id: "mail", path: "/mail", label: strings.moduleMail, Icon: Mail, enabled: true },
   { id: "agenda", path: "/agenda", label: strings.moduleAgenda, Icon: Calendar, enabled: false },
   { id: "chat", path: "/chat", label: strings.moduleChat, Icon: MessagesSquare, enabled: false },
-  { id: "drive", path: "/drive", label: strings.moduleDrive, Icon: HardDrive, enabled: false },
+  // Drive proper is not built; its surface currently hosts the Docs
+  // technical-authoring preview (ADR 0015), which lives under Drive (ADR 0010).
+  { id: "drive", path: "/drive", label: strings.moduleDrive, Icon: HardDrive, enabled: true },
   { id: "meet", path: "/meet", label: strings.moduleMeet, Icon: Video, enabled: false },
 ];
 

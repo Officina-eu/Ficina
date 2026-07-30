@@ -198,6 +198,26 @@ silently changing**:
   overwrites the document without explicit approval — the trust model that fits
   a sovereignty product.
 
+**Technical authoring** — specs with math, equations, and code, for engineers,
+finance, and technical writers. A Ficina-owned shell capability (ADR 0015)
+rendered **browser-local** (no draft equation or source line leaves the client);
+KaTeX + Prism (both MIT); the numbering/reference layer is Ficina's own. UX
+source of truth: the Figma technical-authoring screens.
+
+- [2] ★ **Equations** — an equation editor with LaTeX input and a **live
+  rendered preview** (KaTeX), a LaTeX/Visual toggle, and a common-symbols quick
+  bar; supports both **inline math** (within a sentence) and **numbered display
+  equations**.
+- [2] ★ **Code blocks** — syntax-highlighted code (Prism) with a **searchable
+  language picker** (explicit, never auto-detected), a copy button, and line
+  numbers.
+- [2] ★ **Cross-references + auto-numbering** — equations, tables, figures, and
+  sections get **auto-numbers**, and reference chips ("Eq. 3", "Table 1",
+  "Section 2.3") **stay correct automatically** when items are reordered or
+  inserted (references point at an item's identity, resolved to its current
+  number). Includes the insert-cross-reference picker (tabs for Equations /
+  Sections / Tables / Figures).
+
 Cross-cutting Docs principles:
 
 - [L] No hidden formatting: visible structure, an always-available "clean
