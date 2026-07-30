@@ -139,9 +139,11 @@ export function ThreadMessage({
         <div className={styles.headText}>
           <div className={styles.headTop}>
             <span className={styles.sender}>{senderName(email)}</span>
-            {expanded && email.from?.[0]?.email !== undefined && (
-              <span className={styles.senderEmail}>{`<${email.from[0].email}>`}</span>
-            )}
+            {expanded &&
+              email.from?.[0]?.email !== undefined &&
+              email.from[0].email !== senderName(email) && (
+                <span className={styles.senderEmail}>{`<${email.from[0].email}>`}</span>
+              )}
             {verified && (
               <span className={styles.verified} title={strings.senderVerifiedTitle}>
                 <ShieldCheck className={styles.verifiedIcon} aria-hidden="true" />

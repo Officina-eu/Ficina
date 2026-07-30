@@ -57,5 +57,5 @@ export function threadDigest(messages: EmailFull[]): string {
 export function sandboxedHtml(html: string): string {
   const csp =
     "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; media-src data:";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>body{font-family:Georgia,serif;color:#211d18;margin:0;padding:16px;line-height:1.6}img{max-width:100%}</style></head><body>${html}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#211d18;margin:0;padding:16px;line-height:1.6}img{max-width:100%}</style></head><body>${html}</body></html>`;
 }
