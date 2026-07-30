@@ -56,11 +56,6 @@ interface ReadingPaneProps {
   onReply: () => void;
   onReplyAll: () => void;
   onForward: () => void;
-  /** Reply / reply-all / forward / delete one specific message in the thread. */
-  onReplyMessage: (email: EmailFull) => void;
-  onReplyAllMessage: (email: EmailFull) => void;
-  onForwardMessage: (email: EmailFull) => void;
-  onDeleteMessage: (email: EmailFull) => void;
   onToggleFlag: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -76,10 +71,6 @@ export function ReadingPane({
   onReply,
   onReplyAll,
   onForward,
-  onReplyMessage,
-  onReplyAllMessage,
-  onForwardMessage,
-  onDeleteMessage,
   onToggleFlag,
   onArchive,
   onDelete,
@@ -252,10 +243,6 @@ export function ReadingPane({
               expanded={expanded.has(message.id)}
               me={me}
               onToggle={() => toggle(message.id)}
-              onReply={() => onReplyMessage(message)}
-              onReplyAll={() => onReplyAllMessage(message)}
-              onForward={() => onForwardMessage(message)}
-              onDelete={() => onDeleteMessage(message)}
             />
           ))}
         </div>

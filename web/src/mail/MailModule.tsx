@@ -232,24 +232,6 @@ export function MailModule() {
     }
   }
 
-  // Delete a single message within the open conversation: to Trash from the
-  // folder it lives in, or permanently when already in Trash. Reloads the
-  // thread so the message drops out of the conversation.
-  function deleteMessage(message: EmailFull) {
-    const trash = boxes.find((b) => b.role === "trash");
-    const from = Object.keys(message.mailboxIds).find((id) => message.mailboxIds[id] === true) ?? mailboxId;
-    if (from === null) return;
-    const done = () => {
-      afterChange(strings.mailDeleted);
-      if (threadId !== null) thread.reload();
-    };
-    if (trash === undefined || from === trash.id) {
-      void client.destroyMany([message.id]).then(done).catch(fail);
-    } else {
-      void client.moveMany([message.id], from, trash.id).then(done).catch(fail);
-    }
-  }
-
   function markThreadUnread() {
     if (currentFolderIds.length === 0) return;
     const ids = currentFolderIds;
@@ -315,10 +297,6 @@ export function MailModule() {
         onReply={() => latest !== undefined && setCompose({ mode: "reply", replyTo: latest })}
         onReplyAll={() => latest !== undefined && setCompose({ mode: "replyAll", replyTo: latest })}
         onForward={() => latest !== undefined && setCompose({ mode: "forward", replyTo: latest })}
-        onReplyMessage={(m) => setCompose({ mode: "reply", replyTo: m })}
-        onReplyAllMessage={(m) => setCompose({ mode: "replyAll", replyTo: m })}
-        onForwardMessage={(m) => setCompose({ mode: "forward", replyTo: m })}
-        onDeleteMessage={deleteMessage}
         onToggleFlag={() => latest !== undefined && toggleFlag(latest)}
         onArchive={archiveThread}
         onDelete={deleteThread}

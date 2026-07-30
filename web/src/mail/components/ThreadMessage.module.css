@@ -132,23 +132,7 @@
 }
 
 .body {
-  position: relative;
-  z-index: 1;
   padding: var(--space-5) var(--space-6);
-}
-
-/* The per-message action bar (reply · reply-all · forward · delete): a centred,
-   always-visible pill between the header and the body, matching the Figma
-   thread screen. */
-.msgActions {
-  display: flex;
-  width: fit-content;
-  margin: 0 auto var(--space-5);
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
 }
 
 .text {

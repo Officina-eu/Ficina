@@ -2,10 +2,10 @@
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
 import { useState } from "react";
-import { Download, Forward, Paperclip, Reply, ReplyAll, ShieldCheck, Trash2 } from "lucide-react";
+import { Download, Paperclip, ShieldCheck } from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Avatar, IconButton, Spinner, cx } from "../../ds";
+import { Avatar, Spinner, cx } from "../../ds";
 import { useJmapClient } from "../../jmap";
 import type { EmailAddress, EmailAttachment, EmailFull } from "../../jmap";
 import { formatBytes, formatDate, senderName, subjectOr } from "../format";
@@ -71,11 +71,6 @@ interface ThreadMessageProps {
   /** The signed-in user's address, so their own line reads "me". */
   me: string | undefined;
   onToggle: () => void;
-  /** Reply / reply-all / forward / delete this message (per-message action bar). */
-  onReply: () => void;
-  onReplyAll: () => void;
-  onForward: () => void;
-  onDelete: () => void;
 }
 
 function displayName(a: EmailAddress, me: string | undefined): string {
@@ -117,16 +112,7 @@ function RecipientRow({
   );
 }
 
-export function ThreadMessage({
-  email,
-  expanded,
-  me,
-  onToggle,
-  onReply,
-  onReplyAll,
-  onForward,
-  onDelete,
-}: ThreadMessageProps) {
+export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessageProps) {
   const text = expanded ? textContent(email) : null;
   const html = expanded && text === null ? htmlContent(email) : null;
   const attachments = expanded ? (email.attachments ?? []) : [];
@@ -167,12 +153,6 @@ export function ThreadMessage({
 
       {expanded && (
         <div className={styles.body}>
-          <div className={styles.msgActions}>
-            <IconButton size="sm" label={strings.reply} icon={<Reply />} onClick={onReply} />
-            <IconButton size="sm" label={strings.replyAll} icon={<ReplyAll />} onClick={onReplyAll} />
-            <IconButton size="sm" label={strings.forward} icon={<Forward />} onClick={onForward} />
-            <IconButton size="sm" label={strings.delete} icon={<Trash2 />} onClick={onDelete} />
-          </div>
           {text !== null && <pre className={styles.text}>{text}</pre>}
           {html !== null && (
             <iframe
