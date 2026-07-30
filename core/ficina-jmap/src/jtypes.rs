@@ -134,7 +134,11 @@ pub fn email_json(
     }
 
     let preview = body.map(preview_of).unwrap_or_default();
-    let has_attachment = body.is_some_and(|b| !b.attachments.is_empty());
+    // When the body is loaded (full read) attachments are authoritative; the
+    // header-only list path falls back to the stored flag (message.rs).
+    let has_attachment = body
+        .map(|b| !b.attachments.is_empty())
+        .unwrap_or_else(|| m.has_attachment.unwrap_or(false));
 
     // textBody/htmlBody reference body-value parts by a stable partId; the
     // attachment parts are listed separately with their download blob ids.

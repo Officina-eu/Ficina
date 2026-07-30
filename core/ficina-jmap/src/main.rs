@@ -87,6 +87,26 @@ async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| "database migration failed")?;
 
+    // One-time backfill: compute `has_attachment` for messages ingested before
+    // the column existed (migration 0022), in the background so startup is not
+    // blocked. Stops when there is nothing left to compute.
+    {
+        let store = Arc::clone(&store);
+        tokio::spawn(async move {
+            loop {
+                match store.backfill_has_attachment(200).await {
+                    Ok(0) => break,
+                    Ok(n) => tracing::info!(backfilled = n, "has_attachment backfill"),
+                    Err(error) => {
+                        tracing::warn!(%error, "has_attachment backfill failed");
+                        break;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
+    }
+
     // Background snooze sweeper (ADR-less; mirrors the vacation machinery):
     // return due snoozed messages to their owners' Inbox, unread.
     {

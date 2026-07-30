@@ -215,6 +215,9 @@ pub struct Message {
     /// Unfolded `Bcc` — populated only on the sender's own copy (received
     /// copies never carry it; it is stripped from the wire message).
     pub bcc_addrs: String,
+    /// Whether the message carries an attachment; `None` if not yet computed
+    /// (a backfill fills existing rows).
+    pub has_attachment: Option<bool>,
     /// `Date` header, when present.
     pub sent_at: Option<OffsetDateTime>,
     /// When the store received it.

@@ -574,10 +574,10 @@ impl AccountStore {
         sqlx::query!(
             "INSERT INTO messages \
              (id, tenant_id, user_id, thread_id, blob_id, message_id_hdr, subject, from_addr, \
-              to_addrs, cc_addrs, bcc_addrs, sent_at, received_at, size, auth_spf, auth_dkim, \
-              auth_dmarc, auth_raw, search) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE($13, now()), \
-                     $14,$15,$16,$17,$18, to_tsvector('simple',$19))",
+              to_addrs, cc_addrs, bcc_addrs, has_attachment, sent_at, received_at, size, \
+              auth_spf, auth_dkim, auth_dmarc, auth_raw, search) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, COALESCE($14, now()), \
+                     $15,$16,$17,$18,$19, to_tsvector('simple',$20))",
             message_id.as_str(),
             self.tenant.as_str(),
             self.user.as_str(),
@@ -589,6 +589,7 @@ impl AccountStore {
             parsed.to_addrs,
             parsed.cc_addrs,
             parsed.bcc_addrs,
+            parsed.has_attachment,
             parsed.sent_at,
             received_at,
             size,
@@ -751,7 +752,8 @@ impl AccountStore {
     pub async fn message(&self, id: &MessageId) -> Result<Message> {
         let row = sqlx::query!(
             "SELECT id, thread_id, blob_id, message_id_hdr, subject, from_addr, to_addrs, \
-             cc_addrs, bcc_addrs, sent_at, received_at, size, auth_spf, auth_dkim, auth_dmarc \
+             cc_addrs, bcc_addrs, has_attachment, sent_at, received_at, size, auth_spf, \
+             auth_dkim, auth_dmarc \
              FROM messages WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
             self.tenant.as_str(),
             self.user.as_str(),
@@ -770,6 +772,7 @@ impl AccountStore {
             to_addrs: row.to_addrs,
             cc_addrs: row.cc_addrs,
             bcc_addrs: row.bcc_addrs,
+            has_attachment: row.has_attachment,
             sent_at: row.sent_at,
             received_at: row.received_at,
             size: row.size,

@@ -23,6 +23,8 @@ pub struct ParsedMessage {
     pub from_addr: String,
     /// Unfolded `To`.
     pub to_addrs: String,
+    /// Whether the message carries an attachment (for the list paperclip).
+    pub has_attachment: bool,
     /// Unfolded `Cc`.
     pub cc_addrs: String,
     /// Unfolded `Bcc` (present only on the sender's own copy — the wire message
@@ -99,6 +101,7 @@ pub fn parse(raw: &[u8]) -> ParsedMessage {
         subject,
         from_addr,
         to_addrs,
+        has_attachment: detect_attachment(raw),
         cc_addrs,
         bcc_addrs,
         referenced_ids,
@@ -116,6 +119,31 @@ fn header<'a>(msg: &'a Message<'a>, name: &str) -> Option<&'a str> {
         .iter()
         .find(|(n, _)| n.eq_ignore_ascii_case(name))
         .map(|(_, v)| *v)
+}
+
+/// Whether the raw message carries an attachment — a cheap heuristic used for
+/// the list paperclip: any MIME part with `Content-Disposition: attachment`
+/// (folding tolerated within a short window). No full MIME parse; false
+/// positives from inline dispositions are deliberately excluded.
+pub fn detect_attachment(raw: &[u8]) -> bool {
+    fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+        if needle.is_empty() || hay.len() < needle.len() {
+            return None;
+        }
+        hay.windows(needle.len()).position(|w| w == needle)
+    }
+    let lower = raw.to_ascii_lowercase();
+    let cd = b"content-disposition:";
+    let mut i = 0;
+    while let Some(pos) = find(&lower[i..], cd) {
+        let start = i + pos + cd.len();
+        let end = (start + 64).min(lower.len());
+        if find(&lower[start..end], b"attachment").is_some() {
+            return true;
+        }
+        i = start;
+    }
+    false
 }
 
 /// Unfolds a header value (RFC 5322 §2.2.3): folding CRLFs are removed,
@@ -161,6 +189,25 @@ fn parse_authentication_results(value: &str) -> (Option<String>, Option<String>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_attachments() {
+        let with = b"Content-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\n\
+            Content-Type: text/plain\r\n\r\nhi\r\n--b\r\n\
+            Content-Type: application/zip\r\n\
+            Content-Disposition: attachment; filename=\"report.zip\"\r\n\r\nPK..\r\n--b--\r\n";
+        assert!(detect_attachment(with));
+
+        // Folded disposition still counts.
+        let folded = b"Content-Disposition:\r\n attachment; filename=x\r\n";
+        assert!(detect_attachment(folded));
+
+        // Plain message and an inline part do not.
+        assert!(!detect_attachment(b"Subject: hi\r\n\r\njust text"));
+        assert!(!detect_attachment(
+            b"Content-Disposition: inline\r\nContent-Type: image/png\r\n"
+        ));
+    }
 
     const RAW: &[u8] = b"From: Alice <alice@example.com>\r\n\
 To: Bob <bob@example.org>\r\n\
