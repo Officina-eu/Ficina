@@ -121,6 +121,7 @@ export const strings = {
   toLabel: "to",
   ccLabel: "cc",
   bccLabel: "bcc",
+  recipientsNone: "—",
   senderVerified: "Verified",
   senderVerifiedTitle: "Sender authenticated — SPF, DKIM and DMARC all passed",
   replyTo: "Reply to",

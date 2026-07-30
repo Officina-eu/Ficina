@@ -2,14 +2,14 @@
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
 import { useState } from "react";
-import { Download, Paperclip, ShieldCheck } from "lucide-react";
+import { ChevronDown, Download, MoreHorizontal, Paperclip, ShieldCheck } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Avatar, Spinner, cx } from "../../ds";
 import { useJmapClient } from "../../jmap";
 import type { EmailAddress, EmailAttachment, EmailFull } from "../../jmap";
 import { formatBytes, formatDate, senderName, subjectOr } from "../format";
-import { htmlContent, sandboxedHtml, textContent } from "../body";
+import { htmlContent, sandboxedHtml, splitQuotedHtml, splitQuotedText, textContent } from "../body";
 import styles from "./ThreadMessage.module.css";
 
 /** Save a fetched Blob to the user's downloads with the given filename. */
@@ -113,58 +113,121 @@ function RecipientRow({
 }
 
 export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessageProps) {
-  const text = expanded ? textContent(email) : null;
-  const html = expanded && text === null ? htmlContent(email) : null;
+  const [recipOpen, setRecipOpen] = useState(false);
+  const [quotedOpen, setQuotedOpen] = useState(false);
+
+  const rawText = expanded ? textContent(email) : null;
+  const rawHtml = expanded && rawText === null ? htmlContent(email) : null;
+  const textSplit = rawText !== null ? splitQuotedText(rawText) : null;
+  const htmlSplit = rawHtml !== null ? splitQuotedHtml(rawHtml) : null;
   const attachments = expanded ? (email.attachments ?? []) : [];
   const verified = expanded && isVerified(email);
 
+  const headTop = (
+    <div className={styles.headTop}>
+      <span className={styles.sender}>{senderName(email)}</span>
+      {expanded &&
+        email.from?.[0]?.email !== undefined &&
+        email.from[0].email !== senderName(email) && (
+          <span className={styles.senderEmail}>{`<${email.from[0].email}>`}</span>
+        )}
+      {verified && (
+        <span className={styles.verified} title={strings.senderVerifiedTitle}>
+          <ShieldCheck className={styles.verifiedIcon} aria-hidden="true" />
+          {strings.senderVerified}
+        </span>
+      )}
+      {email.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
+      <span className={styles.date}>{formatDate(email.receivedAt)}</span>
+    </div>
+  );
+
+  const noBody =
+    textSplit === null && htmlSplit === null && attachments.length === 0;
+
   return (
     <article className={cx(styles.message, expanded && styles.expanded)}>
-      <button type="button" className={styles.head} onClick={onToggle} aria-expanded={expanded}>
-        <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
-        <div className={styles.headText}>
-          <div className={styles.headTop}>
-            <span className={styles.sender}>{senderName(email)}</span>
-            {expanded &&
-              email.from?.[0]?.email !== undefined &&
-              email.from[0].email !== senderName(email) && (
-                <span className={styles.senderEmail}>{`<${email.from[0].email}>`}</span>
-              )}
-            {verified && (
-              <span className={styles.verified} title={strings.senderVerifiedTitle}>
-                <ShieldCheck className={styles.verifiedIcon} aria-hidden="true" />
-                {strings.senderVerified}
-              </span>
-            )}
-            {email.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
-            <span className={styles.date}>{formatDate(email.receivedAt)}</span>
-          </div>
-          {expanded ? (
+      {expanded ? (
+        <div className={styles.head}>
+          <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
+          <div className={styles.headText}>
+            <button type="button" className={styles.headToggle} onClick={onToggle} aria-expanded>
+              {headTop}
+            </button>
+            {/* Gmail "to me ▾" — a compact recipient line that expands to the full
+                To / Cc / Bcc detail. */}
             <div className={styles.recipients}>
-              <RecipientRow label={strings.toLabel} people={email.to} me={me} />
-              <RecipientRow label={strings.ccLabel} people={email.cc} me={me} />
-              <RecipientRow label={strings.bccLabel} people={email.bcc} me={me} />
+              <button
+                type="button"
+                className={styles.recipSummary}
+                onClick={() => setRecipOpen((v) => !v)}
+                aria-expanded={recipOpen}
+              >
+                {strings.toLabel} {recipientLine(email.to, me) || strings.recipientsNone}
+                <ChevronDown
+                  size={13}
+                  className={cx(styles.recipCaret, recipOpen && styles.recipCaretOpen)}
+                />
+              </button>
+              {recipOpen && (
+                <div className={styles.recipDetail}>
+                  <RecipientRow label={strings.toLabel} people={email.to} me={me} />
+                  <RecipientRow label={strings.ccLabel} people={email.cc} me={me} />
+                  <RecipientRow label={strings.bccLabel} people={email.bcc} me={me} />
+                </div>
+              )}
             </div>
-          ) : (
-            <div className={styles.headSub}>{email.preview}</div>
-          )}
+          </div>
         </div>
-      </button>
+      ) : (
+        <button type="button" className={styles.head} onClick={onToggle} aria-expanded={false}>
+          <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
+          <div className={styles.headText}>
+            {headTop}
+            <div className={styles.headSub}>{email.preview}</div>
+          </div>
+        </button>
+      )}
 
       {expanded && (
         <div className={styles.body}>
-          {text !== null && <pre className={styles.text}>{text}</pre>}
-          {html !== null && (
+          {textSplit !== null && <pre className={styles.text}>{textSplit.main}</pre>}
+          {htmlSplit !== null && (
             <iframe
               className={styles.html}
               title={subjectOr(email)}
               sandbox=""
-              srcDoc={sandboxedHtml(html)}
+              srcDoc={sandboxedHtml(htmlSplit.main)}
             />
           )}
-          {text === null && html === null && attachments.length === 0 && (
-            <p className={styles.empty}>{email.preview}</p>
+
+          {/* Gmail "···" — the quoted history below, collapsed by default. */}
+          {(textSplit?.quoted != null || htmlSplit?.quoted != null) && (
+            <div className={styles.quoted}>
+              <button
+                type="button"
+                className={cx(styles.quotedToggle, quotedOpen && styles.quotedToggleOpen)}
+                onClick={() => setQuotedOpen((v) => !v)}
+                aria-label={strings.showQuoted}
+                aria-expanded={quotedOpen}
+              >
+                <MoreHorizontal size={16} />
+              </button>
+              {quotedOpen && textSplit?.quoted != null && (
+                <pre className={cx(styles.text, styles.quotedText)}>{textSplit.quoted}</pre>
+              )}
+              {quotedOpen && htmlSplit?.quoted != null && (
+                <iframe
+                  className={styles.html}
+                  title={strings.showQuoted}
+                  sandbox=""
+                  srcDoc={sandboxedHtml(htmlSplit.quoted)}
+                />
+              )}
+            </div>
           )}
+
+          {noBody && <p className={styles.empty}>{email.preview}</p>}
           {attachments.length > 0 && (
             <div className={styles.attachments}>
               {attachments.map((a) => (

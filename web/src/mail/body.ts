@@ -23,6 +23,66 @@ export function htmlContent(email: EmailFull): string | null {
   return join(email.htmlBody, email.bodyValues);
 }
 
+/** A body split into the new message and the quoted history below it (Gmail's
+ * "···" collapse). `quoted` is null when there's nothing to collapse. */
+export interface SplitBody {
+  main: string;
+  quoted: string | null;
+}
+
+// Attribution lines that begin a quoted reply, e.g. "On Tue, Jul 29… wrote:".
+const TEXT_QUOTE_MARKERS = [
+  /^On .+ wrote:\s*$/m,
+  /^-{2,}\s*Original Message\s*-{2,}\s*$/im,
+  /^_{5,}\s*$/m,
+  /^From: .+$/m,
+];
+
+/** Split a plain-text body at the first quoted-reply boundary. */
+export function splitQuotedText(text: string): SplitBody {
+  let cut = -1;
+  for (const re of TEXT_QUOTE_MARKERS) {
+    const m = re.exec(text);
+    if (m !== null && (cut === -1 || m.index < cut)) cut = m.index;
+  }
+  // Also treat a run of leading-">" lines as the start of the quote.
+  const lines = text.split("\n");
+  let quoteLine = -1;
+  let offset = 0;
+  for (const line of lines) {
+    if (/^\s*>/.test(line)) {
+      quoteLine = offset;
+      break;
+    }
+    offset += line.length + 1;
+  }
+  if (quoteLine !== -1 && (cut === -1 || quoteLine < cut)) cut = quoteLine;
+
+  if (cut <= 0) return { main: text, quoted: null };
+  const main = text.slice(0, cut).replace(/\s+$/, "");
+  const quoted = text.slice(cut).replace(/^\s+/, "");
+  return quoted.length > 0 ? { main, quoted } : { main: text, quoted: null };
+}
+
+// HTML wrappers that mail clients use for the quoted history.
+const HTML_QUOTE_MARKERS = [
+  /<blockquote\b/i,
+  /<div[^>]+class="[^"]*gmail_quote[^"]*"/i,
+  /<div[^>]+class="[^"]*moz-cite-prefix[^"]*"/i,
+  /<div[^>]+id="[^"]*(?:appendonsend|divRplyFwdMsg)[^"]*"/i,
+];
+
+/** Split an HTML body at the first quoted-reply wrapper. */
+export function splitQuotedHtml(html: string): SplitBody {
+  let cut = -1;
+  for (const re of HTML_QUOTE_MARKERS) {
+    const m = re.exec(html);
+    if (m !== null && (cut === -1 || m.index < cut)) cut = m.index;
+  }
+  if (cut <= 0) return { main: html, quoted: null };
+  return { main: html.slice(0, cut), quoted: html.slice(cut) };
+}
+
 /** A rough plain-text rendering of a message body for feeding to the summarizer
  * (never for display): prefer the text part, else strip tags off the HTML. */
 function plainBody(email: EmailFull): string {

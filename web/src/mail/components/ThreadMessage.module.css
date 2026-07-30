@@ -104,10 +104,50 @@
 }
 
 /* The expanded To / Cc / Bcc block: one label + names per line. */
+/* the expanded header's sender row is its own toggle (collapses the message) */
+.headToggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
 .recipients {
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+/* Gmail "to me ▾" compact recipient line + caret */
+.recipSummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.recipSummary:hover {
+  color: var(--text-primary);
+}
+
+.recipCaret {
+  color: var(--text-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.recipCaretOpen {
+  transform: rotate(180deg);
+}
+
+.recipDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border-subtle);
 }
 
 .recipientRow {
@@ -156,6 +196,38 @@
 .empty {
   color: var(--text-secondary);
   font-style: italic;
+}
+
+/* Gmail "···" quoted-history collapse */
+.quoted {
+  margin-top: var(--space-3);
+}
+
+.quotedToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.quotedToggle:hover,
+.quotedToggleOpen {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.quotedText {
+  margin-top: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
 }
 
 /* attachments */
