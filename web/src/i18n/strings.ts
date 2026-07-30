@@ -70,6 +70,7 @@ export const strings = {
 
   // mail
   mailLoading: "Loading your mail…",
+  mailSearching: "Searching…",
   mailFolders: "Folders",
   resizeFolders: "Resize the folders panel (drag, or arrow keys; double-click to reset)",
   resizeMessages: "Resize the message list (drag, or arrow keys; double-click to reset)",

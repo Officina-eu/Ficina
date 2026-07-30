@@ -143,6 +143,36 @@ export class JmapClient {
     return (this.#result(res, "g").list as EmailHeaders[]) ?? [];
   }
 
+  /** Full-text search across the whole account (server-side `Email/query` text
+   * filter), newest first, as header rows. Empty query returns nothing. */
+  async searchEmails(query: string, limit = 60): Promise<EmailHeaders[]> {
+    const q = query.trim();
+    if (q === "") return [];
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      [
+        "Email/query",
+        {
+          accountId,
+          filter: { text: q },
+          sort: [{ property: "receivedAt", isAscending: false }],
+          limit,
+        },
+        "q",
+      ],
+      [
+        "Email/get",
+        {
+          accountId,
+          "#ids": { resultOf: "q", name: "Email/query", path: "/ids" },
+          properties: HEADER_PROPS,
+        },
+        "g",
+      ],
+    ]);
+    return (this.#result(res, "g").list as EmailHeaders[]) ?? [];
+  }
+
   /** All messages of a thread, with bodies, oldest-first (for the conversation
    * view). One request: Thread/get feeds Email/get by back-reference. */
   async threadEmails(threadId: string): Promise<EmailFull[]> {

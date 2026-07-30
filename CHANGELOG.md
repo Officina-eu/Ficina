@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- New: **Real mail search.** The search box now runs a **server-side full-text
+  search across the whole account** (JMAP `Email/query` over the message
+  tsvector index) instead of filtering only the loaded page; results are
+  grouped into conversations and open in the reading pane. Debounced; a cleared
+  box returns to the folder view.
 - New: **Mail signatures + organization footer.** Each user sets a rich-text
   **signature** (account menu → Settings) inserted into new messages and
   replies; tenant admins set a tenant-wide **organization footer** appended

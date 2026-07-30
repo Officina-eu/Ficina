@@ -2,11 +2,12 @@
 // A header with the folder name + a collapse toggle + a search box, then rows
 // showing the latest message's sender/subject/preview/time, an unread dot, a
 // flag star, and a message-count badge when the thread has more than one.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, Paperclip, Search, Star } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Avatar, IconButton, Spinner } from "../../ds";
+import { useJmapClient } from "../../jmap";
 import type { EmailHeaders } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import { formatDate, senderName, subjectOr } from "../format";
@@ -25,11 +26,6 @@ interface MessageListProps {
   onSelect: (thread: ThreadRow) => void;
 }
 
-function matches(row: ThreadRow, q: string): boolean {
-  const e = row.latest;
-  return `${senderName(e)} ${e.subject ?? ""} ${e.preview}`.toLowerCase().includes(q);
-}
-
 export function MessageList({
   folderName,
   emails,
@@ -40,16 +36,43 @@ export function MessageList({
   onToggleFolders,
   onSelect,
 }: MessageListProps) {
+  const client = useJmapClient();
   const [query, setQuery] = useState("");
-  const list = emails.status === "ready" ? (emails.data ?? []) : [];
+  // Server-side full-text search across the account (`null` = folder view).
+  const [results, setResults] = useState<EmailHeaders[] | null>(null);
+  const isSearch = query.trim() !== "";
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q === "") {
+      setResults(null);
+      return undefined;
+    }
+    setResults(null); // show the spinner while the query runs
+    let live = true;
+    const timer = setTimeout(() => {
+      client
+        .searchEmails(q)
+        .then((r) => {
+          if (live) setResults(r);
+        })
+        .catch(() => {
+          if (live) setResults([]);
+        });
+    }, 250); // debounce keystrokes
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [query, client]);
+
+  const list = isSearch ? (results ?? []) : emails.status === "ready" ? (emails.data ?? []) : [];
   const threads = useMemo(
     () => groupThreads(list, readIds, flagOverrides),
     [list, readIds, flagOverrides],
   );
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q === "" ? threads : threads.filter((t) => matches(t, q));
-  }, [threads, query]);
+  const loading = isSearch ? results === null : emails.status === "loading";
+  const error = !isSearch && emails.status === "error";
 
   return (
     <section className={styles.column}>
@@ -76,14 +99,14 @@ export function MessageList({
         </div>
       </header>
 
-      {emails.status === "loading" && (
+      {loading && (
         <div className={styles.state}>
           <Spinner size={22} />
-          <p>{strings.mailLoading}</p>
+          <p>{isSearch ? strings.mailSearching : strings.mailLoading}</p>
         </div>
       )}
 
-      {emails.status === "error" && (
+      {error && (
         <div className={styles.state}>
           <p>{strings.mailListError}</p>
           <button type="button" className={styles.retry} onClick={emails.reload}>
@@ -92,12 +115,12 @@ export function MessageList({
         </div>
       )}
 
-      {emails.status === "ready" && (
+      {!loading && !error && (
         <ul className={styles.list}>
-          {filtered.length === 0 && (
-            <li className={styles.empty}>{query === "" ? strings.mailEmpty : strings.mailSearchEmpty}</li>
+          {threads.length === 0 && (
+            <li className={styles.empty}>{isSearch ? strings.mailSearchEmpty : strings.mailEmpty}</li>
           )}
-          {filtered.map((thread) => {
+          {threads.map((thread) => {
             const email = thread.latest;
             const active = thread.threadId === selectedThreadId;
             return (
