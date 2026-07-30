@@ -271,13 +271,13 @@ export function MessageList({
                     {email.preview.length > 0 && (
                       <span className={styles.snippet}> — {email.preview}</span>
                     )}
-                    {thread.hasAttachment && (
-                      <Paperclip className={styles.clip} aria-hidden="true" />
-                    )}
                   </span>
                 </button>
                 <div className={styles.rowRight}>
                   <span className={styles.time}>{formatDate(email.receivedAt)}</span>
+                  {thread.hasAttachment && (
+                    <Paperclip className={styles.rowClip} aria-label={strings.attachments} />
+                  )}
                   <div className={styles.actions}>
                     <button
                       type="button"
