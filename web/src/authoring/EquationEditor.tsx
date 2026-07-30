@@ -1,47 +1,38 @@
-// The equation editor (ADR 0015): a LaTeX source input with a live KaTeX preview,
-// a LaTeX/Visual view toggle, inline vs numbered-display mode, and a common-symbol
-// quick bar that inserts snippets at the caret. Rendering is browser-local; an
-// invalid formula shows an inline error and never breaks the page.
+// The equation editor (ADR 0015), styled to the Figma Docs "Equation" modal: a
+// Σ-marked panel with a LaTeX/Visual view toggle, a LaTeX source input, a live
+// centered KaTeX preview, a common-symbol quick bar, and an Insert button.
+// Rendering is browser-local; invalid LaTeX shows inline and never breaks the page.
 import { useMemo, useRef, useState } from "react";
+import { Sigma, X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { cx } from "../ds";
 import { renderMath } from "./katex";
 import styles from "./EquationEditor.module.css";
 
-/** One quick-bar entry: a KaTeX preview face, the snippet it inserts, and where
- * to drop the caret afterwards (offset from the end of the inserted snippet). */
 interface Symbol {
   tip: string;
-  preview: string;
+  face: string;
   insert: string;
   /** Caret offset from the end of `insert` (negative = inside braces). */
   caret?: number;
 }
 
+// The symbol set shown in the Figma modal.
 const SYMBOLS: Symbol[] = [
-  { tip: "Fraction", preview: "\\frac{a}{b}", insert: "\\frac{}{}", caret: -3 },
-  { tip: "Superscript", preview: "x^{2}", insert: "^{}", caret: -1 },
-  { tip: "Subscript", preview: "x_{i}", insert: "_{}", caret: -1 },
-  { tip: "Square root", preview: "\\sqrt{x}", insert: "\\sqrt{}", caret: -1 },
-  { tip: "Sum", preview: "\\sum_{i}^{n}", insert: "\\sum_{}^{}", caret: -3 },
-  { tip: "Integral", preview: "\\int_{a}^{b}", insert: "\\int_{}^{}", caret: -3 },
-  { tip: "Greek alpha", preview: "\\alpha", insert: "\\alpha " },
-  { tip: "Greek beta", preview: "\\beta", insert: "\\beta " },
-  { tip: "Greek pi", preview: "\\pi", insert: "\\pi " },
-  { tip: "Greek theta", preview: "\\theta", insert: "\\theta " },
-  { tip: "Infinity", preview: "\\infty", insert: "\\infty " },
-  { tip: "Multiply", preview: "\\times", insert: "\\times " },
-  { tip: "Less or equal", preview: "\\le", insert: "\\le " },
-  { tip: "Greater or equal", preview: "\\ge", insert: "\\ge " },
-  { tip: "Not equal", preview: "\\neq", insert: "\\neq " },
-  { tip: "Approximately", preview: "\\approx", insert: "\\approx " },
-  { tip: "Arrow", preview: "\\rightarrow", insert: "\\rightarrow " },
-  { tip: "Partial", preview: "\\partial", insert: "\\partial " },
+  { tip: "Sum", face: "\\sum", insert: "\\sum_{}^{}", caret: -3 },
+  { tip: "Integral", face: "\\int", insert: "\\int_{}^{}", caret: -3 },
+  { tip: "Square root", face: "\\sqrt{x}", insert: "\\sqrt{}", caret: -1 },
+  { tip: "Pi", face: "\\pi", insert: "\\pi " },
+  { tip: "Infinity", face: "\\infty", insert: "\\infty " },
+  { tip: "Less or equal", face: "\\le", insert: "\\le " },
+  { tip: "Greater or equal", face: "\\ge", insert: "\\ge " },
+  { tip: "Alpha", face: "\\alpha", insert: "\\alpha " },
+  { tip: "Beta", face: "\\beta", insert: "\\beta " },
 ];
 
 function SymbolButton({ symbol, onInsert }: { symbol: Symbol; onInsert: (s: Symbol) => void }) {
-  const face = useMemo(() => renderMath(symbol.preview, false), [symbol.preview]);
+  const face = useMemo(() => renderMath(symbol.face, false), [symbol.face]);
   return (
     <button
       type="button"
@@ -55,28 +46,16 @@ function SymbolButton({ symbol, onInsert }: { symbol: Symbol; onInsert: (s: Symb
 }
 
 interface EquationEditorProps {
-  /** The LaTeX source. */
   value: string;
   onChange: (latex: string) => void;
-  /** Display (block) equation vs inline math. */
+  /** Render the preview as a display (block) equation vs inline math. */
   display: boolean;
-  onDisplayChange: (display: boolean) => void;
-  /** A numbered display equation; the number is shown as e.g. "(3)". */
-  numbered: boolean;
-  onNumberedChange: (numbered: boolean) => void;
-  /** The equation's current number (from the numbering engine), shown when numbered. */
-  number: string | undefined;
+  /** Confirm and place the equation. */
+  onInsert: () => void;
+  onClose: () => void;
 }
 
-export function EquationEditor({
-  value,
-  onChange,
-  display,
-  onDisplayChange,
-  numbered,
-  onNumberedChange,
-  number,
-}: EquationEditorProps) {
+export function EquationEditor({ value, onChange, display, onInsert, onClose }: EquationEditorProps) {
   const [view, setView] = useState<"latex" | "visual">("latex");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const rendered = useMemo(() => renderMath(value, display), [value, display]);
@@ -87,7 +66,6 @@ export function EquationEditor({
     const end = el?.selectionEnd ?? value.length;
     const next = value.slice(0, start) + symbol.insert + value.slice(end);
     onChange(next);
-    // Restore focus and drop the caret at the requested spot inside the snippet.
     const caret = start + symbol.insert.length + (symbol.caret ?? 0);
     requestAnimationFrame(() => {
       el?.focus();
@@ -95,62 +73,45 @@ export function EquationEditor({
     });
   }
 
-  const showNumber = display && numbered && number !== undefined;
-
   return (
-    <div className={styles.editor}>
-      <div className={styles.toolbar}>
-        <div className={styles.segment} role="group" aria-label={strings.eqViewLabel}>
-          <button
-            type="button"
-            className={cx(styles.segBtn, view === "latex" && styles.segOn)}
-            onClick={() => setView("latex")}
-          >
-            {strings.eqViewLatex}
-          </button>
-          <button
-            type="button"
-            className={cx(styles.segBtn, view === "visual" && styles.segOn)}
-            onClick={() => setView("visual")}
-          >
-            {strings.eqViewVisual}
-          </button>
-        </div>
-        <div className={styles.spacer} />
-        <div className={styles.segment} role="group" aria-label={strings.eqModeLabel}>
-          <button
-            type="button"
-            className={cx(styles.segBtn, !display && styles.segOn)}
-            onClick={() => onDisplayChange(false)}
-          >
-            {strings.eqInline}
-          </button>
-          <button
-            type="button"
-            className={cx(styles.segBtn, display && styles.segOn)}
-            onClick={() => onDisplayChange(true)}
-          >
-            {strings.eqDisplay}
-          </button>
-        </div>
-        <label className={cx(styles.numbered, !display && styles.disabled)}>
-          <input
-            type="checkbox"
-            checked={numbered}
-            disabled={!display}
-            onChange={(e) => onNumberedChange(e.target.checked)}
-          />
-          {strings.eqNumbered}
-        </label>
-      </div>
-
-      {view === "latex" && (
-        <>
-          <div className={styles.symbols}>
-            {SYMBOLS.map((s) => (
-              <SymbolButton key={s.tip} symbol={s} onInsert={insert} />
-            ))}
+    <div className={styles.overlay} onMouseDown={onClose}>
+      <div
+        className={styles.modal}
+        role="dialog"
+        aria-label={strings.eqTitle}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className={styles.head}>
+          <Sigma size={18} className={styles.headIcon} />
+          <span className={styles.headTitle}>{strings.eqTitle}</span>
+          <div className={styles.spacer} />
+          <div className={styles.segment} role="group" aria-label={strings.eqViewLabel}>
+            <button
+              type="button"
+              className={cx(styles.segBtn, view === "latex" && styles.segOn)}
+              onClick={() => setView("latex")}
+            >
+              {strings.eqViewLatex}
+            </button>
+            <button
+              type="button"
+              className={cx(styles.segBtn, view === "visual" && styles.segOn)}
+              onClick={() => setView("visual")}
+            >
+              {strings.eqViewVisual}
+            </button>
           </div>
+          <button
+            type="button"
+            className={styles.close}
+            onClick={onClose}
+            aria-label={strings.eqClose}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {view === "latex" && (
           <textarea
             ref={inputRef}
             className={styles.input}
@@ -159,27 +120,41 @@ export function EquationEditor({
             placeholder={strings.eqPlaceholder}
             onChange={(e) => onChange(e.target.value)}
             aria-label={strings.eqInputLabel}
+            rows={1}
           />
-        </>
-      )}
+        )}
 
-      <div className={styles.previewWrap}>
-        <span className={styles.previewLabel}>{strings.eqPreview}</span>
-        <div className={cx(styles.preview, display ? styles.previewBlock : styles.previewInline)}>
-          {rendered.error !== null ? (
-            <span className={styles.error}>{strings.eqError(rendered.error)}</span>
-          ) : value.trim().length === 0 ? (
-            <span className={styles.empty}>{strings.eqEmpty}</span>
-          ) : (
-            <>
+        <div className={styles.previewWrap}>
+          <span className={styles.previewLabel}>{strings.eqPreview}</span>
+          <div className={styles.preview}>
+            {rendered.error !== null ? (
+              <span className={styles.error}>{strings.eqError(rendered.error)}</span>
+            ) : value.trim().length === 0 ? (
+              <span className={styles.empty}>{strings.eqEmpty}</span>
+            ) : (
               <span
                 className={styles.math}
                 // KaTeX escapes its own input; `trust:false` blocks command injection.
                 dangerouslySetInnerHTML={{ __html: rendered.html }}
               />
-              {showNumber && <span className={styles.eqNumber}>{`(${number})`}</span>}
-            </>
-          )}
+            )}
+          </div>
+        </div>
+
+        <div className={styles.footer}>
+          <div className={styles.symbols}>
+            {SYMBOLS.map((s) => (
+              <SymbolButton key={s.tip} symbol={s} onInsert={insert} />
+            ))}
+          </div>
+          <button
+            type="button"
+            className={styles.insert}
+            onClick={onInsert}
+            disabled={rendered.error !== null || value.trim().length === 0}
+          >
+            {strings.eqInsert}
+          </button>
         </div>
       </div>
     </div>

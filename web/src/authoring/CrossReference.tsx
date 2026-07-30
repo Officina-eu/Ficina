@@ -1,8 +1,10 @@
-// Cross-reference chips and the insert-cross-reference picker (ADR 0015). A chip
-// stores the target item's id and renders its CURRENT number, resolved through
-// the numbering engine — so it stays correct when items are reordered or
-// inserted. The picker offers the document's items grouped into tabs.
+// Cross-reference chips and the insert-cross-reference picker (ADR 0015), styled
+// to the Figma Docs screen. A chip stores the target item's id and renders its
+// CURRENT number through the numbering engine — so it stays correct when items
+// are reordered or inserted. The picker groups items into tabs and previews
+// equations with rendered math.
 import { useMemo, useState } from "react";
+import { Link2 } from "lucide-react";
 
 import { strings } from "../i18n";
 import { cx } from "../ds";
@@ -13,6 +15,7 @@ import {
   referenceText,
   resolveReference,
 } from "./numbering";
+import { renderMath } from "./katex";
 import styles from "./CrossReference.module.css";
 
 /** Localized reference-chip labels ("Eq.", "Table", …). */
@@ -38,23 +41,33 @@ export function ReferenceChip({
   if (info === null) {
     return <span className={cx(styles.chip, styles.chipBroken)}>{strings.refBroken}</span>;
   }
-  return <span className={styles.chip}>{referenceText(info, refLabels())}</span>;
+  return (
+    <span className={styles.chip}>
+      <Link2 size={11} className={styles.chipIcon} />
+      {referenceText(info, refLabels())}
+    </span>
+  );
+}
+
+/** A small rendered-math face for an equation preview in the picker. */
+function MathPreview({ latex }: { latex: string }) {
+  const r = useMemo(() => renderMath(latex, false), [latex]);
+  if (r.error !== null) return <span className={styles.mathFallback}>{latex}</span>;
+  return <span className={styles.math} dangerouslySetInnerHTML={{ __html: r.html }} />;
 }
 
 const TABS: ItemKind[] = ["equation", "section", "table", "figure"];
 
 /** The insert-cross-reference picker: a tab per item kind, each listing that
- * kind's items with their number and title. */
+ * kind's items with their number and (for equations) a rendered preview. */
 export function CrossReferencePicker({
   items,
   numbering,
   onPick,
-  onClose,
 }: {
   items: DocItem[];
   numbering: Map<string, NumberInfo>;
   onPick: (id: string) => void;
-  onClose: () => void;
 }) {
   const [tab, setTab] = useState<ItemKind>("equation");
 
@@ -69,12 +82,7 @@ export function CrossReferencePicker({
 
   return (
     <div className={styles.picker} role="dialog" aria-label={strings.refInsertTitle}>
-      <div className={styles.pickerHead}>
-        <span className={styles.pickerTitle}>{strings.refInsertTitle}</span>
-        <button type="button" className={styles.pickerClose} onClick={onClose}>
-          {strings.refClose}
-        </button>
-      </div>
+      <div className={styles.eyebrow}>{strings.refInsertTitle}</div>
       <div className={styles.tabs} role="tablist">
         {TABS.map((k) => (
           <button
@@ -105,7 +113,9 @@ export function CrossReferencePicker({
                 <span className={styles.itemNumber}>
                   {info !== undefined ? referenceText(info, refLabels()) : "—"}
                 </span>
-                {item.title !== undefined && (
+                {item.kind === "equation" && item.latex !== undefined ? (
+                  <MathPreview latex={item.latex} />
+                ) : (
                   <span className={styles.itemTitle}>{item.title}</span>
                 )}
               </button>

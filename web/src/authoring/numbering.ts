@@ -18,6 +18,8 @@ export interface DocItem {
   level?: number;
   /** Title/caption, for display in the cross-reference picker. */
   title?: string;
+  /** Equations only: LaTeX, so the picker can render a preview of the target. */
+  latex?: string;
 }
 
 export interface NumberInfo {

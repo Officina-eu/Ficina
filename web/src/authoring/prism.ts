@@ -31,33 +31,45 @@ export interface Language {
   id: string;
   /** Human label for the picker, e.g. "TypeScript". */
   label: string;
+  /** 1–2 character badge shown in the picker (e.g. "Py", "{}"). */
+  badge: string;
+  /** Badge background colour. */
+  badgeBg: string;
 }
 
 /** The languages offered in the picker, sorted by label. `plain` is always valid. */
 export const LANGUAGES: Language[] = [
-  { id: "bash", label: "Bash / Shell" },
-  { id: "c", label: "C" },
-  { id: "cpp", label: "C++" },
-  { id: "csharp", label: "C#" },
-  { id: "css", label: "CSS" },
-  { id: "diff", label: "Diff" },
-  { id: "go", label: "Go" },
-  { id: "markup", label: "HTML / XML" },
-  { id: "java", label: "Java" },
-  { id: "javascript", label: "JavaScript" },
-  { id: "json", label: "JSON" },
-  { id: "jsx", label: "JSX" },
-  { id: "latex", label: "LaTeX" },
-  { id: "markdown", label: "Markdown" },
-  { id: "plain", label: "Plain text" },
-  { id: "python", label: "Python" },
-  { id: "rust", label: "Rust" },
-  { id: "sql", label: "SQL" },
-  { id: "toml", label: "TOML" },
-  { id: "tsx", label: "TSX" },
-  { id: "typescript", label: "TypeScript" },
-  { id: "yaml", label: "YAML" },
+  { id: "bash", label: "Bash / Shell", badge: "$_", badgeBg: "#4b5563" },
+  { id: "c", label: "C", badge: "C", badgeBg: "#5c6bc0" },
+  { id: "cpp", label: "C++", badge: "C+", badgeBg: "#5c6bc0" },
+  { id: "csharp", label: "C#", badge: "C#", badgeBg: "#6a4c93" },
+  { id: "css", label: "CSS", badge: "#", badgeBg: "#2965f1" },
+  { id: "diff", label: "Diff", badge: "±", badgeBg: "#4b5563" },
+  { id: "go", label: "Go", badge: "Go", badgeBg: "#00acd7" },
+  { id: "markup", label: "HTML / XML", badge: "<>", badgeBg: "#e34c26" },
+  { id: "java", label: "Java", badge: "Jv", badgeBg: "#d97706" },
+  { id: "javascript", label: "JavaScript", badge: "JS", badgeBg: "#d4a72c" },
+  { id: "json", label: "JSON", badge: "{}", badgeBg: "#6b7280" },
+  { id: "jsx", label: "JSX", badge: "JX", badgeBg: "#61dafb" },
+  { id: "latex", label: "LaTeX", badge: "Tex", badgeBg: "#008080" },
+  { id: "markdown", label: "Markdown", badge: "M↓", badgeBg: "#4b5563" },
+  { id: "plain", label: "Plain text", badge: "T", badgeBg: "#6b7280" },
+  { id: "python", label: "Python", badge: "Py", badgeBg: "#3572A5" },
+  { id: "rust", label: "Rust", badge: "Rs", badgeBg: "#b7410e" },
+  { id: "sql", label: "SQL", badge: "DB", badgeBg: "#336791" },
+  { id: "toml", label: "TOML", badge: "Tm", badgeBg: "#9c4221" },
+  { id: "tsx", label: "TSX", badge: "TX", badgeBg: "#3178c6" },
+  { id: "typescript", label: "TypeScript", badge: "TS", badgeBg: "#3178c6" },
+  { id: "yaml", label: "YAML", badge: "Y", badgeBg: "#cb171e" },
 ].sort((a, b) => a.label.localeCompare(b.label));
+
+/** The badge (text + colour) for a language id, for the picker and header pill. */
+export function languageBadge(langId: string): { badge: string; badgeBg: string } {
+  const l = LANGUAGES.find((x) => x.id === langId);
+  return l !== undefined
+    ? { badge: l.badge, badgeBg: l.badgeBg }
+    : { badge: "T", badgeBg: "#6b7280" };
+}
 
 /** The picker's default language id. */
 export const DEFAULT_LANGUAGE = "typescript";

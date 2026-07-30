@@ -1,7 +1,8 @@
-// A syntax-highlighted code block (ADR 0015): Prism highlighting behind an
-// editable overlay, line numbers, a searchable language picker (explicit, never
-// auto-detected), and a copy button. Highlighting is browser-local; the source
-// never leaves the client.
+// A syntax-highlighted code block (ADR 0015), styled to the Figma Docs screen:
+// a dark block with a language pill and a Copy button in the header, line
+// numbers, and Prism highlighting behind an editable overlay. The language
+// picker is a light dropdown with a search field and colored language badges —
+// explicit choice, never auto-detected. Highlighting is browser-local.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Search } from "lucide-react";
 
@@ -10,25 +11,25 @@ import { cx } from "../ds";
 import { LANGUAGES, highlight, languageLabel } from "./prism";
 import styles from "./CodeBlock.module.css";
 
-/** The searchable language dropdown. */
+/** The searchable language dropdown with colored badges. */
 function LanguagePicker({
   language,
   onChange,
+  onClose,
 }: {
   language: string;
   onChange: (id: string) => void;
+  onClose: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) return;
     function onDoc(e: MouseEvent) {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose();
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") onClose();
     }
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
@@ -36,7 +37,7 @@ function LanguagePicker({
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [onClose]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -45,54 +46,39 @@ function LanguagePicker({
   }, [query]);
 
   return (
-    <div className={styles.picker} ref={ref}>
-      <button
-        type="button"
-        className={styles.pickerButton}
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        {languageLabel(language)}
-        <ChevronDown size={13} />
-      </button>
-      {open && (
-        <div className={styles.pickerPanel} role="listbox">
-          <div className={styles.pickerSearch}>
-            <Search size={14} className={styles.searchIcon} />
-            <input
-              autoFocus
-              className={styles.searchInput}
-              placeholder={strings.codeSearchLanguage}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <div className={styles.pickerList}>
-            {matches.length === 0 ? (
-              <div className={styles.pickerEmpty}>{strings.codeNoLanguage}</div>
-            ) : (
-              matches.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  role="option"
-                  aria-selected={l.id === language}
-                  className={cx(styles.pickerItem, l.id === language && styles.pickerItemOn)}
-                  onClick={() => {
-                    onChange(l.id);
-                    setOpen(false);
-                    setQuery("");
-                  }}
-                >
-                  {l.label}
-                  {l.id === language && <Check size={14} />}
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+    <div className={styles.pickerPanel} role="listbox" ref={ref}>
+      <div className={styles.pickerSearch}>
+        <Search size={15} className={styles.searchIcon} />
+        <input
+          autoFocus
+          className={styles.searchInput}
+          placeholder={strings.codeSearchLanguage}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <div className={styles.pickerList}>
+        {matches.length === 0 ? (
+          <div className={styles.pickerEmpty}>{strings.codeNoLanguage}</div>
+        ) : (
+          matches.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              role="option"
+              aria-selected={l.id === language}
+              className={cx(styles.pickerItem, l.id === language && styles.pickerItemOn)}
+              onClick={() => onChange(l.id)}
+            >
+              <span className={styles.badge} style={{ background: l.badgeBg }}>
+                {l.badge}
+              </span>
+              <span className={styles.pickerLabel}>{l.label}</span>
+              {l.id === language && <Check size={15} className={styles.pickerCheck} />}
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -102,12 +88,11 @@ interface CodeBlockProps {
   onChange: (code: string) => void;
   language: string;
   onLanguageChange: (id: string) => void;
-  /** Optional filename shown on the left of the header. */
-  filename?: string;
 }
 
-export function CodeBlock({ code, onChange, language, onLanguageChange, filename }: CodeBlockProps) {
+export function CodeBlock({ code, onChange, language, onLanguageChange }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const html = useMemo(() => highlight(code, language), [code, language]);
   const lineCount = useMemo(() => code.split("\n").length, [code]);
 
@@ -135,9 +120,29 @@ export function CodeBlock({ code, onChange, language, onLanguageChange, filename
   return (
     <div className={styles.block}>
       <div className={styles.header}>
-        {filename !== undefined && <span className={styles.filename}>{filename}</span>}
+        <div className={styles.pickerAnchor}>
+          <button
+            type="button"
+            className={styles.langPill}
+            onClick={() => setPickerOpen((v) => !v)}
+            aria-haspopup="listbox"
+            aria-expanded={pickerOpen}
+          >
+            {languageLabel(language)}
+            <ChevronDown size={13} />
+          </button>
+          {pickerOpen && (
+            <LanguagePicker
+              language={language}
+              onChange={(id) => {
+                onLanguageChange(id);
+                setPickerOpen(false);
+              }}
+              onClose={() => setPickerOpen(false)}
+            />
+          )}
+        </div>
         <div className={styles.spacer} />
-        <LanguagePicker language={language} onChange={onLanguageChange} />
         <button type="button" className={styles.copy} onClick={copy}>
           {copied ? <Check size={14} /> : <Copy size={14} />}
           {copied ? strings.codeCopied : strings.codeCopy}

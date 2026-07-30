@@ -424,37 +424,42 @@ export const strings = {
   archiveUnavailable: "There's no archive folder to move this to.",
 
   // technical authoring (Docs) — equations, code, cross-references
-  authoringTitle: "Technical authoring",
-  authoringSubtitle:
-    "Write specs with math, equations, and code — rendered in your browser, nothing sent to a server.",
-  authoringEquations: "Equations",
-  authoringEquationsHint:
-    "Type LaTeX and see it render live. Toggle inline vs a numbered display equation; use the symbol bar for common notation.",
-  authoringCode: "Code blocks",
-  authoringCodeHint:
-    "Syntax-highlighted code. Pick the language explicitly, copy with one click; line numbers included.",
-  authoringCrossRefs: "Cross-references & auto-numbering",
-  authoringCrossRefsHint:
-    "Equations, tables, figures, and sections number themselves. Reference chips stay correct when you reorder or insert items.",
-  authoringRefLead: "Combining the result of",
-  authoringRefTail: "gives the numerical model used throughout this document.",
-  authoringClearRefs: "Clear",
-  authoringOutline: "Document outline — reorder and watch the numbers update",
-  authoringMoveUp: "Move up",
-  authoringMoveDown: "Move down",
+  // Ficina Docs surface (document chrome)
+  docTitle: "Q3 Offer — Proceq",
+  docSaved: "Saved to Drive · all changes saved",
+  docAskAi: "Ask AI",
+  docShare: "Share",
+  docInsert: "Insert",
+  insertEquation: "Equation",
+  insertCrossRef: "Cross-reference",
+  tbNormalText: "Normal text",
+  tbEditing: "Editing",
 
-  // equation editor
+  // the example spec on the page
+  specTitle: "Heat Transfer in the Coateq Panel",
+  specSubtitle: "Technical specification · Rev. 3",
+  specLead1: "The steady-state flux is governed by",
+  specLead2: "across the boundary.",
+  specMid:
+    "where k is the thermal conductivity and r₁, r₂ are the inner and outer radii. Substituting the measured values:",
+  specBcHeading: "Boundary conditions",
+  specRefLead: "Combining",
+  specRefMid: "with the values in",
+  specRefTail: "gives the numbers below.",
+  tblSymbol: "Symbol",
+  tblValue: "Value",
+
+  // equation editor (modal)
+  eqTitle: "Equation",
+  eqClose: "Close",
+  eqInsert: "Insert",
   eqViewLabel: "Editing view",
   eqViewLatex: "LaTeX",
   eqViewVisual: "Visual",
-  eqModeLabel: "Equation mode",
-  eqInline: "Inline",
-  eqDisplay: "Display",
-  eqNumbered: "Numbered",
   eqPlaceholder: "e.g.  E = mc^2",
   eqInputLabel: "LaTeX source",
   eqPreview: "Preview",
-  eqEmpty: "Nothing to preview yet — start typing LaTeX above.",
+  eqEmpty: "Start typing LaTeX above.",
   eqError: (message: string) => `Can't render this LaTeX: ${message}`,
 
   // code block

@@ -1,187 +1,303 @@
-// The technical-authoring workspace (ADR 0015): the equation editor, code block,
-// and cross-reference/auto-numbering engine composed into one surface. This is
-// the standalone Ficina Docs surface that renders these tools today; when the
-// Collabora Docs shell lands, the same components dock into it. Everything here
-// renders in the browser — no draft equation or line of code leaves the client.
+// The Ficina Docs technical-authoring surface (ADR 0015), matching the Figma
+// Docs screens: a document top bar, the editor chrome (menu + formatting bar —
+// the frame for the Collabora editor, ADR 0010), and a paper canvas holding a
+// real spec. The math, code, and cross-reference tools inside are fully
+// functional and render browser-local; the general word-processor chrome is the
+// visual frame until Collabora is embedded.
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Link2, Plus } from "lucide-react";
+import {
+  Bold,
+  ChevronDown,
+  Image as ImageIcon,
+  Italic,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  MessageSquare,
+  Redo2,
+  Sigma,
+  Sparkles,
+  Table as TableIcon,
+  Underline,
+  Undo2,
+} from "lucide-react";
 
 import { strings } from "../i18n";
 import { cx } from "../ds";
-import { type DocItem, computeNumbering, referenceText } from "./numbering";
+import { type DocItem, computeNumbering } from "./numbering";
+import { renderMath } from "./katex";
 import { EquationEditor } from "./EquationEditor";
 import { CodeBlock } from "./CodeBlock";
-import { CrossReferencePicker, ReferenceChip, refLabels } from "./CrossReference";
+import { CrossReferencePicker, ReferenceChip } from "./CrossReference";
 import styles from "./AuthoringWorkspace.module.css";
 
-const SAMPLE_CODE = `// Relativistic kinetic energy, evaluated numerically.
-export function kineticEnergy(mass: number, velocity: number): number {
-  const c = 299_792_458; // speed of light, m/s
-  const lorentz = 1 / Math.sqrt(1 - (velocity / c) ** 2);
-  return mass * c ** 2 * (lorentz - 1);
-}`;
+const SAMPLE_CODE = `def heat_flux(k, dT, r1, r2):
+    import math
+    Q = 2 * math.pi * k * dT
+    return Q / math.log(r2 / r1)
 
-const INITIAL_ITEMS: DocItem[] = [
-  { id: "sec:overview", kind: "section", level: 1, title: "Overview" },
-  { id: "eq:energy", kind: "equation", title: "Mass–energy equivalence" },
-  { id: "sec:derivation", kind: "section", level: 2, title: "Derivation" },
-  { id: "eq:wave", kind: "equation", title: "Wave equation" },
-  { id: "tab:results", kind: "table", title: "Benchmark results" },
-  { id: "fig:arch", kind: "figure", title: "System architecture" },
-];
+# measured: k=0.19 W/mK
+flux = heat_flux(0.19, 42.0, 12e-3, 18e-3)`;
+
+/** A rendered math span (inline or display). */
+function Math({ latex, display }: { latex: string; display: boolean }) {
+  const r = useMemo(() => renderMath(latex, display), [latex, display]);
+  if (r.error !== null) return <span className={styles.mathError}>{latex}</span>;
+  return <span dangerouslySetInnerHTML={{ __html: r.html }} />;
+}
 
 export function AuthoringWorkspace() {
-  const [items, setItems] = useState<DocItem[]>(INITIAL_ITEMS);
-  const numbering = useMemo(() => computeNumbering(items), [items]);
-
-  const [energyLatex, setEnergyLatex] = useState("E = mc^2");
-  const [energyDisplay, setEnergyDisplay] = useState(true);
-  const [energyNumbered, setEnergyNumbered] = useState(true);
-
+  const [eqQLatex, setEqQLatex] = useState("Q = 2\\pi k L (T_1 - T_2)/\\ln(r_2/r_1)");
+  const [fluxLatex] = useState("q = -k\\nabla T");
   const [code, setCode] = useState(SAMPLE_CODE);
-  const [language, setLanguage] = useState("typescript");
+  const [language, setLanguage] = useState("python");
 
-  const [refs, setRefs] = useState<string[]>(["eq:energy", "tab:results"]);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [editingEq, setEditingEq] = useState(false);
+  const [eqDraft, setEqDraft] = useState(eqQLatex);
+  const [refPickerOpen, setRefPickerOpen] = useState(false);
+  const [insertMenuOpen, setInsertMenuOpen] = useState(false);
+  const [extraRefs, setExtraRefs] = useState<string[]>([]);
 
-  const energyNumber = numbering.get("eq:energy")?.display;
+  // The document's numbered items. Equations carry their LaTeX so the
+  // cross-reference picker can preview them (Figma).
+  const items: DocItem[] = useMemo(
+    () => [
+      { id: "eq:flux", kind: "equation", title: "Fourier's law", latex: fluxLatex },
+      { id: "eq:cont", kind: "equation", title: "Continuity", latex: "\\nabla \\cdot q = 0" },
+      { id: "eq:Q", kind: "equation", title: "Radial conduction", latex: eqQLatex },
+      {
+        id: "eq:R",
+        kind: "equation",
+        title: "Thermal resistance",
+        latex: "R = \\ln(r_2/r_1)/2\\pi k L",
+      },
+      { id: "sec:bc", kind: "section", level: 1, title: "Boundary conditions" },
+      { id: "tab:cond", kind: "table", title: "Measured values" },
+      { id: "fig:panel", kind: "figure", title: "Panel geometry" },
+    ],
+    [fluxLatex, eqQLatex],
+  );
+  const numbering = useMemo(() => computeNumbering(items), [items]);
+  const eqQNumber = numbering.get("eq:Q")?.display;
 
-  function move(index: number, delta: number) {
-    setItems((prev) => {
-      const target = index + delta;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      const a = next[index];
-      const b = next[target];
-      if (a === undefined || b === undefined) return prev;
-      next[index] = b;
-      next[target] = a;
-      return next;
-    });
+  function openEquation() {
+    setEqDraft(eqQLatex);
+    setEditingEq(true);
+    setInsertMenuOpen(false);
   }
 
   return (
-    <div className={styles.workspace}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{strings.authoringTitle}</h1>
-        <p className={styles.subtitle}>{strings.authoringSubtitle}</p>
-      </header>
-
-      {/* Equations */}
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>{strings.authoringEquations}</h2>
-        <p className={styles.sectionHint}>{strings.authoringEquationsHint}</p>
-        <EquationEditor
-          value={energyLatex}
-          onChange={setEnergyLatex}
-          display={energyDisplay}
-          onDisplayChange={setEnergyDisplay}
-          numbered={energyNumbered}
-          onNumberedChange={setEnergyNumbered}
-          number={energyNumber}
-        />
-      </section>
-
-      {/* Code */}
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>{strings.authoringCode}</h2>
-        <p className={styles.sectionHint}>{strings.authoringCodeHint}</p>
-        <CodeBlock
-          code={code}
-          onChange={setCode}
-          language={language}
-          onLanguageChange={setLanguage}
-          filename="energy.ts"
-        />
-      </section>
-
-      {/* Cross-references + auto-numbering */}
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>{strings.authoringCrossRefs}</h2>
-        <p className={styles.sectionHint}>{strings.authoringCrossRefsHint}</p>
-
-        <div className={styles.refSentence}>
-          {strings.authoringRefLead}{" "}
-          {refs.map((id, i) => (
-            <span key={`${id}-${i}`}>
-              <ReferenceChip targetId={id} numbering={numbering} />
-              {i < refs.length - 1 ? ", " : " "}
-            </span>
-          ))}
-          {strings.authoringRefTail}
+    <div className={styles.app}>
+      {/* Document top bar */}
+      <div className={styles.docBar}>
+        <div className={styles.docIcon}>W</div>
+        <div className={styles.docMeta}>
+          <div className={styles.docTitle}>{strings.docTitle}</div>
+          <div className={styles.docSaved}>{strings.docSaved}</div>
         </div>
+        <div className={styles.spacer} />
+        <div className={styles.avatars}>
+          <span className={cx(styles.avatar, styles.avatarK)}>K</span>
+          <span className={cx(styles.avatar, styles.avatarH)}>H</span>
+        </div>
+        <button type="button" className={styles.askAi}>
+          <Sparkles size={15} />
+          {strings.docAskAi}
+        </button>
+        <button type="button" className={styles.share}>
+          {strings.docShare}
+        </button>
+      </div>
 
-        <div className={styles.refActions}>
-          <div className={styles.pickerAnchor}>
+      {/* Menu bar — the editor frame; Insert is wired to the authoring tools. */}
+      <div className={styles.menuBar}>
+        {["File", "Edit", "View"].map((m) => (
+          <span key={m} className={styles.menuItem}>
+            {m}
+          </span>
+        ))}
+        <div className={styles.insertAnchor}>
+          <button
+            type="button"
+            className={cx(styles.menuItem, styles.menuInsert)}
+            onClick={() => setInsertMenuOpen((v) => !v)}
+          >
+            {strings.docInsert}
+          </button>
+          {insertMenuOpen && (
+            <div className={styles.insertMenu} role="menu">
+              <button type="button" className={styles.insertOption} onClick={openEquation}>
+                <Sigma size={15} />
+                {strings.insertEquation}
+              </button>
+              <button
+                type="button"
+                className={styles.insertOption}
+                onClick={() => {
+                  setRefPickerOpen(true);
+                  setInsertMenuOpen(false);
+                }}
+              >
+                <LinkIcon size={15} />
+                {strings.insertCrossRef}
+              </button>
+            </div>
+          )}
+        </div>
+        {["Format", "Tools", "Help"].map((m) => (
+          <span key={m} className={styles.menuItem}>
+            {m}
+          </span>
+        ))}
+      </div>
+
+      {/* Formatting toolbar — visual frame for the Collabora editor (ADR 0010). */}
+      <div className={styles.toolbar} aria-hidden="true">
+        <span className={styles.tbGroup}>
+          <Undo2 size={16} />
+          <Redo2 size={16} />
+        </span>
+        <span className={styles.tbDivider} />
+        <span className={styles.tbSelect}>
+          {strings.tbNormalText}
+          <ChevronDown size={13} />
+        </span>
+        <span className={styles.tbSelect}>
+          Inter
+          <ChevronDown size={13} />
+        </span>
+        <span className={styles.tbDivider} />
+        <span className={styles.tbGroup}>
+          <Bold size={16} />
+          <Italic size={16} />
+          <Underline size={16} />
+        </span>
+        <span className={styles.tbDivider} />
+        <span className={styles.tbGroup}>
+          <LinkIcon size={16} />
+          <MessageSquare size={16} />
+          <ImageIcon size={16} />
+          <TableIcon size={16} />
+        </span>
+        <span className={styles.tbDivider} />
+        <span className={styles.tbGroup}>
+          <List size={16} />
+          <ListOrdered size={16} />
+        </span>
+        <span className={styles.spacer} />
+        <span className={styles.tbEditing}>{strings.tbEditing}</span>
+      </div>
+
+      {/* The document canvas */}
+      <div className={styles.canvas}>
+        <article className={styles.page}>
+          <h1 className={styles.h1}>{strings.specTitle}</h1>
+          <p className={styles.docSubtitle}>{strings.specSubtitle}</p>
+
+          <p className={styles.para}>
+            {strings.specLead1}{" "}
+            <span className={styles.inlineMath}>
+              <Math latex={fluxLatex} display={false} />
+            </span>{" "}
+            {strings.specLead2}
+          </p>
+
+          {/* Numbered display equation — click to edit in the modal. */}
+          <button type="button" className={styles.displayEq} onClick={openEquation}>
+            <span className={styles.displayEqMath}>
+              <Math latex={eqQLatex} display={true} />
+            </span>
+            {eqQNumber !== undefined && <span className={styles.eqNumber}>{`(${eqQNumber})`}</span>}
+          </button>
+
+          <p className={styles.para}>{strings.specMid}</p>
+
+          <CodeBlock
+            code={code}
+            onChange={setCode}
+            language={language}
+            onLanguageChange={setLanguage}
+          />
+
+          <h2 className={styles.h2}>{strings.specBcHeading}</h2>
+          <p className={styles.para}>
+            {strings.specRefLead}{" "}
+            <ReferenceChip targetId="eq:Q" numbering={numbering} />{" "}
+            {strings.specRefMid}{" "}
+            <ReferenceChip targetId="tab:cond" numbering={numbering} />
+            {extraRefs.map((id) => (
+              <span key={id}>
+                {", "}
+                <ReferenceChip targetId={id} numbering={numbering} />
+              </span>
+            ))}{" "}
+            {strings.specRefTail}
+          </p>
+
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>{strings.tblSymbol}</th>
+                <th>{strings.tblValue}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>k</td>
+                <td>0.19 W/mK</td>
+              </tr>
+              <tr>
+                <td>
+                  r<sub>1</sub>
+                </td>
+                <td>12 mm</td>
+              </tr>
+              <tr>
+                <td>
+                  r<sub>2</sub>
+                </td>
+                <td>18 mm</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div className={styles.insertRefRow}>
             <button
               type="button"
-              className={styles.insertBtn}
-              onClick={() => setPickerOpen((v) => !v)}
+              className={styles.insertRefBtn}
+              onClick={() => setRefPickerOpen((v) => !v)}
             >
-              <Link2 size={15} />
+              <LinkIcon size={15} />
               {strings.refInsert}
             </button>
-            {pickerOpen && (
-              <div className={styles.pickerPop}>
+            {refPickerOpen && (
+              <div className={styles.refPickerPop}>
                 <CrossReferencePicker
                   items={items}
                   numbering={numbering}
-                  onClose={() => setPickerOpen(false)}
                   onPick={(id) => {
-                    setRefs((prev) => [...prev, id]);
-                    setPickerOpen(false);
+                    setExtraRefs((prev) => (prev.includes(id) ? prev : [...prev, id]));
+                    setRefPickerOpen(false);
                   }}
                 />
               </div>
             )}
           </div>
-          {refs.length > 0 && (
-            <button type="button" className={styles.clearBtn} onClick={() => setRefs([])}>
-              {strings.authoringClearRefs}
-            </button>
-          )}
-        </div>
+        </article>
+      </div>
 
-        {/* The document outline — reorder any item and every number + chip above
-            updates automatically, because references point at identities. */}
-        <div className={styles.outline}>
-          <div className={styles.outlineHead}>
-            <Plus size={14} className={styles.outlineIcon} />
-            {strings.authoringOutline}
-          </div>
-          <ul className={styles.outlineList}>
-            {items.map((item, i) => {
-              const info = numbering.get(item.id);
-              return (
-                <li key={item.id} className={cx(styles.outlineItem, styles[`kind_${item.kind}`])}>
-                  <span className={styles.outlineNumber}>
-                    {info !== undefined ? referenceText(info, refLabels()) : "—"}
-                  </span>
-                  <span className={styles.outlineTitle}>{item.title}</span>
-                  <div className={styles.outlineMove}>
-                    <button
-                      type="button"
-                      aria-label={strings.authoringMoveUp}
-                      disabled={i === 0}
-                      onClick={() => move(i, -1)}
-                    >
-                      <ChevronUp size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={strings.authoringMoveDown}
-                      disabled={i === items.length - 1}
-                      onClick={() => move(i, 1)}
-                    >
-                      <ChevronDown size={15} />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      </section>
+      {editingEq && (
+        <EquationEditor
+          value={eqDraft}
+          onChange={setEqDraft}
+          display={true}
+          onInsert={() => {
+            setEqQLatex(eqDraft);
+            setEditingEq(false);
+          }}
+          onClose={() => setEditingEq(false)}
+        />
+      )}
     </div>
   );
 }
