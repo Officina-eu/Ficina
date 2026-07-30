@@ -38,6 +38,39 @@ const AuthoringInsertModal = lazy(() =>
 /** Largest inline image edge (px); wider images are downscaled before embedding. */
 const MAX_IMAGE_EDGE = 1400;
 
+/** Font family choices (label → CSS stack), Gmail's set. */
+const FONT_OPTIONS: { label: string; value: string }[] = [
+  { label: "Sans Serif", value: "Arial, Helvetica, sans-serif" },
+  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Fixed Width", value: "'Courier New', monospace" },
+  { label: "Wide", value: "'Arial Black', sans-serif" },
+  { label: "Narrow", value: "'Arial Narrow', sans-serif" },
+  { label: "Comic Sans", value: "'Comic Sans MS', cursive" },
+  { label: "Garamond", value: "Garamond, serif" },
+  { label: "Georgia", value: "Georgia, serif" },
+  { label: "Tahoma", value: "Tahoma, sans-serif" },
+  { label: "Trebuchet", value: "'Trebuchet MS', sans-serif" },
+  { label: "Verdana", value: "Verdana, sans-serif" },
+];
+
+const DEFAULT_FONT = FONT_OPTIONS[0]!.value;
+const SIZE_VALUES = new Set(["2", "3", "5", "7"]);
+
+const normalizeFont = (s: string): string => s.toLowerCase().replace(/["']/g, "").replace(/\s+/g, "");
+
+/** Best-effort map from a browser-reported font-family to one of our options. */
+function matchFont(reported: string): string {
+  if (reported === "") return DEFAULT_FONT;
+  const norm = normalizeFont(reported);
+  const exact = FONT_OPTIONS.find((o) => normalizeFont(o.value) === norm);
+  if (exact !== undefined) return exact.value;
+  const byFirst = FONT_OPTIONS.find((o) => {
+    const first = normalizeFont(o.value.split(",")[0] ?? "");
+    return first !== "" && norm.startsWith(first);
+  });
+  return byFirst?.value ?? DEFAULT_FONT;
+}
+
 interface RichTextEditorProps {
   /** Initial HTML (uncontrolled thereafter — set once on mount). */
   initialHtml: string;
@@ -88,6 +121,8 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
   const savedRange = useRef<Range | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [insert, setInsert] = useState<null | "equation" | "code">(null);
+  const [font, setFont] = useState(DEFAULT_FONT);
+  const [size, setSize] = useState("3");
 
   useEffect(() => {
     const el = ref.current;
@@ -95,6 +130,26 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
     el.innerHTML = initialHtml;
     if (autoFocus === true) el.focus();
   }, [initialHtml, autoFocus]);
+
+  // Reflect the caret's font + size in the dropdowns (Gmail syncs these as you move).
+  useEffect(() => {
+    function sync() {
+      const el = ref.current;
+      if (el === null) return;
+      const sel = window.getSelection();
+      if (sel === null || sel.rangeCount === 0) return;
+      if (!el.contains(sel.getRangeAt(0).commonAncestorContainer)) return;
+      try {
+        setFont(matchFont(String(document.queryCommandValue("fontName"))));
+        const fs = String(document.queryCommandValue("fontSize"));
+        setSize(SIZE_VALUES.has(fs) ? fs : "3");
+      } catch {
+        // queryCommandValue can throw in odd states — ignore
+      }
+    }
+    document.addEventListener("selectionchange", sync);
+    return () => document.removeEventListener("selectionchange", sync);
+  }, []);
 
   function emit() {
     onChange(ref.current?.innerHTML ?? "");
@@ -255,28 +310,28 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
         <select
           className={styles.select}
           aria-label={strings.fontFamily}
-          defaultValue="Arial, Helvetica, sans-serif"
+          value={font}
           onMouseDown={saveRange}
-          onChange={(e) => execRestored("fontName", e.target.value)}
+          onChange={(e) => {
+            setFont(e.target.value);
+            execRestored("fontName", e.target.value);
+          }}
         >
-          <option value="Arial, Helvetica, sans-serif">Sans Serif</option>
-          <option value="Georgia, 'Times New Roman', serif">Serif</option>
-          <option value="'Courier New', monospace">Fixed Width</option>
-          <option value="'Arial Black', sans-serif">Wide</option>
-          <option value="'Arial Narrow', sans-serif">Narrow</option>
-          <option value="'Comic Sans MS', cursive">Comic Sans</option>
-          <option value="Garamond, serif">Garamond</option>
-          <option value="Georgia, serif">Georgia</option>
-          <option value="Tahoma, sans-serif">Tahoma</option>
-          <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
-          <option value="Verdana, sans-serif">Verdana</option>
+          {FONT_OPTIONS.map((o) => (
+            <option key={o.label} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
         <select
           className={styles.selectSize}
           aria-label={strings.fontSize}
-          defaultValue="3"
+          value={size}
           onMouseDown={saveRange}
-          onChange={(e) => execRestored("fontSize", e.target.value)}
+          onChange={(e) => {
+            setSize(e.target.value);
+            execRestored("fontSize", e.target.value);
+          }}
         >
           <option value="2">{strings.sizeSmall}</option>
           <option value="3">{strings.sizeNormal}</option>
