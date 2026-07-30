@@ -6,6 +6,18 @@ contracts.
 
 ## Unreleased
 
+- New: **Per-tenant DKIM signing keys.** Verifying a domain now provisions its
+  own Ed25519 DKIM key (ADR 0014); outbound mail is signed with the key for the
+  message's `From` domain, so each tenant signs as itself (DMARC-aligned). The
+  Domains page shows the DKIM record to publish and offers **Rotate** (selector
+  rollover — the old record stays valid until removed). The secret key never
+  leaves the server or a client response. The existing single deployment key
+  (`FICINA_SMTP_DKIM_*`) is unchanged and remains the fallback, so single-tenant
+  deployments sign exactly as before. New route: `/admin/domains/dkim/rotate`;
+  the `/admin/domains` listing gains a `dkim` record per domain. RSA keys are
+  not generated in-process (Ed25519 only; operators needing RSA supply it via
+  the file key). Groundwork for no-touch rotation once Ficina serves
+  authoritative DNS (ADR 0013, deferred).
 - New: **Admin console completed + storage quotas + audit log.** The tenant
   Admin console now opens on an **Overview** dashboard (users, storage,
   deliverability, AI) and adds a **Domains** page (register + DNS-verify the
