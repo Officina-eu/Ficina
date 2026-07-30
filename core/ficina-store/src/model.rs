@@ -63,6 +63,8 @@ pub struct TenantSummary {
     pub created_at: OffsetDateTime,
     pub user_count: i64,
     pub storage_bytes: i64,
+    /// The tenant's storage cap in bytes, or `None` for unlimited (ADR 0012).
+    pub storage_quota_bytes: Option<i64>,
 }
 
 /// A domain owned by a tenant (ADR 0012). `verified_at` is `None` until the

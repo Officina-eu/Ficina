@@ -207,6 +207,7 @@ fn set_error(e: &StoreError) -> Value {
         StoreError::NotFound => method_error("notFound"),
         StoreError::Conflict(msg) => method_error_desc("invalidProperties", msg),
         StoreError::TooLarge { .. } => method_error("tooLarge"),
+        StoreError::OverQuota => method_error("overQuota"),
         _ => method_error("serverFail"),
     }
 }

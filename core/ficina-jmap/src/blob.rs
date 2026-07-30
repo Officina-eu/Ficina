@@ -18,6 +18,9 @@ fn store_problem(e: StoreError) -> Problem {
     match e {
         StoreError::NotFound => Problem::not_found(),
         StoreError::TooLarge { .. } => Problem::too_large(),
+        StoreError::OverQuota => {
+            Problem::with(StatusCode::INSUFFICIENT_STORAGE, "storage quota exceeded")
+        }
         _ => Problem::server_error(),
     }
 }

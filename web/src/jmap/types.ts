@@ -130,6 +130,8 @@ export interface ControlTenant {
   createdAt: string;
   userCount: number;
   storageBytes: number;
+  /** Storage cap in bytes, or null for unlimited. */
+  storageQuotaBytes: number | null;
 }
 
 /** A domain owned by a tenant (control plane). `verifyRecord` is the DNS TXT

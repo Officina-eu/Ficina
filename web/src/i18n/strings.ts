@@ -219,6 +219,10 @@ export const strings = {
   tenantDeleteConfirm: (name: string) =>
     `Permanently delete "${name}" and all of its data? This cannot be undone.`,
   tenantUsage: (n: number, size: string) => `${n === 1 ? "1 user" : `${n} users`} · ${size}`,
+  tenantQuota: "Quota",
+  tenantQuotaPrompt: "Storage quota in GB (leave blank for unlimited):",
+  tenantQuotaUnlimited: "unlimited",
+  tenantQuotaOf: (size: string) => `of ${size}`,
   domainAdd: "Add domain",
   domainTenant: "Owning tenant",
   domainName: "Domain",

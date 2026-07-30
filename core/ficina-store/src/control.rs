@@ -89,10 +89,14 @@ impl Store {
     /// # Errors
     /// [`StoreError::Db`] on failure.
     pub async fn list_tenants(&self) -> Result<Vec<TenantSummary>> {
-        let rows = sqlx::query_as::<_, (String, String, String, OffsetDateTime, i64, i64)>(
+        let rows = sqlx::query_as::<
+            _,
+            (String, String, String, OffsetDateTime, i64, i64, Option<i64>),
+        >(
             "SELECT t.id, t.name, t.status, t.created_at, \
                     COALESCE(u.n, 0)::bigint AS user_count, \
-                    COALESCE(b.bytes, 0)::bigint AS storage_bytes \
+                    COALESCE(b.bytes, 0)::bigint AS storage_bytes, \
+                    t.storage_quota_bytes \
              FROM tenants t \
              LEFT JOIN (SELECT tenant_id, COUNT(*) AS n FROM users GROUP BY tenant_id) u \
                     ON u.tenant_id = t.id \
@@ -105,16 +109,37 @@ impl Store {
         Ok(rows
             .into_iter()
             .map(
-                |(id, name, status, created_at, user_count, storage_bytes)| TenantSummary {
-                    id,
-                    name,
-                    status,
-                    created_at,
-                    user_count,
-                    storage_bytes,
+                |(id, name, status, created_at, user_count, storage_bytes, storage_quota_bytes)| {
+                    TenantSummary {
+                        id,
+                        name,
+                        status,
+                        created_at,
+                        user_count,
+                        storage_bytes,
+                        storage_quota_bytes,
+                    }
                 },
             )
             .collect())
+    }
+
+    /// Sets (or clears, with `None`) a tenant's storage quota in bytes. `None`
+    /// is unlimited. Enforced at the blob-write choke points (ADR 0012).
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the tenant does not exist;
+    /// [`StoreError::Db`] on failure.
+    pub async fn set_tenant_quota(&self, tenant: &TenantId, quota: Option<i64>) -> Result<()> {
+        let done = sqlx::query("UPDATE tenants SET storage_quota_bytes = $2 WHERE id = $1")
+            .bind(tenant.as_str())
+            .bind(quota)
+            .execute(self.pool())
+            .await?;
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
     }
 
     /// The lifecycle status of one tenant (`active` | `suspended`), or `None`

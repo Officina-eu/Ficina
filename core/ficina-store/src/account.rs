@@ -517,6 +517,15 @@ impl AccountStore {
         let hash = hash_hex(raw);
         let size = raw.len() as i64;
 
+        // Storage quota (ADR 0012): only genuinely new bytes count — a dedup
+        // hit (this tenant already holds these exact bytes) adds nothing.
+        let already = self
+            .blobs
+            .exists(self.tenant.as_str(), &hash)
+            .await
+            .unwrap_or(false);
+        self.check_quota(if already { 0 } else { size }).await?;
+
         // Crash-safety: the blob is written BEFORE the DB commit. A crash
         // in between leaves an orphan blob no row references — invisible to
         // every tenant, reclaimed by GC — never a visible message with a
@@ -1245,6 +1254,12 @@ impl AccountStore {
         }
         let hash = hash_hex(&bytes);
         let size = bytes.len() as i64;
+        let already = self
+            .blobs
+            .exists(self.tenant.as_str(), &hash)
+            .await
+            .unwrap_or(false);
+        self.check_quota(if already { 0 } else { size }).await?;
         self.blobs.put(self.tenant.as_str(), &hash, bytes).await?;
         let new_id = BlobId::generate();
         let row = sqlx::query!(
@@ -1261,6 +1276,39 @@ impl AccountStore {
         .fetch_one(&self.pool)
         .await?;
         Ok(BlobId::new(row.id))
+    }
+
+    /// Reject a write of `incoming` new bytes if it would push the tenant over
+    /// its storage quota (ADR 0012). A `NULL` quota means unlimited — the
+    /// default — in which case this returns immediately after one cheap indexed
+    /// lookup, so tenants without a cap pay effectively nothing. Runtime query
+    /// (the quota column post-dates the offline cache).
+    ///
+    /// # Errors
+    /// [`StoreError::OverQuota`] if the write would exceed the cap;
+    /// [`StoreError::Db`] on failure.
+    async fn check_quota(&self, incoming: i64) -> Result<()> {
+        if incoming <= 0 {
+            return Ok(());
+        }
+        let quota: Option<i64> =
+            sqlx::query_scalar("SELECT storage_quota_bytes FROM tenants WHERE id = $1")
+                .bind(self.tenant.as_str())
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
+        let Some(limit) = quota else {
+            return Ok(()); // unlimited
+        };
+        let used: i64 =
+            sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::bigint FROM blobs WHERE tenant_id = $1")
+                .bind(self.tenant.as_str())
+                .fetch_one(&self.pool)
+                .await?;
+        if used + incoming > limit {
+            return Err(StoreError::OverQuota);
+        }
+        Ok(())
     }
 
     /// A blob's metadata, accessible to this account only if one of its

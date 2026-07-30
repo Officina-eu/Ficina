@@ -399,6 +399,11 @@ export class JmapClient {
     await this.#adminPost(`/control/tenants/${encodeURIComponent(id)}/status`, { status });
   }
 
+  /** Set a tenant's storage quota in bytes, or null for unlimited (operator). */
+  async setTenantQuota(id: string, quotaBytes: number | null): Promise<void> {
+    await this.#adminPost(`/control/tenants/${encodeURIComponent(id)}/quota`, { quotaBytes });
+  }
+
   /** Permanently delete a tenant (operator). `confirm` must echo the id. */
   async deleteTenant(id: string, confirm: string): Promise<void> {
     await this.#admin(`/control/tenants/${encodeURIComponent(id)}`, {

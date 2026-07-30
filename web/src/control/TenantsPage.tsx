@@ -47,6 +47,26 @@ export function TenantsPage() {
     }
   }
 
+  async function setQuota(t: ControlTenant) {
+    const current = t.storageQuotaBytes === null ? "" : String(t.storageQuotaBytes / 1_000_000_000);
+    const answer = window.prompt(strings.tenantQuotaPrompt, current);
+    if (answer === null) return; // cancelled
+    const trimmed = answer.trim();
+    let quotaBytes: number | null;
+    if (trimmed === "") {
+      quotaBytes = null; // unlimited
+    } else {
+      const gb = Number(trimmed);
+      if (!Number.isFinite(gb) || gb < 0) return;
+      quotaBytes = Math.round(gb * 1_000_000_000);
+    }
+    try {
+      await client.setTenantQuota(t.id, quotaBytes);
+    } finally {
+      load();
+    }
+  }
+
   return (
     <div className={styles.page}>
       <header className={styles.pageHead}>
@@ -97,10 +117,17 @@ export function TenantsPage() {
                   </span>
                 </div>
                 <div className={styles.userMeta}>
-                  {strings.tenantUsage(t.userCount, formatBytes(t.storageBytes))} · {t.id}
+                  {strings.tenantUsage(t.userCount, formatBytes(t.storageBytes))}
+                  {" · "}
+                  {t.storageQuotaBytes === null
+                    ? strings.tenantQuotaUnlimited
+                    : strings.tenantQuotaOf(formatBytes(t.storageQuotaBytes))}
                 </div>
               </div>
               <div className={styles.userActions}>
+                <button type="button" className={styles.ghost} onClick={() => void setQuota(t)}>
+                  {strings.tenantQuota}
+                </button>
                 <button type="button" className={styles.ghost} onClick={() => void toggleStatus(t)}>
                   {t.status === "active" ? strings.tenantSuspend : strings.tenantResume}
                 </button>

@@ -30,6 +30,7 @@ fn summary_json(t: &TenantSummary) -> Value {
         "createdAt": iso(t.created_at),
         "userCount": t.user_count,
         "storageBytes": t.storage_bytes,
+        "storageQuotaBytes": t.storage_quota_bytes,
     })
 }
 
@@ -134,6 +135,34 @@ pub async fn set_status(
         .map_err(store_err)?;
     tracing::info!(tenant = %tenant.as_str(), status, "control: tenant status changed");
     Ok(Json(json!({ "id": tenant.as_str(), "status": status })))
+}
+
+/// `POST /control/tenants/{id}/quota` — set the tenant's storage quota. Body
+/// `{ quotaBytes: <number> | null }`; `null` (or absent) is unlimited.
+pub async fn set_quota(
+    State(state): State<ControlState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    authenticate_operator(&state, &headers).await?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    // `quotaBytes` absent or null → unlimited; a negative number is rejected.
+    let quota = match v.get("quotaBytes") {
+        None | Some(Value::Null) => None,
+        Some(n) => {
+            let bytes = n.as_i64().filter(|b| *b >= 0);
+            Some(bytes.ok_or_else(|| Problem::bad("quotaBytes must be a non-negative integer or null"))?)
+        }
+    };
+    let tenant = TenantId::new(id);
+    state
+        .store
+        .set_tenant_quota(&tenant, quota)
+        .await
+        .map_err(store_err)?;
+    tracing::info!(tenant = %tenant.as_str(), quota = ?quota, "control: tenant quota set");
+    Ok(Json(json!({ "id": tenant.as_str(), "quotaBytes": quota })))
 }
 
 /// `DELETE /control/tenants/{id}` — permanently delete a tenant and all its

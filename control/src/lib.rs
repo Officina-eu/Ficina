@@ -37,6 +37,7 @@ pub fn app(state: ControlState) -> Router {
             get(tenants::list_tenants).post(tenants::create_tenant),
         )
         .route("/control/tenants/{id}/status", post(tenants::set_status))
+        .route("/control/tenants/{id}/quota", post(tenants::set_quota))
         .route("/control/tenants/{id}", delete(tenants::delete_tenant))
         .route(
             "/control/domains",

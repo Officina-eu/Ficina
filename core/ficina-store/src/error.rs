@@ -20,6 +20,10 @@ pub enum StoreError {
         /// The configured limit.
         limit: usize,
     },
+    /// The write would exceed the tenant's storage quota (ADR 0012). No size
+    /// detail — the message never carries how full another tenant is.
+    #[error("storage quota exceeded")]
+    OverQuota,
     /// A database failure (detail in the source, never in the message).
     #[error("store database error")]
     Db(#[source] sqlx::Error),
