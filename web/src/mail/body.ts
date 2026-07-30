@@ -23,6 +23,34 @@ export function htmlContent(email: EmailFull): string | null {
   return join(email.htmlBody, email.bodyValues);
 }
 
+/** A rough plain-text rendering of a message body for feeding to the summarizer
+ * (never for display): prefer the text part, else strip tags off the HTML. */
+function plainBody(email: EmailFull): string {
+  const text = textContent(email);
+  if (text !== null) return text;
+  const html = htmlContent(email);
+  if (html === null) return email.preview;
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Concatenate a thread into a labelled plain-text digest for summarization.
+ * Order is the display order (oldest first); each turn is prefixed with its
+ * sender so the model can attribute statements. */
+export function threadDigest(messages: EmailFull[]): string {
+  return messages
+    .map((m) => {
+      const who = m.from?.[0]?.name ?? m.from?.[0]?.email ?? "Unknown";
+      return `${who}:\n${plainBody(m)}`;
+    })
+    .join("\n\n---\n\n")
+    .trim();
+}
+
 /** Wrap untrusted HTML with a strict CSP for a sandboxed iframe: no scripts,
  * no remote anything (blocks tracking pixels — privacy is the brand); inline
  * styles and data: images (inline attachments) are allowed. */

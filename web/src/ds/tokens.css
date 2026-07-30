@@ -76,9 +76,11 @@
   --accent-hover: var(--verdigris-600);
   --accent-active: var(--verdigris-700);
   --accent-tint: var(--verdigris-100);
+  --accent-soft: #e0ebe7; /* Figma accent/soft — quiet accent ground (AI summary) */
   --accent-secondary: var(--copper-500);
   --accent-secondary-hover: var(--copper-600);
   --accent-secondary-tint: var(--copper-100);
+  --copper-soft: #f3e4d8; /* Figma copper/soft — the AI pill ground */
 
   --danger: #b23a2c;
   --danger-tint: #f3ddd8;

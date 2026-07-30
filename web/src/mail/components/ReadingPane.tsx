@@ -21,12 +21,22 @@ import {
 import { strings } from "../../i18n";
 import { IconButton, Menu, Spinner } from "../../ds";
 import type { MenuItem } from "../../ds";
-import { KEYWORD_FLAGGED, type EmailFull, type Mailbox } from "../../jmap";
+import { KEYWORD_FLAGGED, type EmailFull, type Mailbox, useJmapClient } from "../../jmap";
 import { useAuth } from "../../auth";
 import type { Async } from "../state/useAsync";
 import { senderName, subjectOr } from "../format";
+import { threadDigest } from "../body";
 import { ThreadMessage } from "./ThreadMessage";
 import styles from "./ReadingPane.module.css";
+
+/** Below this many characters a thread isn't worth summarizing — the message is
+ * already short enough to read directly, and a one-line "summary" adds noise. */
+const SUMMARY_MIN_CHARS = 600;
+
+type SummaryState =
+  | { status: "off" }
+  | { status: "loading" }
+  | { status: "ready"; text: string };
 
 const ROLE_ORDER: Record<string, number> = {
   inbox: 0,
@@ -77,6 +87,7 @@ export function ReadingPane({
   onMarkUnread,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
+  const client = useJmapClient();
   const messages = thread.status === "ready" ? (thread.data ?? []) : [];
   const latest = messages.length > 0 ? messages[messages.length - 1] : undefined;
 
@@ -86,6 +97,48 @@ export function ReadingPane({
   useEffect(() => {
     setExpanded(latest !== undefined ? new Set([latest.id]) : new Set());
   }, [latest?.id]);
+
+  // Whether the tenant has AI enabled — determines if we offer a summary.
+  const [aiEnabled, setAiEnabled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    client
+      .aiEnabled()
+      .then((on) => live && setAiEnabled(on))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [client]);
+
+  // The Ficina conversation summary. Fetched when a long-enough thread opens and
+  // AI is on; soft-degrades to nothing on any error (never blocks reading).
+  const [summary, setSummary] = useState<SummaryState>({ status: "off" });
+  useEffect(() => {
+    if (!aiEnabled || latest === undefined) {
+      setSummary({ status: "off" });
+      return;
+    }
+    const digest = threadDigest(messages);
+    if (digest.length < SUMMARY_MIN_CHARS) {
+      setSummary({ status: "off" });
+      return;
+    }
+    let live = true;
+    setSummary({ status: "loading" });
+    client
+      .summarizeThread(digest)
+      .then((text) => {
+        if (live && text.trim().length > 0) setSummary({ status: "ready", text: text.trim() });
+        else if (live) setSummary({ status: "off" });
+      })
+      .catch(() => live && setSummary({ status: "off" }));
+    return () => {
+      live = false;
+    };
+    // Re-run only when the conversation identity or the AI toggle changes; the
+    // digest and client are derived from those and intentionally not deps.
+  }, [aiEnabled, latest?.id]);
 
   if (thread.status === "loading") {
     return (
@@ -113,9 +166,6 @@ export function ReadingPane({
   }
 
   const flagged = flagOverrides.get(latest.id) ?? latest.keywords[KEYWORD_FLAGGED] === true;
-  const folderTags = mailboxes
-    .filter((m) => m.role === null && latest.mailboxIds[m.id] === true)
-    .map((m) => m.name);
   const me = identity?.email.toLowerCase();
 
   function toggle(id: string) {
@@ -180,15 +230,18 @@ export function ReadingPane({
           )}
         </div>
 
-        {(folderTags.length > 0 || flagged) && (
-          <div className={styles.tags}>
-            {folderTags.map((t) => (
-              <span key={t} className={styles.tag}>
-                {t}
-              </span>
-            ))}
-            {flagged && <span className={`${styles.tag} ${styles.tagFlagged}`}>★ {strings.flag}</span>}
-          </div>
+        {summary.status !== "off" && (
+          <section className={styles.summary} aria-live="polite">
+            <div className={styles.summaryHead}>
+              <Sparkles size={14} className={styles.summaryIcon} />
+              <span>{strings.ficinaSummary}</span>
+            </div>
+            {summary.status === "loading" ? (
+              <p className={styles.summaryPending}>{strings.summaryPending}</p>
+            ) : (
+              <p className={styles.summaryText}>{summary.text}</p>
+            )}
+          </section>
         )}
 
         <div className={styles.messages}>
@@ -211,16 +264,19 @@ export function ReadingPane({
       <div className={styles.quickReply}>
         <div className={styles.quickHead}>
           <Reply size={14} />
-          <span>{strings.quickReplyTo(senderName(latest))}</span>
+          <span className={styles.quickHeadLabel}>{strings.quickReplyTo(senderName(latest))}</span>
+          <span className={styles.quickHeadHint}>{strings.quickReplyHint}</span>
         </div>
         <div className={styles.quickBar}>
-          <button type="button" className={styles.quickInput} onClick={onReply}>
-            {strings.replyToName(senderName(latest))}
-          </button>
-          <button type="button" className={styles.draftAi} onClick={onReply}>
-            <Sparkles size={15} />
-            <span>{strings.draftWithAi}</span>
-          </button>
+          <div className={styles.replyField}>
+            <button type="button" className={styles.quickInput} onClick={onReply}>
+              {strings.replyToName(senderName(latest))}
+            </button>
+            <button type="button" className={styles.draftAi} onClick={onReply}>
+              <Sparkles size={14} />
+              <span>{strings.draftWithAi}</span>
+            </button>
+          </div>
           <button
             type="button"
             className={styles.send}
