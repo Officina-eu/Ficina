@@ -16,6 +16,7 @@ export {
   type AdminUser,
   type AdminGroup,
   type SecurityCheck,
+  type AuditEntry,
   type ControlTenant,
   type ControlDomain,
   type Session,

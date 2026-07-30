@@ -14,7 +14,26 @@ use serde_json::{Value, json};
 
 use crate::error::Problem;
 use crate::jtypes::utc_date;
-use crate::state::{AppState, authenticate};
+use crate::state::{Account, AppState, authenticate};
+
+/// Record an audit entry for an admin mutation, best-effort: a failed audit
+/// write is logged but never fails the action it describes (ADR 0012). Never
+/// carries a secret or a message body — an actor, a verb, and a target id.
+async fn audit(
+    state: &AppState,
+    account: &Account,
+    action: &str,
+    target: Option<&str>,
+    detail: Option<&str>,
+) {
+    if let Err(error) = state
+        .store
+        .record_audit(&account.tenant, Some(&account.user), None, action, target, detail)
+        .await
+    {
+        tracing::warn!(%error, action, "audit write failed");
+    }
+}
 
 /// Map a store error to a client problem (admin writes): conflicts (e.g. a
 /// duplicate email) are 409, everything else a 500 with no leaked detail.
@@ -278,9 +297,12 @@ pub async fn create_user(
     }
     .await;
     if let Err(e) = provisioned {
-        let _ = ts.delete_user(&user).await; // best-effort cleanup
+        if let Err(cleanup) = ts.delete_user(&user).await {
+            tracing::warn!(%cleanup, "failed to roll back a half-created user");
+        }
         return Err(e);
     }
+    audit(&state, &account, "user.create", Some(&email), None).await;
     Ok(Json(json!({ "id": user.as_str() })))
 }
 
@@ -335,9 +357,17 @@ pub async fn set_user_admin(
     state
         .store
         .for_tenant(account.tenant.clone())
-        .set_admin(&UserId::new(user_id), is_admin)
+        .set_admin(&UserId::new(user_id.clone()), is_admin)
         .await
         .map_err(|_| Problem::server_error())?;
+    audit(
+        &state,
+        &account,
+        "user.admin",
+        Some(&user_id),
+        Some(if is_admin { "granted" } else { "revoked" }),
+    )
+    .await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -358,9 +388,10 @@ pub async fn delete_user(
     state
         .store
         .for_tenant(account.tenant.clone())
-        .delete_user(&UserId::new(id))
+        .delete_user(&UserId::new(id.clone()))
         .await
         .map_err(|_| Problem::server_error())?;
+    audit(&state, &account, "user.delete", Some(&id), None).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -385,6 +416,7 @@ pub async fn add_alias(
         .add_alias(&UserId::new(user_id), &address)
         .await
         .map_err(store_admin_err)?;
+    audit(&state, &account, "alias.add", Some(&address), None).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -404,6 +436,7 @@ pub async fn remove_alias(
         .remove_alias(&address)
         .await
         .map_err(|_| Problem::server_error())?;
+    audit(&state, &account, "alias.remove", Some(&address), None).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -458,6 +491,7 @@ pub async fn create_group(
         .create_group(&name)
         .await
         .map_err(store_admin_err)?;
+    audit(&state, &account, "group.create", Some(&name), None).await;
     Ok(Json(json!({ "id": id.as_str() })))
 }
 
@@ -472,9 +506,10 @@ pub async fn delete_group(
     state
         .store
         .for_tenant(account.tenant.clone())
-        .delete_group(&GroupId::new(id))
+        .delete_group(&GroupId::new(id.clone()))
         .await
         .map_err(|_| Problem::server_error())?;
+    audit(&state, &account, "group.delete", Some(&id), None).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -499,9 +534,17 @@ pub async fn set_group_address(
     state
         .store
         .for_tenant(account.tenant.clone())
-        .set_group_address(&GroupId::new(group_id), address.as_deref())
+        .set_group_address(&GroupId::new(group_id.clone()), address.as_deref())
         .await
         .map_err(store_admin_err)?;
+    audit(
+        &state,
+        &account,
+        "group.address",
+        Some(&group_id),
+        Some(address.as_deref().unwrap_or("cleared")),
+    )
+    .await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -604,6 +647,7 @@ pub async fn create_domain(
         .create_domain(&account.tenant, &domain)
         .await
         .map_err(store_admin_err)?;
+    audit(&state, &account, "domain.register", Some(&domain), None).await;
     Ok(Json(domain_json(&row)))
 }
 
@@ -641,6 +685,7 @@ pub async fn verify_domain(
         .set_domain_verified(&record.domain)
         .await
         .map_err(store_admin_err)?;
+    audit(&state, &account, "domain.verify", Some(&record.domain), None).await;
     Ok(Json(json!({ "domain": record.domain, "verified": true })))
 }
 
@@ -670,5 +715,38 @@ pub async fn delete_domain(
         .delete_domain(&domain)
         .await
         .map_err(store_admin_err)?;
+    audit(&state, &account, "domain.delete", Some(&domain), None).await;
     Ok(Json(json!({ "ok": true })))
+}
+
+// ---- audit log (tenant-admin; ADR 0012) --------------------------------
+
+/// `GET /admin/audit` → `{ entries: [...] }` — this tenant's recent
+/// administrative actions, newest first.
+pub async fn list_audit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let entries = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .list_audit(200)
+        .await
+        .map_err(|_| Problem::server_error())?;
+    let list: Vec<Value> = entries
+        .iter()
+        .map(|e| {
+            json!({
+                "id": e.id,
+                "actor": e.actor,
+                "action": e.action,
+                "target": e.target,
+                "detail": e.detail,
+                "at": utc_date(e.created_at),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "entries": list })))
 }

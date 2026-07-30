@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Globe,
   LayoutDashboard,
+  ScrollText,
   ShieldCheck,
   ShieldOff,
   Sparkles,
@@ -18,6 +19,7 @@ import { strings } from "../i18n";
 import { Spinner, cx } from "../ds";
 import { useJmapClient } from "../jmap";
 import { AiProvidersPage } from "./AiProvidersPage";
+import { AuditPage } from "./AuditPage";
 import { DomainsPage } from "./DomainsPage";
 import { GroupsPage } from "./GroupsPage";
 import { OverviewPage } from "./OverviewPage";
@@ -120,6 +122,13 @@ export function AdminConsole() {
             <Sparkles size={17} strokeWidth={1.75} />
             <span>{strings.adminAiProviders}</span>
           </NavLink>
+          <NavLink
+            to="/admin/audit"
+            className={({ isActive }) => cx(styles.navItem, isActive && styles.navActive)}
+          >
+            <ScrollText size={17} strokeWidth={1.75} />
+            <span>{strings.adminAudit}</span>
+          </NavLink>
         </nav>
       </aside>
       <main className={styles.content}>
@@ -131,6 +140,7 @@ export function AdminConsole() {
           <Route path="domains" element={<DomainsPage />} />
           <Route path="security" element={<SecurityPage />} />
           <Route path="ai" element={<AiProvidersPage />} />
+          <Route path="audit" element={<AuditPage />} />
           <Route path="*" element={<Navigate to="/admin/overview" replace />} />
         </Routes>
       </main>

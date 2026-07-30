@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::error::Problem;
-use crate::state::{ControlState, authenticate_operator};
+use crate::state::{ControlState, audit, authenticate_operator};
 
 /// The minimum length of a bootstrapped tenant-admin password (matches the
 /// `identityctl` bootstrap strength).
@@ -106,6 +106,7 @@ pub async fn create_tenant(
             _ => Problem::server_error(),
         })?;
     tracing::info!(tenant = %account.tenant.as_str(), "control: tenant provisioned");
+    audit(&state, &account.tenant, "tenant.create", Some(&name), None).await;
     Ok(Json(json!({
         "id": account.tenant.as_str(),
         "adminUserId": account.user.as_str(),
@@ -134,6 +135,7 @@ pub async fn set_status(
         .await
         .map_err(store_err)?;
     tracing::info!(tenant = %tenant.as_str(), status, "control: tenant status changed");
+    audit(&state, &tenant, "tenant.status", Some(&status), None).await;
     Ok(Json(json!({ "id": tenant.as_str(), "status": status })))
 }
 
@@ -162,6 +164,8 @@ pub async fn set_quota(
         .await
         .map_err(store_err)?;
     tracing::info!(tenant = %tenant.as_str(), quota = ?quota, "control: tenant quota set");
+    let detail = quota.map_or_else(|| "unlimited".to_owned(), |b| b.to_string());
+    audit(&state, &tenant, "tenant.quota", Some(&detail), None).await;
     Ok(Json(json!({ "id": tenant.as_str(), "quotaBytes": quota })))
 }
 

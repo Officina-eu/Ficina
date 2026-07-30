@@ -92,6 +92,8 @@ pub fn app(state: AppState) -> Router {
         .route("/admin/domains/delete", post(admin::delete_domain))
         // Admin console: security & trust (live deliverability checks).
         .route("/admin/security/checks", get(security::checks))
+        // Admin console: audit log (this tenant's administrative actions).
+        .route("/admin/audit", get(admin::list_audit))
         .layer(DefaultBodyLimit::max(upload_limit))
         .with_state(state);
     jmap.merge(identity_routes)

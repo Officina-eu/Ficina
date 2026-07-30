@@ -122,6 +122,17 @@ export interface SecurityCheck {
   detail: string;
 }
 
+/** One audit-log entry for the admin audit view (ADR 0012). `actor` is the
+ * acting user's email, or a label like "operator", or null. */
+export interface AuditEntry {
+  id: string;
+  actor: string | null;
+  action: string;
+  target: string | null;
+  detail: string | null;
+  at: string;
+}
+
 /** A tenant summary in the platform control plane (ADR 0012). */
 export interface ControlTenant {
   id: string;

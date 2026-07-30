@@ -10,6 +10,7 @@
 pub mod account;
 pub mod account_imap;
 pub mod account_sieve;
+pub mod audit;
 pub mod blob;
 pub mod changes;
 pub mod control;
@@ -37,7 +38,7 @@ pub use identity::{
     RefreshTokenRow, SigningKeyRow, TotpRow,
 };
 pub use model::{
-    AiConfigRow, AiProviderRow, Blob, DomainRow, EmailFilter, EmailQuery, GroupRow, MAX_PAGE,
-    Mailbox, Message, MessageSummary, Page, SortDirection, TenantSummary, UserRow,
+    AiConfigRow, AiProviderRow, AuditEntry, Blob, DomainRow, EmailFilter, EmailQuery, GroupRow,
+    MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection, TenantSummary, UserRow,
 };
 pub use store::{SEEN, Store, TenantStore};

@@ -9,6 +9,7 @@ import {
   type AdminGroup,
   type AdminUser,
   type AiProvider,
+  type AuditEntry,
   type ControlDomain,
   type ControlTenant,
   type EmailAddress,
@@ -332,6 +333,14 @@ export class JmapClient {
       domain: string;
       checks: SecurityCheck[];
     };
+  }
+
+  /** This tenant's recent administrative actions, newest first (admin). */
+  async adminAuditLog(): Promise<AuditEntry[]> {
+    const out = (await this.#admin("/admin/audit", { method: "GET" })) as {
+      entries: AuditEntry[];
+    };
+    return out.entries;
   }
 
   /** This tenant's own domains (admin). */

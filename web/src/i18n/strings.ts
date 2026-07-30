@@ -187,6 +187,28 @@ export const strings = {
   adminDomainsEmpty: "No domains yet. Add one to verify it.",
   adminAddDomain: "Add domain",
 
+  // admin — audit log
+  adminAudit: "Audit log",
+  adminAuditIntro: "Who changed what, and when. Newest first.",
+  adminAuditError: "Couldn't load the audit log.",
+  adminAuditEmpty: "No administrative actions recorded yet.",
+  auditBy: (actor: string) => `by ${actor}`,
+  auditUnknownActor: "system",
+  auditUserCreate: "Created a user",
+  auditUserDelete: "Deleted a user",
+  auditUserAdmin: "Changed admin rights",
+  auditAliasAdd: "Added an alias",
+  auditAliasRemove: "Removed an alias",
+  auditGroupCreate: "Created a group",
+  auditGroupDelete: "Deleted a group",
+  auditGroupAddress: "Changed a list address",
+  auditDomainRegister: "Registered a domain",
+  auditDomainVerify: "Verified a domain",
+  auditDomainDelete: "Removed a domain",
+  auditTenantCreate: "Created the tenant",
+  auditTenantStatus: "Changed tenant status",
+  auditTenantQuota: "Changed the storage quota",
+
   // control plane (platform operator; ADR 0012)
   controlOpen: "Control plane",
   controlTitle: "Control plane",

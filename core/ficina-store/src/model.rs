@@ -67,6 +67,18 @@ pub struct TenantSummary {
     pub storage_quota_bytes: Option<i64>,
 }
 
+/// One audit-log entry for the tenant-admin audit view (ADR 0012). `actor` is
+/// the acting user's email when resolvable, else a label (e.g. `operator`).
+#[derive(Debug, Clone)]
+pub struct AuditEntry {
+    pub id: String,
+    pub actor: Option<String>,
+    pub action: String,
+    pub target: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: OffsetDateTime,
+}
+
 /// A domain owned by a tenant (ADR 0012). `verified_at` is `None` until the
 /// DNS TXT proof is observed; `verify_token` is the value to publish at
 /// `_ficina-verify.<domain>`.

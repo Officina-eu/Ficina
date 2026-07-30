@@ -14,7 +14,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::error::Problem;
-use crate::state::{ControlState, authenticate_operator};
+use crate::state::{ControlState, audit, authenticate_operator};
 
 /// The DNS label under a domain where the ownership token is published.
 const VERIFY_PREFIX: &str = "_ficina-verify";
@@ -99,6 +99,7 @@ pub async fn create_domain(
         .await
         .map_err(store_err)?;
     tracing::info!(domain = %row.domain, tenant = %row.tenant_id, "control: domain registered");
+    audit(&state, &tenant, "domain.register", Some(&row.domain), None).await;
     Ok(Json(domain_json(&row)))
 }
 
@@ -137,6 +138,14 @@ pub async fn verify_domain(
         .await
         .map_err(store_err)?;
     tracing::info!(domain = %record.domain, "control: domain verified");
+    audit(
+        &state,
+        &TenantId::new(record.tenant_id.clone()),
+        "domain.verify",
+        Some(&record.domain),
+        None,
+    )
+    .await;
     Ok(Json(json!({ "domain": record.domain, "verified": true })))
 }
 
@@ -150,11 +159,30 @@ pub async fn delete_domain(
     authenticate_operator(&state, &headers).await?;
     let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
     let domain = str_field(&v, "domain").ok_or_else(|| Problem::bad("domain required"))?;
+    // Resolve the owner before deleting so the removal is audited under the
+    // right tenant (the audit rows survive — they reference the tenant, not
+    // the domain).
+    let owner = state
+        .store
+        .domain_record(&domain)
+        .await
+        .map_err(|_| Problem::server_error())?
+        .map(|r| r.tenant_id);
     state
         .store
         .delete_domain(&domain)
         .await
         .map_err(store_err)?;
+    if let Some(tenant_id) = owner {
+        audit(
+            &state,
+            &TenantId::new(tenant_id),
+            "domain.delete",
+            Some(&domain),
+            None,
+        )
+        .await;
+    }
     tracing::info!(domain = %domain, "control: domain removed");
     Ok(Json(json!({ "domain": domain, "deleted": true })))
 }
