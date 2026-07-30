@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **Out-of-office auto-reply.** A settings toggle (account menu → Settings)
+  with an optional subject and a message; turning it on installs and activates a
+  managed `out-of-office` Sieve **vacation** script, so replies go out through
+  the existing vacation machinery (one reply per correspondent, suppression
+  window). Turning it off removes it. `GET /settings/mail` reports it;
+  `POST /settings/out-of-office` sets it (a message is required to enable).
 - New: **Real mail search.** The search box now runs a **server-side full-text
   search across the whole account** (JMAP `Email/query` over the message
   tsvector index) instead of filtering only the loaded page; results are

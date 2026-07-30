@@ -367,17 +367,29 @@ export class JmapClient {
 
   // ---- mail settings (signature + org footer) -------------------------
 
-  /** The signed-in user's signature and the tenant's org footer (HTML). */
-  async mailSettings(): Promise<{ signature: string; orgFooter: string }> {
+  /** The signed-in user's signature, the tenant's org footer, and the user's
+   * out-of-office state. */
+  async mailSettings(): Promise<{
+    signature: string;
+    orgFooter: string;
+    outOfOffice: { enabled: boolean; subject: string; message: string };
+  }> {
     return (await this.#admin("/settings/mail", { method: "GET" })) as {
       signature: string;
       orgFooter: string;
+      outOfOffice: { enabled: boolean; subject: string; message: string };
     };
   }
 
   /** Save the caller's signature (HTML; empty clears it). */
   async setSignature(signature: string): Promise<void> {
     await this.#adminPost("/settings/signature", { signature });
+  }
+
+  /** Set the caller's out-of-office auto-reply (a message is required to
+   * enable). */
+  async setOutOfOffice(enabled: boolean, subject: string, message: string): Promise<void> {
+    await this.#adminPost("/settings/out-of-office", { enabled, subject, message });
   }
 
   /** Set the tenant's organization footer (admin; HTML; empty clears it). */

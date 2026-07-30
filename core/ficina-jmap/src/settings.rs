@@ -27,9 +27,50 @@ pub async fn mail_settings(
         .org_footer(&account.tenant)
         .await
         .map_err(|_| Problem::server_error())?;
-    Ok(Json(
-        json!({ "signature": signature, "orgFooter": org_footer }),
-    ))
+    let (ooo_enabled, ooo_subject, ooo_message) = account
+        .acc
+        .out_of_office()
+        .await
+        .map_err(|_| Problem::server_error())?;
+    Ok(Json(json!({
+        "signature": signature,
+        "orgFooter": org_footer,
+        "outOfOffice": { "enabled": ooo_enabled, "subject": ooo_subject, "message": ooo_message },
+    })))
+}
+
+/// `POST /settings/out-of-office` — set the caller's auto-reply. Body
+/// `{ enabled, subject?, message? }`. A non-empty message is required to enable.
+pub async fn set_out_of_office(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let enabled = v.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+    let subject = v
+        .get("subject")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let message = v
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if enabled && message.is_empty() {
+        return Err(Problem::with(
+            axum::http::StatusCode::BAD_REQUEST,
+            "a message is required to turn on out-of-office",
+        ));
+    }
+    account
+        .acc
+        .set_out_of_office(enabled, subject, message)
+        .await
+        .map_err(|_| Problem::server_error())?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /settings/signature` — set the caller's signature. Body

@@ -457,6 +457,30 @@
   border-color: var(--border-strong);
 }
 
+.textarea {
+  min-height: 88px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-base);
+  resize: vertical;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.oooToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .testRow {
   display: flex;
   align-items: center;

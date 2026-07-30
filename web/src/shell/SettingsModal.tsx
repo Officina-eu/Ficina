@@ -21,6 +21,9 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
   const [loaded, setLoaded] = useState(false);
   const [signature, setSignature] = useState("");
   const [orgFooter, setOrgFooter] = useState("");
+  const [oooEnabled, setOooEnabled] = useState(false);
+  const [oooSubject, setOooSubject] = useState("");
+  const [oooMessage, setOooMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -33,6 +36,9 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
         if (!live) return;
         setSignature(s.signature);
         setOrgFooter(s.orgFooter);
+        setOooEnabled(s.outOfOffice.enabled);
+        setOooSubject(s.outOfOffice.subject);
+        setOooMessage(s.outOfOffice.message);
         setLoaded(true);
       })
       .catch(() => {
@@ -44,11 +50,16 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
   }, [client]);
 
   async function save() {
+    if (oooEnabled && oooMessage.trim() === "") {
+      setError(strings.settingsOooNeedsMessage);
+      return;
+    }
     setBusy(true);
     setError(null);
     setNote(null);
     try {
       await client.setSignature(signature);
+      await client.setOutOfOffice(oooEnabled, oooSubject, oooMessage);
       if (isAdmin) await client.setOrgFooter(orgFooter);
       setNote(strings.settingsSaved);
     } catch {
@@ -94,6 +105,38 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
                     placeholder={strings.settingsSignatureHint}
                   />
                 </div>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.oooToggleRow}>
+                  <span className={styles.label}>{strings.settingsOutOfOffice}</span>
+                  <span className={styles.toggle}>
+                    <input
+                      type="checkbox"
+                      checked={oooEnabled}
+                      onChange={(e) => setOooEnabled(e.target.checked)}
+                    />
+                    <span className={styles.track} />
+                  </span>
+                </label>
+                <p className={styles.pageIntro}>{strings.settingsOutOfOfficeHint}</p>
+                {oooEnabled && (
+                  <>
+                    <input
+                      className={styles.input}
+                      value={oooSubject}
+                      onChange={(e) => setOooSubject(e.target.value)}
+                      placeholder={strings.settingsOooSubjectPlaceholder}
+                    />
+                    <textarea
+                      className={styles.textarea}
+                      rows={4}
+                      value={oooMessage}
+                      onChange={(e) => setOooMessage(e.target.value)}
+                      placeholder={strings.settingsOooMessagePlaceholder}
+                    />
+                  </>
+                )}
               </div>
               {isAdmin && (
                 <div className={styles.field}>

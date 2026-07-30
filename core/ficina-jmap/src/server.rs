@@ -98,6 +98,7 @@ pub fn app(state: AppState) -> Router {
         // Mail settings: the user's signature + the tenant footer.
         .route("/settings/mail", get(settings::mail_settings))
         .route("/settings/signature", post(settings::set_signature))
+        .route("/settings/out-of-office", post(settings::set_out_of_office))
         .route("/admin/org-footer", post(settings::set_org_footer))
         .layer(DefaultBodyLimit::max(upload_limit))
         .with_state(state);
