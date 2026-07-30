@@ -1,11 +1,18 @@
 # Multi-tenant trust boundary — hardening status
 
-> **Update (ADR 0012 shipped):** finding 1 (tenant→domain ownership) is
-> now **addressed** — the `domains` table, the `ficina-control` operator
-> plane that registers + DNS-verifies domains, and the address-assignment
-> guard all exist; enforcement is live behind `FICINA_ENFORCE_DOMAIN_OWNERSHIP`
-> (default off until a deployment registers its domains, then flip). Finding 2
-> (AI-endpoint SSRF) remains open, tracked below for the egress-policy slice.
+> **Update (ADR 0012 shipped):** **both findings are now addressed.**
+> Finding 1 (tenant→domain ownership) — the `domains` table, the
+> `ficina-control` operator plane that registers + DNS-verifies domains, and
+> the address-assignment guard all exist; enforcement is live behind
+> `FICINA_ENFORCE_DOMAIN_OWNERSHIP` (default off until a deployment registers
+> its domains, then flip). Finding 2 (AI-endpoint SSRF) — `ficina-ai` now has
+> a deployment-mode egress policy: default `open` (self-hosted, model on
+> localhost/LAN) allows any host; `FICINA_AI_EGRESS=restricted` (shared
+> hosting) requires https and refuses any host resolving to a
+> loopback/link-local/private/ULA address, pinning the vetted IP to defeat DNS
+> rebinding, with every rejection indistinguishable from an unreachable host
+> (no SSRF oracle). Both switches ship default-off/open, so the self-hosted
+> single-tenant deployment is unchanged; a hosted operator flips them on.
 
 A security sweep of the tenant-admin console + AI inference layer
 returned **no critical or high findings**: tenant scoping on every

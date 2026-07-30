@@ -127,6 +127,85 @@ pub fn parse_completion(body: &str) -> Result<String, InferenceError> {
 /// 4 MiB dwarfs any legitimate improved email draft.
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
+/// Whether a resolved IP must be refused under the restricted egress policy:
+/// loopback, link-local (which includes the `169.254.169.254` cloud-metadata
+/// endpoint), private, unique-local, unspecified, or multicast/reserved —
+/// anything that could reach the host itself, a co-tenant, or internal
+/// infrastructure (ADR 0012 SSRF guard).
+fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.octets()[0] == 0
+                || v4.octets()[0] >= 224 // multicast + reserved
+        }
+        std::net::IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                return true;
+            }
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return is_blocked_ip(std::net::IpAddr::V4(mapped));
+            }
+            let seg0 = v6.segments()[0];
+            (seg0 & 0xfe00) == 0xfc00 // unique-local fc00::/7
+                || (seg0 & 0xffc0) == 0xfe80 // link-local fe80::/10
+        }
+    }
+}
+
+/// Parse `(is_https, host, port)` from a URL without a URL-crate dependency.
+fn split_authority(url: &str) -> Option<(bool, String, u16)> {
+    let (scheme, rest) = url.split_once("://")?;
+    let https = scheme.eq_ignore_ascii_case("https");
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let authority = authority.rsplit('@').next()?; // drop any userinfo
+    let (host, port) = match authority.rsplit_once(':') {
+        // host:port — but not an unbracketed IPv6 literal (has multiple colons).
+        Some((h, p)) if !h.is_empty() && !h.contains(':') => (h.to_owned(), p.parse().ok()?),
+        _ => (authority.to_owned(), if https { 443 } else { 80 }),
+    };
+    if host.is_empty() {
+        return None;
+    }
+    Some((https, host, port))
+}
+
+/// Build an HTTP client for a backend at `url`, enforcing the egress policy.
+/// Default `open` mode (self-hosted — the model runs on localhost or the
+/// private LAN) allows any host. `restricted` mode (`FICINA_AI_EGRESS=restricted`,
+/// set on shared/hosted deployments) requires https and refuses any host that
+/// resolves to a loopback/link-local/private/ULA address, then **pins** the
+/// vetted address so a DNS rebind between check and connect cannot slip through.
+/// Every rejection returns the same `Transport` error as a genuinely
+/// unreachable host — no oracle that reveals what is internally reachable.
+async fn build_client(url: &str, timeout: Duration) -> Result<reqwest::Client, InferenceError> {
+    let restricted = std::env::var("FICINA_AI_EGRESS")
+        .map(|v| v.trim().eq_ignore_ascii_case("restricted"))
+        .unwrap_or(false);
+    let mut builder = reqwest::Client::builder().timeout(timeout);
+    if restricted {
+        let (https, host, port) = split_authority(url).ok_or(InferenceError::Transport)?;
+        if !https {
+            return Err(InferenceError::Transport);
+        }
+        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
+            .await
+            .map_err(|_| InferenceError::Transport)?
+            .collect();
+        if addrs.is_empty() || addrs.iter().any(|a| is_blocked_ip(a.ip())) {
+            return Err(InferenceError::Transport);
+        }
+        if let Some(first) = addrs.first() {
+            builder = builder.resolve(&host, *first);
+        }
+    }
+    builder.build().map_err(|_| InferenceError::Transport)
+}
+
 /// Build `{base}/v1/{path}`, tolerating a base that already ends in `/v1` — the
 /// form hosted providers print in their docs (`https://api.openai.com/v1`) — or
 /// carries a trailing slash. Without this, such a base doubles the segment into
@@ -177,10 +256,7 @@ pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, Inference
         stream: false,
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|_| InferenceError::Transport)?;
+    let client = build_client(&url, Duration::from_secs(60)).await?;
     let mut request = client.post(&url).json(&body);
     if let Some(key) = &config.api_key
         && !key.trim().is_empty()
@@ -213,10 +289,7 @@ pub async fn check(base_url: &str, api_key: Option<&str>) -> Result<usize, Infer
         return Err(InferenceError::NotConfigured);
     }
     let url = endpoint(base_url, "models");
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|_| InferenceError::Transport)?;
+    let client = build_client(&url, Duration::from_secs(20)).await?;
     let mut request = client.get(&url);
     if let Some(key) = api_key
         && !key.trim().is_empty()
@@ -261,6 +334,43 @@ mod tests {
         assert_eq!(m[0].role, "system");
         assert_eq!(m[1].role, "user");
         assert_eq!(m[1].content, "Hey, wanna meet tmrw?");
+    }
+
+    #[test]
+    fn blocked_ips_cover_the_ssrf_ranges() {
+        use std::net::IpAddr;
+        for ip in [
+            "127.0.0.1",
+            "169.254.169.254", // cloud metadata
+            "10.0.0.5",
+            "172.16.9.9",
+            "192.168.1.1",
+            "0.0.0.0",
+            "::1",
+            "fd00::1", // ULA
+            "fe80::1", // link-local
+        ] {
+            assert!(is_blocked_ip(ip.parse::<IpAddr>().unwrap()), "should block {ip}");
+        }
+        for ip in ["8.8.8.8", "1.1.1.1", "93.184.216.34", "2606:4700:4700::1111"] {
+            assert!(!is_blocked_ip(ip.parse::<IpAddr>().unwrap()), "should allow {ip}");
+        }
+    }
+
+    #[test]
+    fn split_authority_parses_scheme_host_port() {
+        assert_eq!(
+            split_authority("https://api.openai.com/v1/chat/completions"),
+            Some((true, "api.openai.com".to_owned(), 443))
+        );
+        assert_eq!(
+            split_authority("http://localhost:11434/v1/models"),
+            Some((false, "localhost".to_owned(), 11434))
+        );
+        assert_eq!(
+            split_authority("https://mistral.example:8443/v1/models"),
+            Some((true, "mistral.example".to_owned(), 8443))
+        );
     }
 
     #[test]

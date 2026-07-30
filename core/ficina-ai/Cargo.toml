@@ -11,6 +11,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true }
+# DNS resolution for the restricted egress policy (SSRF guard): resolve + pin
+# the backend host before connecting.
+tokio = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

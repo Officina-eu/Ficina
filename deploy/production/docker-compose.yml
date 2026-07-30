@@ -212,6 +212,16 @@ services:
       FICINA_SMTP_LOCAL_DOMAINS: ${FICINA_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
       FICINA_SMTP_DKIM_SELECTOR: ${FICINA_SMTP_DKIM_SELECTOR:-}
       FICINA_SMTP_DKIM_DOMAIN: ${FICINA_SMTP_DKIM_DOMAIN:-}
+      # AI backend egress policy (ADR 0012). Default `open` allows any endpoint
+      # — correct for self-hosted deployments where the model runs on localhost
+      # or a private LAN. Set to `restricted` on shared/multi-tenant hosting to
+      # require https and block loopback/link-local/private/ULA targets (SSRF
+      # guard, since a tenant admin is then a customer, not the box operator).
+      FICINA_AI_EGRESS: ${FICINA_AI_EGRESS:-open}
+      # Enforce tenant->domain ownership on address assignment (ADR 0012). Off
+      # by default (single-tenant safe); set to `on` once domains are registered
+      # and verified for every tenant on a shared deployment.
+      FICINA_ENFORCE_DOMAIN_OWNERSHIP: ${FICINA_ENFORCE_DOMAIN_OWNERSHIP:-off}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - blobs:/var/lib/ficina/blobs

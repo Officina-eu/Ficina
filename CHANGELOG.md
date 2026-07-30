@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- New: **Admin console completed + storage quotas + audit log.** The tenant
+  Admin console now opens on an **Overview** dashboard (users, storage,
+  deliverability, AI) and adds a **Domains** page (register + DNS-verify the
+  tenant's own domains, tenant-scoped) and an **Audit log** (every
+  administrative action — who, what, target, when — newest first, including
+  platform-operator actions on the tenant). **Per-tenant storage quotas**
+  (operator-set; `NULL` = unlimited, the default) are enforced at the
+  blob-write choke points: over-quota JMAP upload → **507**, `set` → `overQuota`,
+  and inbound mail is deferred with a transient **452**. New operator env
+  `FICINA_AI_EGRESS` (default `open` for self-hosting; `restricted` on shared
+  hosting requires https and blocks loopback/private/link-local AI endpoints —
+  an SSRF guard with the vetted IP pinned) and `FICINA_ENFORCE_DOMAIN_OWNERSHIP`
+  (default `off`). Both deferred findings in
+  `docs/design/multi-tenant-trust-boundary.md` are now closed.
 - New: **Multi-tenant control plane (`ficina-control`).** A dedicated
   platform-operator service (ADR 0012), separate from the tenant API, for
   governing a shared deployment: **tenant lifecycle** (list, provision a
