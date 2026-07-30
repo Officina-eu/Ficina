@@ -269,6 +269,9 @@ Cross-cutting Sheets principles:
 
 - [L] Tenant admin: users, groups, domains, quotas, license seats
 - [L] ★ Deliverability autopilot: DNS wizard, DKIM rotation, DMARC monitoring, blacklist alerts — self-hosted mail's killer solved in-product
+  - [L] Domain verify + record guidance, registrar-universal (read-only DNS checks; works at any registrar) — done, ADR 0012
+  - [2] Per-tenant DKIM keys with selector-rollover rotation — ADR 0014
+  - [3] ★ "Just works" onboarding: change your nameservers, we run authoritative DNS and manage the whole zone (MX/SPF/DKIM/DMARC/mta-sts) automatically — the universal, sovereign path (not per-registrar APIs). DKIM-CNAME makes rotation no-touch on top of it. Engine + direction: ADR 0013
 - [L] Audit log, GDPR subject-access export, tenant data export (no lock-in — exit is a feature)
 - [L] SSO: Ficina as OIDC/SAML IdP + 2FA enforcement
 - [L] Backup status visibility ("last verified restore: date")
