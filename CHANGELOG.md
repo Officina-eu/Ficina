@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **AI smart replies.** When AI is configured, an open conversation shows up
+  to **three short, ready-to-send replies** as pills below the thread (only when
+  the newest message is from someone else). Picking one opens a reply
+  **pre-filled** with that text, ready to edit or send. Soft-degrades like the
+  rest of the AI suite — the pills simply don't appear when AI is off
+  (`POST /ai/replies`).
 - New: **Gmail-style mail.** The conversation list is now compact two-line rows
   (sender · time / subject — snippet), unread bold, with a star and hover
   **archive / delete / read** actions; **bulk select** (row checkboxes → a
