@@ -66,6 +66,30 @@ pub async fn summarize(
     Ok(Json(json!({ "summary": summary })))
 }
 
+/// `POST /ai/replies` — `{"text": "<thread>"}` → `{"replies": ["...", ...]}`.
+/// Suggests up to three short replies for the open conversation; degrades like
+/// the other AI endpoints (503 when AI is off, 502 on a backend failure).
+pub async fn replies(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    if body.len() > MAX_SUMMARIZE_BYTES {
+        return Err(Problem::with(StatusCode::PAYLOAD_TOO_LARGE, "text too large"));
+    }
+    let request: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let text = request.get("text").and_then(Value::as_str).unwrap_or("");
+    if text.trim().is_empty() {
+        return Err(Problem::with(StatusCode::BAD_REQUEST, "text required"));
+    }
+    let config = tenant_ai_config(&account).await?;
+    let replies = ficina_ai::suggest_replies(&config, text)
+        .await
+        .map_err(|e| ai_problem(&e))?;
+    Ok(Json(json!({ "replies": replies })))
+}
+
 /// `POST /ai/improve` — `{"text": "..."}` → `{"text": "improved"}`.
 ///
 /// Soft-degrading by contract: if AI is disabled/unconfigured the caller gets a

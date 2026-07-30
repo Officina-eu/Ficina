@@ -147,6 +147,42 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+/* AI smart replies — Gmail-style outlined pills below the conversation. The
+   sparkle marks them as machine-suggested; each is one tap to a pre-filled reply. */
+.smartReplies {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.smartReplyIcon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.smartReply {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.smartReply:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 .state {
   flex: 1;
   display: flex;

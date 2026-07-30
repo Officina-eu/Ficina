@@ -102,6 +102,8 @@ export interface ComposeContext {
   replyTo?: EmailFull;
   /** Seed the subject (e.g. "Fwd: …" for forward-as-attachment). */
   subject?: string;
+  /** Seed the body (e.g. an AI smart-reply the user picked). */
+  body?: string;
   /** Seed attachments, e.g. the original message as an .eml. */
   attachments?: { blobId: string; type: string; name: string; size: number }[];
 }
@@ -234,6 +236,7 @@ function buildPrefill(context: ComposeContext, me: string): Prefill {
       ...threading,
       to: firstFrom,
       subject: strings.composeReplyPrefix + stripRe(src.subject, /^(re:\s*)+/i),
+      body: context.body ?? "",
       quoted: quoteBlock(src),
     };
   }
@@ -246,6 +249,7 @@ function buildPrefill(context: ComposeContext, me: string): Prefill {
       cc,
       showCc: cc.length > 0,
       subject: strings.composeReplyPrefix + stripRe(src.subject, /^(re:\s*)+/i),
+      body: context.body ?? "",
       quoted: quoteBlock(src),
     };
   }

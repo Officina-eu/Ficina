@@ -48,6 +48,10 @@ pub fn app(state: AppState) -> Router {
             "/ai/summarize",
             post(ai::summarize).layer(DefaultBodyLimit::max(ai::MAX_SUMMARIZE_BYTES)),
         )
+        .route(
+            "/ai/replies",
+            post(ai::replies).layer(DefaultBodyLimit::max(ai::MAX_SUMMARIZE_BYTES)),
+        )
         // Snooze: hide conversations until a chosen time (a background sweeper wakes them).
         .route("/snooze", post(snooze::snooze))
         // Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.

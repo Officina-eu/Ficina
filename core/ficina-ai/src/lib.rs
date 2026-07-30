@@ -255,6 +255,61 @@ pub fn summarize_messages(thread: &str) -> Vec<ChatMessage> {
     ]
 }
 
+/// The system prompt for suggesting quick replies to a thread (ADR 0011).
+const SMART_REPLY_SYSTEM: &str = "You suggest ready-to-send reply options for the recipient of \
+an email thread. Read it and propose exactly three brief replies (each under 12 words) a busy \
+professional might send, in the thread's own language; cover a range (e.g. agree/acknowledge, \
+ask a clarifying question, decline politely) when it fits. Return each reply on its own line, \
+with no numbering, bullets, quotes, or preamble.";
+
+/// The chat messages for a "suggest replies" request. Pure and exported so the
+/// prompt is testable without a backend.
+pub fn smart_reply_messages(thread: &str) -> Vec<ChatMessage> {
+    vec![
+        ChatMessage {
+            role: "system".to_owned(),
+            content: SMART_REPLY_SYSTEM.to_owned(),
+        },
+        ChatMessage {
+            role: "user".to_owned(),
+            content: thread.to_owned(),
+        },
+    ]
+}
+
+/// Parse the model's reply-suggestion text into up to three clean lines,
+/// stripping any list markers, numbering, or wrapping quotes it added.
+pub fn parse_replies(text: &str) -> Vec<String> {
+    text.lines()
+        .map(|line| {
+            line.trim()
+                .trim_start_matches(|c: char| {
+                    c.is_ascii_digit() || matches!(c, '.' | ')' | '-' | '*' | '•' | ' ')
+                })
+                .trim()
+                .trim_matches(['"', '\''])
+                .to_owned()
+        })
+        .filter(|l| !l.is_empty())
+        .take(3)
+        .collect()
+}
+
+/// Suggest up to three short replies to a thread. Soft-degrades like the other
+/// AI helpers; returns [`InferenceError::Empty`] when nothing usable comes back.
+///
+/// # Errors
+/// [`InferenceError`] on a disabled/unconfigured backend, transport failure, or
+/// an empty result.
+pub async fn suggest_replies(config: &AiConfig, thread: &str) -> Result<Vec<String>, InferenceError> {
+    let text = chat(config, &smart_reply_messages(thread), 0.4).await?;
+    let replies = parse_replies(&text);
+    if replies.is_empty() {
+        return Err(InferenceError::Empty);
+    }
+    Ok(replies)
+}
+
 /// One chat-completions round-trip to the configured backend, returning the
 /// assistant's text. Shared by [`improve`] and [`summarize`]; enforces the
 /// enabled/configured gates and the egress policy, and never logs content.
@@ -363,6 +418,17 @@ mod tests {
             api_key: None,
             enabled,
         }
+    }
+
+    #[test]
+    fn parse_replies_strips_markers_and_caps_at_three() {
+        let out = parse_replies("1. Sounds good, thanks!\n- Can you send the file?\n* No thanks\nExtra line");
+        assert_eq!(out, vec!["Sounds good, thanks!", "Can you send the file?", "No thanks"]);
+
+        let quoted = parse_replies("\"Yes, works for me\"\n'Let me check and revert'");
+        assert_eq!(quoted, vec!["Yes, works for me", "Let me check and revert"]);
+
+        assert!(parse_replies("   \n\n  ").is_empty());
     }
 
     #[test]

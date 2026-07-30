@@ -52,6 +52,10 @@ type SummaryState =
   | { status: "loading" }
   | { status: "ready"; text: string };
 
+type RepliesState =
+  | { status: "off" }
+  | { status: "ready"; options: string[] };
+
 const ROLE_ORDER: Record<string, number> = {
   inbox: 0,
   drafts: 1,
@@ -80,6 +84,8 @@ interface ReadingPaneProps {
   onReportSpam: () => void;
   /** Compose a new message with this message attached as an .eml. */
   onForwardAttachment: () => void;
+  /** Open a reply to the latest message pre-filled with a picked AI reply. */
+  onSmartReply: (text: string) => void;
   /** Whether the open conversation is in the Junk folder (flips Report/Not spam). */
   isJunk: boolean;
 }
@@ -100,6 +106,7 @@ export function ReadingPane({
   onSnooze,
   onReportSpam,
   onForwardAttachment,
+  onSmartReply,
   isJunk,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
@@ -154,6 +161,37 @@ export function ReadingPane({
     };
     // Re-run only when the conversation identity or the AI toggle changes; the
     // digest and client are derived from those and intentionally not deps.
+  }, [aiEnabled, latest?.id]);
+
+  // AI smart replies — three short, ready-to-send options for the open thread.
+  // Only when AI is on and the newest message is from someone else (replying to
+  // your own last message is meaningless); soft-degrades to nothing on error.
+  const [replies, setReplies] = useState<RepliesState>({ status: "off" });
+  useEffect(() => {
+    const meEmail = identity?.email.toLowerCase();
+    const lastFromMe = latest?.from?.some((a) => a.email.toLowerCase() === meEmail) ?? false;
+    if (!aiEnabled || latest === undefined || lastFromMe) {
+      setReplies({ status: "off" });
+      return;
+    }
+    const digest = threadDigest(messages);
+    if (digest.trim().length === 0) {
+      setReplies({ status: "off" });
+      return;
+    }
+    let live = true;
+    setReplies({ status: "off" });
+    client
+      .smartReplies(digest)
+      .then((options) => {
+        const clean = options.map((o) => o.trim()).filter((o) => o.length > 0);
+        if (live && clean.length > 0) setReplies({ status: "ready", options: clean });
+      })
+      .catch(() => live && setReplies({ status: "off" }));
+    return () => {
+      live = false;
+    };
+    // Same dependency reasoning as the summary effect above.
   }, [aiEnabled, latest?.id]);
 
   if (thread.status === "loading") {
@@ -349,6 +387,22 @@ export function ReadingPane({
             />
           ))}
         </div>
+
+        {replies.status === "ready" && (
+          <div className={styles.smartReplies} aria-label={strings.smartReplies}>
+            <Sparkles size={15} className={styles.smartReplyIcon} aria-hidden />
+            {replies.options.map((option, i) => (
+              <button
+                key={i}
+                type="button"
+                className={styles.smartReply}
+                onClick={() => onSmartReply(option)}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </article>
   );

@@ -362,6 +362,9 @@ export function MailModule() {
         onSnooze={(until) => snoozeIds(currentFolderIds, until)}
         onReportSpam={reportSpam}
         onForwardAttachment={forwardAttachment}
+        onSmartReply={(text) =>
+          latest !== undefined && setCompose({ mode: "reply", replyTo: latest, body: text })
+        }
         isJunk={boxes.find((b) => b.id === mailboxId)?.role === "junk"}
       />
       {compose !== null && (

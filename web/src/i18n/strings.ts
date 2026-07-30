@@ -123,6 +123,7 @@ export const strings = {
   threadMessages: "messages",
   ficinaSummary: "Ficina summary",
   summaryPending: "Summarizing this conversation…",
+  smartReplies: "Suggested replies",
   quickReplyHint: "Reply all · Forward above",
   toLabel: "to",
   ccLabel: "cc",

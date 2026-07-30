@@ -563,6 +563,19 @@ export class JmapClient {
     return json.summary;
   }
 
+  /** Suggest up to three short, ready-to-send replies for a conversation.
+   * `text` is the same flattened thread text used for summarization. */
+  async smartReplies(text: string): Promise<string[]> {
+    const res = await this.#fetch(`${window.location.origin}/ai/replies`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new JmapError(`replies ${res.status}`);
+    const json = (await res.json()) as { replies: string[] };
+    return json.replies;
+  }
+
   /** Snooze conversations: hide the given messages (in `mailboxId`) until
    * `until` (Unix seconds); a server sweeper returns them to the Inbox. */
   async snooze(ids: string[], mailboxId: string, until: number): Promise<void> {
