@@ -181,10 +181,53 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
     emit();
   }
 
+  function insertImageDataUrl(dataUrl: string) {
+    insertHtml(`<img src="${dataUrl}" alt="" style="max-width:100%;height:auto" />`);
+  }
+
   async function onPickImage(file: File) {
     if (!file.type.startsWith("image/")) return;
-    const dataUrl = await imageDataUrl(file);
-    insertHtml(`<img src="${dataUrl}" alt="" style="max-width:100%;height:auto" />`);
+    insertImageDataUrl(await imageDataUrl(file));
+  }
+
+  // Paste an image straight into the body (Outlook-style): a screenshot or a
+  // copied image lands where the caret is. Non-image pastes fall through to the
+  // browser's normal text/HTML paste.
+  async function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    const items = e.clipboardData?.items;
+    if (items === undefined) return;
+    const images = Array.from(items).filter(
+      (it) => it.kind === "file" && it.type.startsWith("image/"),
+    );
+    if (images.length === 0) return;
+    e.preventDefault();
+    for (const it of images) {
+      const file = it.getAsFile();
+      if (file === null) continue;
+      const dataUrl = await imageDataUrl(file);
+      saveRange();
+      insertImageDataUrl(dataUrl);
+    }
+  }
+
+  // Drag-and-drop image files onto the body, inserting at the drop point.
+  async function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    const files = Array.from(e.dataTransfer?.files ?? []).filter((f) =>
+      f.type.startsWith("image/"),
+    );
+    if (files.length === 0) return;
+    e.preventDefault();
+    // Place the caret where the image was dropped.
+    const doc = document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    };
+    const range = doc.caretRangeFromPoint?.(e.clientX, e.clientY) ?? null;
+    if (range !== null) savedRange.current = range;
+    for (const file of files) {
+      const dataUrl = await imageDataUrl(file);
+      insertImageDataUrl(dataUrl);
+      saveRange();
+    }
   }
 
   /** A toolbar button (keeps the editor selection via mousedown preventDefault). */
@@ -301,6 +344,8 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
         data-placeholder={placeholder}
         onInput={emit}
         onBlur={saveRange}
+        onPaste={(e) => void onPaste(e)}
+        onDrop={(e) => void onDrop(e)}
         suppressContentEditableWarning
       />
       {insert !== null && (
