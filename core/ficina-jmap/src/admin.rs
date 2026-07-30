@@ -545,3 +545,130 @@ pub async fn remove_group_member(
         .map_err(|_| Problem::server_error())?;
     Ok(Json(json!({ "ok": true })))
 }
+
+// ---- domains (tenant-admin; ADR 0012) ----------------------------------
+
+/// The DNS label under a domain where the ownership token is published.
+const VERIFY_PREFIX: &str = "_ficina-verify";
+
+/// A domain row as JSON for the tenant-admin domains page. `verifyRecord` is
+/// exactly the DNS TXT record to publish to prove ownership.
+fn domain_json(d: &ficina_store::DomainRow) -> Value {
+    json!({
+        "domain": d.domain,
+        "tenantId": d.tenant_id,
+        "verified": d.verified_at.is_some(),
+        "verifiedAt": d.verified_at.map(utc_date),
+        "verifyRecord": {
+            "name": format!("{VERIFY_PREFIX}.{}", d.domain),
+            "type": "TXT",
+            "value": d.verify_token,
+        },
+        "createdAt": utc_date(d.created_at),
+    })
+}
+
+/// `GET /admin/domains` → `{ domains: [...] }` — this tenant's own domains.
+pub async fn list_domains(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let domains = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .list_domains()
+        .await
+        .map_err(|_| Problem::server_error())?;
+    let list: Vec<Value> = domains.iter().map(domain_json).collect();
+    Ok(Json(json!({ "domains": list })))
+}
+
+/// `POST /admin/domains` — register a domain to this tenant (unverified). Body
+/// `{ domain }`. Returns the DNS record to publish for verification.
+pub async fn create_domain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let domain = str_field(&v, "domain").ok_or_else(|| bad("domain required"))?;
+    if !domain.contains('.') {
+        return Err(bad("valid domain required"));
+    }
+    let row = state
+        .store
+        .create_domain(&account.tenant, &domain)
+        .await
+        .map_err(store_admin_err)?;
+    Ok(Json(domain_json(&row)))
+}
+
+/// `POST /admin/domains/verify` — check the DNS TXT proof for one of this
+/// tenant's domains and mark it verified if present. Body `{ domain }`.
+pub async fn verify_domain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let domain = str_field(&v, "domain").ok_or_else(|| bad("domain required"))?;
+    // The domain must belong to THIS tenant — never verify another tenant's.
+    let record = state
+        .store
+        .domain_record(&domain)
+        .await
+        .map_err(|_| Problem::server_error())?
+        .filter(|r| r.tenant_id == account.tenant.as_str())
+        .ok_or_else(Problem::not_found)?;
+
+    let name = format!("{VERIFY_PREFIX}.{}", record.domain);
+    let resolver = crate::security::build_resolver().ok_or_else(Problem::server_error)?;
+    let found = crate::security::txt_records(&resolver, &name)
+        .await
+        .iter()
+        .any(|r| r.trim() == record.verify_token);
+    if !found {
+        return Ok(Json(json!({ "domain": record.domain, "verified": false })));
+    }
+    state
+        .store
+        .set_domain_verified(&record.domain)
+        .await
+        .map_err(store_admin_err)?;
+    Ok(Json(json!({ "domain": record.domain, "verified": true })))
+}
+
+/// `POST /admin/domains/delete` — remove one of this tenant's domains. Body
+/// `{ domain }`. Scoped: a tenant admin cannot remove another tenant's domain.
+pub async fn delete_domain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let domain = str_field(&v, "domain").ok_or_else(|| bad("domain required"))?;
+    // Confirm ownership before deleting (no cross-tenant delete / existence oracle).
+    let owned = state
+        .store
+        .domain_record(&domain)
+        .await
+        .map_err(|_| Problem::server_error())?
+        .is_some_and(|r| r.tenant_id == account.tenant.as_str());
+    if !owned {
+        return Err(Problem::not_found());
+    }
+    state
+        .store
+        .delete_domain(&domain)
+        .await
+        .map_err(store_admin_err)?;
+    Ok(Json(json!({ "ok": true })))
+}

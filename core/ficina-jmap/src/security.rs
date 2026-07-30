@@ -60,8 +60,14 @@ fn mail_domain(base_url: &str) -> String {
     host.strip_prefix("mail.").unwrap_or(host).to_lowercase()
 }
 
+/// Build a Tokio DNS resolver from the system config, or `None` if it can't be
+/// constructed. Shared with the admin domain-verification path.
+pub(crate) fn build_resolver() -> Option<TokioResolver> {
+    TokioResolver::builder_tokio().and_then(|b| b.build()).ok()
+}
+
 /// Collect the TXT strings at `name` (each record's segments joined).
-async fn txt_records(resolver: &TokioResolver, name: &str) -> Vec<String> {
+pub(crate) async fn txt_records(resolver: &TokioResolver, name: &str) -> Vec<String> {
     match resolver.txt_lookup(name).await {
         Ok(lookup) => lookup
             .answers()

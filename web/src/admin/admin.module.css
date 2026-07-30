@@ -570,6 +570,60 @@
   gap: var(--space-3);
 }
 
+/* Overview dashboard — a responsive row of metric tiles. */
+.statRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.stat {
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.statValue {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.statLabel {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.statHint {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+/* A card that is a navigation link (Overview → each admin area). */
+.cardLink {
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.cardLink:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-raised);
+  text-decoration: none;
+}
+
 .card {
   display: flex;
   align-items: center;

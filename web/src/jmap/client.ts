@@ -334,6 +334,32 @@ export class JmapClient {
     };
   }
 
+  /** This tenant's own domains (admin). */
+  async adminListDomains(): Promise<ControlDomain[]> {
+    const out = (await this.#admin("/admin/domains", { method: "GET" })) as {
+      domains: ControlDomain[];
+    };
+    return out.domains;
+  }
+
+  /** Register a domain to this tenant; returns the DNS record to publish (admin). */
+  async adminCreateDomain(domain: string): Promise<ControlDomain> {
+    return (await this.#adminPost("/admin/domains", { domain })) as ControlDomain;
+  }
+
+  /** Check the DNS proof and mark this tenant's domain verified (admin). */
+  async adminVerifyDomain(domain: string): Promise<{ domain: string; verified: boolean }> {
+    return (await this.#adminPost("/admin/domains/verify", { domain })) as {
+      domain: string;
+      verified: boolean;
+    };
+  }
+
+  /** Remove one of this tenant's domains (admin). */
+  async adminDeleteDomain(domain: string): Promise<void> {
+    await this.#adminPost("/admin/domains/delete", { domain });
+  }
+
   // ---- control plane (platform operator; ADR 0012) --------------------
 
   /** Whether the signed-in user is a platform operator (gates the console). */

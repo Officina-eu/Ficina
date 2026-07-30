@@ -167,6 +167,26 @@ export const strings = {
   adminBackToFicina: "Back to Ficina",
   adminOpen: "Admin console",
 
+  // admin — overview dashboard
+  adminOverview: "Overview",
+  adminOverviewIntro: "Your organization at a glance.",
+  overviewUsers: "Users",
+  overviewStorage: "Storage used",
+  overviewDeliverability: "Deliverability",
+  overviewDeliverOk: "All checks passing",
+  overviewDeliverAttention: "Needs attention",
+  overviewAi: "AI",
+  overviewOn: "On",
+  overviewOff: "Off",
+  overviewManage: "Manage",
+
+  // admin — domains (tenant's own; ADR 0012)
+  adminDomains: "Domains",
+  adminDomainsIntro: "Domains this organization sends and receives mail for, and their verification.",
+  adminDomainsError: "Couldn't load domains.",
+  adminDomainsEmpty: "No domains yet. Add one to verify it.",
+  adminAddDomain: "Add domain",
+
   // control plane (platform operator; ADR 0012)
   controlOpen: "Control plane",
   controlTitle: "Control plane",

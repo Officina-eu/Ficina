@@ -83,6 +83,13 @@ pub fn app(state: AppState) -> Router {
             "/admin/groups/{id}",
             axum::routing::delete(admin::delete_group),
         )
+        // Admin console: this tenant's domains (register + DNS-verify).
+        .route(
+            "/admin/domains",
+            get(admin::list_domains).post(admin::create_domain),
+        )
+        .route("/admin/domains/verify", post(admin::verify_domain))
+        .route("/admin/domains/delete", post(admin::delete_domain))
         // Admin console: security & trust (live deliverability checks).
         .route("/admin/security/checks", get(security::checks))
         .layer(DefaultBodyLimit::max(upload_limit))
