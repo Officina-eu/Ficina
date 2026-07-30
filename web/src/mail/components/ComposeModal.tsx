@@ -38,7 +38,8 @@ interface PendingAttachment {
  * so it's worth sending a text/html alternative. */
 function hasFormatting(html: string): boolean {
   return (
-    /<(?:b|strong|i|em|u|a|ul|ol|li|h[1-6]|blockquote|pre)\b/i.test(html) ||
+    /<(?:b|strong|i|em|u|s|strike|a|ul|ol|li|h[1-6]|blockquote|pre|img|hr|font|span)\b/i.test(html) ||
+    /style="/i.test(html) ||
     /data-ficina-(?:latex|lang)=/i.test(html)
   );
 }

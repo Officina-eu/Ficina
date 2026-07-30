@@ -8,10 +8,58 @@
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
+  row-gap: var(--space-1);
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* text-style dropdown */
+.select {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+/* colour swatch buttons (an icon over a native colour input) */
+.color {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.color:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.colorInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  background: none;
+}
+
+.fileInput {
+  display: none;
 }
 
 .tool {
@@ -60,4 +108,46 @@
 .editor a {
   color: var(--text-link);
   text-decoration: underline;
+}
+
+.editor ul,
+.editor ol {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-6);
+}
+
+.editor li {
+  margin: 2px 0;
+}
+
+.editor blockquote {
+  margin: var(--space-3) 0;
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.editor h1 {
+  font-size: 1.5rem;
+  font-weight: var(--weight-semibold);
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.editor h2 {
+  font-size: 1.2rem;
+  font-weight: var(--weight-semibold);
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  margin: var(--space-2) 0;
+}
+
+.editor hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: var(--space-3) 0;
 }
