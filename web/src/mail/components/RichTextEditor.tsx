@@ -254,18 +254,34 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
       <div className={styles.toolbar} role="toolbar" aria-label={strings.formatting}>
         <select
           className={styles.select}
-          aria-label={strings.textStyle}
-          defaultValue=""
-          onChange={(e) => {
-            const v = e.target.value;
-            e.currentTarget.selectedIndex = 0;
-            if (v !== "") exec("formatBlock", v);
-          }}
+          aria-label={strings.fontFamily}
+          defaultValue="Arial, Helvetica, sans-serif"
+          onMouseDown={saveRange}
+          onChange={(e) => execRestored("fontName", e.target.value)}
         >
-          <option value="">{strings.styleNormal}</option>
-          <option value="h1">{strings.styleHeading}</option>
-          <option value="h2">{strings.styleSubheading}</option>
-          <option value="blockquote">{strings.styleQuote}</option>
+          <option value="Arial, Helvetica, sans-serif">Sans Serif</option>
+          <option value="Georgia, 'Times New Roman', serif">Serif</option>
+          <option value="'Courier New', monospace">Fixed Width</option>
+          <option value="'Arial Black', sans-serif">Wide</option>
+          <option value="'Arial Narrow', sans-serif">Narrow</option>
+          <option value="'Comic Sans MS', cursive">Comic Sans</option>
+          <option value="Garamond, serif">Garamond</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="Tahoma, sans-serif">Tahoma</option>
+          <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+          <option value="Verdana, sans-serif">Verdana</option>
+        </select>
+        <select
+          className={styles.selectSize}
+          aria-label={strings.fontSize}
+          defaultValue="3"
+          onMouseDown={saveRange}
+          onChange={(e) => execRestored("fontSize", e.target.value)}
+        >
+          <option value="2">{strings.sizeSmall}</option>
+          <option value="3">{strings.sizeNormal}</option>
+          <option value="5">{strings.sizeLarge}</option>
+          <option value="7">{strings.sizeHuge}</option>
         </select>
         {divider("d0")}
 

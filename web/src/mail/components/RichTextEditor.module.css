@@ -50,6 +50,22 @@
   background: var(--bg-raised);
 }
 
+.selectSize {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 var(--space-1);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.selectSize:hover {
+  background: var(--bg-raised);
+}
+
 /* colour swatch buttons (an icon over a native colour input) */
 .color {
   position: relative;
