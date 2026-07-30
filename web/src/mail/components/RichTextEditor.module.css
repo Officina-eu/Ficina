@@ -3,34 +3,20 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  margin: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-4) 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
-/* Gmail-style: a single scrollable row (never wraps), grey icons, thin
-   dividers, subtle rounded hover. */
+/* Grey icons, thin dividers, subtle rounded hover; wraps to a second row so
+   every tool is visible without horizontal scrolling. */
 .toolbar {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 1px;
+  row-gap: var(--space-1);
   padding: 2px var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
-}
-
-.toolbar::-webkit-scrollbar {
-  height: 6px;
-}
-
-.toolbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: var(--radius-full);
-}
-
-.toolbar:hover::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
 }
 
 /* text-style dropdown (Gmail's font/style select) */
