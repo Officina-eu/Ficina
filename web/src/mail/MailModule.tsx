@@ -184,7 +184,7 @@ export function MailModule() {
     }
   }
 
-  function toggleFlag(message: EmailFull) {
+  function toggleFlag(message: Pick<EmailFull, "id" | "keywords">) {
     const base = message.keywords[KEYWORD_FLAGGED] === true;
     const current = flags.get(message.id) ?? base;
     const next = !current;
@@ -209,44 +209,57 @@ export function MailModule() {
     moveIds(currentFolderIds, targetMailboxId);
   }
 
-  function archiveThread() {
+  // Archive a set of messages (by id) to the Archive folder. Used by the reading
+  // pane (whole open thread) and the list rows (a specific conversation).
+  function archiveIds(ids: string[]) {
     const archiveBox = boxes.find((b) => b.role === "archive");
-    if (archiveBox === undefined || mailboxId === null || currentFolderIds.length === 0) {
+    if (archiveBox === undefined || mailboxId === null || ids.length === 0) {
       setToast(strings.archiveUnavailable);
       return;
     }
-    moveIds(currentFolderIds, archiveBox.id);
+    moveIds(ids, archiveBox.id);
   }
 
-  // Delete the conversation: to Trash from a normal folder; permanently when
+  // Delete a set of messages: to Trash from a normal folder; permanently when
   // already in Trash (or when there is no Trash folder).
-  function deleteThread() {
-    if (currentFolderIds.length === 0) return;
+  function deleteIds(ids: string[]) {
+    if (ids.length === 0 || mailboxId === null) return;
+    if (ids.some((id) => currentFolderIds.includes(id))) setThreadId(null);
     const trash = boxes.find((b) => b.role === "trash");
-    const ids = currentFolderIds;
-    setThreadId(null);
-    if (trash === undefined || mailboxId === null || mailboxId === trash.id) {
+    if (trash === undefined || mailboxId === trash.id) {
       void client.destroyMany(ids).then(() => afterChange(strings.mailDeleted)).catch(fail);
     } else {
       void client.moveMany(ids, mailboxId, trash.id).then(() => afterChange(strings.mailDeleted)).catch(fail);
     }
   }
 
-  function markThreadUnread() {
-    if (currentFolderIds.length === 0) return;
-    const ids = currentFolderIds;
+  // Mark a set of messages seen/unseen (optimistic; the server reconciles).
+  function markSeenIds(ids: string[], seen: boolean) {
+    if (ids.length === 0) return;
     setReadIds((prev) => {
       const next = new Set(prev);
-      ids.forEach((id) => next.delete(id));
+      ids.forEach((id) => (seen ? next.add(id) : next.delete(id)));
       return next;
     });
     void client
-      .setSeenMany(ids, false)
+      .setSeenMany(ids, seen)
       .then(() => {
         emails.reload();
         mailboxes.reload();
       })
       .catch(fail);
+  }
+
+  function archiveThread() {
+    archiveIds(currentFolderIds);
+  }
+
+  function deleteThread() {
+    deleteIds(currentFolderIds);
+  }
+
+  function markThreadUnread() {
+    markSeenIds(currentFolderIds, false);
   }
 
   const widthVars = {
@@ -282,6 +295,10 @@ export function MailModule() {
         foldersCollapsed={foldersCollapsed}
         onToggleFolders={toggleFolders}
         onSelect={openThread}
+        onArchive={(t) => archiveIds(t.memberIds)}
+        onDelete={(t) => deleteIds(t.memberIds)}
+        onToggleRead={(t) => markSeenIds(t.memberIds, t.hasUnread)}
+        onToggleFlag={(t) => toggleFlag(t.latest)}
       />
       <ResizeHandle
         ariaLabel={strings.resizeMessages}

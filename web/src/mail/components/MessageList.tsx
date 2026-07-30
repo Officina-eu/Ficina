@@ -1,12 +1,22 @@
-// The message list for the selected folder — one row per CONVERSATION (thread).
-// A header with the folder name + a collapse toggle + a search box, then rows
-// showing the latest message's sender/subject/preview/time, an unread dot, a
-// flag star, and a message-count badge when the thread has more than one.
+// The message list for the selected folder — one row per CONVERSATION (thread),
+// Gmail-style: a compact single line (star · sender · subject — snippet · time),
+// with the time swapped for archive / delete / read-toggle actions on hover.
+// Unread threads read bold; the folder header carries a collapse toggle + search.
 import { useEffect, useMemo, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, Paperclip, Search, Star } from "lucide-react";
+import {
+  Archive,
+  Mail,
+  MailOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Paperclip,
+  Search,
+  Star,
+  Trash2,
+} from "lucide-react";
 
 import { strings } from "../../i18n";
-import { Avatar, IconButton, Spinner } from "../../ds";
+import { IconButton, Spinner, cx } from "../../ds";
 import { useJmapClient } from "../../jmap";
 import type { EmailHeaders } from "../../jmap";
 import type { Async } from "../state/useAsync";
@@ -24,6 +34,11 @@ interface MessageListProps {
   foldersCollapsed: boolean;
   onToggleFolders: () => void;
   onSelect: (thread: ThreadRow) => void;
+  /** Per-row (hover) actions on a whole conversation. */
+  onArchive: (thread: ThreadRow) => void;
+  onDelete: (thread: ThreadRow) => void;
+  onToggleRead: (thread: ThreadRow) => void;
+  onToggleFlag: (thread: ThreadRow) => void;
 }
 
 export function MessageList({
@@ -35,6 +50,10 @@ export function MessageList({
   foldersCollapsed,
   onToggleFolders,
   onSelect,
+  onArchive,
+  onDelete,
+  onToggleRead,
+  onToggleFlag,
 }: MessageListProps) {
   const client = useJmapClient();
   const [query, setQuery] = useState("");
@@ -124,10 +143,25 @@ export function MessageList({
             const email = thread.latest;
             const active = thread.threadId === selectedThreadId;
             return (
-              <li key={thread.threadId}>
+              <li
+                key={thread.threadId}
+                className={cx(
+                  styles.row,
+                  active && styles.active,
+                  thread.hasUnread && styles.unread,
+                )}
+              >
                 <button
                   type="button"
-                  className={`${styles.row} ${active ? styles.active : ""} ${thread.hasUnread ? styles.unread : ""}`}
+                  className={styles.flagBtn}
+                  aria-label={thread.hasFlagged ? strings.unflag : strings.flag}
+                  onClick={() => onToggleFlag(thread)}
+                >
+                  <Star className={cx(styles.star, thread.hasFlagged && styles.starOn)} />
+                </button>
+                <button
+                  type="button"
+                  className={styles.rowOpen}
                   onClick={() => onSelect(thread)}
                   aria-current={active ? "true" : undefined}
                   draggable
@@ -136,22 +170,50 @@ export function MessageList({
                     e.dataTransfer.effectAllowed = "move";
                   }}
                 >
-                  <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
-                  <span className={styles.body}>
-                    <span className={styles.topline}>
-                      {thread.hasUnread && <span className={styles.dot} aria-hidden="true" />}
-                      <span className={styles.sender}>{senderName(email)}</span>
-                      {thread.count > 1 && <span className={styles.threadCount}>{thread.count}</span>}
-                      {thread.hasFlagged && <Star className={styles.star} aria-label={strings.flag} />}
-                      <span className={styles.time}>{formatDate(email.receivedAt)}</span>
-                    </span>
-                    <span className={styles.subject}>
-                      {subjectOr(email)}
-                      {thread.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
-                    </span>
-                    <span className={styles.preview}>{email.preview}</span>
+                  <span className={styles.sender}>
+                    {senderName(email)}
+                    {thread.count > 1 && <span className={styles.count}> ({thread.count})</span>}
                   </span>
+                  <span className={styles.subjectWrap}>
+                    <span className={styles.subject}>{subjectOr(email)}</span>
+                    {email.preview.length > 0 && (
+                      <span className={styles.snippet}> — {email.preview}</span>
+                    )}
+                  </span>
+                  {thread.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
                 </button>
+                <div className={styles.rowRight}>
+                  <span className={styles.time}>{formatDate(email.receivedAt)}</span>
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      aria-label={strings.archive}
+                      title={strings.archive}
+                      onClick={() => onArchive(thread)}
+                    >
+                      <Archive size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      aria-label={strings.delete}
+                      title={strings.delete}
+                      onClick={() => onDelete(thread)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      aria-label={thread.hasUnread ? strings.markRead : strings.markUnread}
+                      title={thread.hasUnread ? strings.markRead : strings.markUnread}
+                      onClick={() => onToggleRead(thread)}
+                    >
+                      {thread.hasUnread ? <MailOpen size={16} /> : <Mail size={16} />}
+                    </button>
+                  </div>
+                </div>
               </li>
             );
           })}
