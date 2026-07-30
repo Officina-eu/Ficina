@@ -150,13 +150,16 @@ pub async fn set_quota(
     authenticate_operator(&state, &headers).await?;
     let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
     // `quotaBytes` absent or null → unlimited; a negative number is rejected.
-    let quota = match v.get("quotaBytes") {
-        None | Some(Value::Null) => None,
-        Some(n) => {
-            let bytes = n.as_i64().filter(|b| *b >= 0);
-            Some(bytes.ok_or_else(|| Problem::bad("quotaBytes must be a non-negative integer or null"))?)
-        }
-    };
+    let quota =
+        match v.get("quotaBytes") {
+            None | Some(Value::Null) => None,
+            Some(n) => {
+                let bytes = n.as_i64().filter(|b| *b >= 0);
+                Some(bytes.ok_or_else(|| {
+                    Problem::bad("quotaBytes must be a non-negative integer or null")
+                })?)
+            }
+        };
     let tenant = TenantId::new(id);
     state
         .store

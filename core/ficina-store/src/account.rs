@@ -1300,11 +1300,12 @@ impl AccountStore {
         let Some(limit) = quota else {
             return Ok(()); // unlimited
         };
-        let used: i64 =
-            sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::bigint FROM blobs WHERE tenant_id = $1")
-                .bind(self.tenant.as_str())
-                .fetch_one(&self.pool)
-                .await?;
+        let used: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(size), 0)::bigint FROM blobs WHERE tenant_id = $1",
+        )
+        .bind(self.tenant.as_str())
+        .fetch_one(&self.pool)
+        .await?;
         if used + incoming > limit {
             return Err(StoreError::OverQuota);
         }

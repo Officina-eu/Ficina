@@ -132,12 +132,15 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Platform
 
-- [ ] Admin console: tenants, users, domains, quotas
+- [x] Admin console: tenants, users, domains, quotas
 - [ ] Deliverability autopilot v1: DNS wizard, DKIM rotation, DMARC monitoring, blacklist alerts
 - [ ] Multi-tenant control plane: provisioning APIs for every engine, billing hooks
+      — tenant lifecycle, domain ownership, quotas, and the operator surface
+      (`ficina-control`) landed (ADR 0012); per-engine provisioning + billing remain
 - [ ] Native distribution lists + shared mailboxes with delegation
 - [ ] Backups per DR targets; restore rehearsal scripted and passing
 - [ ] Audit log; GDPR export; tenant export (exit as a feature)
+      — tenant audit log landed (ADR 0012); GDPR + tenant export remain
 
 ### Exit gate — Phase 2 done when:
 

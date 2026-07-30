@@ -63,7 +63,14 @@ impl TenantStore {
         let capped = limit.clamp(1, 500);
         let rows = sqlx::query_as::<
             _,
-            (String, Option<String>, String, Option<String>, Option<String>, OffsetDateTime),
+            (
+                String,
+                Option<String>,
+                String,
+                Option<String>,
+                Option<String>,
+                OffsetDateTime,
+            ),
         >(
             "SELECT a.id, COALESCE(u.email, a.actor_label) AS actor, \
                     a.action, a.target, a.detail, a.created_at \
@@ -79,14 +86,16 @@ impl TenantStore {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, actor, action, target, detail, created_at)| AuditEntry {
-                id,
-                actor,
-                action,
-                target,
-                detail,
-                created_at,
-            })
+            .map(
+                |(id, actor, action, target, detail, created_at)| AuditEntry {
+                    id,
+                    actor,
+                    action,
+                    target,
+                    detail,
+                    created_at,
+                },
+            )
             .collect())
     }
 }

@@ -28,7 +28,14 @@ async fn audit(
 ) {
     if let Err(error) = state
         .store
-        .record_audit(&account.tenant, Some(&account.user), None, action, target, detail)
+        .record_audit(
+            &account.tenant,
+            Some(&account.user),
+            None,
+            action,
+            target,
+            detail,
+        )
         .await
     {
         tracing::warn!(%error, action, "audit write failed");
@@ -685,7 +692,14 @@ pub async fn verify_domain(
         .set_domain_verified(&record.domain)
         .await
         .map_err(store_admin_err)?;
-    audit(&state, &account, "domain.verify", Some(&record.domain), None).await;
+    audit(
+        &state,
+        &account,
+        "domain.verify",
+        Some(&record.domain),
+        None,
+    )
+    .await;
     Ok(Json(json!({ "domain": record.domain, "verified": true })))
 }
 

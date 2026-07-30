@@ -74,7 +74,13 @@ pub async fn authenticate_operator(
 /// Record a control-plane action in the target tenant's audit log, best-effort
 /// (a failed audit write never fails the action). The actor is labelled
 /// `operator` — the operator is not one of the target tenant's users.
-pub async fn audit(state: &ControlState, tenant: &TenantId, action: &str, target: Option<&str>, detail: Option<&str>) {
+pub async fn audit(
+    state: &ControlState,
+    tenant: &TenantId,
+    action: &str,
+    target: Option<&str>,
+    detail: Option<&str>,
+) {
     if let Err(error) = state
         .store
         .record_audit(tenant, None, Some("operator"), action, target, detail)

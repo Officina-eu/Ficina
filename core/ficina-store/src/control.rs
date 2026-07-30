@@ -91,7 +91,15 @@ impl Store {
     pub async fn list_tenants(&self) -> Result<Vec<TenantSummary>> {
         let rows = sqlx::query_as::<
             _,
-            (String, String, String, OffsetDateTime, i64, i64, Option<i64>),
+            (
+                String,
+                String,
+                String,
+                OffsetDateTime,
+                i64,
+                i64,
+                Option<i64>,
+            ),
         >(
             "SELECT t.id, t.name, t.status, t.created_at, \
                     COALESCE(u.n, 0)::bigint AS user_count, \
