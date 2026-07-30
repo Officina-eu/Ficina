@@ -1,32 +1,85 @@
-.overlay {
+/* The compose host spans the viewport but lets clicks pass through, so a docked
+   or minimized window never blocks the mailbox behind it (Gmail model). */
+.host {
   position: fixed;
   inset: 0;
-  background: var(--bg-overlay);
+  z-index: var(--z-modal);
+  pointer-events: none;
+}
+
+/* Full-screen centers the dialog over a dim, click-blocking backdrop. */
+.host_full {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-6);
-  z-index: var(--z-modal);
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-overlay);
+  pointer-events: auto;
 }
 
 .modal {
-  width: 100%;
-  max-width: 600px;
-  max-height: 88vh;
+  pointer-events: auto;
   background: var(--bg-surface);
-  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition:
-    max-width var(--transition-fast),
-    max-height var(--transition-fast);
 }
 
-.modal.expanded {
+/* Docked bottom-right — the default, non-blocking. */
+.modal_normal {
+  position: absolute;
+  right: var(--space-6);
+  bottom: 0;
+  width: 500px;
+  max-width: calc(100vw - var(--space-6) * 2);
+  height: 620px;
+  max-height: calc(100vh - var(--space-4));
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* Minimized to its title bar, still docked bottom-right. */
+.modal_min {
+  position: absolute;
+  right: var(--space-6);
+  bottom: 0;
+  width: 340px;
+  max-width: calc(100vw - var(--space-6) * 2);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.modal_min .form > *:not(header) {
+  display: none;
+}
+
+.modal_min .head {
+  cursor: pointer;
+  border-bottom: none;
+}
+
+/* Full-screen — a large centered dialog. */
+.modal_full {
+  position: relative;
+  width: 100%;
   max-width: 920px;
-  max-height: 94vh;
+  height: 94vh;
+  border-radius: var(--radius-xl);
+}
+
+@media (max-width: 560px) {
+  .modal_normal,
+  .modal_min {
+    right: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
 }
 
 .form {

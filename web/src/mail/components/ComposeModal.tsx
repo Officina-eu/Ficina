@@ -7,10 +7,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
-  ArrowLeft,
   ArrowRight,
   Maximize2,
   Minimize2,
+  Minus,
   Paperclip,
   Sparkles,
   Trash2,
@@ -335,7 +335,10 @@ export function ComposeModal({
       setImproving(false);
     }
   }
-  const [expanded, setExpanded] = useState(false);
+  // Gmail-style window states: docked bottom-right, minimized to its title bar,
+  // or full-screen. Docked/minimized never block the mailbox behind them.
+  const [view, setView] = useState<"normal" | "min" | "full">("normal");
+  const minimized = view === "min";
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -423,19 +426,20 @@ export function ComposeModal({
   }
 
   return (
-    <div className={styles.overlay} onMouseDown={onClose}>
+    <div className={cx(styles.host, styles[`host_${view}`])}>
+      {view === "full" && <div className={styles.backdrop} />}
       <div
-        className={cx(styles.modal, expanded && styles.expanded)}
+        className={cx(styles.modal, styles[`modal_${view}`])}
         role="dialog"
-        aria-modal="true"
+        aria-modal={view === "full"}
         aria-label={title(context.mode)}
-        onMouseDown={(e) => e.stopPropagation()}
       >
         <form onSubmit={onSend} className={styles.form}>
-          <header className={styles.head}>
-            <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={strings.composeBack}>
-              <ArrowLeft size={18} />
-            </button>
+          <header
+            className={styles.head}
+            onClick={minimized ? () => setView("normal") : undefined}
+            role={minimized ? "button" : undefined}
+          >
             <h2 className={styles.title}>{title(context.mode)}</h2>
             {recipientTotal > 0 && (
               <span className={styles.countPill}>{strings.recipientCount(recipientTotal)}</span>
@@ -444,12 +448,34 @@ export function ComposeModal({
             <button
               type="button"
               className={styles.iconBtn}
-              onClick={() => setExpanded((v) => !v)}
-              aria-label={expanded ? strings.composeCollapse : strings.composeExpand}
+              onClick={(e) => {
+                e.stopPropagation();
+                setView(minimized ? "normal" : "min");
+              }}
+              aria-label={minimized ? strings.composeRestore : strings.composeMinimize}
             >
-              {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              <Minus size={16} />
             </button>
-            <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={strings.composeDiscard}>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                setView(view === "full" ? "normal" : "full");
+              }}
+              aria-label={view === "full" ? strings.composeCollapse : strings.composeExpand}
+            >
+              {view === "full" ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              aria-label={strings.composeDiscard}
+            >
               <X size={18} />
             </button>
           </header>
