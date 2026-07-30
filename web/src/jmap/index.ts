@@ -16,5 +16,7 @@ export {
   type AdminUser,
   type AdminGroup,
   type SecurityCheck,
+  type ControlTenant,
+  type ControlDomain,
   type Session,
 } from "./types";

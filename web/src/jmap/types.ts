@@ -122,6 +122,27 @@ export interface SecurityCheck {
   detail: string;
 }
 
+/** A tenant summary in the platform control plane (ADR 0012). */
+export interface ControlTenant {
+  id: string;
+  name: string;
+  status: "active" | "suspended";
+  createdAt: string;
+  userCount: number;
+  storageBytes: number;
+}
+
+/** A domain owned by a tenant (control plane). `verifyRecord` is the DNS TXT
+ * record to publish to prove ownership. */
+export interface ControlDomain {
+  domain: string;
+  tenantId: string;
+  verified: boolean;
+  verifiedAt: string | null;
+  verifyRecord: { name: string; type: string; value: string };
+  createdAt: string;
+}
+
 /** A JMAP method invocation: [name, arguments, call-id]. */
 export type MethodCall = [string, Record<string, unknown>, string];
 export type MethodResponse = [string, Record<string, unknown>, string];

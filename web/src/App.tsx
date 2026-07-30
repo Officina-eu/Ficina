@@ -8,6 +8,7 @@ import { AuthProvider, LoginPage, RequireAuth } from "./auth";
 import { AppShell, ComingSoon, defaultModulePath, modules } from "./shell";
 import { MailModule } from "./mail";
 import { AdminConsole } from "./admin";
+import { ControlConsole } from "./control";
 
 export function App() {
   return (
@@ -23,6 +24,9 @@ export function App() {
             {/* The admin console has its own full-screen shell (not the mail
                 rail); it gates to tenant admins internally. */}
             <Route path="/admin/*" element={<AdminConsole />} />
+            {/* The platform control plane (ADR 0012): its own full-screen
+                shell, gated to platform operators internally. */}
+            <Route path="/control/*" element={<ControlConsole />} />
             <Route element={<AppShell />}>
               <Route index element={<Navigate to={defaultModulePath} replace />} />
               {modules.map((m) => (

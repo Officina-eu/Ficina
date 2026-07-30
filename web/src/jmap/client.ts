@@ -9,6 +9,8 @@ import {
   type AdminGroup,
   type AdminUser,
   type AiProvider,
+  type ControlDomain,
+  type ControlTenant,
   type EmailAddress,
   type SecurityCheck,
   type EmailFull,
@@ -330,6 +332,81 @@ export class JmapClient {
       domain: string;
       checks: SecurityCheck[];
     };
+  }
+
+  // ---- control plane (platform operator; ADR 0012) --------------------
+
+  /** Whether the signed-in user is a platform operator (gates the console). */
+  async isOperator(): Promise<boolean> {
+    try {
+      const out = (await this.#admin("/control/me", { method: "GET" })) as {
+        isOperator?: boolean;
+      };
+      return out.isOperator === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Every tenant on the deployment (operator). */
+  async listTenants(): Promise<ControlTenant[]> {
+    const out = (await this.#admin("/control/tenants", { method: "GET" })) as {
+      tenants: ControlTenant[];
+    };
+    return out.tenants;
+  }
+
+  /** Provision a tenant and its first admin (operator). */
+  async createTenant(t: {
+    name: string;
+    adminEmail: string;
+    adminPassword: string;
+  }): Promise<{ id: string; adminUserId: string }> {
+    return (await this.#adminPost("/control/tenants", t)) as {
+      id: string;
+      adminUserId: string;
+    };
+  }
+
+  /** Suspend or resume a tenant (operator). */
+  async setTenantStatus(id: string, status: "active" | "suspended"): Promise<void> {
+    await this.#adminPost(`/control/tenants/${encodeURIComponent(id)}/status`, { status });
+  }
+
+  /** Permanently delete a tenant (operator). `confirm` must echo the id. */
+  async deleteTenant(id: string, confirm: string): Promise<void> {
+    await this.#admin(`/control/tenants/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm }),
+    });
+  }
+
+  /** Every registered domain on the deployment (operator). */
+  async listDomains(): Promise<ControlDomain[]> {
+    const out = (await this.#admin("/control/domains", { method: "GET" })) as {
+      domains: ControlDomain[];
+    };
+    return out.domains;
+  }
+
+  /** Register a domain to a tenant; returns the DNS record to publish. */
+  async createDomain(tenantId: string, domain: string): Promise<ControlDomain> {
+    return (await this.#adminPost("/control/domains", { tenantId, domain })) as ControlDomain;
+  }
+
+  /** Check the DNS TXT proof and mark verified if present (operator). */
+  async verifyDomain(domain: string): Promise<{ domain: string; verified: boolean; detail?: string }> {
+    return (await this.#adminPost("/control/domains/verify", { domain })) as {
+      domain: string;
+      verified: boolean;
+      detail?: string;
+    };
+  }
+
+  /** Remove a domain registration (operator). */
+  async deleteDomain(domain: string): Promise<void> {
+    await this.#adminPost("/control/domains/delete", { domain });
   }
 
   /** Improve a draft via the tenant's configured AI backend (ADR 0011).

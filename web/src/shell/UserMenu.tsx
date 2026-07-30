@@ -2,7 +2,7 @@
 // small popover with who they're signed in as and a sign-out action.
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, Shield } from "lucide-react";
+import { Building2, LogOut, Shield } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Avatar } from "../ds";
@@ -15,6 +15,7 @@ export function UserMenu() {
   const client = useJmapClient();
   const [open, setOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isOperator, setIsOperator] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,6 +27,14 @@ export function UserMenu() {
       })
       .catch(() => {
         // not admin / unavailable → link stays hidden
+      });
+    void client
+      .isOperator()
+      .then((ok) => {
+        if (live) setIsOperator(ok);
+      })
+      .catch(() => {
+        // not an operator / unavailable → link stays hidden
       });
     return () => {
       live = false;
@@ -80,6 +89,17 @@ export function UserMenu() {
             >
               <Shield size={16} />
               <span>{strings.adminOpen}</span>
+            </Link>
+          )}
+          {isOperator && (
+            <Link
+              to="/control"
+              className={styles.item}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+            >
+              <Building2 size={16} />
+              <span>{strings.controlOpen}</span>
             </Link>
           )}
           <button
