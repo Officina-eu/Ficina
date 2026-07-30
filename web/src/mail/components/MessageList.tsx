@@ -26,6 +26,7 @@ import type { Async } from "../state/useAsync";
 import { formatDate, senderName, subjectOr } from "../format";
 import { groupThreads, type ThreadRow } from "../threads";
 import { DRAG_EMAIL_MIME } from "../dnd";
+import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./MessageList.module.css";
 
 interface MessageListProps {
@@ -41,6 +42,7 @@ interface MessageListProps {
   onArchive: (threads: ThreadRow[]) => void;
   onDelete: (threads: ThreadRow[]) => void;
   onMarkRead: (threads: ThreadRow[], read: boolean) => void;
+  onSnooze: (threads: ThreadRow[], until: number) => void;
   onToggleFlag: (thread: ThreadRow) => void;
 }
 
@@ -65,6 +67,7 @@ export function MessageList({
   onArchive,
   onDelete,
   onMarkRead,
+  onSnooze,
   onToggleFlag,
 }: MessageListProps) {
   const client = useJmapClient();
@@ -161,6 +164,7 @@ export function MessageList({
             icon={anyUnreadSelected ? <MailOpen /> : <Mail />}
             onClick={() => runBulk((ts) => onMarkRead(ts, anyUnreadSelected))}
           />
+          <SnoozeMenu compact onPick={(until) => runBulk((ts) => onSnooze(ts, until))} />
           <IconButton
             size="sm"
             label={strings.selectNone}

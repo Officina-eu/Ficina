@@ -6,6 +6,16 @@ contracts.
 
 ## Unreleased
 
+- New: **Gmail-style mail.** The conversation list is now compact two-line rows
+  (sender · time / subject — snippet), unread bold, with a star and hover
+  **archive / delete / read** actions; **bulk select** (row checkboxes → a
+  select-all bar with batch archive/delete/read/snooze). Expanded messages
+  collapse the **quoted history behind a "···"** and show a **"to me ▾"**
+  recipient expander.
+- New: **Snooze.** Hide a conversation until later (Later today / Tomorrow /
+  This weekend / Next week) from the reading pane or the bulk bar; it moves to a
+  **Snoozed** folder and a background sweeper returns it to the Inbox, unread,
+  when due (migration 0021; `POST /snooze`).
 - New: **Math & code in emails.** The compose toolbar can insert an **equation**
   (the LaTeX editor with a live preview) and a **code block** (dark, with a
   language picker). Equations are sent as **MathML** and code as a

@@ -27,6 +27,7 @@ import type { Async } from "../state/useAsync";
 import { senderName, subjectOr } from "../format";
 import { threadDigest } from "../body";
 import { ThreadMessage } from "./ThreadMessage";
+import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./ReadingPane.module.css";
 
 /** Below this many characters a thread isn't worth summarizing — the message is
@@ -61,6 +62,7 @@ interface ReadingPaneProps {
   onDelete: () => void;
   onMove: (targetMailboxId: string) => void;
   onMarkUnread: () => void;
+  onSnooze: (until: number) => void;
 }
 
 export function ReadingPane({
@@ -76,6 +78,7 @@ export function ReadingPane({
   onDelete,
   onMove,
   onMarkUnread,
+  onSnooze,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
   const client = useJmapClient();
@@ -198,6 +201,7 @@ export function ReadingPane({
           <span>{strings.forward}</span>
         </button>
         <div className={styles.spacer} />
+        <SnoozeMenu onPick={onSnooze} />
         <IconButton size="sm" label={strings.archive} icon={<Archive />} onClick={onArchive} />
         <Menu label={strings.moveTo} icon={<FolderInput />} items={moveItems} />
         <IconButton

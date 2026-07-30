@@ -250,6 +250,17 @@ export function MailModule() {
       .catch(fail);
   }
 
+  // Snooze a set of messages until `until` (Unix seconds); a server sweeper
+  // returns them to the Inbox. Closes the open thread if it's among them.
+  function snoozeIds(ids: string[], until: number) {
+    if (mailboxId === null || ids.length === 0) return;
+    if (ids.some((id) => currentFolderIds.includes(id))) setThreadId(null);
+    void client
+      .snooze(ids, mailboxId, until)
+      .then(() => afterChange(strings.mailSnoozed))
+      .catch(fail);
+  }
+
   function archiveThread() {
     archiveIds(currentFolderIds);
   }
@@ -298,6 +309,7 @@ export function MailModule() {
         onArchive={(ts) => archiveIds(ts.flatMap((t) => t.memberIds))}
         onDelete={(ts) => deleteIds(ts.flatMap((t) => t.memberIds))}
         onMarkRead={(ts, read) => markSeenIds(ts.flatMap((t) => t.memberIds), read)}
+        onSnooze={(ts, until) => snoozeIds(ts.flatMap((t) => t.memberIds), until)}
         onToggleFlag={(t) => toggleFlag(t.latest)}
       />
       <ResizeHandle
@@ -319,6 +331,7 @@ export function MailModule() {
         onDelete={deleteThread}
         onMove={moveThread}
         onMarkUnread={markThreadUnread}
+        onSnooze={(until) => snoozeIds(currentFolderIds, until)}
       />
       {compose !== null && (
         <ComposeModal

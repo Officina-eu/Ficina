@@ -562,6 +562,17 @@ export class JmapClient {
     return json.summary;
   }
 
+  /** Snooze conversations: hide the given messages (in `mailboxId`) until
+   * `until` (Unix seconds); a server sweeper returns them to the Inbox. */
+  async snooze(ids: string[], mailboxId: string, until: number): Promise<void> {
+    const res = await this.#fetch(`${window.location.origin}/snooze`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids, mailboxId, until }),
+    });
+    if (!res.ok) throw new JmapError(`snooze ${res.status}`);
+  }
+
   // ---- Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring docs ----
 
   /** List the caller's documents (metadata only), newest-first. */

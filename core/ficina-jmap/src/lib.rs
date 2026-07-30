@@ -26,6 +26,7 @@ pub mod security;
 pub mod server;
 pub mod session;
 pub mod settings;
+pub mod snooze;
 pub mod sieve;
 pub mod state;
 pub mod submission;

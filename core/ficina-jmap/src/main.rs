@@ -87,6 +87,23 @@ async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| "database migration failed")?;
 
+    // Background snooze sweeper (ADR-less; mirrors the vacation machinery):
+    // return due snoozed messages to their owners' Inbox, unread.
+    {
+        let store = Arc::clone(&store);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                match store.sweep_snoozes().await {
+                    Ok(n) if n > 0 => tracing::info!(woken = n, "snooze sweep"),
+                    Ok(_) => {}
+                    Err(error) => tracing::warn!(%error, "snooze sweep failed"),
+                }
+            }
+        });
+    }
+
     let identity = Identity::new(Arc::clone(&store), IdentityConfig::new(issuer))
         .map_err(|_| "could not initialise the credential authority")?;
 
