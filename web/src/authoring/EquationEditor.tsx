@@ -53,9 +53,20 @@ interface EquationEditorProps {
   /** Confirm and place the equation. */
   onInsert: () => void;
   onClose: () => void;
+  /** Optional "numbered display equation" toggle. */
+  numbered?: boolean;
+  onToggleNumbered?: (numbered: boolean) => void;
 }
 
-export function EquationEditor({ value, onChange, display, onInsert, onClose }: EquationEditorProps) {
+export function EquationEditor({
+  value,
+  onChange,
+  display,
+  onInsert,
+  onClose,
+  numbered,
+  onToggleNumbered,
+}: EquationEditorProps) {
   const [view, setView] = useState<"latex" | "visual">("latex");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const rendered = useMemo(() => renderMath(value, display), [value, display]);
@@ -147,6 +158,16 @@ export function EquationEditor({ value, onChange, display, onInsert, onClose }: 
               <SymbolButton key={s.tip} symbol={s} onInsert={insert} />
             ))}
           </div>
+          {onToggleNumbered !== undefined && (
+            <label className={styles.numbered}>
+              <input
+                type="checkbox"
+                checked={numbered ?? false}
+                onChange={(e) => onToggleNumbered(e.target.checked)}
+              />
+              {strings.eqNumbered}
+            </label>
+          )}
           <button
             type="button"
             className={styles.insert}

@@ -51,6 +51,18 @@ const HEADER_PROPS = [
   "ficina:authentication",
 ];
 
+/** A document list entry from `/docs` (metadata only). */
+export interface DocsSummaryDto {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
+/** A full document from `/docs/{id}`; `blocks` is the opaque block array. */
+export interface DocsDto extends DocsSummaryDto {
+  blocks: unknown[];
+}
+
 export class JmapClient {
   #fetch: AuthorizedFetch;
   #session: Session | null = null;
@@ -548,6 +560,54 @@ export class JmapClient {
     if (!res.ok) throw new JmapError(`summarize ${res.status}`);
     const json = (await res.json()) as { summary: string };
     return json.summary;
+  }
+
+  // ---- Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring docs ----
+
+  /** List the caller's documents (metadata only), newest-first. */
+  async listDocs(): Promise<DocsSummaryDto[]> {
+    const res = await this.#fetch(`${window.location.origin}/docs`, { method: "GET" });
+    if (!res.ok) throw new JmapError(`listDocs ${res.status}`);
+    const json = (await res.json()) as { documents: DocsSummaryDto[] };
+    return json.documents;
+  }
+
+  /** Create a document and return it (with empty blocks). */
+  async createDoc(title: string): Promise<DocsDto> {
+    const res = await this.#fetch(`${window.location.origin}/docs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) throw new JmapError(`createDoc ${res.status}`);
+    return (await res.json()) as DocsDto;
+  }
+
+  /** Load one document with its blocks. */
+  async getDoc(id: string): Promise<DocsDto> {
+    const res = await this.#fetch(`${window.location.origin}/docs/${encodeURIComponent(id)}`, {
+      method: "GET",
+    });
+    if (!res.ok) throw new JmapError(`getDoc ${res.status}`);
+    return (await res.json()) as DocsDto;
+  }
+
+  /** Save a document's title and blocks. */
+  async saveDoc(id: string, title: string, blocks: unknown[]): Promise<void> {
+    const res = await this.#fetch(`${window.location.origin}/docs/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title, blocks }),
+    });
+    if (!res.ok) throw new JmapError(`saveDoc ${res.status}`);
+  }
+
+  /** Delete a document. */
+  async deleteDoc(id: string): Promise<void> {
+    const res = await this.#fetch(`${window.location.origin}/docs/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new JmapError(`deleteDoc ${res.status}`);
   }
 
   /** Fetch an attachment's bytes as a Blob (authorized), for saving. Resolves

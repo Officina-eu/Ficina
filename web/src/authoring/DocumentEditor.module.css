@@ -1,0 +1,131 @@
+.blocks {
+  display: flex;
+  flex-direction: column;
+}
+
+.blockRow {
+  position: relative;
+}
+
+/* hover controls to the left of each block */
+.controls {
+  position: absolute;
+  top: var(--space-2);
+  left: calc(-1 * var(--space-8));
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.blockRow:hover .controls,
+.controls:focus-within {
+  opacity: 1;
+}
+
+.controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+}
+
+.controls button:hover:not(:disabled) {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.controls button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.delete:hover:not(:disabled) {
+  color: var(--danger) !important;
+}
+
+.blockBody {
+  min-width: 0;
+}
+
+/* the + add-block affordance between blocks (revealed on hover) */
+.addRow {
+  position: relative;
+  height: var(--space-3);
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.blockRow:hover .addRow,
+.addRow:focus-within {
+  opacity: 1;
+}
+
+.addBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+}
+
+.addBtn:hover,
+.addBtnOn {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.addMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 170px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.addMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.addMenuItem:hover {
+  background: var(--bg-sunken);
+}
+
+.emptyAdd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) 0;
+}
+
+.emptyAdd .addRow {
+  opacity: 1;
+  height: auto;
+}
+
+.emptyHint {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}

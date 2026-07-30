@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- New: **Ficina Docs — real documents.** Technical authoring is now a working
+  editor, not a demo: each user creates, opens, renames, and deletes their own
+  **documents** (tenant- and owner-scoped store; a document is reachable only by
+  its owner — isolation is tested). The editor is **block-based** — add, reorder,
+  and delete headings, prose (with inline `$math$` and `{{cross-references}}`),
+  numbered display equations, dark syntax-highlighted code blocks, and editable
+  tables — and **autosaves** as you type. New API: `GET/POST /docs`,
+  `GET/PUT/DELETE /docs/{id}` (migration 0020, `documents`). Reached via Drive.
 - New: **Technical authoring in Ficina Docs.** Write specs with math and code,
   all rendered **in the browser** (no draft equation or line of code leaves the
   client): an **equation editor** with a LaTeX input, a live **KaTeX** preview, a

@@ -16,6 +16,7 @@ pub mod admin;
 pub mod ai;
 pub mod api;
 pub mod blob;
+pub mod docs;
 pub mod error;
 pub mod jtypes;
 pub mod mime;

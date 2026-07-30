@@ -1,0 +1,128 @@
+.browser {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.title {
+  font-family: var(--font-body);
+  font-size: 1.9rem;
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.newBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 38px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  transition: background-color var(--transition-fast);
+}
+
+.newBtn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.newBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  transition: border-color var(--transition-fast);
+}
+
+.item:hover {
+  border-color: var(--border-strong);
+}
+
+.open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+}
+
+.itemIcon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.itemTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemDate {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+}
+
+.delete:hover {
+  color: var(--danger);
+  background: var(--bg-raised);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-10) 0;
+  text-align: center;
+}
+
+.emptyIcon {
+  color: var(--text-tertiary);
+}
+
+.emptyText {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+}

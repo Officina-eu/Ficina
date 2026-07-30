@@ -1,0 +1,43 @@
+.block {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: var(--space-4) 0;
+  padding: var(--space-5) var(--space-8);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.block:hover {
+  border-color: var(--accent);
+  background: var(--bg-app);
+}
+
+.math {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.error {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.number {
+  position: absolute;
+  right: var(--space-6);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-base);
+}

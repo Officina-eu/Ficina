@@ -12,12 +12,10 @@ import { MailModule } from "./mail";
 import { AdminConsole } from "./admin";
 import { ControlConsole } from "./control";
 
-// The technical-authoring surface pulls in KaTeX + Prism (and every Prism
+// The Docs technical-authoring module pulls in KaTeX + Prism (and every Prism
 // language grammar), so it is code-split: those libraries load only when a user
 // opens Docs, never on the mail path (ADR 0015).
-const AuthoringWorkspace = lazy(() =>
-  import("./authoring").then((m) => ({ default: m.AuthoringWorkspace })),
-);
+const DocsModule = lazy(() => import("./authoring").then((m) => ({ default: m.DocsModule })));
 
 function ModuleLoading() {
   return (
@@ -34,7 +32,7 @@ function moduleElement(id: string, label: string, Icon: (typeof modules)[number]
   if (id === "drive") {
     return (
       <Suspense fallback={<ModuleLoading />}>
-        <AuthoringWorkspace />
+        <DocsModule />
       </Suspense>
     );
   }

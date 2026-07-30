@@ -15,6 +15,7 @@ pub mod blob;
 pub mod changes;
 pub mod control;
 pub mod dkim;
+pub mod document;
 pub mod error;
 pub mod id;
 pub mod identity;
@@ -34,6 +35,7 @@ pub use blob::GarageConfig;
 pub use changes::Changes;
 pub use control::PLATFORM_TENANT_NAME;
 pub use dkim::DkimSigningMaterial;
+pub use document::{Document, DocumentSummary};
 pub use error::{Result, StoreError};
 pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 pub use identity::{

@@ -1,0 +1,5 @@
+.mathError {
+  color: var(--danger);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+}

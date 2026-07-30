@@ -461,6 +461,47 @@ export const strings = {
   eqPreview: "Preview",
   eqEmpty: "Start typing LaTeX above.",
   eqError: (message: string) => `Can't render this LaTeX: ${message}`,
+  eqNumbered: "Numbered",
+  eqEmptyBlock: "Empty equation — click to edit",
+
+  // Docs — the module (browser + editor chrome)
+  docsTitle: "Ficina Docs",
+  docsNew: "New document",
+  docsEmpty: "No documents yet. Create one to start writing.",
+  docsDelete: (title: string) => `Delete ${title}`,
+  docsAll: "All documents",
+  docsUntitled: "Untitled document",
+  docsTitleLabel: "Document title",
+  docsSaving: "Saving…",
+  docsSaved: "Saved",
+  docsSaveError: "Couldn't save",
+
+  // Docs — block editor controls
+  blockAdd: "Add a block",
+  blockMoveUp: "Move block up",
+  blockMoveDown: "Move block down",
+  blockDelete: "Delete block",
+  blockEmptyHint: "Add a heading, text, equation, code, or table to begin.",
+
+  // heading block
+  headingH1: "Heading 1",
+  headingH2: "Heading 2",
+  headingPlaceholder: "Section heading",
+  headingLabel: "Heading text",
+
+  // paragraph block
+  paraPlaceholder: "Write here. Use the toolbar to insert inline math or a cross-reference.",
+  paraLabel: "Paragraph text",
+  paraInlineMath: "Inline math",
+  paraReference: "Reference",
+
+  // table block
+  tableHeaderCell: "Column heading",
+  tableCell: "Cell",
+  tableAddRow: "Add row",
+  tableAddColumn: "Add column",
+  tableRemoveRow: "Remove row",
+  tableRemoveColumn: "Remove column",
 
   // code block
   codeSearchLanguage: "Search language…",

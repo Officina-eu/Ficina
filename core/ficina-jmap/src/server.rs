@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
-use crate::{admin, ai, api, blob, push, security, session, settings};
+use crate::{admin, ai, api, blob, docs, push, security, session, settings};
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
 /// OAuth 2.0 provider (`ficina-identity`) is mounted alongside so a Phase-1
@@ -47,6 +47,15 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/ai/summarize",
             post(ai::summarize).layer(DefaultBodyLimit::max(ai::MAX_SUMMARIZE_BYTES)),
+        )
+        // Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.
+        .route("/docs", get(docs::list).post(docs::create))
+        .route(
+            "/docs/{id}",
+            get(docs::get)
+                .put(docs::save)
+                .delete(docs::delete)
+                .layer(DefaultBodyLimit::max(docs::MAX_DOC_BYTES)),
         )
         // Admin console (tenant-admin only): AI provider management.
         .route(
