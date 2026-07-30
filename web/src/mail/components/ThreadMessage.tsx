@@ -181,11 +181,11 @@ export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessagePr
         </div>
       ) : (
         <button type="button" className={styles.head} onClick={onToggle} aria-expanded={false}>
-          <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="md" />
-          <div className={styles.headText}>
-            {headTop}
-            <div className={styles.headSub}>{email.preview}</div>
-          </div>
+          <Avatar name={senderName(email)} email={email.from?.[0]?.email} size="sm" />
+          <span className={styles.collapsedSender}>{senderName(email)}</span>
+          <span className={styles.collapsedPreview}>{email.preview}</span>
+          {email.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
+          <span className={styles.date}>{formatDate(email.receivedAt)}</span>
         </button>
       )}
 

@@ -1,16 +1,13 @@
-/* Each message is its own card (Figma thread screen): a bordered, rounded
-   surface; the expanded one lifts slightly. Cards are spaced by the list
-   container's gap — no vertical connector. */
+/* Gmail thread: one continuous white surface. Messages are stacked with a
+   hairline divider — no cards, borders, radius, or shadow. Collapsed messages
+   are compact rows; the expanded one flows inline. */
 .message {
   position: relative;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  overflow: hidden;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
-.message.expanded {
-  box-shadow: var(--shadow-sm);
+.message:last-child {
+  border-bottom: none;
 }
 
 .head {
@@ -18,15 +15,23 @@
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-3);
   text-align: left;
 }
 
-.head:hover {
+/* collapsed rows highlight on hover, like a Gmail thread */
+.message:not(.expanded) .head {
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+
+.message:not(.expanded) .head:hover {
   background: var(--bg-sunken);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .expanded .head {
+  padding: var(--space-4) var(--space-3) var(--space-2);
   background: transparent;
 }
 
@@ -77,6 +82,28 @@
 .headSub {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* collapsed single-line row: sender · snippet ........ date (Gmail) */
+.collapsedSender {
+  flex-shrink: 0;
+  max-width: 40%;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsedPreview {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -171,8 +198,9 @@
   white-space: nowrap;
 }
 
+/* Body aligns under the sender name (past the avatar), Gmail-style. */
 .body {
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-2) var(--space-3) var(--space-5) calc(40px + var(--space-3) * 2);
 }
 
 .text {
