@@ -6,26 +6,48 @@
   margin: var(--space-3) var(--space-4);
 }
 
+/* Gmail-style: a single scrollable row (never wraps), grey icons, thin
+   dividers, subtle rounded hover. */
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 2px;
-  row-gap: var(--space-1);
-  padding-bottom: var(--space-2);
+  gap: 1px;
+  padding: 2px var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
-/* text-style dropdown */
+.toolbar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.toolbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: var(--radius-full);
+}
+
+.toolbar:hover::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+}
+
+/* text-style dropdown (Gmail's font/style select) */
 .select {
-  height: 28px;
+  flex-shrink: 0;
+  height: 30px;
   padding: 0 var(--space-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
   color: var(--text-primary);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   cursor: pointer;
+}
+
+.select:hover {
+  background: var(--bg-raised);
 }
 
 /* colour swatch buttons (an icon over a native colour input) */
@@ -36,6 +58,7 @@
   justify-content: center;
   width: 30px;
   height: 30px;
+  flex-shrink: 0;
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   cursor: pointer;
@@ -68,6 +91,7 @@
   justify-content: center;
   width: 30px;
   height: 30px;
+  flex-shrink: 0;
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   transition:
@@ -82,8 +106,9 @@
 
 .divider {
   width: 1px;
-  height: 18px;
-  margin: 0 var(--space-1);
+  height: 20px;
+  flex-shrink: 0;
+  margin: 0 var(--space-2);
   background: var(--border-subtle);
 }
 
