@@ -258,25 +258,26 @@
   color: var(--text-secondary);
 }
 
-/* attachments */
+/* attachments — Gmail-style rectangular cards with a file-type icon */
 .attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
+  gap: var(--space-3);
+  margin-top: var(--space-5);
 }
 
 .attachment {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  width: 264px;
   max-width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  background: var(--bg-raised);
+  background: var(--bg-surface);
   color: var(--text-primary);
-  font-size: var(--text-sm);
+  text-align: left;
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast);
@@ -289,29 +290,58 @@
 
 .attachment:disabled {
   cursor: default;
-  opacity: 0.7;
 }
 
 .attachmentFailed {
   border-color: var(--copper-500);
+}
+
+.attachIconBox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.attachmentFailed .attachIconBox {
+  background: var(--copper-50);
   color: var(--copper-600);
 }
 
 .attachIcon {
-  width: 15px;
-  height: 15px;
-  flex-shrink: 0;
-  color: var(--text-tertiary);
+  width: 20px;
+  height: 20px;
+}
+
+.attachMeta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .attachName {
   overflow: hidden;
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .attachSize {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.attachDownload {
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   color: var(--text-tertiary);
 }

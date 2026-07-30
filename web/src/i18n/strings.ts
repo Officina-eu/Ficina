@@ -137,6 +137,7 @@ export const strings = {
   attachments: "Attachments",
   attach: "Attach files",
   attachmentUploading: "Uploading…",
+  attachmentDownloading: "Downloading…",
   attachmentUploadFailed: "Couldn't upload that file.",
   downloadAttachment: (name: string) => `Download ${name}`,
   attachmentFailed: "Couldn't download that attachment.",

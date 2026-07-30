@@ -78,9 +78,10 @@
   margin-bottom: var(--space-3);
 }
 
+/* Gmail subject: large but light (not a heavy bold headline). */
 .subject {
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-bold);
+  font-size: 1.375rem;
+  font-weight: var(--weight-normal);
   color: var(--text-primary);
   line-height: var(--leading-tight);
 }

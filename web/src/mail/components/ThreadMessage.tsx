@@ -2,7 +2,18 @@
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
 import { useState } from "react";
-import { ChevronDown, Download, MoreHorizontal, Paperclip, ShieldCheck } from "lucide-react";
+import {
+  ChevronDown,
+  Download,
+  File,
+  FileArchive,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  MoreHorizontal,
+  Paperclip,
+  ShieldCheck,
+} from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Avatar, Spinner, cx } from "../../ds";
@@ -24,12 +35,23 @@ function saveBlob(blob: Blob, name: string) {
   URL.revokeObjectURL(url);
 }
 
-/** A downloadable attachment chip: fetches the bytes (authorized) on click and
- * saves them, showing a spinner while in flight. */
+/** The file-type icon for an attachment name (Gmail shows one per card). */
+function fileIcon(name: string) {
+  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  if (["zip", "rar", "7z", "gz", "tar"].includes(ext)) return FileArchive;
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(ext)) return FileImage;
+  if (["xls", "xlsx", "csv", "ods"].includes(ext)) return FileSpreadsheet;
+  if (["pdf", "doc", "docx", "odt", "txt", "rtf"].includes(ext)) return FileText;
+  return File;
+}
+
+/** A Gmail-style attachment card: a file-type icon, the name and size, and a
+ * download affordance. Fetches the bytes (authorized) on click. */
 function AttachmentChip({ attachment }: { attachment: EmailAttachment }) {
   const client = useJmapClient();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const Icon = fileIcon(attachment.name);
 
   async function download() {
     if (busy) return;
@@ -53,13 +75,23 @@ function AttachmentChip({ attachment }: { attachment: EmailAttachment }) {
       disabled={busy}
       title={failed ? strings.attachmentFailed : strings.downloadAttachment(attachment.name)}
     >
-      <Paperclip className={styles.attachIcon} aria-hidden="true" />
-      <span className={styles.attachName}>{attachment.name}</span>
-      <span className={styles.attachSize}>{formatBytes(attachment.size)}</span>
+      <span className={styles.attachIconBox}>
+        <Icon className={styles.attachIcon} aria-hidden="true" />
+      </span>
+      <span className={styles.attachMeta}>
+        <span className={styles.attachName}>{attachment.name}</span>
+        <span className={styles.attachSize}>
+          {failed
+            ? strings.attachmentFailed
+            : busy
+              ? strings.attachmentDownloading
+              : formatBytes(attachment.size)}
+        </span>
+      </span>
       {busy ? (
-        <Spinner size={14} />
+        <Spinner size={16} />
       ) : (
-        <Download className={styles.attachIcon} aria-hidden="true" />
+        <Download className={styles.attachDownload} aria-hidden="true" />
       )}
     </button>
   );
