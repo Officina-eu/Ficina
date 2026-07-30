@@ -44,6 +44,10 @@ pub fn app(state: AppState) -> Router {
             "/ai/improve",
             post(ai::improve).layer(DefaultBodyLimit::max(ai::MAX_IMPROVE_BYTES)),
         )
+        .route(
+            "/ai/summarize",
+            post(ai::summarize).layer(DefaultBodyLimit::max(ai::MAX_SUMMARIZE_BYTES)),
+        )
         // Admin console (tenant-admin only): AI provider management.
         .route(
             "/admin/ai/providers",

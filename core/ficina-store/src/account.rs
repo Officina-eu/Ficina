@@ -565,16 +565,19 @@ impl AccountStore {
             .await?;
 
         let message_id = MessageId::generate();
+        // Cc joins the full-text search corpus (Bcc does not — it is private to
+        // the sender's own copy and searching it is not expected).
         let search_text = format!(
-            "{} {} {} {}",
-            parsed.subject, parsed.from_addr, parsed.to_addrs, parsed.body_text
+            "{} {} {} {} {}",
+            parsed.subject, parsed.from_addr, parsed.to_addrs, parsed.cc_addrs, parsed.body_text
         );
         sqlx::query!(
             "INSERT INTO messages \
              (id, tenant_id, user_id, thread_id, blob_id, message_id_hdr, subject, from_addr, \
-              to_addrs, sent_at, received_at, size, auth_spf, auth_dkim, auth_dmarc, auth_raw, search) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11, now()), \
-                     $12,$13,$14,$15,$16, to_tsvector('simple',$17))",
+              to_addrs, cc_addrs, bcc_addrs, sent_at, received_at, size, auth_spf, auth_dkim, \
+              auth_dmarc, auth_raw, search) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE($13, now()), \
+                     $14,$15,$16,$17,$18, to_tsvector('simple',$19))",
             message_id.as_str(),
             self.tenant.as_str(),
             self.user.as_str(),
@@ -584,6 +587,8 @@ impl AccountStore {
             parsed.subject,
             parsed.from_addr,
             parsed.to_addrs,
+            parsed.cc_addrs,
+            parsed.bcc_addrs,
             parsed.sent_at,
             received_at,
             size,
@@ -746,7 +751,7 @@ impl AccountStore {
     pub async fn message(&self, id: &MessageId) -> Result<Message> {
         let row = sqlx::query!(
             "SELECT id, thread_id, blob_id, message_id_hdr, subject, from_addr, to_addrs, \
-             sent_at, received_at, size, auth_spf, auth_dkim, auth_dmarc \
+             cc_addrs, bcc_addrs, sent_at, received_at, size, auth_spf, auth_dkim, auth_dmarc \
              FROM messages WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
             self.tenant.as_str(),
             self.user.as_str(),
@@ -763,6 +768,8 @@ impl AccountStore {
             subject: row.subject,
             from_addr: row.from_addr,
             to_addrs: row.to_addrs,
+            cc_addrs: row.cc_addrs,
+            bcc_addrs: row.bcc_addrs,
             sent_at: row.sent_at,
             received_at: row.received_at,
             size: row.size,

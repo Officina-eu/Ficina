@@ -40,6 +40,7 @@ const HEADER_PROPS = [
   "from",
   "to",
   "cc",
+  "bcc",
   "subject",
   "receivedAt",
   "size",
@@ -47,6 +48,7 @@ const HEADER_PROPS = [
   "hasAttachment",
   "messageId",
   "references",
+  "ficina:authentication",
 ];
 
 export class JmapClient {
@@ -535,6 +537,19 @@ export class JmapClient {
     return json.text;
   }
 
+  /** Summarize an email thread via the tenant's AI backend (ADR 0011); throws
+   * if AI is unavailable (the reading pane then just hides the summary card). */
+  async summarizeThread(text: string): Promise<string> {
+    const res = await this.#fetch(`${window.location.origin}/ai/summarize`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new JmapError(`summarize ${res.status}`);
+    const json = (await res.json()) as { summary: string };
+    return json.summary;
+  }
+
   /** Fetch an attachment's bytes as a Blob (authorized), for saving. Resolves
    * the session download URL template with the account, blob id, and name. */
   async downloadAttachment(blobId: string, name: string): Promise<Blob> {
@@ -642,6 +657,7 @@ export class JmapClient {
     from: EmailAddress;
     to: EmailAddress[];
     cc?: EmailAddress[];
+    bcc?: EmailAddress[];
     subject: string;
     bodyText: string;
     bodyHtml?: string;
@@ -673,6 +689,9 @@ export class JmapClient {
       }));
     }
     if (params.cc !== undefined && params.cc.length > 0) email.cc = params.cc;
+    // Bcc goes into the draft (so the sender's Sent copy records it); the server
+    // strips the Bcc header from the bytes it transmits to recipients.
+    if (params.bcc !== undefined && params.bcc.length > 0) email.bcc = params.bcc;
     if (params.inReplyTo !== undefined && params.inReplyTo.length > 0) email.inReplyTo = params.inReplyTo;
     if (params.references !== undefined && params.references.length > 0) email.references = params.references;
     const res = await this.#request([["Email/set", { accountId, create: { draft: email } }, "c"]]);

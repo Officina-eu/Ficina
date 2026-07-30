@@ -154,7 +154,12 @@ async fn create_one(account: &Account, props: &Value, state: &AppState) -> Resul
         tracing::error!("EmailSubmission/set: no submission listener configured");
         return Err(set_err("forbiddenToSend", "sending is not available"));
     };
-    submit(addr, &mail_from, &rcpts, bytes.as_ref())
+    // Privacy: strip the `Bcc:` header from the bytes put on the wire so
+    // recipients never learn who was blind-copied. The sender's own copy (moved
+    // to Sent by `post_send`) keeps `bytes` intact; delivery to the bcc'd
+    // addresses happens through the envelope `rcptTo` above.
+    let wire = strip_bcc_header(bytes.as_ref());
+    submit(addr, &mail_from, &rcpts, &wire)
         .await
         .map_err(|reason| {
             tracing::error!(reason = %reason, "EmailSubmission/set: submission failed");
@@ -287,9 +292,45 @@ fn extract_from_addr(msg: &[u8]) -> Option<String> {
     }
 }
 
+/// Removes any `Bcc:` header field (and its folded continuation lines) from a
+/// message's header block, leaving every other byte unchanged. This is the
+/// privacy guarantee for blind-carbon: the sender's stored copy keeps `Bcc:`,
+/// but the bytes transmitted to recipients must not. Only the header section is
+/// examined — a body line that happens to start with `Bcc:` is untouched.
+fn strip_bcc_header(raw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    let mut in_headers = true;
+    let mut skipping = false;
+    while i < raw.len() {
+        let end = raw[i..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(raw.len(), |p| i + p + 1);
+        let line = &raw[i..end];
+        if in_headers {
+            if line == b"\r\n" || line == b"\n" {
+                // The blank line ends the header block; copy it and stop.
+                in_headers = false;
+                skipping = false;
+            } else if !matches!(line.first(), Some(b' ' | b'\t')) {
+                // A new header field: skip it (and its folds) iff it is Bcc.
+                skipping = line.len() >= 4 && line[..4].eq_ignore_ascii_case(b"bcc:");
+            }
+            if !skipping {
+                out.extend_from_slice(line);
+            }
+        } else {
+            out.extend_from_slice(line);
+        }
+        i = end;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{extract_from_addr, valid_addr};
+    use super::{extract_from_addr, strip_bcc_header, valid_addr};
 
     #[test]
     fn accepts_a_normal_address() {
@@ -316,5 +357,29 @@ mod tests {
             Some("bare@example.eu".to_owned())
         );
         assert_eq!(extract_from_addr(b"To: x@y\r\n\r\nbody"), None);
+    }
+
+    #[test]
+    fn strips_bcc_from_the_wire_only() {
+        // A simple Bcc between other headers is removed; the rest is byte-exact.
+        let msg = b"From: a@x\r\nTo: b@y\r\nBcc: secret@z\r\nSubject: hi\r\n\r\nbody\r\n";
+        let out = strip_bcc_header(msg);
+        assert_eq!(out, b"From: a@x\r\nTo: b@y\r\nSubject: hi\r\n\r\nbody\r\n");
+        assert!(!out.windows(4).any(|w| w.eq_ignore_ascii_case(b"bcc:")));
+
+        // A FOLDED Bcc (continuation lines) is removed whole.
+        let folded = b"To: b@y\r\nBcc: one@z,\r\n two@z,\r\n\tthree@z\r\nSubject: s\r\n\r\nb";
+        assert_eq!(strip_bcc_header(folded), b"To: b@y\r\nSubject: s\r\n\r\nb");
+
+        // A body line that merely starts with 'Bcc:' is NOT touched.
+        let body_bcc = b"To: b@y\r\n\r\nBcc: this is body text\r\n";
+        assert_eq!(strip_bcc_header(body_bcc), body_bcc);
+
+        // Case-insensitive on the field name; no Bcc is a no-op.
+        assert_eq!(
+            strip_bcc_header(b"bCc: x@z\r\nTo: y@w\r\n\r\nb"),
+            b"To: y@w\r\n\r\nb"
+        );
+        assert_eq!(strip_bcc_header(b"To: y@w\r\n\r\nb"), b"To: y@w\r\n\r\nb");
     }
 }

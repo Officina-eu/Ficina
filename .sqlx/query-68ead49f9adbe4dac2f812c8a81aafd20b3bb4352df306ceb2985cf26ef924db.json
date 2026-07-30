@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, thread_id, blob_id, message_id_hdr, subject, from_addr, to_addrs, sent_at, received_at, size, auth_spf, auth_dkim, auth_dmarc FROM messages WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+  "query": "SELECT id, thread_id, blob_id, message_id_hdr, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, sent_at, received_at, size, auth_spf, auth_dkim, auth_dmarc FROM messages WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
   "describe": {
     "columns": [
       {
@@ -40,31 +40,41 @@
       },
       {
         "ordinal": 7,
+        "name": "cc_addrs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "bcc_addrs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
         "name": "sent_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "received_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "size",
         "type_info": "Int8"
       },
       {
-        "ordinal": 10,
+        "ordinal": 12,
         "name": "auth_spf",
         "type_info": "Text"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "auth_dkim",
         "type_info": "Text"
       },
       {
-        "ordinal": 12,
+        "ordinal": 14,
         "name": "auth_dmarc",
         "type_info": "Text"
       }
@@ -84,6 +94,8 @@
       false,
       false,
       false,
+      false,
+      false,
       true,
       false,
       false,
@@ -92,5 +104,5 @@
       true
     ]
   },
-  "hash": "02f5f3e1fed02bfd3612a0e2778e27464a0aa7f6a1fc0a76a6784016cd125a05"
+  "hash": "68ead49f9adbe4dac2f812c8a81aafd20b3bb4352df306ceb2985cf26ef924db"
 }

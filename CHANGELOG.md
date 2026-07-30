@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- New: **Cc and Bcc.** Compose sends to Cc and Bcc recipients; the reading pane
+  shows the full To / Cc / Bcc of each message. Bcc is written into the sender's
+  own copy (so Sent records who was blind-copied) but the server **strips the
+  Bcc header from the transmitted bytes**, so recipients never see it — while
+  Bcc addresses are still delivered via the envelope. A received message's Bcc is
+  always empty, and Cc (never Bcc) joins the searchable text.
+- New: **AI conversation summary.** Opening a conversation can produce a short
+  Ficina-written summary through the tenant's configured model
+  (`POST /ai/summarize`), degrading quietly when AI is off.
+- New: **Verified sender badge.** A message whose inbound authentication passed
+  (DMARC, or DKIM in DMARC's absence) shows a "Verified" pill in the reading pane.
 - New: **Out-of-office auto-reply.** A settings toggle (account menu → Settings)
   with an optional subject and a message; turning it on installs and activates a
   managed `out-of-office` Sieve **vacation** script, so replies go out through

@@ -14,6 +14,7 @@ function headers(partial: Partial<EmailHeaders>): EmailHeaders {
     from: null,
     to: null,
     cc: null,
+    bcc: null,
     subject: null,
     receivedAt: "2026-07-01T09:00:00Z",
     size: 0,

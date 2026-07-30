@@ -19,6 +19,53 @@ use crate::state::{AppState, authenticate};
 /// after (the router-wide limit is the much larger blob-upload ceiling).
 pub const MAX_IMPROVE_BYTES: usize = 64 * 1024;
 
+/// Cap the thread text we send for summarization (bytes) — larger than a single
+/// draft since it is a whole conversation, but still bounded.
+pub const MAX_SUMMARIZE_BYTES: usize = 256 * 1024;
+
+/// Load the tenant's default AI backend config, or a 503 problem if none is set.
+async fn tenant_ai_config(account: &crate::state::Account) -> Result<AiConfig, Problem> {
+    let row = account
+        .acc
+        .default_ai_config()
+        .await
+        .map_err(|_| Problem::server_error())?
+        .ok_or_else(|| ai_problem(&InferenceError::NotConfigured))?;
+    Ok(AiConfig {
+        base_url: row.base_url,
+        model: row.model,
+        api_key: row.api_key,
+        enabled: row.enabled,
+    })
+}
+
+/// `POST /ai/summarize` — `{"text": "<thread>"}` → `{"summary": "..."}`. The
+/// reading pane calls this when a conversation opens; degrades the same way as
+/// `/ai/improve` (503 when AI is off, 502 on a backend failure).
+pub async fn summarize(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    if body.len() > MAX_SUMMARIZE_BYTES {
+        return Err(Problem::with(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "text too large",
+        ));
+    }
+    let request: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let text = request.get("text").and_then(Value::as_str).unwrap_or("");
+    if text.trim().is_empty() {
+        return Err(Problem::with(StatusCode::BAD_REQUEST, "text required"));
+    }
+    let config = tenant_ai_config(&account).await?;
+    let summary = ficina_ai::summarize(&config, text)
+        .await
+        .map_err(|e| ai_problem(&e))?;
+    Ok(Json(json!({ "summary": summary })))
+}
+
 /// `POST /ai/improve` — `{"text": "..."}` → `{"text": "improved"}`.
 ///
 /// Soft-degrading by contract: if AI is disabled/unconfigured the caller gets a
@@ -42,19 +89,7 @@ pub async fn improve(
         return Err(Problem::with(StatusCode::BAD_REQUEST, "text required"));
     }
 
-    let row = account
-        .acc
-        .default_ai_config()
-        .await
-        .map_err(|_| Problem::server_error())?
-        .ok_or_else(|| ai_problem(&InferenceError::NotConfigured))?;
-    let config = AiConfig {
-        base_url: row.base_url,
-        model: row.model,
-        api_key: row.api_key,
-        enabled: row.enabled,
-    };
-
+    let config = tenant_ai_config(&account).await?;
     let improved = ficina_ai::improve(&config, text)
         .await
         .map_err(|e| ai_problem(&e))?;

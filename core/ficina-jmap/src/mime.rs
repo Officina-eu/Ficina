@@ -35,6 +35,11 @@ pub struct Outgoing {
     pub from: Addr,
     pub to: Vec<Addr>,
     pub cc: Vec<Addr>,
+    /// Blind-carbon recipients. The `Bcc:` header is written here so the
+    /// sender's own (Drafts/Sent) copy records them, but it is **stripped from
+    /// the message before transmission** (see `submission::strip_bcc_header`) so
+    /// recipients never learn who was blind-copied. Delivery uses the envelope.
+    pub bcc: Vec<Addr>,
     pub subject: String,
     /// Parent message-ids (bare, no angle brackets) for `In-Reply-To`.
     pub in_reply_to: Vec<String>,
@@ -63,6 +68,9 @@ pub fn build(msg: &Outgoing) -> Vec<u8> {
     }
     if !msg.cc.is_empty() {
         headers.push(fold(&format!("Cc: {}", format_addr_list(&msg.cc))));
+    }
+    if !msg.bcc.is_empty() {
+        headers.push(fold(&format!("Bcc: {}", format_addr_list(&msg.bcc))));
     }
     headers.push(fold(&format!(
         "Subject: {}",
@@ -390,6 +398,7 @@ mod tests {
             from: addr(Some("Disan"), "disan@namel3ss.com"),
             to: vec![addr(Some("Alice Ng"), "alice@example.eu")],
             cc: Vec::new(),
+            bcc: Vec::new(),
             subject: subject.to_owned(),
             in_reply_to: Vec::new(),
             references: Vec::new(),

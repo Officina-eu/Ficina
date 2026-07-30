@@ -186,6 +186,10 @@ pub fn email_json(
         "subject": m.subject,
         "from": address_list(&m.from_addr),
         "to": address_list(&m.to_addrs),
+        "cc": address_list(&m.cc_addrs),
+        // Bcc is populated only on the sender's own copy; a received copy has it
+        // empty, so this never discloses another recipient's blind copies.
+        "bcc": address_list(&m.bcc_addrs),
         "preview": preview,
         "hasAttachment": has_attachment,
         "messageId": m.message_id_hdr.as_ref().map(|v| vec![v.clone()]),

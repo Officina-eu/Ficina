@@ -210,6 +210,11 @@ pub struct Message {
     pub from_addr: String,
     /// Unfolded `To`.
     pub to_addrs: String,
+    /// Unfolded `Cc`.
+    pub cc_addrs: String,
+    /// Unfolded `Bcc` — populated only on the sender's own copy (received
+    /// copies never carry it; it is stripped from the wire message).
+    pub bcc_addrs: String,
     /// `Date` header, when present.
     pub sent_at: Option<OffsetDateTime>,
     /// When the store received it.

@@ -44,6 +44,12 @@ export interface EmailHeaders {
   from: EmailAddress[] | null;
   to: EmailAddress[] | null;
   cc: EmailAddress[] | null;
+  /**
+   * Blind-carbon recipients. Populated only on the sender's own (Sent/draft)
+   * copy; a received copy always has this empty, so it never discloses another
+   * recipient's blind copies.
+   */
+  bcc: EmailAddress[] | null;
   subject: string | null;
   receivedAt: string;
   size: number;
@@ -52,6 +58,17 @@ export interface EmailHeaders {
   /** RFC 5322 Message-ID(s), for reply threading. */
   messageId: string[] | null;
   references: string[] | null;
+  /**
+   * Ficina's parsed inbound-authentication verdict (non-standard, additive).
+   * Absent on outgoing copies; each field is "pass" | "fail" | "none" | etc.
+   */
+  "ficina:authentication"?: MessageAuthentication | null;
+}
+
+export interface MessageAuthentication {
+  spf: string | null;
+  dkim: string | null;
+  dmarc: string | null;
 }
 
 export interface EmailBodyValue {

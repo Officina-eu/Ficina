@@ -568,6 +568,7 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
         from,
         to: parse_addr_list(props.get("to")),
         cc: parse_addr_list(props.get("cc")),
+        bcc: parse_addr_list(props.get("bcc")),
         subject: props
             .get("subject")
             .and_then(Value::as_str)

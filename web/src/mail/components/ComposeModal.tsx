@@ -1,8 +1,9 @@
 // The compose window: a new message, reply, reply-all, or forward. Recipients
 // are chips (To / Cc / Bcc), the quoted original is tucked behind a toggle, and
 // on send it creates a draft (Email/set) then submits it (EmailSubmission/set),
-// which sends it and files it to Sent. Bcc recipients ride the envelope only —
-// never the visible headers.
+// which sends it and files it to Sent. Bcc recipients are written into the
+// sender's own copy but the server strips the Bcc header from the transmitted
+// bytes, so they ride the envelope for delivery yet never appear to recipients.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -361,6 +362,7 @@ export function ComposeModal({
         from: { name: fromName.length > 0 ? fromName : null, email: fromEmail },
         to,
         cc,
+        bcc,
         subject,
         bodyText: fullText,
         ...(bodyHtml !== undefined ? { bodyHtml } : {}),
@@ -368,10 +370,12 @@ export function ComposeModal({
         references: prefill.references,
         attachments: attachments.map((a) => ({ blobId: a.blobId, type: a.type, name: a.name })),
       });
-      // Bcc rides the envelope only — it is deliberately absent from the draft
-      // headers above but present in the submission recipients here. The draft
-      // now exists; hand it to the parent, which holds it for the Undo window
-      // and submits after. Undo just leaves it in Drafts.
+      // Bcc is written into the draft so the sender's own Sent copy records who
+      // was blind-copied; the server strips the Bcc header from the bytes it
+      // transmits, so recipients never see it. Bcc addresses still ride the
+      // envelope recipients here so they are actually delivered. The draft now
+      // exists; hand it to the parent, which holds it for the Undo window and
+      // submits after. Undo just leaves it in Drafts.
       const rcpts = [...to, ...cc, ...bcc].map((a) => a.email);
       onQueueSend({ emailId, fromEmail, rcpts });
     } catch {

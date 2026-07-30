@@ -23,6 +23,11 @@ pub struct ParsedMessage {
     pub from_addr: String,
     /// Unfolded `To`.
     pub to_addrs: String,
+    /// Unfolded `Cc`.
+    pub cc_addrs: String,
+    /// Unfolded `Bcc` (present only on the sender's own copy — the wire message
+    /// has it stripped, so a received message parses this as empty).
+    pub bcc_addrs: String,
     /// Message-ids referenced via `In-Reply-To` + `References`.
     pub referenced_ids: Vec<String>,
     /// Parsed `Date`, when present and well-formed.
@@ -51,6 +56,8 @@ pub fn parse(raw: &[u8]) -> ParsedMessage {
     let subject = header(&msg, "Subject").map(decode_hdr).unwrap_or_default();
     let from_addr = header(&msg, "From").map(decode_hdr).unwrap_or_default();
     let to_addrs = header(&msg, "To").map(decode_hdr).unwrap_or_default();
+    let cc_addrs = header(&msg, "Cc").map(decode_hdr).unwrap_or_default();
+    let bcc_addrs = header(&msg, "Bcc").map(decode_hdr).unwrap_or_default();
 
     let message_id = header(&msg, "Message-ID")
         .map(unfold)
@@ -92,6 +99,8 @@ pub fn parse(raw: &[u8]) -> ParsedMessage {
         subject,
         from_addr,
         to_addrs,
+        cc_addrs,
+        bcc_addrs,
         referenced_ids,
         sent_at,
         auth_spf,

@@ -2,7 +2,7 @@
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
 import { useState } from "react";
-import { Download, Forward, Paperclip, Reply, ReplyAll, Trash2 } from "lucide-react";
+import { Download, Forward, Paperclip, Reply, ReplyAll, ShieldCheck, Trash2 } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Avatar, IconButton, Spinner, cx } from "../../ds";
@@ -78,10 +78,43 @@ interface ThreadMessageProps {
   onDelete: () => void;
 }
 
+function displayName(a: EmailAddress, me: string | undefined): string {
+  if (me !== undefined && a.email.toLowerCase() === me) return "me";
+  return a.name !== null && a.name.length > 0 ? a.name : a.email;
+}
+
 function recipientLine(to: EmailAddress[] | null, me: string | undefined): string {
   if (to === null || to.length === 0) return "";
-  if (me !== undefined && to.some((a) => a.email.toLowerCase() === me)) return "me";
-  return to.map((a) => (a.name !== null && a.name.length > 0 ? a.name : a.email)).join(", ");
+  return to.map((a) => displayName(a, me)).join(", ");
+}
+
+/** True when inbound authentication passed strongly enough to vouch for the
+ * sender: DMARC pass, or DKIM pass in the absence of a DMARC verdict. */
+function isVerified(email: EmailFull): boolean {
+  const auth = email["ficina:authentication"];
+  if (auth === undefined || auth === null) return false;
+  if (auth.dmarc === "pass") return true;
+  return auth.dkim === "pass" && (auth.dmarc === null || auth.dmarc === "none");
+}
+
+/** One "To / Cc / Bcc" row of the expanded recipient block; renders nothing
+ * when the field is empty. Bcc is only ever populated on the sender's own copy. */
+function RecipientRow({
+  label,
+  people,
+  me,
+}: {
+  label: string;
+  people: EmailAddress[] | null;
+  me: string | undefined;
+}) {
+  if (people === null || people.length === 0) return null;
+  return (
+    <div className={styles.recipientRow}>
+      <span className={styles.recipientLabel}>{label}</span>
+      <span className={styles.recipientNames}>{recipientLine(people, me)}</span>
+    </div>
+  );
 }
 
 export function ThreadMessage({
@@ -97,6 +130,7 @@ export function ThreadMessage({
   const text = expanded ? textContent(email) : null;
   const html = expanded && text === null ? htmlContent(email) : null;
   const attachments = expanded ? (email.attachments ?? []) : [];
+  const verified = expanded && isVerified(email);
 
   return (
     <article className={cx(styles.message, expanded && styles.expanded)}>
@@ -108,12 +142,24 @@ export function ThreadMessage({
             {expanded && email.from?.[0]?.email !== undefined && (
               <span className={styles.senderEmail}>{`<${email.from[0].email}>`}</span>
             )}
+            {verified && (
+              <span className={styles.verified} title={strings.senderVerifiedTitle}>
+                <ShieldCheck className={styles.verifiedIcon} aria-hidden="true" />
+                {strings.senderVerified}
+              </span>
+            )}
             {email.hasAttachment && <Paperclip className={styles.clip} aria-hidden="true" />}
             <span className={styles.date}>{formatDate(email.receivedAt)}</span>
           </div>
-          <div className={styles.headSub}>
-            {expanded ? `${strings.toLabel} ${recipientLine(email.to, me)}` : email.preview}
-          </div>
+          {expanded ? (
+            <div className={styles.recipients}>
+              <RecipientRow label={strings.toLabel} people={email.to} me={me} />
+              <RecipientRow label={strings.ccLabel} people={email.cc} me={me} />
+              <RecipientRow label={strings.bccLabel} people={email.bcc} me={me} />
+            </div>
+          ) : (
+            <div className={styles.headSub}>{email.preview}</div>
+          )}
         </div>
       </button>
 

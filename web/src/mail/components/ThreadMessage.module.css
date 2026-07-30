@@ -83,6 +83,55 @@
   white-space: nowrap;
 }
 
+/* A small "Verified" pill beside the sender when inbound authentication
+   (SPF/DKIM/DMARC) vouches for the address. */
+.verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--verdigris-50);
+  color: var(--verdigris-600);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: 1.5;
+}
+
+.verifiedIcon {
+  width: 12px;
+  height: 12px;
+}
+
+/* The expanded To / Cc / Bcc block: one label + names per line. */
+.recipients {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.recipientRow {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.recipientLabel {
+  flex-shrink: 0;
+  width: 2.2em;
+  color: var(--text-tertiary);
+  text-transform: lowercase;
+}
+
+.recipientNames {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .body {
   position: relative;
   z-index: 1;

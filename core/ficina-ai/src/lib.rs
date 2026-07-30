@@ -234,28 +234,48 @@ async fn read_body_capped(mut response: reqwest::Response) -> Result<String, Inf
     String::from_utf8(buf).map_err(|_| InferenceError::Empty)
 }
 
-/// Improve an email draft via the configured backend. User-invoked only.
-///
-/// # Errors
-/// [`InferenceError`] variants for disabled/unconfigured/unreachable/backend/
-/// empty — all safe to surface (no message content leaks).
-pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, InferenceError> {
+/// The system prompt for summarizing an email thread (ADR 0011).
+const SUMMARIZE_SYSTEM: &str = "You summarize an email thread for its recipient. \
+In one or two short sentences, say what the thread is about and any action or \
+decision the recipient needs to make, in the thread's own language. Be concrete. \
+Return only the summary — no preamble, heading, or quotation.";
+
+/// The chat messages for a "summarize this thread" request. Pure and exported
+/// so the prompt is testable without a backend.
+pub fn summarize_messages(thread: &str) -> Vec<ChatMessage> {
+    vec![
+        ChatMessage {
+            role: "system".to_owned(),
+            content: SUMMARIZE_SYSTEM.to_owned(),
+        },
+        ChatMessage {
+            role: "user".to_owned(),
+            content: thread.to_owned(),
+        },
+    ]
+}
+
+/// One chat-completions round-trip to the configured backend, returning the
+/// assistant's text. Shared by [`improve`] and [`summarize`]; enforces the
+/// enabled/configured gates and the egress policy, and never logs content.
+async fn chat(
+    config: &AiConfig,
+    messages: &[ChatMessage],
+    temperature: f32,
+) -> Result<String, InferenceError> {
     if !config.enabled {
         return Err(InferenceError::Disabled);
     }
     if config.base_url.trim().is_empty() || config.model.trim().is_empty() {
         return Err(InferenceError::NotConfigured);
     }
-
     let url = endpoint(&config.base_url, "chat/completions");
-    let messages = improve_messages(draft);
     let body = ChatRequest {
         model: config.model.trim(),
-        messages: &messages,
-        temperature: 0.3,
+        messages,
+        temperature,
         stream: false,
     };
-
     let client = build_client(&url, Duration::from_secs(60)).await?;
     let mut request = client.post(&url).json(&body);
     if let Some(key) = &config.api_key
@@ -263,7 +283,6 @@ pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, Inference
     {
         request = request.bearer_auth(key.trim());
     }
-
     let response = request
         .send()
         .await
@@ -274,6 +293,25 @@ pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, Inference
     }
     let text = read_body_capped(response).await?;
     parse_completion(&text)
+}
+
+/// Improve an email draft via the configured backend. User-invoked only.
+///
+/// # Errors
+/// [`InferenceError`] variants for disabled/unconfigured/unreachable/backend/
+/// empty — all safe to surface (no message content leaks).
+pub async fn improve(config: &AiConfig, draft: &str) -> Result<String, InferenceError> {
+    chat(config, &improve_messages(draft), 0.3).await
+}
+
+/// Summarize an email thread via the configured backend (ADR 0011). The reading
+/// pane calls this when a conversation opens.
+///
+/// # Errors
+/// [`InferenceError`] variants for disabled/unconfigured/unreachable/backend/
+/// empty — all safe to surface (no message content leaks).
+pub async fn summarize(config: &AiConfig, thread: &str) -> Result<String, InferenceError> {
+    chat(config, &summarize_messages(thread), 0.2).await
 }
 
 /// A lightweight connectivity check for the admin "Test connection" action:

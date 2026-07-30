@@ -10,6 +10,7 @@ function email(partial: Partial<EmailHeaders> & { id: string; threadId: string }
     from: null,
     to: null,
     cc: null,
+    bcc: null,
     subject: null,
     receivedAt: "2026-07-01T09:00:00Z",
     size: 0,
