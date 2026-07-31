@@ -143,6 +143,44 @@ export class JmapClient {
     if (notUpdated !== undefined) throw new JmapError("could not set the label color");
   }
 
+  /** Create a folder/label, optionally nested under `parentId`. Returns its id. */
+  async createMailbox(name: string, parentId?: string | null): Promise<string> {
+    const accountId = await this.accountId();
+    const props: Record<string, unknown> = { name };
+    if (parentId != null) props.parentId = parentId;
+    const res = await this.#request([["Mailbox/set", { accountId, create: { m: props } }, "s"]]);
+    const result = this.#result(res, "s");
+    const created = (result.created as Record<string, { id: string }> | undefined)?.m;
+    if (created === undefined) throw new JmapError("could not create the folder");
+    return created.id;
+  }
+
+  /** Rename a folder/label. */
+  async renameMailbox(id: string, name: string): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([["Mailbox/set", { accountId, update: { [id]: { name } } }, "s"]]);
+    const bad = (this.#result(res, "s").notUpdated as Record<string, unknown> | undefined)?.[id];
+    if (bad !== undefined) throw new JmapError("could not rename the folder");
+  }
+
+  /** Re-parent a folder (drag into another, or to the root with null). */
+  async moveMailbox(id: string, parentId: string | null): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      ["Mailbox/set", { accountId, update: { [id]: { parentId } } }, "s"],
+    ]);
+    const bad = (this.#result(res, "s").notUpdated as Record<string, unknown> | undefined)?.[id];
+    if (bad !== undefined) throw new JmapError("could not move the folder");
+  }
+
+  /** Delete a folder/label. */
+  async deleteMailbox(id: string): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([["Mailbox/set", { accountId, destroy: [id] }, "s"]]);
+    const bad = (this.#result(res, "s").notDestroyed as Record<string, unknown> | undefined)?.[id];
+    if (bad !== undefined) throw new JmapError("could not delete the folder");
+  }
+
   /** Header rows for a mailbox, newest first, via query + back-referenced get. */
   async emailHeaders(mailboxId: string, limit = 60): Promise<EmailHeaders[]> {
     const accountId = await this.accountId();

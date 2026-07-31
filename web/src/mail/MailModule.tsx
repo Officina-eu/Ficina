@@ -190,6 +190,34 @@ export function MailModule() {
     }
   }
 
+  // Folder management: create (optionally nested), rename, delete.
+  async function createFolder(name: string, parentId: string | null) {
+    try {
+      await client.createMailbox(name, parentId);
+      mailboxes.reload();
+    } catch {
+      setToast(strings.folderActionFailed);
+    }
+  }
+  async function renameFolder(id: string, name: string) {
+    try {
+      await client.renameMailbox(id, name);
+      mailboxes.reload();
+    } catch {
+      setToast(strings.folderActionFailed);
+    }
+  }
+  async function deleteFolder(box: { id: string; name: string }) {
+    if (!window.confirm(strings.folderDeleteConfirm(box.name))) return;
+    try {
+      await client.deleteMailbox(box.id);
+      if (mailboxId === box.id) setMailboxId(null);
+      mailboxes.reload();
+    } catch {
+      setToast(strings.folderActionFailed);
+    }
+  }
+
   // Block a sender: append a server-side rule that files their mail to Junk.
   async function blockSender(email: string) {
     try {
@@ -363,6 +391,9 @@ export function MailModule() {
         onCompose={() => setCompose({ mode: "new" })}
         onDropMessage={moveIds}
         onSetColor={(id, color) => void setLabelColor(id, color)}
+        onCreateFolder={(name, parentId) => void createFolder(name, parentId)}
+        onRenameFolder={(id, name) => void renameFolder(id, name)}
+        onDeleteFolder={(box) => void deleteFolder(box)}
       />
       {!foldersCollapsed && (
         <ResizeHandle

@@ -1,15 +1,19 @@
 // The folder sidebar (Figma app shell): the Compose action, the account's
 // system folders with unread counts, and a FOLDERS section for custom
-// mailboxes. Selecting a folder drives the message list.
+// mailboxes — create, rename (inline), nest (parent/child), color, and delete.
+// Selecting a folder drives the message list.
 import { useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import {
   Archive,
   CalendarClock,
   Clock,
+  FolderPlus,
   Hash,
   Inbox,
   PenLine,
+  Pencil,
+  Plus,
   Send,
   ShieldAlert,
   Trash2,
@@ -46,39 +50,55 @@ const ROLE_ORDER: Record<string, number> = {
   trash: 7,
 };
 
-function ordered(list: Mailbox[]): { system: Mailbox[]; custom: Mailbox[] } {
-  const system = list
+function systemFolders(list: Mailbox[]): Mailbox[] {
+  return list
     .filter((m) => m.role !== null)
     .sort((a, b) => (ROLE_ORDER[a.role ?? ""] ?? 50) - (ROLE_ORDER[b.role ?? ""] ?? 50));
-  const custom = list
-    .filter((m) => m.role === null)
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-  return { system, custom };
+}
+
+/** Custom folders in tree order (parent before children), each with its depth. */
+function nestCustom(list: Mailbox[]): { box: Mailbox; depth: number }[] {
+  const custom = list.filter((m) => m.role === null);
+  const ids = new Set(custom.map((m) => m.id));
+  const byParent = new Map<string | null, Mailbox[]>();
+  for (const m of custom) {
+    const p = m.parentId !== null && ids.has(m.parentId) ? m.parentId : null;
+    const arr = byParent.get(p) ?? [];
+    arr.push(m);
+    byParent.set(p, arr);
+  }
+  for (const arr of byParent.values()) {
+    arr.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  }
+  const out: { box: Mailbox; depth: number }[] = [];
+  const walk = (parent: string | null, depth: number) => {
+    for (const m of byParent.get(parent) ?? []) {
+      out.push({ box: m, depth });
+      walk(m.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
 }
 
 /** The label color palette (warm-workshop hues + a few universals). */
 const LABEL_COLORS = [
-  "#5b8a72", // verdigris
-  "#3f7cac", // slate blue
-  "#7b6cae", // violet
-  "#c07a3e", // copper
-  "#c0603e", // terracotta
-  "#b03a4b", // crimson
-  "#4c9a8f", // teal
-  "#8a8f3a", // olive
+  "#5b8a72", "#3f7cac", "#7b6cae", "#c07a3e",
+  "#c0603e", "#b03a4b", "#4c9a8f", "#8a8f3a",
 ];
 
 interface FolderSidebarProps {
   mailboxes: Async<Mailbox[]>;
   selectedId: string | null;
-  /** When collapsed the panel is a compact icon-only column. */
   collapsed: boolean;
   onSelect: (id: string) => void;
   onCompose: () => void;
-  /** Drop dragged messages (a whole conversation) into a folder — moves them. */
   onDropMessage: (emailIds: string[], mailboxId: string) => void;
-  /** Set (or clear, with null) a label's color. */
   onSetColor: (mailboxId: string, color: string | null) => void;
+  /** Create a folder (optionally nested under `parentId`). */
+  onCreateFolder: (name: string, parentId: string | null) => void;
+  onRenameFolder: (id: string, name: string) => void;
+  onDeleteFolder: (box: Mailbox) => void;
 }
 
 export function FolderSidebar({
@@ -89,26 +109,66 @@ export function FolderSidebar({
   onCompose,
   onDropMessage,
   onSetColor,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
 }: FolderSidebarProps) {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-  // Right-click color picker for a label: anchored at the cursor.
-  const [picker, setPicker] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ box: Mailbox; x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  // A pending new folder, with the parent it nests under (null = root).
+  const [creating, setCreating] = useState<{ parentId: string | null; value: string } | null>(null);
 
-  function row(box: Mailbox, leading: ReactNode, colorable = false) {
+  function commitRename() {
+    if (editing !== null && editing.value.trim().length > 0) {
+      onRenameFolder(editing.id, editing.value.trim());
+    }
+    setEditing(null);
+  }
+  function commitCreate() {
+    if (creating !== null && creating.value.trim().length > 0) {
+      onCreateFolder(creating.value.trim(), creating.parentId);
+    }
+    setCreating(null);
+  }
+  function onEditKey(e: KeyboardEvent<HTMLInputElement>, commit: () => void, cancel: () => void) {
+    if (e.key === "Enter") commit();
+    else if (e.key === "Escape") cancel();
+  }
+
+  function row(box: Mailbox, leading: ReactNode, opts?: { colorable?: boolean; depth?: number }) {
     const active = box.id === selectedId;
+    const depth = opts?.depth ?? 0;
+    if (editing?.id === box.id) {
+      return (
+        <div key={box.id} className={styles.item} style={{ paddingLeft: 12 + depth * 14 }}>
+          {leading}
+          <input
+            className={styles.rename}
+            value={editing.value}
+            autoFocus
+            onChange={(e) => setEditing({ id: box.id, value: e.target.value })}
+            onBlur={commitRename}
+            onKeyDown={(e) => onEditKey(e, commitRename, () => setEditing(null))}
+            aria-label={strings.folderRename}
+          />
+        </div>
+      );
+    }
     return (
       <button
         key={box.id}
         type="button"
         className={cx(styles.item, active && styles.active, dragOverId === box.id && styles.dropTarget)}
+        style={depth > 0 ? { paddingLeft: 12 + depth * 14 } : undefined}
         onClick={() => onSelect(box.id)}
         aria-current={active ? "true" : undefined}
-        title={colorable ? `${box.name} — ${strings.labelColorHint}` : box.name}
+        title={box.name}
         onContextMenu={
-          colorable
+          opts?.colorable
             ? (e) => {
                 e.preventDefault();
-                setPicker({ id: box.id, x: e.clientX, y: e.clientY });
+                setMenu({ box, x: e.clientX, y: e.clientY });
               }
             : undefined
         }
@@ -136,7 +196,6 @@ export function FolderSidebar({
     );
   }
 
-  /** The leading glyph for a label row: a colored dot (or a neutral one). */
   function labelDot(box: Mailbox): ReactNode {
     return (
       <span
@@ -147,7 +206,26 @@ export function FolderSidebar({
     );
   }
 
-  const { system, custom } = ordered(mailboxes.data ?? []);
+  function newFolderInput(parentId: string | null, depth: number) {
+    return (
+      <div className={styles.item} style={{ paddingLeft: 12 + depth * 14 }}>
+        <span className={styles.dot} aria-hidden />
+        <input
+          className={styles.rename}
+          value={creating?.value ?? ""}
+          autoFocus
+          placeholder={strings.folderNamePlaceholder}
+          onChange={(e) => setCreating({ parentId, value: e.target.value })}
+          onBlur={commitCreate}
+          onKeyDown={(e) => onEditKey(e, commitCreate, () => setCreating(null))}
+          aria-label={strings.folderNew}
+        />
+      </div>
+    );
+  }
+
+  const system = systemFolders(mailboxes.data ?? []);
+  const custom = nestCustom(mailboxes.data ?? []);
 
   return (
     <nav className={cx(styles.sidebar, collapsed && styles.collapsed)} aria-label={strings.mailFolders}>
@@ -179,34 +257,72 @@ export function FolderSidebar({
               return row(box, <Icon className={styles.icon} strokeWidth={1.75} />);
             })}
           </div>
-          {custom.length > 0 && (
-            <div className={styles.group}>
+          <div className={styles.group}>
+            <div className={styles.groupHead}>
               <h2 className={styles.heading}>{strings.mailFolders}</h2>
-              {custom.map((box) => row(box, labelDot(box), true))}
+              <button
+                type="button"
+                className={styles.newFolder}
+                onClick={() => setCreating({ parentId: null, value: "" })}
+                title={strings.folderNew}
+                aria-label={strings.folderNew}
+              >
+                <FolderPlus size={15} />
+              </button>
             </div>
-          )}
+            {custom.map(({ box, depth }) => (
+              <div key={box.id}>
+                {row(box, labelDot(box), { colorable: true, depth })}
+                {creating?.parentId === box.id && newFolderInput(box.id, depth + 1)}
+              </div>
+            ))}
+            {creating?.parentId === null && newFolderInput(null, 0)}
+          </div>
         </div>
       )}
 
-      {picker !== null && (
+      {menu !== null && (
         <>
           <button
             type="button"
             className={styles.pickerScrim}
             aria-hidden
             tabIndex={-1}
-            onClick={() => setPicker(null)}
+            onClick={() => setMenu(null)}
             onContextMenu={(e) => {
               e.preventDefault();
-              setPicker(null);
+              setMenu(null);
             }}
           />
           <div
             className={styles.palette}
             role="menu"
-            aria-label={strings.labelColor}
-            style={{ left: Math.min(picker.x, window.innerWidth - 190), top: picker.y }}
+            aria-label={menu.box.name}
+            style={{ left: Math.min(menu.x, window.innerWidth - 200), top: menu.y }}
           >
+            <button
+              type="button"
+              className={styles.menuItem}
+              onClick={() => {
+                setCreating({ parentId: menu.box.id, value: "" });
+                setMenu(null);
+              }}
+            >
+              <Plus size={14} />
+              {strings.folderNewSub}
+            </button>
+            <button
+              type="button"
+              className={styles.menuItem}
+              onClick={() => {
+                setEditing({ id: menu.box.id, value: menu.box.name });
+                setMenu(null);
+              }}
+            >
+              <Pencil size={14} />
+              {strings.folderRename}
+            </button>
+            <div className={styles.menuDivider} />
             <span className={styles.paletteHead}>{strings.labelColor}</span>
             <div className={styles.swatches}>
               {LABEL_COLORS.map((c) => (
@@ -217,8 +333,8 @@ export function FolderSidebar({
                   style={{ background: c }}
                   aria-label={c}
                   onClick={() => {
-                    onSetColor(picker.id, c);
-                    setPicker(null);
+                    onSetColor(menu.box.id, c);
+                    setMenu(null);
                   }}
                 />
               ))}
@@ -227,11 +343,23 @@ export function FolderSidebar({
               type="button"
               className={styles.clearColor}
               onClick={() => {
-                onSetColor(picker.id, null);
-                setPicker(null);
+                onSetColor(menu.box.id, null);
+                setMenu(null);
               }}
             >
               {strings.labelColorClear}
+            </button>
+            <div className={styles.menuDivider} />
+            <button
+              type="button"
+              className={cx(styles.menuItem, styles.menuDanger)}
+              onClick={() => {
+                onDeleteFolder(menu.box);
+                setMenu(null);
+              }}
+            >
+              <Trash2 size={14} />
+              {strings.folderDelete}
             </button>
           </div>
         </>

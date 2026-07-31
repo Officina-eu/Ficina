@@ -184,6 +184,13 @@ export const strings = {
   labelColor: "Label color",
   labelColorHint: "right-click to color",
   labelColorClear: "No color",
+  folderNew: "New folder",
+  folderNewSub: "New subfolder",
+  folderRename: "Rename",
+  folderDelete: "Delete folder",
+  folderNamePlaceholder: "Folder name",
+  folderDeleteConfirm: (name: string) => `Delete the folder "${name}"? Its messages are not deleted.`,
+  folderActionFailed: "That folder change didn't work — please try again.",
   // alo Transfer (large files as expiring links)
   transferLink: "link",
   transferSharedFile: "📎 Shared file",
