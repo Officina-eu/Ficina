@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **Ficina Transfer — large files as links.** A file too big to attach
+  (over 25 MB) uploads once and rides the message as a private, expiring download
+  link instead of an inline attachment, so it sidesteps recipient
+  attachment-size limits. In compose it shows as a link chip; the sent message
+  carries a tidy download card. Links are unguessable, served as a forced
+  download (never rendered inline), and expire after 14 days. Files up to 100 MB
+  (`POST /share/upload`, public `GET /share/{token}`, migration 0026).
 - New: **Colored labels.** Custom folders can be color-coded — a colored dot in
   the sidebar, set from a right-click palette (or cleared). Colors round-trip on
   `Mailbox/get`/`Mailbox/set` and are validated to a strict `#rrggbb` (migration
