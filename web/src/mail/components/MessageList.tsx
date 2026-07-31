@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlignJustify,
   Archive,
+  CalendarClock,
   Check,
   Mail,
   MailOpen,
@@ -55,6 +56,22 @@ interface MessageListProps {
   onMarkRead: (threads: ThreadRow[], read: boolean) => void;
   onSnooze: (threads: ThreadRow[], until: number) => void;
   onToggleFlag: (thread: ThreadRow) => void;
+}
+
+/** A compact flag due-date badge for a list row: a clock + short date, red when
+ * overdue. Nothing when the message has no due-date. */
+function DueBadge({ email }: { email: EmailHeaders }) {
+  const due = email["alo:flagDue"];
+  if (due == null) return null;
+  const when = new Date(due);
+  const overdue = when.getTime() < Date.now();
+  const label = when.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return (
+    <span className={cx(styles.dueBadge, overdue && styles.dueOverdue)} title={when.toLocaleString()}>
+      <CalendarClock size={12} />
+      {label}
+    </span>
+  );
 }
 
 /** A small checkbox box (avoids depending on a specific lucide check-square name). */
@@ -299,6 +316,7 @@ export function MessageList({
                   </span>
                 </button>
                 <div className={styles.rowRight}>
+                  <DueBadge email={email} />
                   <span className={styles.time}>{formatDate(email.receivedAt)}</span>
                   {thread.hasAttachment && (
                     <Paperclip className={styles.rowClip} aria-label={strings.attachments} />

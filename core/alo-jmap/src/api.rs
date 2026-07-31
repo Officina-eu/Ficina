@@ -579,6 +579,7 @@ async fn email_get(account: &Account, args: &Value, state: &AppState) -> Result<
                     .map(|b| b.to_string())
                     .collect();
                 let keywords = account.acc.keywords(&mid).await.map_err(store_err)?;
+                let flag_due = account.acc.flag_due(&mid).await.map_err(store_err)?;
                 let body = if want_body {
                     let raw = account.acc.message_bytes(&mid).await.map_err(store_err)?;
                     Some(read_body(&raw, m.blob_id.as_str(), max_body))
@@ -590,6 +591,7 @@ async fn email_get(account: &Account, args: &Value, state: &AppState) -> Result<
                     &mailbox_ids,
                     &keywords,
                     body.as_ref(),
+                    flag_due,
                 ));
             }
             Err(StoreError::NotFound) => not_found.push(json!(id)),

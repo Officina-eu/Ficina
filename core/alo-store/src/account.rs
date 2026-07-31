@@ -314,6 +314,48 @@ impl AccountStore {
         Ok(())
     }
 
+    /// Sets (or clears, with `None`) a flagged message's follow-up due-date.
+    /// `due` is a Unix epoch (seconds). Runtime query (the column is newer than
+    /// the offline cache path). Setting a due-date does not itself flag the
+    /// message — the caller sets `$flagged` alongside.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the message isn't this account's;
+    /// [`StoreError::Db`] on failure.
+    pub async fn set_flag_due(&self, id: &MessageId, due: Option<i64>) -> Result<()> {
+        let done = sqlx::query(
+            "UPDATE messages \
+             SET flag_due = CASE WHEN $4::bigint IS NULL THEN NULL ELSE to_timestamp($4) END \
+             WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(id.as_str())
+        .bind(due)
+        .execute(&self.pool)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// A message's flag due-date, or `None` if unset/absent. Runtime query.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn flag_due(&self, id: &MessageId) -> Result<Option<OffsetDateTime>> {
+        let due: Option<Option<OffsetDateTime>> = sqlx::query_scalar(
+            "SELECT flag_due FROM messages WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(id.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(due.flatten())
+    }
+
     // ---- categories (colored message labels) --------------------------
 
     /// Lists this account's categories, in the user's chosen order (then name).

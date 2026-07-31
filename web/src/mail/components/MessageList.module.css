@@ -233,6 +233,25 @@
   white-space: nowrap;
 }
 
+/* Flag due-date badge on a row (order: after the time in the column). */
+.dueBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--accent);
+  background: var(--bg-raised);
+  white-space: nowrap;
+}
+
+.dueOverdue {
+  color: var(--danger);
+  background: var(--danger-tint);
+}
+
 .rowClip {
   width: 14px;
   height: 14px;

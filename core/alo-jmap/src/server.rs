@@ -15,8 +15,8 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, blob, contacts, docs, filters, push, schedule, security, session, settings,
-    share, snooze, unsubscribe,
+    admin, ai, api, blob, contacts, docs, filters, flagdue, push, schedule, security, session,
+    settings, share, snooze, unsubscribe,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -76,6 +76,8 @@ pub fn app(state: AppState) -> Router {
         .route("/filters/block", post(filters::block))
         // RFC 8058 one-click unsubscribe (performed server-side, SSRF-guarded).
         .route("/jmap/unsubscribe", post(unsubscribe::unsubscribe))
+        // Flag follow-up due-date (set/clear a flagged message's due date).
+        .route("/jmap/flag-due", post(flagdue::set_flag_due))
         // alo Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.
         .route("/docs", get(docs::list).post(docs::create))
         .route(

@@ -811,6 +811,17 @@ export class JmapClient {
     await this.#setKeyword(id, "$flagged", flagged);
   }
 
+  /** Set (epoch seconds) or clear (null) a flagged message's follow-up due-date.
+   * Setting a date also flags the message server-side. */
+  async setFlagDue(id: string, dueAt: number | null): Promise<void> {
+    const res = await this.#fetch(`${window.location.origin}/jmap/flag-due`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ emailId: id, dueAt }),
+    });
+    if (!res.ok) throw new JmapError(`flag-due ${res.status}`);
+  }
+
   async #setKeyword(id: string, keyword: string, on: boolean): Promise<void> {
     const accountId = await this.accountId();
     const res = await this.#request([

@@ -399,6 +399,20 @@ export function MailModule() {
     void client.setFlagged(message.id, next).catch(() => {
       setFlags((prev) => new Map(prev).set(message.id, current));
     });
+    // Unflagging clears any follow-up due-date (the flag is "done").
+    if (!next) void client.setFlagDue(message.id, null).catch(() => undefined);
+  }
+
+  // Set/clear the follow-up due-date on the open conversation's latest message.
+  function setFlagDue(dueAt: number | null) {
+    if (latest === undefined) return;
+    void client
+      .setFlagDue(latest.id, dueAt)
+      .then(() => {
+        thread.reload();
+        emails.reload();
+      })
+      .catch(fail);
   }
 
   // Move a set of messages (by id) to another folder. From a real folder this is
@@ -618,6 +632,7 @@ export function MailModule() {
         onToggleCategory={toggleThreadCategory}
         onUnsubscribe={() => void unsubscribe()}
         canSnooze={!flaggedView}
+        onSetFlagDue={setFlagDue}
       />
       {compose !== null && (
         <ComposeModal

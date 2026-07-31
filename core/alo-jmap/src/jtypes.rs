@@ -139,6 +139,7 @@ pub fn email_json(
     mailbox_ids: &[String],
     keywords: &[String],
     body: Option<&ReadBody>,
+    flag_due: Option<OffsetDateTime>,
 ) -> Value {
     let mut mailboxes = Map::new();
     for id in mailbox_ids {
@@ -221,7 +222,10 @@ pub fn email_json(
         // fetch (additive, `alo:` namespaced).
         "alo:authentication": {
             "spf": m.auth_spf, "dkim": m.auth_dkim, "dmarc": m.auth_dmarc
-        }
+        },
+        // A flagged message's follow-up due-date (alo extension, additive).
+        // Null/absent when there is no due-date set.
+        "alo:flagDue": flag_due.map(utc_date)
     });
 
     if body.is_some() {

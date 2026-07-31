@@ -101,6 +101,8 @@ export interface EmailHeaders {
    * on the full email (reading pane) when the message carries one.
    */
   "alo:listUnsubscribe"?: ListUnsubscribe | null;
+  /** A flagged message's follow-up due-date (UTCDate), or null/absent. */
+  "alo:flagDue"?: string | null;
 }
 
 export interface MessageAuthentication {

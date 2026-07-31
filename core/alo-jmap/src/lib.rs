@@ -20,6 +20,7 @@ pub mod contacts;
 pub mod docs;
 pub mod error;
 pub mod filters;
+pub mod flagdue;
 pub mod jtypes;
 pub mod mime;
 pub mod mime_read;

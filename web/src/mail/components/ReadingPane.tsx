@@ -42,6 +42,7 @@ import { htmlContent, textContent, threadDigest } from "../body";
 import { ThreadMessage } from "./ThreadMessage";
 import { CategoryChips } from "./CategoryChips";
 import { CategoryPicker } from "./CategoryPicker";
+import { FlagDueControl } from "./FlagDueControl";
 import { SpamBanner } from "./SpamBanner";
 import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./ReadingPane.module.css";
@@ -116,6 +117,8 @@ interface ReadingPaneProps {
   /** Whether snooze applies here (hidden in the cross-folder Flagged view,
    * which has no source folder to restore a snoozed message to). */
   canSnooze: boolean;
+  /** Set/clear the follow-up due-date on the flagged conversation. */
+  onSetFlagDue: (dueAt: number | null) => void;
 }
 
 export function ReadingPane({
@@ -143,6 +146,7 @@ export function ReadingPane({
   onToggleCategory,
   onUnsubscribe,
   canSnooze,
+  onSetFlagDue,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
   const client = useJmapClient();
@@ -441,9 +445,12 @@ export function ReadingPane({
             </span>
           )}
         </div>
-        {activeCategories.length > 0 && (
+        {(activeCategories.length > 0 || flagged) && (
           <div className={styles.categoryRow}>
             <CategoryChips categories={activeCategories} variant="pills" />
+            {flagged && (
+              <FlagDueControl due={latest["alo:flagDue"] ?? null} onSet={onSetFlagDue} />
+            )}
           </div>
         )}
 
