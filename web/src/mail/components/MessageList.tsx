@@ -5,10 +5,12 @@
 // action bar (select-all · archive · delete · read/unread).
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlignJustify,
   Archive,
   Check,
   Mail,
   MailOpen,
+  MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
@@ -24,7 +26,7 @@ import { useJmapClient } from "../../jmap";
 import type { EmailHeaders } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import { formatDate, senderName, subjectOr } from "../format";
-import { groupThreads, type ThreadRow } from "../threads";
+import { groupThreads, flatRows, type ThreadRow } from "../threads";
 import { DRAG_EMAIL_MIME } from "../dnd";
 import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./MessageList.module.css";
@@ -37,6 +39,9 @@ interface MessageListProps {
   flagOverrides: ReadonlyMap<string, boolean>;
   foldersCollapsed: boolean;
   onToggleFolders: () => void;
+  /** Flat (per-message) list vs grouped conversations. */
+  flat: boolean;
+  onToggleView: () => void;
   onSelect: (thread: ThreadRow) => void;
   /** Batch conversation actions (a single row passes `[thread]`). */
   onArchive: (threads: ThreadRow[]) => void;
@@ -57,6 +62,8 @@ function CheckBox({ on }: { on: boolean }) {
 
 export function MessageList({
   folderName,
+  flat,
+  onToggleView,
   emails,
   selectedThreadId,
   readIds,
@@ -98,8 +105,8 @@ export function MessageList({
 
   const list = isSearch ? (results ?? []) : emails.status === "ready" ? (emails.data ?? []) : [];
   const threads = useMemo(
-    () => groupThreads(list, readIds, flagOverrides),
-    [list, readIds, flagOverrides],
+    () => (flat ? flatRows(list, readIds, flagOverrides) : groupThreads(list, readIds, flagOverrides)),
+    [flat, list, readIds, flagOverrides],
   );
   const loading = isSearch ? results === null : emails.status === "loading";
   const error = !isSearch && emails.status === "error";
@@ -182,6 +189,13 @@ export function MessageList({
               onClick={onToggleFolders}
             />
             <h1 className={styles.title}>{folderName}</h1>
+            <div className={styles.headSpacer} />
+            <IconButton
+              size="sm"
+              label={flat ? strings.viewAsConversations : strings.viewAsMessages}
+              icon={flat ? <MessagesSquare /> : <AlignJustify />}
+              onClick={onToggleView}
+            />
           </div>
           <div className={styles.search}>
             <Search size={16} className={styles.searchIcon} />

@@ -31,6 +31,16 @@ export function MailModule() {
 
   const [mailboxId, setMailboxId] = useState<string | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
+  // Conversation vs flat (per-message) list — a per-device preference.
+  const [flatView, setFlatView] = useState(() => localStorage.getItem("alo.mail.flat") === "1");
+  function toggleView() {
+    setFlatView((v) => {
+      const next = !v;
+      localStorage.setItem("alo.mail.flat", next ? "1" : "0");
+      setThreadId(null);
+      return next;
+    });
+  }
   const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
   const [flags, setFlags] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [toast, setToast] = useState<string | null>(null);
@@ -411,6 +421,8 @@ export function MailModule() {
         flagOverrides={flags}
         foldersCollapsed={foldersCollapsed}
         onToggleFolders={toggleFolders}
+        flat={flatView}
+        onToggleView={toggleView}
         onSelect={openThread}
         onArchive={(ts) => archiveIds(ts.flatMap((t) => t.memberIds))}
         onDelete={(ts) => deleteIds(ts.flatMap((t) => t.memberIds))}

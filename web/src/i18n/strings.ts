@@ -92,6 +92,8 @@ export const strings = {
   // mail — sidebar
   compose: "Compose",
   mailSearchPlaceholder: "Search mail…",
+  viewAsMessages: "Show as individual messages",
+  viewAsConversations: "Show as conversations",
 
   // mail — reading pane
   reply: "Reply",

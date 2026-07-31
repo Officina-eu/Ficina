@@ -46,3 +46,23 @@ export function groupThreads(
 
   return rows.sort((a, b) => b.latest.receivedAt.localeCompare(a.latest.receivedAt));
 }
+
+/** Flat (non-conversation) view: one row per message, newest first. Each row is
+ * a single-message "thread" so the list renders identically. */
+export function flatRows(
+  emails: EmailHeaders[],
+  readIds: ReadonlySet<string>,
+  flagOverrides: ReadonlyMap<string, boolean>,
+): ThreadRow[] {
+  return emails
+    .map((m) => ({
+      threadId: m.threadId,
+      latest: m,
+      memberIds: [m.id],
+      count: 1,
+      hasUnread: isUnread(m) && !readIds.has(m.id),
+      hasFlagged: flagOverrides.get(m.id) ?? m.keywords[KEYWORD_FLAGGED] === true,
+      hasAttachment: m.hasAttachment,
+    }))
+    .sort((a, b) => b.latest.receivedAt.localeCompare(a.latest.receivedAt));
+}
