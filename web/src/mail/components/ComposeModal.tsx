@@ -164,6 +164,9 @@ interface ComposeModalProps {
   context: ComposeContext;
   fromEmail: string;
   fromName: string;
+  /** Addresses the user may send from (canonical + aliases). A From picker is
+   * shown when there is more than one. */
+  fromOptions: string[];
   draftsMailboxId: string | null;
   /** The user's signature (HTML) — inserted into the editable body. */
   signature: string;
@@ -381,6 +384,7 @@ export function ComposeModal({
   context,
   fromEmail,
   fromName,
+  fromOptions,
   draftsMailboxId,
   signature,
   orgFooter,
@@ -389,6 +393,9 @@ export function ComposeModal({
   onScheduleSend,
 }: ComposeModalProps) {
   const client = useJmapClient();
+  // The chosen From address (default: the signed-in address). A picker is
+  // offered when the user holds more than one sendable address (aliases).
+  const [from, setFrom] = useState(fromEmail);
   const prefill = useMemo(() => buildPrefill(context, fromEmail), [context, fromEmail]);
   // The signature block seeds the editor beneath the cursor. Used only as the
   // initial editor content (compose is opened after settings load).
@@ -552,7 +559,7 @@ export function ComposeModal({
     try {
       const emailId = await client.createDraft({
         mailboxId: draftsMailboxId,
-        from: { name: fromName.length > 0 ? fromName : null, email: fromEmail },
+        from: { name: fromName.length > 0 ? fromName : null, email: from },
         to,
         cc,
         bcc,
@@ -568,7 +575,7 @@ export function ComposeModal({
       // transmits, so recipients never see it. Bcc addresses still ride the
       // envelope recipients here so they are actually delivered.
       const rcpts = [...to, ...cc, ...bcc].map((a) => a.email);
-      return { emailId, fromEmail, rcpts };
+      return { emailId, fromEmail: from, rcpts };
     } catch {
       setError(strings.composeSendError);
       setSending(false);
@@ -648,6 +655,23 @@ export function ComposeModal({
           </header>
 
           <div className={styles.fields}>
+            {fromOptions.length > 1 && (
+              <div className={styles.fromRow}>
+                <span className={styles.fromLabel}>{strings.composeFrom}</span>
+                <select
+                  className={styles.fromSelect}
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  aria-label={strings.composeFrom}
+                >
+                  {fromOptions.map((addr) => (
+                    <option key={addr} value={addr}>
+                      {addr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <RecipientInput
               label={strings.composeTo}
               value={to}

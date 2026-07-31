@@ -140,6 +140,35 @@
   padding: 0 var(--space-4);
 }
 
+/* From picker row (shown only when the user has aliases) — matches the
+   recipient rows' label + border rhythm. */
+.fromRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.fromLabel {
+  flex-shrink: 0;
+  width: 34px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.fromSelect {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-family: inherit;
+}
+
 .ccBtn {
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);

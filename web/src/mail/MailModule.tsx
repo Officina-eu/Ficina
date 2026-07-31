@@ -80,6 +80,8 @@ export function MailModule() {
     signature: "",
     orgFooter: "",
   });
+  // Addresses the user may send from (canonical + aliases), for the From picker.
+  const [sendAs, setSendAs] = useState<string[]>([]);
   const [foldersCollapsed, setFoldersCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem("alo.mail.foldersCollapsed") === "1";
@@ -148,6 +150,22 @@ export function MailModule() {
       })
       .catch(() => {
         // best-effort — compose just opens without a signature
+      });
+    return () => {
+      live = false;
+    };
+  }, [client]);
+
+  // Load the user's sendable addresses once, for the compose From picker.
+  useEffect(() => {
+    let live = true;
+    void client
+      .sendableAddresses()
+      .then((list) => {
+        if (live) setSendAs(list);
+      })
+      .catch(() => {
+        // best-effort — compose falls back to the signed-in address
       });
     return () => {
       live = false;
@@ -639,6 +657,7 @@ export function MailModule() {
           context={compose}
           fromEmail={identity?.email ?? ""}
           fromName={identity?.name ?? ""}
+          fromOptions={sendAs}
           draftsMailboxId={draftsMailboxId}
           signature={mailSettings.signature}
           orgFooter={mailSettings.orgFooter}

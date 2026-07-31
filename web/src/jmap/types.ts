@@ -20,6 +20,8 @@ export interface Session {
   "alo:aiEnabled"?: boolean;
   /** alo extension: whether the signed-in user is a tenant admin. */
   "alo:isAdmin"?: boolean;
+  /** alo extension: addresses this user may send from (canonical + aliases). */
+  "alo:sendAs"?: string[];
 }
 
 export interface EmailAddress {

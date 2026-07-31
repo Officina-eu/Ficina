@@ -37,6 +37,19 @@ pub async fn session(
         .ok()
         .flatten()
         .is_some_and(|c| c.enabled);
+    // The addresses this user may send from — their canonical address plus any
+    // aliases — so the compose UI can offer a From picker. The submission path
+    // already authorizes sending from exactly this set (submission.rs). Best
+    // effort: a read failure degrades to an empty list, and the client falls
+    // back to the signed-in address.
+    let ts = state.store.for_tenant(account.tenant.clone());
+    let mut send_as: Vec<String> = Vec::new();
+    if let Ok(Some(canonical)) = ts.email_of(&account.user).await {
+        send_as.push(canonical);
+    }
+    if let Ok(aliases) = ts.aliases_of(&account.user).await {
+        send_as.extend(aliases);
+    }
     let l = &state.limits;
     let base = &state.base_url;
 
@@ -106,6 +119,9 @@ pub async fn session(
         // tenant, so the client shows or hides AI affordances (ADR 0011).
         "alo:aiEnabled": ai_enabled,
         // Whether the signed-in user is a tenant admin (gates the admin console).
-        "alo:isAdmin": account.is_admin
+        "alo:isAdmin": account.is_admin,
+        // The addresses this user may send from (canonical + aliases), for the
+        // compose From picker. Authorized identically in the submission path.
+        "alo:sendAs": send_as
     })))
 }

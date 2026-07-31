@@ -167,6 +167,7 @@ export const strings = {
   composeLabelSubject: "Subject:",
   composeLabelTo: "To:",
   composeReplyAllTitle: "Reply all",
+  composeFrom: "From",
   composeTo: "To",
   composeCc: "Cc",
   composeBcc: "Bcc",

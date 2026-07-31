@@ -394,6 +394,13 @@ export class JmapClient {
     return session["alo:isAdmin"] === true;
   }
 
+  /** The addresses this user may send from (canonical + aliases), for the
+   * compose From picker. Empty if the session doesn't carry the list. */
+  async sendableAddresses(): Promise<string[]> {
+    const session = await this.session();
+    return session["alo:sendAs"] ?? [];
+  }
+
   async #admin(path: string, init: RequestInit): Promise<unknown> {
     const res = await this.#fetch(`${window.location.origin}${path}`, init);
     if (!res.ok) throw new JmapError(`admin ${res.status}`);
