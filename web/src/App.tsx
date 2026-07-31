@@ -8,6 +8,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, LoginPage, RequireAuth } from "./auth";
 import { AppShell, ComingSoon, defaultModulePath, modules } from "./shell";
 import { Spinner } from "./ds";
+import { HomeModule } from "./home";
 import { MailModule } from "./mail";
 import { AdminConsole } from "./admin";
 import { ControlConsole } from "./control";
@@ -28,6 +29,7 @@ function ModuleLoading() {
 /** The real surface for a module, or a "coming soon" placeholder. Docs'
  * technical-authoring surface (ADR 0015) lives under Drive (ADR 0010). */
 function moduleElement(id: string, label: string, Icon: (typeof modules)[number]["Icon"]) {
+  if (id === "home") return <HomeModule />;
   if (id === "mail") return <MailModule />;
   if (id === "drive") {
     return (

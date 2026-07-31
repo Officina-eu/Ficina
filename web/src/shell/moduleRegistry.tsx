@@ -3,7 +3,7 @@
 // enabled module's element at its path and falls back to a "coming soon"
 // placeholder for the rest. Adding Agenda/Chat/Drive/Docs later is ONE entry
 // here plus one area folder — the shell, rail, auth, and layout do not change.
-import { Calendar, HardDrive, Mail, MessagesSquare, Video } from "lucide-react";
+import { Calendar, HardDrive, Home, Mail, MessagesSquare, Video } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { strings } from "../i18n";
@@ -24,6 +24,7 @@ export interface ModuleDef {
 // Order and set match the Figma app-shell rail (Docs lives inside Drive per
 // ADR 0010, so it is not a separate rail item).
 export const modules: ModuleDef[] = [
+  { id: "home", path: "/home", label: strings.moduleHome, Icon: Home, enabled: true },
   { id: "mail", path: "/mail", label: strings.moduleMail, Icon: Mail, enabled: true },
   { id: "agenda", path: "/agenda", label: strings.moduleAgenda, Icon: Calendar, enabled: false },
   { id: "chat", path: "/chat", label: strings.moduleChat, Icon: MessagesSquare, enabled: false },
@@ -34,4 +35,4 @@ export const modules: ModuleDef[] = [
 ];
 
 /** The module a bare "/" should open. */
-export const defaultModulePath = "/mail";
+export const defaultModulePath = "/home";
