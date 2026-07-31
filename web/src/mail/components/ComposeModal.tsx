@@ -361,6 +361,7 @@ export function ComposeModal({
   const [aiEnabled, setAiEnabled] = useState(false);
   const [improving, setImproving] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
+  const [contacts, setContacts] = useState<EmailAddress[]>([]);
 
   useEffect(() => {
     let live = true;
@@ -371,6 +372,23 @@ export function ComposeModal({
       })
       .catch(() => {
         // AI simply stays hidden if the session can't be read.
+      });
+    return () => {
+      live = false;
+    };
+  }, [client]);
+
+  // Recent correspondents for recipient autocomplete — fetched once when the
+  // compose window opens; the fields filter this list locally as you type.
+  useEffect(() => {
+    let live = true;
+    void client
+      .recentContacts()
+      .then((list) => {
+        if (live) setContacts(list);
+      })
+      .catch(() => {
+        // Autocomplete just stays empty if contacts can't be loaded.
       });
     return () => {
       live = false;
@@ -562,6 +580,7 @@ export function ComposeModal({
               label={strings.composeTo}
               value={to}
               onChange={setTo}
+              suggestions={contacts}
               autoFocus={!isReply}
               trailing={
                 <>
@@ -578,8 +597,22 @@ export function ComposeModal({
                 </>
               }
             />
-            {showCc && <RecipientInput label={strings.composeCc} value={cc} onChange={setCc} />}
-            {showBcc && <RecipientInput label={strings.composeBcc} value={bcc} onChange={setBcc} />}
+            {showCc && (
+              <RecipientInput
+                label={strings.composeCc}
+                value={cc}
+                onChange={setCc}
+                suggestions={contacts}
+              />
+            )}
+            {showBcc && (
+              <RecipientInput
+                label={strings.composeBcc}
+                value={bcc}
+                onChange={setBcc}
+                suggestions={contacts}
+              />
+            )}
             <div className={styles.subjectRow}>
               <span className={styles.subjectLabel}>{strings.composeSubject}</span>
               <input

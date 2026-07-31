@@ -849,4 +849,13 @@ export class JmapClient {
     });
     if (!res.ok) throw new JmapError(`send-later/cancel ${res.status}`);
   }
+
+  /** Recent correspondents for compose recipient autocomplete, most frequent +
+   * recent first. Fetched once per compose session; the client filters locally. */
+  async recentContacts(): Promise<EmailAddress[]> {
+    const res = await this.#fetch(`${window.location.origin}/contacts`, { method: "GET" });
+    if (!res.ok) throw new JmapError(`contacts ${res.status}`);
+    const json = (await res.json()) as { contacts: EmailAddress[] };
+    return json.contacts;
+  }
 }

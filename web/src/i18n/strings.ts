@@ -180,6 +180,7 @@ export const strings = {
   scheduleError: "Could not schedule your message. Please try again.",
   cancelSend: "Cancel send",
   sendCancelled: "Scheduled send cancelled — your message is back in Drafts.",
+  contactSuggestions: "Matching contacts",
   composeWroteOn: "wrote:",
   composeReplyPrefix: "Re: ",
   composeBack: "Back",

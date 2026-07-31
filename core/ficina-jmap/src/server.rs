@@ -15,7 +15,7 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, blob, docs, push, schedule, security, session, settings, snooze,
+    admin, ai, api, blob, contacts, docs, push, schedule, security, session, settings, snooze,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -59,6 +59,8 @@ pub fn app(state: AppState) -> Router {
         // Send later: hold a draft until a chosen time (a background sweeper sends it).
         .route("/send-later", post(schedule::send_later))
         .route("/send-later/cancel", post(schedule::cancel_send))
+        // Recent correspondents for compose recipient autocomplete.
+        .route("/contacts", get(contacts::list))
         // Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.
         .route("/docs", get(docs::list).post(docs::create))
         .route(

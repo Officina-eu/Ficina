@@ -13,6 +13,7 @@ pub mod account_sieve;
 pub mod audit;
 pub mod blob;
 pub mod changes;
+pub mod contacts;
 pub mod control;
 pub mod dkim;
 pub mod document;
@@ -41,6 +42,7 @@ pub use dkim::DkimSigningMaterial;
 pub use document::{Document, DocumentSummary};
 pub use error::{Result, StoreError};
 pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
+pub use contacts::AddressHeaders;
 pub use schedule::DueSend;
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
