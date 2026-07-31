@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- New: **Recipient autocomplete.** Typing in To / Cc / Bcc drops down matching
+  recent correspondents (name + address) for one-click selection — arrow keys
+  and Enter, or click. The list is mined from your recent mail, ranked by how
+  often and how recently you've corresponded, and your own addresses are left
+  out (`GET /contacts`).
 - New: **Send later.** Schedule a composed message for a chosen time instead of
   sending now — the Send button has a **▾ menu** (Tomorrow morning / afternoon,
   Monday morning, or a custom date & time). The draft moves to a **Scheduled**
