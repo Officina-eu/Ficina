@@ -1,96 +1,112 @@
 /*
  * alo design tokens — the single source of visual truth.
  *
- * "Warm workshop": paper ground, verdigris primary, copper secondary, warm
- * ink text. The four brand colors come from the design brief; the warm-neutral
- * scale and the semantic tokens below are derived from them so the whole UI
- * (and every later module) reads from ONE palette, never ad-hoc hex values.
+ * "aloworld": navy structure, terracotta greeting, cream ground, stone
+ * neutrals. Navy (#102A43) is trust/enterprise and carries the rail, headers,
+ * and primary text (~55% of the surface). Terracotta (#E76F51) is the human
+ * accent — buttons, links, unread, AI, active state — kept deliberately scarce
+ * (~5%) so it always means "that's alo". Cream (#FAF7F2) is the comfortable
+ * reading ground; stone/slate stay out of the way on borders and metadata.
  *
- * Components MUST use the semantic tokens (--bg-*, --text-*, --border-*,
- * --accent*), not the raw scale — so a palette change is one edit here.
+ * The raw scale variable names are historical (verdigris/copper/warm) but now
+ * hold the aloworld palette, so every component that reads them re-themes from
+ * this one file. Components MUST use the semantic tokens (--bg-*, --text-*,
+ * --border-*, --accent*), never ad-hoc hex.
  */
 :root {
-  /* ---- brand (from the design brief) ---- */
-  --paper: #faf8f3;
-  --verdigris: #2e6b5e;
-  --copper: #b0642f;
-  --ink: #221e17; /* Figma text/primary */
+  /* ---- brand ---- */
+  --cream: #faf7f2;
+  --navy: #102a43;
+  --terracotta: #e76f51;
+  --ink: #102a43; /* primary text is navy */
 
-  /* ---- verdigris scale (primary accent) ---- */
-  --verdigris-50: #edf3f1;
-  --verdigris-100: #d9e7e2;
-  --verdigris-200: #b3cec6;
-  --verdigris-400: #3f7d6f;
-  --verdigris-500: #2e6b5e;
-  --verdigris-600: #275c50;
-  --verdigris-700: #204c42;
-  --verdigris-800: #1a3d35;
+  /* Legacy brand aliases (kept so existing references resolve). */
+  --paper: var(--cream);
+  --verdigris: var(--terracotta);
+  --copper: #cf5e40;
 
-  /* ---- copper scale (secondary accent) ---- */
-  --copper-50: #f7ede4;
-  --copper-100: #efdbcb;
-  --copper-400: #bd7541;
-  --copper-500: #b0642f;
-  --copper-600: #965328;
+  /* ---- terracotta scale (primary accent; historical name: verdigris) ---- */
+  --verdigris-50: #fceee9;
+  --verdigris-100: #f8d6cc; /* soft terracotta */
+  --verdigris-200: #f1bdad;
+  --verdigris-400: #ea8368;
+  --verdigris-500: #e76f51; /* base terracotta */
+  --verdigris-600: #d65b3e;
+  --verdigris-700: #b84a32;
+  --verdigris-800: #8f3a28;
 
-  /* ---- warm neutrals (derived from paper→ink) ---- */
+  /* ---- deep-terracotta scale (secondary accent / avatars; name: copper) ---- */
+  --copper-50: #fbebe4;
+  --copper-100: #f6d0c4;
+  --copper-400: #e28062;
+  --copper-500: #cf5e40;
+  --copper-600: #b84a32;
+
+  /* ---- navy scale ---- */
+  --navy-50: #e7ecf1;
+  --navy-100: #c6d2de;
+  --navy-400: #35506b;
+  --navy-500: #1f3d5b; /* soft navy — rail hover, dark cards */
+  --navy-600: #102a43; /* navy */
+  --navy-700: #0c2036;
+
+  /* ---- neutrals: cream ground → cool grays (historical name: warm) ---- */
   --warm-0: #ffffff;
-  --warm-50: #faf8f3;
-  --warm-100: #f3eee4;
-  --warm-150: #ece5d8;
-  --warm-200: #e2daca;
-  --warm-300: #d3c9b6;
-  --warm-400: #b3a993;
-  --warm-500: #8b8271;
-  --warm-600: #635c50;
-  --warm-700: #454037;
-  --warm-800: #2c2822;
-  --warm-900: #211d18;
+  --warm-50: #faf7f2; /* cream */
+  --warm-100: #f4efe8;
+  --warm-150: #ede7dd;
+  --warm-200: #e4ddd0;
+  --warm-300: #d4ccbe; /* scrollbar / spinner track */
+  --warm-400: #b3a48f;
+  --warm-500: #6b7280; /* metadata / tertiary text */
+  --warm-600: #4b5563;
+  --warm-700: #374151;
+  --warm-800: #1f2937;
+  --warm-900: #102a43;
 
   /* ---- semantic: backgrounds ---- */
-  --bg-app: var(--paper);          /* the workspace canvas */
-  --bg-surface: #ffffff;           /* panels, cards, reading pane (Figma bg/surface) */
-  --bg-raised: #f3efe7;            /* hover / input fills (Figma bg/raised) */
-  --bg-sunken: var(--warm-50);     /* list backgrounds */
-  --bg-rail: #2b2a26;             /* the sidebar — warm charcoal (Figma bg/sidebar) */
-  --bg-rail-hover: #37352f;       /* a step lighter for hover/active on the rail */
-  --bg-selected: var(--verdigris-50);  /* selected list row */
-  --bg-overlay: rgba(33, 29, 24, 0.45);
+  --bg-app: var(--cream);              /* the workspace canvas */
+  --bg-surface: #ffffff;               /* panels, cards, reading pane */
+  --bg-raised: #f4efe8;                /* hover / input fills */
+  --bg-sunken: var(--warm-50);         /* list backgrounds */
+  --bg-rail: var(--navy-600);          /* the module rail — navy */
+  --bg-rail-hover: var(--navy-500);    /* soft navy for hover/active on the rail */
+  --bg-selected: var(--verdigris-100); /* selected list row — soft terracotta */
+  --bg-overlay: rgba(16, 42, 67, 0.45);
 
   /* ---- semantic: text ---- */
-  --text-primary: var(--ink);          /* Figma text/primary */
-  --text-secondary: #6b6357;           /* Figma text/secondary */
+  --text-primary: var(--ink);          /* navy */
+  --text-secondary: #334155;           /* slate */
   --text-tertiary: var(--warm-500);
   --text-on-accent: #ffffff;
-  --text-on-rail: #eee9de;             /* Figma text/onDark */
-  --text-on-rail-muted: #9a9384;       /* Figma text/onDarkDim */
-  --text-link: var(--verdigris-600);
+  --text-on-rail: #f4f7fa;
+  --text-on-rail-muted: #93a3b5;
+  --text-link: var(--verdigris-600);   /* links are terracotta */
 
   /* ---- semantic: borders ---- */
-  --border-subtle: var(--warm-150);
-  --border-default: #e5dfd3;  /* Figma border/default */
-  --border-strong: #d2caba;   /* Figma border/strong */
+  --border-subtle: #ece6dc;
+  --border-default: #ded8cd;
+  --border-strong: #cbd5e1; /* stone */
 
   /* ---- semantic: accents & states ---- */
   --accent: var(--verdigris-500);
   --accent-hover: var(--verdigris-600);
   --accent-active: var(--verdigris-700);
   --accent-tint: var(--verdigris-100);
-  --accent-soft: #e0ebe7; /* Figma accent/soft — quiet accent ground (AI summary) */
+  --accent-soft: #fceae3;               /* quiet terracotta ground (AI summary) */
   --accent-secondary: var(--copper-500);
   --accent-secondary-hover: var(--copper-600);
   --accent-secondary-tint: var(--copper-100);
-  --copper-soft: #f3e4d8; /* Figma copper/soft — the AI pill ground */
+  --copper-soft: #f8d6cc;               /* AI pill ground — soft terracotta */
 
-  --danger: #b23a2c;
-  --danger-tint: #f3ddd8;
-  --success: var(--verdigris-500);
-  --warning: var(--copper-500);
-  --unread: var(--verdigris-500);
+  --danger: #dc2626;
+  --danger-tint: #fbe3e3;
+  --success: #2e8b57;
+  --warning: #f59e0b;
+  --unread: var(--verdigris-500);       /* unread dot — terracotta */
 
-  /* Neutral focus ring (never the green accent). Focus is shown by a subtle
-     border change + a thin ink outline on keyboard nav — see global.css. */
-  --focus-ring: 0 0 0 3px rgba(33, 29, 24, 0.12);
+  /* Focus: a soft terracotta ring (brief, on-brand). */
+  --focus-ring: 0 0 0 3px rgba(231, 111, 81, 0.22);
 
   /* ---- typography ---- */
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -134,10 +150,10 @@
   --radius-xl: 16px;
   --radius-full: 999px;
 
-  /* ---- elevation (warm-tinted shadows) ---- */
-  --shadow-sm: 0 1px 2px rgba(33, 29, 24, 0.06), 0 1px 1px rgba(33, 29, 24, 0.04);
-  --shadow-md: 0 4px 12px rgba(33, 29, 24, 0.08), 0 2px 4px rgba(33, 29, 24, 0.05);
-  --shadow-lg: 0 12px 32px rgba(33, 29, 24, 0.12), 0 4px 8px rgba(33, 29, 24, 0.06);
+  /* ---- elevation (navy-tinted shadows) ---- */
+  --shadow-sm: 0 1px 2px rgba(16, 42, 67, 0.06), 0 1px 1px rgba(16, 42, 67, 0.04);
+  --shadow-md: 0 4px 12px rgba(16, 42, 67, 0.08), 0 2px 4px rgba(16, 42, 67, 0.05);
+  --shadow-lg: 0 12px 32px rgba(16, 42, 67, 0.12), 0 4px 8px rgba(16, 42, 67, 0.06);
 
   /* ---- motion ---- */
   --transition-fast: 120ms ease;

@@ -63,9 +63,9 @@ function linkCardHtml(link: LinkAttachment): string {
   return (
     `<div style="border:1px solid #dcd7cc;border-radius:10px;padding:14px 16px;margin-top:12px;max-width:420px;font-family:system-ui,-apple-system,sans-serif">` +
     `<div style="font-size:13px;color:#8a8578;margin-bottom:6px">${strings.transferSharedFile}</div>` +
-    `<div style="font-weight:600;color:#2b2a26;word-break:break-all">${name}</div>` +
+    `<div style="font-weight:600;color:#102a43;word-break:break-all">${name}</div>` +
     `<div style="font-size:12px;color:#8a8578;margin:4px 0 10px">${escapeHtml(meta)}</div>` +
-    `<a href="${url}" style="display:inline-block;background:#5b8a72;color:#fff;text-decoration:none;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600">${strings.transferDownload}</a>` +
+    `<a href="${url}" style="display:inline-block;background:#e76f51;color:#fff;text-decoration:none;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600">${strings.transferDownload}</a>` +
     `</div>`
   );
 }

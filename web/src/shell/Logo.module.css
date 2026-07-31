@@ -4,6 +4,12 @@
   gap: var(--space-3);
 }
 
+/* The hand is always terracotta — the one color that means "alo". */
+.mark {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .wordmark {
   font-family: var(--font-ui);
   font-size: 1.35rem;
