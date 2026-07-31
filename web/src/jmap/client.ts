@@ -299,6 +299,47 @@ export class JmapClient {
     return (this.#result(res, "g").list as EmailHeaders[]) ?? [];
   }
 
+  /** Header rows for the cross-folder "Flagged" smart view: every $flagged
+   * message across all folders, newest first. Mirrors searchEmails but filters
+   * on the keyword instead of text (hasKeyword needs no inMailbox). */
+  async flaggedHeaders(limit = 100): Promise<EmailHeaders[]> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      [
+        "Email/query",
+        {
+          accountId,
+          filter: { hasKeyword: "$flagged" },
+          sort: [{ property: "receivedAt", isAscending: false }],
+          limit,
+        },
+        "q",
+      ],
+      [
+        "Email/get",
+        {
+          accountId,
+          "#ids": { resultOf: "q", name: "Email/query", path: "/ids" },
+          properties: HEADER_PROPS,
+        },
+        "g",
+      ],
+    ]);
+    return (this.#result(res, "g").list as EmailHeaders[]) ?? [];
+  }
+
+  /** Move messages to exactly `target`, replacing all mailbox membership. Unlike
+   * `moveMany`, this needs no source folder, so it is correct from a virtual
+   * view (e.g. Flagged) where a message's folder isn't the selected one. */
+  async moveToFolder(ids: string[], target: string): Promise<void> {
+    if (ids.length === 0) return;
+    const accountId = await this.accountId();
+    const update: Record<string, unknown> = {};
+    for (const id of ids) update[id] = { mailboxIds: { [target]: true } };
+    const res = await this.#request([["Email/set", { accountId, update }, "m"]]);
+    this.#result(res, "m");
+  }
+
   /** All messages of a thread, with bodies, oldest-first (for the conversation
    * view). One request: Thread/get feeds Email/get by back-reference. */
   async threadEmails(threadId: string): Promise<EmailFull[]> {

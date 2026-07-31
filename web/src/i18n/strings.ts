@@ -74,6 +74,7 @@ export const strings = {
   mailLoading: "Loading your mail…",
   mailSearching: "Searching…",
   mailFolders: "Folders",
+  flaggedView: "Flagged",
   resizeFolders: "Resize the folders panel (drag, or arrow keys; double-click to reset)",
   resizeMessages: "Resize the message list (drag, or arrow keys; double-click to reset)",
   collapseFolders: "Hide folders",

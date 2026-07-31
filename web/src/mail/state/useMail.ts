@@ -38,6 +38,17 @@ export function useEmailHeaders(
   );
 }
 
+/** The cross-folder "Flagged" smart view (empty, ready list when inactive). */
+export function useFlagged(active: boolean): Async<EmailHeaders[]> {
+  const client = useJmapClient();
+  return useAsync(
+    useCallback(
+      () => (active ? client.flaggedHeaders() : Promise.resolve([])),
+      [client, active],
+    ),
+  );
+}
+
 /** One message with body (null selection yields null). */
 export function useEmailBody(emailId: string | null): Async<EmailFull | null> {
   const client = useJmapClient();

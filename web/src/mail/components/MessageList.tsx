@@ -46,6 +46,8 @@ interface MessageListProps {
   onToggleView: () => void;
   /** The account's category catalog, for the colored dots on each row. */
   categories: Category[];
+  /** Whether snooze applies (hidden in the cross-folder Flagged view). */
+  canSnooze: boolean;
   onSelect: (thread: ThreadRow) => void;
   /** Batch conversation actions (a single row passes `[thread]`). */
   onArchive: (threads: ThreadRow[]) => void;
@@ -69,6 +71,7 @@ export function MessageList({
   flat,
   onToggleView,
   categories,
+  canSnooze,
   emails,
   selectedThreadId,
   readIds,
@@ -176,7 +179,9 @@ export function MessageList({
             icon={anyUnreadSelected ? <MailOpen /> : <Mail />}
             onClick={() => runBulk((ts) => onMarkRead(ts, anyUnreadSelected))}
           />
-          <SnoozeMenu compact onPick={(until) => runBulk((ts) => onSnooze(ts, until))} />
+          {canSnooze && (
+            <SnoozeMenu compact onPick={(until) => runBulk((ts) => onSnooze(ts, until))} />
+          )}
           <IconButton
             size="sm"
             label={strings.selectNone}

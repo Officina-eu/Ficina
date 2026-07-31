@@ -16,6 +16,7 @@ import {
   Plus,
   Send,
   ShieldAlert,
+  Star,
   Trash2,
   FileText,
 } from "lucide-react";
@@ -99,6 +100,9 @@ interface FolderSidebarProps {
   onCreateFolder: (name: string, parentId: string | null) => void;
   onRenameFolder: (id: string, name: string) => void;
   onDeleteFolder: (box: Mailbox) => void;
+  /** Whether the cross-folder Flagged smart view is the active selection. */
+  flaggedActive: boolean;
+  onSelectFlagged: () => void;
   /** Rendered below the folder list (the Categories section). Hidden when the
    * sidebar is collapsed, alongside the other labels. */
   extraSection?: ReactNode;
@@ -115,6 +119,8 @@ export function FolderSidebar({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
+  flaggedActive,
+  onSelectFlagged,
   extraSection,
 }: FolderSidebarProps) {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -260,6 +266,18 @@ export function FolderSidebar({
               const Icon = (box.role !== null ? ROLE_ICON[box.role] : undefined) ?? Hash;
               return row(box, <Icon className={styles.icon} strokeWidth={1.75} />);
             })}
+            {/* The cross-folder Flagged smart view — a virtual folder, so it
+                sits with the system folders but drives its own selection. */}
+            <button
+              type="button"
+              className={cx(styles.item, flaggedActive && styles.active)}
+              onClick={onSelectFlagged}
+              aria-current={flaggedActive ? "true" : undefined}
+              title={strings.flaggedView}
+            >
+              <Star className={styles.icon} strokeWidth={1.75} />
+              <span className={styles.name}>{strings.flaggedView}</span>
+            </button>
           </div>
           <div className={styles.group}>
             <div className={styles.groupHead}>

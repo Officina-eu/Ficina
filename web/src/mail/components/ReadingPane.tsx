@@ -113,6 +113,9 @@ interface ReadingPaneProps {
   /** Unsubscribe from the latest message's mailing list (one-click / mailto /
    * open link — decided by the module). */
   onUnsubscribe: () => void;
+  /** Whether snooze applies here (hidden in the cross-folder Flagged view,
+   * which has no source folder to restore a snoozed message to). */
+  canSnooze: boolean;
 }
 
 export function ReadingPane({
@@ -139,6 +142,7 @@ export function ReadingPane({
   categories,
   onToggleCategory,
   onUnsubscribe,
+  canSnooze,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
   const client = useJmapClient();
@@ -397,7 +401,7 @@ export function ReadingPane({
           <span>{strings.forward}</span>
         </button>
         <div className={styles.spacer} />
-        <SnoozeMenu onPick={onSnooze} />
+        {canSnooze && <SnoozeMenu onPick={onSnooze} />}
         <IconButton size="sm" label={strings.archive} icon={<Archive />} onClick={onArchive} />
         <Menu label={strings.moveTo} icon={<FolderInput />} items={moveItems} />
         <IconButton

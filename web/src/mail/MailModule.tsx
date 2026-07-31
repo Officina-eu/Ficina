@@ -11,7 +11,7 @@ import { ResizeHandle, cx, usePanelWidth } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
 import type { Category, EmailAddress, EmailFull } from "../jmap";
 import { useAuth } from "../auth";
-import { useCategories, useEmailHeaders, useMailboxes, useThread } from "./state/useMail";
+import { useCategories, useEmailHeaders, useFlagged, useMailboxes, useThread } from "./state/useMail";
 import { senderName } from "./format";
 import type { ThreadRow } from "./threads";
 import { FolderSidebar } from "./components/FolderSidebar";
@@ -58,6 +58,8 @@ export function MailModule() {
   const [mailboxId, setMailboxId] = useState<string | null>(null);
   // Category filter (a facet on the current folder): null = show everything.
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  // The cross-folder "Flagged" smart view (a virtual folder, not a mailbox).
+  const [flaggedView, setFlaggedView] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   // Conversation vs flat (per-message) list — a per-device preference.
   const [flatView, setFlatView] = useState(() => localStorage.getItem("alo.mail.flat") === "1");
@@ -98,20 +100,26 @@ export function MailModule() {
     });
   }
 
-  const emails = useEmailHeaders(mailboxId, categoryFilter);
+  const folderEmails = useEmailHeaders(mailboxId, categoryFilter);
+  const flaggedEmails = useFlagged(flaggedView);
+  const emails = flaggedView ? flaggedEmails : folderEmails;
   const thread = useThread(threadId);
 
   const boxes = mailboxes.status === "ready" ? (mailboxes.data ?? []) : [];
-  const folderName = boxes.find((b) => b.id === mailboxId)?.name ?? strings.moduleMail;
+  const folderName = flaggedView
+    ? strings.flaggedView
+    : (boxes.find((b) => b.id === mailboxId)?.name ?? strings.moduleMail);
   const draftsMailboxId =
     boxes.find((b) => b.role === "drafts")?.id ?? mailboxId ?? boxes[0]?.id ?? null;
 
-  // The open conversation's messages, its latest, and the ids of the ones that
-  // live in the current folder (actions apply to these).
+  // The open conversation's messages, its latest, and the ids actions apply to.
+  // In a real folder that's the folder's copies; in the cross-folder Flagged
+  // view it's the whole conversation (a message's folder isn't the selection).
   const threadMessages = thread.status === "ready" ? (thread.data ?? []) : [];
   const latest = threadMessages.length > 0 ? threadMessages[threadMessages.length - 1] : undefined;
-  const currentFolderIds =
-    mailboxId === null
+  const currentFolderIds = flaggedView
+    ? threadMessages.map((m) => m.id)
+    : mailboxId === null
       ? []
       : threadMessages.filter((m) => m.mailboxIds[mailboxId] === true).map((m) => m.id);
 
@@ -309,6 +317,14 @@ export function MailModule() {
   function openMailbox(id: string) {
     setMailboxId(id);
     setCategoryFilter(null);
+    setFlaggedView(false);
+    setThreadId(null);
+  }
+
+  // Open the cross-folder Flagged smart view.
+  function openFlagged() {
+    setFlaggedView(true);
+    setCategoryFilter(null);
     setThreadId(null);
   }
 
@@ -385,11 +401,20 @@ export function MailModule() {
     });
   }
 
-  // Move a set of messages (by id) from the current folder to another, used by
-  // both the reading-pane "Move to" menu and drag-and-drop onto a folder.
+  // Move a set of messages (by id) to another folder. From a real folder this is
+  // a source→target membership swap; from the Flagged view the source folder
+  // isn't the selection, so we replace membership outright (moveToFolder).
   function moveIds(ids: string[], targetMailboxId: string) {
-    if (mailboxId === null || targetMailboxId === mailboxId || ids.length === 0) return;
+    if (ids.length === 0) return;
     if (ids.some((id) => currentFolderIds.includes(id))) setThreadId(null);
+    if (flaggedView) {
+      void client
+        .moveToFolder(ids, targetMailboxId)
+        .then(() => afterChange(strings.mailMoved))
+        .catch(fail);
+      return;
+    }
+    if (mailboxId === null || targetMailboxId === mailboxId) return;
     void client
       .moveMany(ids, mailboxId, targetMailboxId)
       .then(() => afterChange(strings.mailMoved))
@@ -404,7 +429,7 @@ export function MailModule() {
   // pane (whole open thread) and the list rows (a specific conversation).
   function archiveIds(ids: string[]) {
     const archiveBox = boxes.find((b) => b.role === "archive");
-    if (archiveBox === undefined || mailboxId === null || ids.length === 0) {
+    if (archiveBox === undefined || ids.length === 0 || (!flaggedView && mailboxId === null)) {
       setToast(strings.archiveUnavailable);
       return;
     }
@@ -414,9 +439,16 @@ export function MailModule() {
   // Delete a set of messages: to Trash from a normal folder; permanently when
   // already in Trash (or when there is no Trash folder).
   function deleteIds(ids: string[]) {
-    if (ids.length === 0 || mailboxId === null) return;
+    if (ids.length === 0 || (!flaggedView && mailboxId === null)) return;
     if (ids.some((id) => currentFolderIds.includes(id))) setThreadId(null);
     const trash = boxes.find((b) => b.role === "trash");
+    if (flaggedView) {
+      const done = () => afterChange(strings.mailDeleted);
+      if (trash === undefined) void client.destroyMany(ids).then(done).catch(fail);
+      else void client.moveToFolder(ids, trash.id).then(done).catch(fail);
+      return;
+    }
+    if (mailboxId === null) return; // (unreachable in a real folder; narrows the type)
     if (trash === undefined || mailboxId === trash.id) {
       void client.destroyMany(ids).then(() => afterChange(strings.mailDeleted)).catch(fail);
     } else {
@@ -444,7 +476,9 @@ export function MailModule() {
   // Snooze a set of messages until `until` (Unix seconds); a server sweeper
   // returns them to the Inbox. Closes the open thread if it's among them.
   function snoozeIds(ids: string[], until: number) {
-    if (mailboxId === null || ids.length === 0) return;
+    // Snooze needs the source folder to restore to, which the cross-folder
+    // Flagged view doesn't have; the snooze control is hidden there.
+    if (mailboxId === null || flaggedView || ids.length === 0) return;
     if (ids.some((id) => currentFolderIds.includes(id))) setThreadId(null);
     void client
       .snooze(ids, mailboxId, until)
@@ -502,8 +536,10 @@ export function MailModule() {
     <div className={styles.mail} style={widthVars}>
       <FolderSidebar
         mailboxes={mailboxes}
-        selectedId={mailboxId}
+        selectedId={flaggedView ? null : mailboxId}
         collapsed={foldersCollapsed}
+        flaggedActive={flaggedView}
+        onSelectFlagged={openFlagged}
         onSelect={openMailbox}
         onCompose={() => setCompose({ mode: "new" })}
         onDropMessage={moveIds}
@@ -541,6 +577,7 @@ export function MailModule() {
         flat={flatView}
         onToggleView={toggleView}
         categories={categoryList}
+        canSnooze={!flaggedView}
         onSelect={openThread}
         onArchive={(ts) => archiveIds(ts.flatMap((t) => t.memberIds))}
         onDelete={(ts) => deleteIds(ts.flatMap((t) => t.memberIds))}
@@ -575,11 +612,12 @@ export function MailModule() {
         }
         onCancelSend={() => latest !== undefined && void cancelScheduledSend(latest.id)}
         onBlockSender={(email) => void blockSender(email)}
-        isScheduled={boxes.find((b) => b.id === mailboxId)?.role === "scheduled"}
-        isJunk={boxes.find((b) => b.id === mailboxId)?.role === "junk"}
+        isScheduled={!flaggedView && boxes.find((b) => b.id === mailboxId)?.role === "scheduled"}
+        isJunk={!flaggedView && boxes.find((b) => b.id === mailboxId)?.role === "junk"}
         categories={categoryList}
         onToggleCategory={toggleThreadCategory}
         onUnsubscribe={() => void unsubscribe()}
+        canSnooze={!flaggedView}
       />
       {compose !== null && (
         <ComposeModal
