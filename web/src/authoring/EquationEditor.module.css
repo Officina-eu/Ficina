@@ -10,8 +10,15 @@
 }
 
 .modal {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 600px;
+  /* Fixed size so switching LaTeX/Visual never resizes the popup — the symbol
+     palette flexes to absorb the difference. */
+  height: 620px;
+  max-height: 90vh;
+  overflow: hidden;
   border-radius: var(--radius-xl, 16px);
   background: var(--bg-app);
   box-shadow: var(--shadow-lg, 0 24px 60px rgba(0, 0, 0, 0.28));
@@ -170,8 +177,13 @@
   font-size: var(--text-sm);
 }
 
-/* Symbol picker — search + category chips + a scrollable, sectioned grid. */
+/* Symbol picker — search + category chips + a scrollable, sectioned grid.
+   Flexes to fill the modal's fixed height so the popup size is stable. */
 .palette {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   margin-top: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-subtle);
@@ -265,7 +277,8 @@
 }
 
 .paletteScroll {
-  max-height: 224px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   margin-top: var(--space-1);
   overscroll-behavior: contain;
