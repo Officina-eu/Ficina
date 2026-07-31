@@ -29,6 +29,7 @@ pub fn mailbox_json(m: &Mailbox) -> Value {
         "name": m.name,
         "parentId": m.parent_id.as_ref().map(|p| p.as_str()),
         "role": m.role,
+        "color": m.color,
         "sortOrder": 0,
         "totalEmails": m.total_messages,
         "unreadEmails": m.unread_messages,

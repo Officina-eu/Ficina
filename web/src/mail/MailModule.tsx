@@ -180,6 +180,16 @@ export function MailModule() {
     }
   }
 
+  // Set (or clear) a label's color, then refresh the folder list.
+  async function setLabelColor(id: string, color: string | null) {
+    try {
+      await client.setMailboxColor(id, color);
+      mailboxes.reload();
+    } catch {
+      fail();
+    }
+  }
+
   // Block a sender: append a server-side rule that files their mail to Junk.
   async function blockSender(email: string) {
     try {
@@ -352,6 +362,7 @@ export function MailModule() {
         onSelect={openMailbox}
         onCompose={() => setCompose({ mode: "new" })}
         onDropMessage={moveIds}
+        onSetColor={(id, color) => void setLabelColor(id, color)}
       />
       {!foldersCollapsed && (
         <ResizeHandle

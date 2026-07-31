@@ -212,6 +212,24 @@ fn set_error(e: &StoreError) -> Value {
     }
 }
 
+/// A "#rrggbb" hex color (exactly 7 chars). Colors are rendered into CSS on the
+/// client, so we accept nothing but a strict hex triple — never arbitrary text.
+fn is_hex_color(s: &str) -> bool {
+    s.len() == 7
+        && s.starts_with('#')
+        && s[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Parse a create-time `color` property: absent or null → no color; a valid
+/// "#rrggbb" → that color; anything else → an `invalidProperties` error.
+fn parse_color(v: Option<&Value>) -> Result<Option<String>, Value> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if is_hex_color(s) => Ok(Some(s.clone())),
+        _ => Err(method_error_desc("invalidProperties", "color must be #rrggbb")),
+    }
+}
+
 // ---- Mailbox ----------------------------------------------------------
 
 async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
@@ -279,12 +297,24 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
             // A foreign parent is rejected by create_mailbox itself
             // (the account door scopes it) — no separate guard to forget.
             let role = props.get("role").and_then(Value::as_str);
+            // An invalid color is rejected before the mailbox is created, so we
+            // never make a folder we then can't color as asked.
+            let color = match parse_color(props.get("color")) {
+                Ok(c) => c,
+                Err(e) => {
+                    not_created.insert(cid.clone(), e);
+                    continue;
+                }
+            };
             match account
                 .acc
                 .create_mailbox(parent.as_ref(), name, role)
                 .await
             {
                 Ok(id) => {
+                    if let Some(color) = color {
+                        let _ = account.acc.set_mailbox_color(&id, Some(&color)).await;
+                    }
                     created.insert(cid.clone(), json!({ "id": id.as_str() }));
                 }
                 Err(e) => {
@@ -314,6 +344,23 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
                     .and_then(Value::as_str)
                     .map(MailboxId::new);
                 result = account.acc.move_mailbox(&mailbox, parent.as_ref()).await;
+            }
+            // color: a "#rrggbb" string sets it, an explicit null clears it,
+            // anything else is invalidProperties.
+            if result.is_ok()
+                && let Some(color) = patch.get("color")
+            {
+                if color.is_null() {
+                    result = account.acc.set_mailbox_color(&mailbox, None).await;
+                } else if let Some(hex) = color.as_str().filter(|s| is_hex_color(s)) {
+                    result = account.acc.set_mailbox_color(&mailbox, Some(hex)).await;
+                } else {
+                    not_updated.insert(
+                        id.clone(),
+                        method_error_desc("invalidProperties", "color must be #rrggbb"),
+                    );
+                    continue;
+                }
             }
             match result {
                 Ok(()) => {

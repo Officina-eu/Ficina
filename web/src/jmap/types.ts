@@ -30,6 +30,8 @@ export interface Mailbox {
   name: string;
   /** JMAP role: "inbox" | "sent" | "drafts" | "trash" | "archive" | "junk" | null */
   role: string | null;
+  /** Optional "#rrggbb" label color, or null. */
+  color: string | null;
   parentId: string | null;
   sortOrder: number;
   totalEmails: number;

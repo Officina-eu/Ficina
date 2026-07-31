@@ -181,6 +181,9 @@ export const strings = {
   cancelSend: "Cancel send",
   sendCancelled: "Scheduled send cancelled — your message is back in Drafts.",
   contactSuggestions: "Matching contacts",
+  labelColor: "Label color",
+  labelColorHint: "right-click to color",
+  labelColorClear: "No color",
   blockSenderNamed: (email: string) => `Block ${email}`,
   senderBlocked: (email: string) => `Blocked ${email} — their mail now goes to Junk.`,
   // Filters & rules

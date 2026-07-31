@@ -132,6 +132,17 @@ export class JmapClient {
     return (this.#result(res, "m").list as Mailbox[]) ?? [];
   }
 
+  /** Set (or clear, with null) a mailbox/label's display color ("#rrggbb"). */
+  async setMailboxColor(mailboxId: string, color: string | null): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      ["Mailbox/set", { accountId, update: { [mailboxId]: { color } } }, "s"],
+    ]);
+    const result = this.#result(res, "s");
+    const notUpdated = (result.notUpdated as Record<string, unknown> | undefined)?.[mailboxId];
+    if (notUpdated !== undefined) throw new JmapError("could not set the label color");
+  }
+
   /** Header rows for a mailbox, newest first, via query + back-referenced get. */
   async emailHeaders(mailboxId: string, limit = 60): Promise<EmailHeaders[]> {
     const accountId = await this.accountId();

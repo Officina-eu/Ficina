@@ -239,7 +239,7 @@ impl AccountStore {
     /// [`StoreError::NotFound`] if absent or not this account's.
     pub async fn mailbox(&self, id: &MailboxId) -> Result<Mailbox> {
         let row = sqlx::query!(
-            "SELECT id, parent_id, name, role, total_messages, unread_messages \
+            "SELECT id, parent_id, name, role, color, total_messages, unread_messages \
              FROM mailboxes WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
             self.tenant.as_str(),
             self.user.as_str(),
@@ -253,6 +253,7 @@ impl AccountStore {
             parent_id: row.parent_id.map(MailboxId::new),
             name: row.name,
             role: row.role,
+            color: row.color,
             total_messages: row.total_messages,
             unread_messages: row.unread_messages,
         })
@@ -264,7 +265,7 @@ impl AccountStore {
     /// [`StoreError::Db`] on failure.
     pub async fn mailboxes(&self, page: Page) -> Result<Vec<Mailbox>> {
         let rows = sqlx::query!(
-            "SELECT id, parent_id, name, role, total_messages, unread_messages \
+            "SELECT id, parent_id, name, role, color, total_messages, unread_messages \
              FROM mailboxes WHERE tenant_id = $1 AND user_id = $2 \
              ORDER BY name LIMIT $3 OFFSET $4",
             self.tenant.as_str(),
@@ -281,10 +282,36 @@ impl AccountStore {
                 parent_id: row.parent_id.map(MailboxId::new),
                 name: row.name,
                 role: row.role,
+                color: row.color,
                 total_messages: row.total_messages,
                 unread_messages: row.unread_messages,
             })
             .collect())
+    }
+
+    /// Sets (or clears, with `None`) the display color of one of this account's
+    /// mailboxes. The color string is validated by the caller (a "#rrggbb" hex);
+    /// the store only persists it. Runtime query (the new column is not in the
+    /// offline cache path for this write).
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the mailbox isn't this account's;
+    /// [`StoreError::Db`] on failure.
+    pub async fn set_mailbox_color(&self, id: &MailboxId, color: Option<&str>) -> Result<()> {
+        let done = sqlx::query(
+            "UPDATE mailboxes SET color = $4 \
+             WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(id.as_str())
+        .bind(color)
+        .execute(&self.pool)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
     }
 
     /// Renames one of this account's mailboxes.

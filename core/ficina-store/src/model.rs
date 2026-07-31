@@ -168,6 +168,8 @@ pub struct Mailbox {
     pub name: String,
     /// JMAP role (`inbox`/`sent`/…), or `None`.
     pub role: Option<String>,
+    /// Optional display color ("#rrggbb"), for color-coded labels.
+    pub color: Option<String>,
     /// Total messages in the mailbox.
     pub total_messages: i64,
     /// Messages without the `$seen` keyword.

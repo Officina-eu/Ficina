@@ -2,6 +2,7 @@
 // system folders with unread counts, and a FOLDERS section for custom
 // mailboxes. Selecting a folder drives the message list.
 import { useState } from "react";
+import type { ReactNode } from "react";
 import {
   Archive,
   CalendarClock,
@@ -55,6 +56,18 @@ function ordered(list: Mailbox[]): { system: Mailbox[]; custom: Mailbox[] } {
   return { system, custom };
 }
 
+/** The label color palette (warm-workshop hues + a few universals). */
+const LABEL_COLORS = [
+  "#5b8a72", // verdigris
+  "#3f7cac", // slate blue
+  "#7b6cae", // violet
+  "#c07a3e", // copper
+  "#c0603e", // terracotta
+  "#b03a4b", // crimson
+  "#4c9a8f", // teal
+  "#8a8f3a", // olive
+];
+
 interface FolderSidebarProps {
   mailboxes: Async<Mailbox[]>;
   selectedId: string | null;
@@ -64,6 +77,8 @@ interface FolderSidebarProps {
   onCompose: () => void;
   /** Drop dragged messages (a whole conversation) into a folder — moves them. */
   onDropMessage: (emailIds: string[], mailboxId: string) => void;
+  /** Set (or clear, with null) a label's color. */
+  onSetColor: (mailboxId: string, color: string | null) => void;
 }
 
 export function FolderSidebar({
@@ -73,9 +88,13 @@ export function FolderSidebar({
   onSelect,
   onCompose,
   onDropMessage,
+  onSetColor,
 }: FolderSidebarProps) {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-  function row(box: Mailbox, Icon: LucideIcon) {
+  // Right-click color picker for a label: anchored at the cursor.
+  const [picker, setPicker] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  function row(box: Mailbox, leading: ReactNode, colorable = false) {
     const active = box.id === selectedId;
     return (
       <button
@@ -84,7 +103,15 @@ export function FolderSidebar({
         className={cx(styles.item, active && styles.active, dragOverId === box.id && styles.dropTarget)}
         onClick={() => onSelect(box.id)}
         aria-current={active ? "true" : undefined}
-        title={box.name}
+        title={colorable ? `${box.name} — ${strings.labelColorHint}` : box.name}
+        onContextMenu={
+          colorable
+            ? (e) => {
+                e.preventDefault();
+                setPicker({ id: box.id, x: e.clientX, y: e.clientY });
+              }
+            : undefined
+        }
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes(DRAG_EMAIL_MIME)) {
             e.preventDefault();
@@ -102,10 +129,21 @@ export function FolderSidebar({
           if (ids.length > 0) onDropMessage(ids, box.id);
         }}
       >
-        <Icon className={styles.icon} strokeWidth={1.75} />
+        {leading}
         <span className={styles.name}>{box.name}</span>
         {box.unreadEmails > 0 && <span className={styles.count}>{box.unreadEmails}</span>}
       </button>
+    );
+  }
+
+  /** The leading glyph for a label row: a colored dot (or a neutral one). */
+  function labelDot(box: Mailbox): ReactNode {
+    return (
+      <span
+        className={styles.dot}
+        style={box.color !== null ? { background: box.color } : undefined}
+        aria-hidden
+      />
     );
   }
 
@@ -136,15 +174,67 @@ export function FolderSidebar({
       {mailboxes.status === "ready" && (
         <div className={styles.scroll}>
           <div className={styles.group}>
-            {system.map((box) => row(box, (box.role !== null ? ROLE_ICON[box.role] : undefined) ?? Hash))}
+            {system.map((box) => {
+              const Icon = (box.role !== null ? ROLE_ICON[box.role] : undefined) ?? Hash;
+              return row(box, <Icon className={styles.icon} strokeWidth={1.75} />);
+            })}
           </div>
           {custom.length > 0 && (
             <div className={styles.group}>
               <h2 className={styles.heading}>{strings.mailFolders}</h2>
-              {custom.map((box) => row(box, Hash))}
+              {custom.map((box) => row(box, labelDot(box), true))}
             </div>
           )}
         </div>
+      )}
+
+      {picker !== null && (
+        <>
+          <button
+            type="button"
+            className={styles.pickerScrim}
+            aria-hidden
+            tabIndex={-1}
+            onClick={() => setPicker(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setPicker(null);
+            }}
+          />
+          <div
+            className={styles.palette}
+            role="menu"
+            aria-label={strings.labelColor}
+            style={{ left: Math.min(picker.x, window.innerWidth - 190), top: picker.y }}
+          >
+            <span className={styles.paletteHead}>{strings.labelColor}</span>
+            <div className={styles.swatches}>
+              {LABEL_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={styles.swatch}
+                  style={{ background: c }}
+                  aria-label={c}
+                  onClick={() => {
+                    onSetColor(picker.id, c);
+                    setPicker(null);
+                  }}
+                />
+              ))}
+            </div>
+            <button
+              type="button"
+              className={styles.clearColor}
+              onClick={() => {
+                onSetColor(picker.id, null);
+                setPicker(null);
+              }}
+            >
+              {strings.labelColorClear}
+            </button>
+          </div>
+        </>
       )}
     </nav>
   );
