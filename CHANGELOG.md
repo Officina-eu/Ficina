@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- New: **Filters & rules + Block sender.** A visual rule builder in Settings:
+  match incoming mail on From / To / Cc / Subject (contains / is, all or any)
+  and act — move to a folder, mark read, star, or delete. Rules run **on the
+  server at delivery**, even when you're offline, and the first match applies.
+  **Block sender** is one click in a conversation's ⋯ menu — that address's mail
+  goes straight to Junk. Rules compile to a single managed Sieve script that
+  also carries any out-of-office auto-reply, so the two coexist
+  (`GET`/`PUT /filters`, `POST /filters/block`, migration 0024).
 - New: **Recipient autocomplete.** Typing in To / Cc / Bcc drops down matching
   recent correspondents (name + address) for one-click selection — arrow keys
   and Enter, or click. The list is mined from your recent mail, ranked by how
