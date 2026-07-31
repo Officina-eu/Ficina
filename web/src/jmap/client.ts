@@ -749,11 +749,15 @@ export class JmapClient {
   }
 
   /** Upload a large file as an expiring public share link (Ficina Transfer),
-   * instead of an inline attachment. Returns the link plus its metadata. */
+   * instead of an inline attachment. `days` is the link lifetime chosen by the
+   * sender. The file is streamed, so there is no size limit. */
   async uploadShare(
     file: File,
+    days: number,
   ): Promise<{ url: string; filename: string; size: number; expiresAt: number }> {
-    const url = `${window.location.origin}/share/upload?name=${encodeURIComponent(file.name)}`;
+    const url =
+      `${window.location.origin}/share/upload` +
+      `?name=${encodeURIComponent(file.name)}&days=${encodeURIComponent(String(days))}`;
     const res = await this.#fetch(url, {
       method: "POST",
       headers: { "content-type": file.type.length > 0 ? file.type : "application/octet-stream" },

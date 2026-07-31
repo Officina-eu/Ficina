@@ -64,9 +64,11 @@ pub fn app(state: AppState) -> Router {
         .route("/contacts", get(contacts::list))
         // Ficina Transfer: upload a large file (authenticated) for an expiring
         // link, and the PUBLIC download route the recipient's link points at.
+        // The upload streams straight to storage, so its body limit is disabled
+        // (there is no size cap); the handler never buffers the whole file.
         .route(
             "/share/upload",
-            post(share::upload).layer(DefaultBodyLimit::max(share::SHARE_MAX_BYTES)),
+            post(share::upload).layer(DefaultBodyLimit::disable()),
         )
         .route("/share/{token}", get(share::download))
         // Server-side mail filters (rules) + one-click Block sender.

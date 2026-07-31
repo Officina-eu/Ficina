@@ -263,6 +263,38 @@
   font-size: var(--text-sm);
 }
 
+/* Link-expiry picker, sat by the attach button. */
+.expirySelect {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 34px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-tertiary);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.expirySelect:hover {
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+}
+
+.expirySelect select {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: var(--text-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.expirySelect select:focus {
+  outline: none;
+}
+
 /* A large file sent as a share link — tinted to read as a link, not a file. */
 .linkChip {
   border-color: var(--accent-soft);

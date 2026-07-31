@@ -10,12 +10,22 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::stream::{BoxStream, Stream, StreamExt};
+use object_store::buffered::BufWriter;
 use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, PutPayload};
 use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
 
 use crate::error::{Result, StoreError};
+
+/// A streamed share download: the total size and a chunk stream, so a large file
+/// is never buffered whole in memory on the way out.
+pub struct ShareStream {
+    pub size: u64,
+    pub content: BoxStream<'static, std::io::Result<Bytes>>,
+}
 
 /// Connection settings for a Garage (S3) backend.
 #[cfg(feature = "garage")]
@@ -179,6 +189,79 @@ impl BlobStore {
         self.inner.delete(&key(tenant, hash)).await?;
         Ok(())
     }
+
+    // --- Large-file shares (Ficina Transfer) -------------------------------
+    //
+    // Share files are NOT content-addressed: each is written under its own
+    // random key `<tenant>/share/<id>` and streamed in/out, so there is no size
+    // ceiling (the disk is the bound) and no dedup collision with message blobs
+    // — which means the expiry sweeper can safely delete a share's object.
+
+    /// Stream `content` into a share object under `<tenant>/share/<id>`,
+    /// returning the number of bytes written. Never buffers the whole file: the
+    /// bytes are written through `object_store`'s multipart writer as they
+    /// arrive. No size ceiling is applied.
+    ///
+    /// # Errors
+    /// [`StoreError::Blob`] if a chunk fails to read or the write fails.
+    pub async fn put_share_stream<S>(&self, tenant: &str, id: &str, mut content: S) -> Result<u64>
+    where
+        S: Stream<Item = std::io::Result<Bytes>> + Unpin,
+    {
+        let mut writer = BufWriter::new(self.inner.clone(), share_key(tenant, id));
+        let mut total: u64 = 0;
+        while let Some(chunk) = content.next().await {
+            let chunk = chunk.map_err(blob_io_err)?;
+            total += chunk.len() as u64;
+            if let Err(e) = writer.write_all(&chunk).await {
+                // Best-effort abort so a partial object isn't left behind.
+                let _ = writer.abort().await;
+                return Err(blob_io_err(e));
+            }
+        }
+        writer.shutdown().await.map_err(blob_io_err)?;
+        Ok(total)
+    }
+
+    /// Open a share object for streaming download: its size and a chunk stream.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if absent; [`StoreError::Blob`] otherwise.
+    pub async fn get_share_stream(&self, tenant: &str, id: &str) -> Result<ShareStream> {
+        let result = self.inner.get(&share_key(tenant, id)).await?;
+        let size = result.meta.size as u64;
+        let content = result
+            .into_stream()
+            .map(|r| r.map_err(std::io::Error::other))
+            .boxed();
+        Ok(ShareStream { size, content })
+    }
+
+    /// Delete a share object (on expiry). Absent is fine — idempotent.
+    ///
+    /// # Errors
+    /// [`StoreError::Blob`] on a backend failure other than not-found.
+    pub async fn delete_share(&self, tenant: &str, id: &str) -> Result<()> {
+        match self.inner.delete(&share_key(tenant, id)).await {
+            Ok(()) => Ok(()),
+            Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(other) => Err(other.into()),
+        }
+    }
+}
+
+/// Wrap a byte-stream/IO error as a blob error without exposing detail.
+fn blob_io_err(e: std::io::Error) -> StoreError {
+    StoreError::Blob(object_store::Error::Generic {
+        store: "share",
+        source: Box::new(e),
+    })
+}
+
+/// The object key for a tenant's share file (its own namespace, not the
+/// content-addressed one).
+fn share_key(tenant: &str, id: &str) -> ObjectPath {
+    ObjectPath::from(format!("{tenant}/share/{id}"))
 }
 
 /// The object key for a tenant's content-addressed blob. The tenant id

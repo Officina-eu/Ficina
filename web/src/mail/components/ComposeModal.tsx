@@ -47,10 +47,12 @@ interface LinkAttachment {
 }
 
 /** Files at or below this size attach inline; above it they upload as a share
- * link (sidestepping recipient attachment-size limits). */
+ * link (sidestepping recipient attachment-size limits). There is no upper
+ * limit — large files are streamed to storage. */
 const ATTACH_MAX_BYTES = 25 * 1024 * 1024;
-/** The hard ceiling for a share upload (mirrors the server's SHARE_MAX_BYTES). */
-const SHARE_MAX_BYTES = 100 * 1024 * 1024;
+
+/** The share-link lifetime choices the sender can pick, in days. */
+const EXPIRY_CHOICES = [1, 7, 30, 90] as const;
 
 /** The download-link card appended to an outgoing message's HTML body. */
 function linkCardHtml(link: LinkAttachment): string {
@@ -456,6 +458,7 @@ export function ComposeModal({
   const minimized = view === "min";
   const [attachments, setAttachments] = useState<PendingAttachment[]>(context.attachments ?? []);
   const [links, setLinks] = useState<LinkAttachment[]>([]);
+  const [linkExpiryDays, setLinkExpiryDays] = useState(7);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -465,16 +468,12 @@ export function ComposeModal({
   async function onPickFiles(files: FileList) {
     setError(null);
     for (const file of Array.from(files)) {
-      // Over the hard ceiling: refuse (and say the limit). Over the inline-attach
-      // size: send as an expiring share link. Otherwise attach normally.
-      if (file.size > SHARE_MAX_BYTES) {
-        setError(strings.transferTooLarge(formatBytes(SHARE_MAX_BYTES)));
-        continue;
-      }
+      // Over the inline-attach size: send as an expiring share link (no upper
+      // limit — it's streamed). Otherwise attach normally.
       setUploading((n) => n + 1);
       try {
         if (file.size > ATTACH_MAX_BYTES) {
-          const share = await client.uploadShare(file);
+          const share = await client.uploadShare(file, linkExpiryDays);
           setLinks((prev) => [
             ...prev,
             { url: share.url, name: share.filename, size: share.size, expiresAt: share.expiresAt },
@@ -790,6 +789,20 @@ export function ComposeModal({
                 e.target.value = "";
               }}
             />
+            <label className={styles.expirySelect} title={strings.transferExpiryTitle}>
+              <Clock size={15} />
+              <select
+                value={linkExpiryDays}
+                onChange={(e) => setLinkExpiryDays(Number(e.target.value))}
+                aria-label={strings.transferExpiryTitle}
+              >
+                {EXPIRY_CHOICES.map((d) => (
+                  <option key={d} value={d}>
+                    {strings.transferExpiryOption(d)}
+                  </option>
+                ))}
+              </select>
+            </label>
             {aiEnabled && (
               <button
                 type="button"

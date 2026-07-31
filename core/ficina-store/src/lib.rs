@@ -34,7 +34,7 @@ pub mod thread;
 pub use account::AccountStore;
 pub use account_imap::{ImapEntry, ImapMailbox, ImapSearchRow};
 pub use account_sieve::{OutboundAction, SieveDelivery, SieveScriptMeta};
-pub use blob::BlobStore;
+pub use blob::{BlobStore, ShareStream};
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;
 pub use changes::Changes;

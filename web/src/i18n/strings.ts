@@ -189,7 +189,8 @@ export const strings = {
   transferSharedFile: "📎 Shared file",
   transferDownload: "Download",
   transferExpires: (date: string) => `link expires ${date}`,
-  transferTooLarge: (max: string) => `That file is too large — the limit is ${max}.`,
+  transferExpiryTitle: "How long large-file links stay live",
+  transferExpiryOption: (days: number) => (days === 1 ? "1 day" : `${days} days`),
   blockSenderNamed: (email: string) => `Block ${email}`,
   senderBlocked: (email: string) => `Blocked ${email} — their mail now goes to Junk.`,
   // Filters & rules

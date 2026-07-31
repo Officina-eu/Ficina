@@ -1,75 +1,62 @@
 //! Large-file transfer (Ficina Transfer): upload a file too big to attach and
 //! get back a private, expiring **public** download link that rides the message
-//! in place of an inline attachment.
+//! in place of an inline attachment. There is no size limit — the upload and the
+//! download are both streamed, so a large file is never buffered whole — and the
+//! sender chooses how long the link lives.
 //!
-//! - `POST /share/upload?name=<file>` (authenticated) stores the bytes and mints
-//!   a link, returning `{url, filename, size, expiresAt}`.
-//! - `GET /share/{token}` (PUBLIC — the recipient may be anyone) serves the
-//!   bytes as a download if the token is live, else a plain 404.
+//! - `POST /share/upload?name=<file>&days=<n>` (authenticated) streams the bytes
+//!   to storage and mints a link, returning `{url, filename, size, expiresAt}`.
+//! - `GET /share/{token}` (PUBLIC — the recipient may be anyone) streams the
+//!   file as a download if the token is live, else a plain 404.
 //!
 //! Security: the token is 256-bit and stored hashed at rest; the download is
-//! always `Content-Disposition: attachment` + `nosniff`, so a shared file is
-//! never rendered inline. The link is a capability URL — holding it is the only
-//! authorization, exactly the WeTransfer model.
+//! always `Content-Disposition: attachment` + `nosniff` + `no-store`, so a shared
+//! file is never rendered inline. The link is a capability URL — holding it is
+//! the only authorization, exactly the WeTransfer model.
 
-use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::body::Bytes;
+use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
-use axum::response::{IntoResponse, Response};
-use axum::{Json, response::Html};
-use tokio::sync::Semaphore;
-use ficina_store::StoreError;
+use axum::http::header::{
+    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE,
+};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
+use axum::Json;
+use ficina_store::ShareStream;
+use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::blob::serve_download;
 use crate::error::Problem;
 use crate::state::{AppState, authenticate};
 
-/// The largest file accepted on the share path (buffered upload). Bigger than
-/// the 50 MB attachment ceiling, but still bounded — true multi-GB streaming is
-/// a tracked follow-up. Must be ≤ the blob store's configured max.
-pub const SHARE_MAX_BYTES: usize = 100 * 1024 * 1024;
-
-/// How long a share link lives before the sweeper reclaims it (14 days).
-const SHARE_TTL_SECS: i64 = 14 * 24 * 60 * 60;
-
 /// Cap on the stored filename length.
 const MAX_FILENAME_LEN: usize = 255;
-
-/// The public download route buffers up to `SHARE_MAX_BYTES` per request and is
-/// unauthenticated, so a leaked/forwarded link could be used to force many
-/// concurrent large reads. Cap how many downloads buffer at once (service-wide);
-/// excess requests get a 503 to retry. Bounds the peak memory an attacker can
-/// induce to `MAX_CONCURRENT_DOWNLOADS × SHARE_MAX_BYTES`.
-const MAX_CONCURRENT_DOWNLOADS: usize = 6;
-static DOWNLOAD_SLOTS: LazyLock<Semaphore> =
-    LazyLock::new(|| Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
+/// Default link lifetime when the caller doesn't choose one (days).
+const DEFAULT_TTL_DAYS: i64 = 7;
+/// The longest a link may live (days) — an upper bound on the pick.
+const MAX_TTL_DAYS: i64 = 365;
 
 #[derive(Deserialize)]
 pub struct UploadQuery {
     /// The original filename (URL-encoded by the client; axum decodes it).
     name: Option<String>,
+    /// How many days the link should live (clamped to `1..=MAX_TTL_DAYS`).
+    days: Option<i64>,
 }
 
-/// `POST /share/upload?name=<file>` — authenticated. Body is the raw file; the
-/// `Content-Type` header is its media type. Returns the share link.
+/// `POST /share/upload?name=<file>&days=<n>` — authenticated. The request body is
+/// the raw file (streamed, unbounded); the `Content-Type` header is its media
+/// type. Returns the share link.
 pub async fn upload(
     State(state): State<AppState>,
     Query(q): Query<UploadQuery>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Json<Value>, Problem> {
     let account = authenticate(&state, &headers).await?;
-    if body.is_empty() {
-        return Err(Problem::with(StatusCode::BAD_REQUEST, "empty file"));
-    }
-    if body.len() > SHARE_MAX_BYTES {
-        return Err(Problem::with(StatusCode::PAYLOAD_TOO_LARGE, "file too large"));
-    }
     let filename = sanitize_filename(q.name.as_deref());
     let content_type = sanitize_content_type(
         headers
@@ -77,21 +64,23 @@ pub async fn upload(
             .and_then(|v| v.to_str().ok())
             .unwrap_or(""),
     );
-    let expires = now_epoch() + SHARE_TTL_SECS;
+    let days = q.days.unwrap_or(DEFAULT_TTL_DAYS).clamp(1, MAX_TTL_DAYS);
+    let expires = now_epoch() + days * 24 * 60 * 60;
 
+    // Stream the request body straight into storage — never buffered whole.
+    let content = body
+        .into_data_stream()
+        .map(|chunk| chunk.map_err(std::io::Error::other))
+        .boxed();
     let created = account
         .acc
-        .create_share(body, &filename, &content_type, expires)
+        .create_share(content, &filename, &content_type, expires)
         .await
-        .map_err(|e| match e {
-            StoreError::TooLarge { .. } => {
-                Problem::with(StatusCode::PAYLOAD_TOO_LARGE, "file too large")
-            }
-            StoreError::OverQuota => {
-                Problem::with(StatusCode::INSUFFICIENT_STORAGE, "storage quota exceeded")
-            }
-            _ => Problem::server_error(),
-        })?;
+        .map_err(|_| Problem::server_error())?;
+
+    if created.size == 0 {
+        return Err(Problem::with(StatusCode::BAD_REQUEST, "empty file"));
+    }
 
     let base = state.base_url.trim_end_matches('/');
     Ok(Json(json!({
@@ -102,25 +91,39 @@ pub async fn upload(
     })))
 }
 
-/// `GET /share/{token}` — PUBLIC. Serves the file as a download if the token is
-/// live, otherwise a plain 404 page. No authentication: the unguessable token is
-/// the capability.
+/// `GET /share/{token}` — PUBLIC. Streams the file as a download if the token is
+/// live, otherwise a plain 404. No authentication: the unguessable token is the
+/// capability.
 pub async fn download(State(state): State<AppState>, Path(token): Path<String>) -> Response {
-    // Bound concurrent large buffered reads on this unauthenticated path.
-    let _permit = match DOWNLOAD_SLOTS.try_acquire() {
-        Ok(permit) => permit,
-        Err(_) => {
-            return (StatusCode::SERVICE_UNAVAILABLE, "busy, try again shortly").into_response();
-        }
-    };
     let target = match state.store.resolve_share(&token).await {
         Ok(Some(t)) => t,
         _ => return not_found(),
     };
-    match state.store.share_bytes(&target).await {
-        Ok(bytes) => serve_download(bytes, &target.content_type, &target.filename),
+    match state.store.open_share(&target).await {
+        Ok(stream) => serve_stream(stream, &target.content_type, &target.filename),
         Err(_) => not_found(),
     }
+}
+
+/// Stream a share to the client as a forced download with the safety headers.
+fn serve_stream(share: ShareStream, ctype: &str, filename: &str) -> Response {
+    let mut resp = Body::from_stream(share.content).into_response();
+    let h = resp.headers_mut();
+    h.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(ctype)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    h.insert(CONTENT_LENGTH, HeaderValue::from(share.size));
+    h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
+    h.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    let safe = filename.replace(['\r', '\n', '"', '\\'], "");
+    h.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{safe}\""))
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
+    resp
 }
 
 /// A minimal 404 for an unknown or expired link (never reveals which).

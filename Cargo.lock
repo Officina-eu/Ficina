@@ -739,6 +739,7 @@ dependencies = [
  "encoding_rs",
  "ficina-auth-mail",
  "ficina-sieve",
+ "futures",
  "object_store",
  "ring",
  "sha2",
