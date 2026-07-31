@@ -25,7 +25,7 @@ use crate::state::{AppState, authenticate};
 /// How long to wait on the sender's unsubscribe endpoint before giving up.
 const UNSUB_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// `POST /mail/unsubscribe` — body `{"emailId": "..."}`. Performs the RFC 8058
+/// `POST /jmap/unsubscribe` — body `{"emailId": "..."}`. Performs the RFC 8058
 /// one-click unsubscribe for that message, if it supports it.
 pub async fn unsubscribe(
     State(state): State<AppState>,

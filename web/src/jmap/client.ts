@@ -1023,7 +1023,7 @@ export class JmapClient {
   /** Perform the RFC 8058 one-click unsubscribe for a message (server-side POST
    * to the sender's List-Unsubscribe endpoint, SSRF-guarded). */
   async unsubscribe(emailId: string): Promise<void> {
-    const res = await this.#fetch(`${window.location.origin}/mail/unsubscribe`, {
+    const res = await this.#fetch(`${window.location.origin}/jmap/unsubscribe`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ emailId }),

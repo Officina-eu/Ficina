@@ -75,7 +75,7 @@ pub fn app(state: AppState) -> Router {
         .route("/filters", get(filters::list).put(filters::save))
         .route("/filters/block", post(filters::block))
         // RFC 8058 one-click unsubscribe (performed server-side, SSRF-guarded).
-        .route("/mail/unsubscribe", post(unsubscribe::unsubscribe))
+        .route("/jmap/unsubscribe", post(unsubscribe::unsubscribe))
         // alo Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.
         .route("/docs", get(docs::list).post(docs::create))
         .route(

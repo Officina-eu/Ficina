@@ -1,5 +1,5 @@
 //! One-click unsubscribe over the wire: a message carrying List-Unsubscribe
-//! surfaces `alo:listUnsubscribe` on the full email, and the /mail/unsubscribe
+//! surfaces `alo:listUnsubscribe` on the full email, and the /jmap/unsubscribe
 //! route refuses anything that isn't a real RFC 8058 one-click (no header, or
 //! mailto-only) — the actual outbound POST is exercised by the egress unit
 //! tests, not here (no external server in the harness).
@@ -97,7 +97,7 @@ async fn route_refuses_messages_without_one_click() {
     let (status, _b) = post_json(
         &h.app,
         &h.token,
-        "/mail/unsubscribe",
+        "/jmap/unsubscribe",
         json!({ "emailId": mailto_only.to_string() }),
     )
     .await;
@@ -112,7 +112,7 @@ async fn route_refuses_messages_without_one_click() {
     let (status, _b) = post_json(
         &h.app,
         &h.token,
-        "/mail/unsubscribe",
+        "/jmap/unsubscribe",
         json!({ "emailId": plain.to_string() }),
     )
     .await;
@@ -122,7 +122,7 @@ async fn route_refuses_messages_without_one_click() {
     let (status, _b) = post_json(
         &h.app,
         &h.token,
-        "/mail/unsubscribe",
+        "/jmap/unsubscribe",
         json!({ "emailId": "nope" }),
     )
     .await;
