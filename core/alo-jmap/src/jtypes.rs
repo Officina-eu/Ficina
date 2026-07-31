@@ -99,6 +99,8 @@ pub struct ReadBody {
     pub text: Option<(String, bool)>,
     pub html: Option<String>,
     pub attachments: Vec<AttachmentJson>,
+    /// Parsed List-Unsubscribe options, surfaced as `alo:listUnsubscribe`.
+    pub unsubscribe: Option<crate::mime_read::Unsubscribe>,
 }
 
 /// Derive a short preview from the text body, else a crude tag-stripped HTML
@@ -224,6 +226,16 @@ pub fn email_json(
 
     if body.is_some() {
         email["bodyValues"] = Value::Object(body_values);
+    }
+    // alo exposes the parsed unsubscribe options (RFC 2369 / RFC 8058) on the
+    // full email so the reading pane can offer an Unsubscribe action without a
+    // header fetch. Present only when the message actually carries one.
+    if let Some(u) = body.and_then(|b| b.unsubscribe.as_ref()) {
+        email["alo:listUnsubscribe"] = json!({
+            "http": u.http,
+            "mailto": u.mailto,
+            "oneClick": u.one_click,
+        });
     }
     email
 }

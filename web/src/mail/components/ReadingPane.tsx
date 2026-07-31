@@ -110,6 +110,9 @@ interface ReadingPaneProps {
   categories: Category[];
   /** Tag/untag the whole open conversation with a category. */
   onToggleCategory: (categoryId: string, on: boolean) => void;
+  /** Unsubscribe from the latest message's mailing list (one-click / mailto /
+   * open link — decided by the module). */
+  onUnsubscribe: () => void;
 }
 
 export function ReadingPane({
@@ -135,6 +138,7 @@ export function ReadingPane({
   isJunk,
   categories,
   onToggleCategory,
+  onUnsubscribe,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
   const client = useJmapClient();
@@ -251,6 +255,7 @@ export function ReadingPane({
   // entries (for the pills below the subject).
   const activeCategoryIds = threadCategoryIds(messages, categories);
   const activeCategories = categories.filter((c) => activeCategoryIds.has(c.id));
+  const canUnsubscribe = latest["alo:listUnsubscribe"] != null;
   const me = identity?.email.toLowerCase();
 
   function toggle(id: string) {
@@ -421,6 +426,11 @@ export function ReadingPane({
         )}
         <div className={styles.subjectRow}>
           <h1 className={styles.subject}>{subjectOr(latest)}</h1>
+          {canUnsubscribe && (
+            <button type="button" className={styles.unsubscribe} onClick={onUnsubscribe}>
+              {strings.unsubscribe}
+            </button>
+          )}
           {messages.length > 1 && (
             <span className={styles.threadCount}>
               {messages.length} {strings.threadMessages}

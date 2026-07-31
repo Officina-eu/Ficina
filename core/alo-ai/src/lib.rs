@@ -14,6 +14,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+pub mod egress;
+use egress::{is_blocked_ip, split_authority};
+
 /// Per-tenant backend configuration (admin-set, ADR 0011).
 #[derive(Debug, Clone)]
 pub struct AiConfig {
@@ -126,53 +129,6 @@ pub fn parse_completion(body: &str) -> Result<String, InferenceError> {
 /// must not be able to exhaust memory (law #2, full path incl. error paths);
 /// 4 MiB dwarfs any legitimate improved email draft.
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
-
-/// Whether a resolved IP must be refused under the restricted egress policy:
-/// loopback, link-local (which includes the `169.254.169.254` cloud-metadata
-/// endpoint), private, unique-local, unspecified, or multicast/reserved —
-/// anything that could reach the host itself, a co-tenant, or internal
-/// infrastructure (ADR 0012 SSRF guard).
-fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
-                || v4.octets()[0] == 0
-                || v4.octets()[0] >= 224 // multicast + reserved
-        }
-        std::net::IpAddr::V6(v6) => {
-            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
-                return true;
-            }
-            if let Some(mapped) = v6.to_ipv4_mapped() {
-                return is_blocked_ip(std::net::IpAddr::V4(mapped));
-            }
-            let seg0 = v6.segments()[0];
-            (seg0 & 0xfe00) == 0xfc00 // unique-local fc00::/7
-                || (seg0 & 0xffc0) == 0xfe80 // link-local fe80::/10
-        }
-    }
-}
-
-/// Parse `(is_https, host, port)` from a URL without a URL-crate dependency.
-fn split_authority(url: &str) -> Option<(bool, String, u16)> {
-    let (scheme, rest) = url.split_once("://")?;
-    let https = scheme.eq_ignore_ascii_case("https");
-    let authority = rest.split(['/', '?', '#']).next()?;
-    let authority = authority.rsplit('@').next()?; // drop any userinfo
-    let (host, port) = match authority.rsplit_once(':') {
-        // host:port — but not an unbracketed IPv6 literal (has multiple colons).
-        Some((h, p)) if !h.is_empty() && !h.contains(':') => (h.to_owned(), p.parse().ok()?),
-        _ => (authority.to_owned(), if https { 443 } else { 80 }),
-    };
-    if host.is_empty() {
-        return None;
-    }
-    Some((https, host, port))
-}
 
 /// Build an HTTP client for a backend at `url`, enforcing the egress policy.
 /// Default `open` mode (self-hosted — the model runs on localhost or the
@@ -450,54 +406,6 @@ mod tests {
         assert_eq!(m[0].role, "system");
         assert_eq!(m[1].role, "user");
         assert_eq!(m[1].content, "Hey, wanna meet tmrw?");
-    }
-
-    #[test]
-    fn blocked_ips_cover_the_ssrf_ranges() {
-        use std::net::IpAddr;
-        for ip in [
-            "127.0.0.1",
-            "169.254.169.254", // cloud metadata
-            "10.0.0.5",
-            "172.16.9.9",
-            "192.168.1.1",
-            "0.0.0.0",
-            "::1",
-            "fd00::1", // ULA
-            "fe80::1", // link-local
-        ] {
-            assert!(
-                is_blocked_ip(ip.parse::<IpAddr>().unwrap()),
-                "should block {ip}"
-            );
-        }
-        for ip in [
-            "8.8.8.8",
-            "1.1.1.1",
-            "93.184.216.34",
-            "2606:4700:4700::1111",
-        ] {
-            assert!(
-                !is_blocked_ip(ip.parse::<IpAddr>().unwrap()),
-                "should allow {ip}"
-            );
-        }
-    }
-
-    #[test]
-    fn split_authority_parses_scheme_host_port() {
-        assert_eq!(
-            split_authority("https://api.openai.com/v1/chat/completions"),
-            Some((true, "api.openai.com".to_owned(), 443))
-        );
-        assert_eq!(
-            split_authority("http://localhost:11434/v1/models"),
-            Some((false, "localhost".to_owned(), 11434))
-        );
-        assert_eq!(
-            split_authority("https://mistral.example:8443/v1/models"),
-            Some((true, "mistral.example".to_owned(), 8443))
-        );
     }
 
     #[test]

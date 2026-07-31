@@ -16,7 +16,7 @@ use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
     admin, ai, api, blob, contacts, docs, filters, push, schedule, security, session, settings,
-    share, snooze,
+    share, snooze, unsubscribe,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -74,6 +74,8 @@ pub fn app(state: AppState) -> Router {
         // Server-side mail filters (rules) + one-click Block sender.
         .route("/filters", get(filters::list).put(filters::save))
         .route("/filters/block", post(filters::block))
+        // RFC 8058 one-click unsubscribe (performed server-side, SSRF-guarded).
+        .route("/mail/unsubscribe", post(unsubscribe::unsubscribe))
         // alo Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.
         .route("/docs", get(docs::list).post(docs::create))
         .route(

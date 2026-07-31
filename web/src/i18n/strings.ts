@@ -269,6 +269,13 @@ export const strings = {
     "We didn't detect a delivery problem with this message — it may match mail that you or a filter rule marked as spam before.",
   spamBannerHint: "If this isn't spam, move it back to your Inbox.",
   spamSenderFallback: "the sender's domain",
+  // One-click unsubscribe (RFC 8058)
+  unsubscribe: "Unsubscribe",
+  unsubscribeConfirm: (sender: string) =>
+    `Unsubscribe from ${sender}? We'll ask the sender to stop emailing you.`,
+  unsubscribed: "Unsubscribed — the sender was asked to stop.",
+  unsubscribeFailed: "Couldn't unsubscribe automatically — try the link in the message.",
+  unsubscribeOpened: "Opened the unsubscribe page in a new tab.",
   forwardAsAttachment: "Forward as attachment",
   blockSender: "Block sender",
   junkUnavailable: "There's no Junk folder to move this to.",

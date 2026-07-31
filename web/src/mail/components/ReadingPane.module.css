@@ -92,6 +92,28 @@
   line-height: var(--leading-tight);
 }
 
+/* Unsubscribe: a quiet link-style control, pushed to the right of the subject. */
+.unsubscribe {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-link);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition: background-color var(--transition-fast);
+}
+
+.unsubscribe:hover {
+  background: var(--bg-raised);
+}
+
+/* When the unsubscribe link already claimed the auto margin, the count sits
+   next to it rather than fighting for the same space. */
+.unsubscribe + .threadCount {
+  margin-left: var(--space-2);
+}
+
 .threadCount {
   flex-shrink: 0;
   margin-left: auto;

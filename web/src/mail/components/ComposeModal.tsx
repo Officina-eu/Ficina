@@ -142,6 +142,8 @@ export interface ComposeContext {
   mode: "new" | "reply" | "replyAll" | "forward";
   /** The source message for a reply or forward. */
   replyTo?: EmailFull;
+  /** Seed the recipients (e.g. a mailto: unsubscribe address). New mode only. */
+  to?: EmailAddress[];
   /** Seed the subject (e.g. "Fwd: …" for forward-as-attachment). */
   subject?: string;
   /** Seed the body (e.g. an AI smart-reply the user picked). */
@@ -311,7 +313,16 @@ function stripRe(subject: string | null, prefix: RegExp): string {
 
 function buildPrefill(context: ComposeContext, me: string): Prefill {
   const src = context.replyTo;
-  if (src === undefined) return EMPTY;
+  if (src === undefined) {
+    // A fresh compose: honor any recipient/subject/body seeds (e.g. a mailto:
+    // unsubscribe, or a forward-as-attachment subject).
+    return {
+      ...EMPTY,
+      to: context.to ?? [],
+      subject: context.subject ?? "",
+      body: context.body ?? "",
+    };
+  }
   const threading = {
     inReplyTo: src.messageId ?? [],
     references: [...(src.references ?? []), ...(src.messageId ?? [])],

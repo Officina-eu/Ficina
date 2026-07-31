@@ -34,6 +34,7 @@ pub mod sieve;
 pub mod snooze;
 pub mod state;
 pub mod submission;
+pub mod unsubscribe;
 
 pub use push::PushHub;
 pub use server::{app, app_state, serve};

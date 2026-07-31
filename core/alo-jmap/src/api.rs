@@ -1144,6 +1144,7 @@ fn read_body(raw: &[u8], blob_id: &str, max: usize) -> jtypes::ReadBody {
         text,
         html: parsed.html,
         attachments,
+        unsubscribe: parsed.unsubscribe,
     }
 }
 

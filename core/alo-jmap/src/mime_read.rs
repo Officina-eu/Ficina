@@ -22,6 +22,55 @@ pub struct Parsed {
     pub text: Option<String>,
     pub html: Option<String>,
     pub attachments: Vec<Attachment>,
+    /// The message's List-Unsubscribe options, if it carries any.
+    pub unsubscribe: Option<Unsubscribe>,
+}
+
+/// A message's unsubscribe options (RFC 2369 `List-Unsubscribe`, plus RFC 8058
+/// one-click). `http`/`mailto` are the first URI of each scheme; `one_click` is
+/// true only when there is an https URI and a `List-Unsubscribe-Post:
+/// List-Unsubscribe=One-Click` header — i.e. the sender supports silent,
+/// single-request unsubscribe.
+pub struct Unsubscribe {
+    pub http: Option<String>,
+    pub mailto: Option<String>,
+    pub one_click: bool,
+}
+
+/// The `<URI>` tokens of a List-Unsubscribe header, with any folding whitespace
+/// inside a URI removed. Text outside the angle brackets is ignored.
+fn bracketed_uris(raw: &str) -> Vec<String> {
+    raw.split('<')
+        .filter_map(|seg| seg.split_once('>'))
+        .map(|(uri, _)| uri.split_whitespace().collect::<String>())
+        .filter(|u| !u.is_empty())
+        .collect()
+}
+
+/// Parse a message's unsubscribe options from its headers. `None` when there is
+/// no usable `List-Unsubscribe`.
+fn parse_unsubscribe(message: &mail_parser::Message) -> Option<Unsubscribe> {
+    let raw = message.header_raw("List-Unsubscribe")?;
+    let uris = bracketed_uris(raw);
+    let mailto = uris.iter().find(|u| u.starts_with("mailto:")).cloned();
+    // Prefer an https URI (required for one-click) over a bare http one.
+    let http = uris
+        .iter()
+        .find(|u| u.starts_with("https://"))
+        .or_else(|| uris.iter().find(|u| u.starts_with("http://")))
+        .cloned();
+    if http.is_none() && mailto.is_none() {
+        return None;
+    }
+    let one_click = http.as_deref().is_some_and(|h| h.starts_with("https://"))
+        && message
+            .header_raw("List-Unsubscribe-Post")
+            .is_some_and(|p| p.to_ascii_lowercase().contains("one-click"));
+    Some(Unsubscribe {
+        http,
+        mailto,
+        one_click,
+    })
 }
 
 fn content_type_of(part: &mail_parser::MessagePart) -> String {
@@ -50,6 +99,7 @@ pub fn parse(raw: &[u8]) -> Parsed {
             text: None,
             html: None,
             attachments: Vec::new(),
+            unsubscribe: None,
         };
     };
     let text = message.body_text(0).map(|c| c.into_owned());
@@ -64,10 +114,12 @@ pub fn parse(raw: &[u8]) -> Parsed {
             size: part.contents().len(),
         })
         .collect();
+    let unsubscribe = parse_unsubscribe(&message);
     Parsed {
         text,
         html,
         attachments,
+        unsubscribe,
     }
 }
 
@@ -141,5 +193,45 @@ mod tests {
         assert_eq!(ctype, "application/zip");
         assert_eq!(name, "report.zip");
         assert!(attachment_bytes(MSG, 1).is_none(), "no second attachment");
+    }
+
+    /// Build a minimal message carrying the given extra header lines.
+    fn msg_with(headers: &str) -> Vec<u8> {
+        format!("From: news@shop.example\r\nSubject: Sale\r\n{headers}\r\nHello\r\n").into_bytes()
+    }
+
+    #[test]
+    fn one_click_unsubscribe_is_recognized() {
+        let raw = msg_with(
+            "List-Unsubscribe: <https://shop.example/u?id=9>, <mailto:unsub@shop.example>\r\n\
+             List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n",
+        );
+        let u = parse(&raw).unsubscribe.expect("unsubscribe present");
+        assert_eq!(u.http.as_deref(), Some("https://shop.example/u?id=9"));
+        assert_eq!(u.mailto.as_deref(), Some("mailto:unsub@shop.example"));
+        assert!(u.one_click, "https URL + One-Click post header ⇒ one-click");
+    }
+
+    #[test]
+    fn mailto_only_is_not_one_click() {
+        let raw = msg_with("List-Unsubscribe: <mailto:unsub@shop.example?subject=stop>\r\n");
+        let u = parse(&raw).unsubscribe.expect("unsubscribe present");
+        assert_eq!(u.mailto.as_deref(), Some("mailto:unsub@shop.example?subject=stop"));
+        assert!(u.http.is_none());
+        assert!(!u.one_click, "no https URL ⇒ never one-click");
+    }
+
+    #[test]
+    fn http_without_post_header_is_not_one_click() {
+        // A browsing unsubscribe link, but no RFC 8058 One-Click support.
+        let raw = msg_with("List-Unsubscribe: <https://shop.example/u?id=9>\r\n");
+        let u = parse(&raw).unsubscribe.expect("unsubscribe present");
+        assert_eq!(u.http.as_deref(), Some("https://shop.example/u?id=9"));
+        assert!(!u.one_click);
+    }
+
+    #[test]
+    fn no_list_unsubscribe_header_yields_none() {
+        assert!(parse(&msg_with("")).unsubscribe.is_none());
     }
 }

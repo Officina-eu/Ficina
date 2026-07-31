@@ -9,9 +9,10 @@ import type { CSSProperties } from "react";
 import { strings } from "../i18n";
 import { ResizeHandle, cx, usePanelWidth } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
-import type { Category, EmailFull } from "../jmap";
+import type { Category, EmailAddress, EmailFull } from "../jmap";
 import { useAuth } from "../auth";
 import { useCategories, useEmailHeaders, useMailboxes, useThread } from "./state/useMail";
+import { senderName } from "./format";
 import type { ThreadRow } from "./threads";
 import { FolderSidebar } from "./components/FolderSidebar";
 import { CategorySection } from "./components/CategorySection";
@@ -20,6 +21,28 @@ import { ReadingPane } from "./components/ReadingPane";
 import { ComposeModal, formatSendAt } from "./components/ComposeModal";
 import type { ComposeContext, QueuedSend } from "./components/ComposeModal";
 import styles from "./MailModule.module.css";
+
+/** Parse a `mailto:` unsubscribe URI into compose seeds (recipients + optional
+ * subject/body from the query). */
+function parseMailto(mailto: string): {
+  to: EmailAddress[];
+  subject: string | undefined;
+  body: string | undefined;
+} {
+  const withoutScheme = mailto.replace(/^mailto:/i, "");
+  const [addrPart, query] = withoutScheme.split("?");
+  const to: EmailAddress[] = (addrPart ?? "")
+    .split(",")
+    .map((a) => decodeURIComponent(a.trim()))
+    .filter((a) => a.length > 0)
+    .map((email) => ({ name: null, email }));
+  const params = new URLSearchParams(query ?? "");
+  return {
+    to,
+    subject: params.get("subject") ?? undefined,
+    body: params.get("body") ?? undefined,
+  };
+}
 
 export function MailModule() {
   const client = useJmapClient();
@@ -230,6 +253,35 @@ export function MailModule() {
       mailboxes.reload();
     } catch {
       setToast(strings.folderActionFailed);
+    }
+  }
+
+  // Unsubscribe from the open message's mailing list. One-click (RFC 8058) is
+  // done server-side (SSRF-guarded); a mailto: list opens a pre-filled compose;
+  // a plain link opens the sender's unsubscribe page in a new tab.
+  async function unsubscribe() {
+    const opts = latest?.["alo:listUnsubscribe"];
+    if (latest === undefined || opts == null) return;
+    const who = senderName(latest);
+    if (opts.oneClick) {
+      if (!window.confirm(strings.unsubscribeConfirm(who))) return;
+      try {
+        await client.unsubscribe(latest.id);
+        setToast(strings.unsubscribed);
+      } catch {
+        setToast(strings.unsubscribeFailed);
+      }
+    } else if (opts.mailto !== null) {
+      const { to, subject, body } = parseMailto(opts.mailto);
+      setCompose({
+        mode: "new",
+        to,
+        subject: subject ?? strings.unsubscribe,
+        ...(body !== undefined ? { body } : {}),
+      });
+    } else if (opts.http !== null) {
+      window.open(opts.http, "_blank", "noopener,noreferrer");
+      setToast(strings.unsubscribeOpened);
     }
   }
 
@@ -527,6 +579,7 @@ export function MailModule() {
         isJunk={boxes.find((b) => b.id === mailboxId)?.role === "junk"}
         categories={categoryList}
         onToggleCategory={toggleThreadCategory}
+        onUnsubscribe={() => void unsubscribe()}
       />
       {compose !== null && (
         <ComposeModal

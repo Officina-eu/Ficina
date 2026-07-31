@@ -17,6 +17,7 @@ export {
   type EmailAttachment,
   type EmailAddress,
   type MessageAuthentication,
+  type ListUnsubscribe,
   type MailFilterRule,
   type FilterCondition,
   type FilterAction,

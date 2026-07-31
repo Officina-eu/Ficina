@@ -96,12 +96,27 @@ export interface EmailHeaders {
    * Absent on outgoing copies; each field is "pass" | "fail" | "none" | etc.
    */
   "alo:authentication"?: MessageAuthentication | null;
+  /**
+   * alo's parsed List-Unsubscribe options (RFC 2369 / RFC 8058), present only
+   * on the full email (reading pane) when the message carries one.
+   */
+  "alo:listUnsubscribe"?: ListUnsubscribe | null;
 }
 
 export interface MessageAuthentication {
   spf: string | null;
   dkim: string | null;
   dmarc: string | null;
+}
+
+export interface ListUnsubscribe {
+  /** The first http(s) unsubscribe URL, if any. */
+  http: string | null;
+  /** The first mailto: unsubscribe address, if any. */
+  mailto: string | null;
+  /** True when a silent RFC 8058 one-click POST is supported (https + the
+   * List-Unsubscribe-Post header). */
+  oneClick: boolean;
 }
 
 export interface EmailBodyValue {
