@@ -50,6 +50,7 @@ export function EquationEditor({
 }: EquationEditorProps) {
   const [view, setView] = useState<"latex" | "visual">("latex");
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const catRefs = useRef(new Map<string, HTMLElement>());
@@ -235,41 +236,60 @@ export function EquationEditor({
         </div>
 
         <div className={styles.palette}>
-          <div className={styles.searchRow}>
-            <Search size={16} className={styles.searchIcon} />
-            <input
-              type="text"
-              className={styles.search}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={strings.eqSearchPlaceholder}
-              aria-label={strings.eqSearchLabel}
-              spellCheck={false}
-            />
-            {query.length > 0 && (
+          {searchOpen ? (
+            <div className={styles.searchRow}>
+              <Search size={16} className={styles.searchIcon} />
+              <input
+                type="text"
+                className={styles.search}
+                value={query}
+                autoFocus
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setQuery("");
+                    setSearchOpen(false);
+                  }
+                }}
+                placeholder={strings.eqSearchPlaceholder}
+                aria-label={strings.eqSearchLabel}
+                spellCheck={false}
+              />
               <button
                 type="button"
                 className={styles.searchClear}
-                onClick={() => setQuery("")}
+                onClick={() => {
+                  setQuery("");
+                  setSearchOpen(false);
+                }}
                 aria-label={strings.eqSearchClear}
               >
                 <X size={15} />
               </button>
-            )}
-          </div>
-
-          {matches === null && (
-            <div className={styles.catNav} role="tablist" aria-label={strings.eqSearchLabel}>
-              {EQ_CATEGORIES.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={styles.catChip}
-                  onClick={() => scrollToCat(c.id)}
-                >
-                  {CAT_LABEL[c.id]}
-                </button>
-              ))}
+            </div>
+          ) : (
+            <div className={styles.catRow}>
+              <div className={styles.catNav} role="tablist" aria-label={strings.eqSearchLabel}>
+                {EQ_CATEGORIES.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={styles.catChip}
+                    onClick={() => scrollToCat(c.id)}
+                  >
+                    {CAT_LABEL[c.id]}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={styles.searchToggle}
+                onClick={() => setSearchOpen(true)}
+                aria-label={strings.eqSearchLabel}
+                title={strings.eqSearchLabel}
+              >
+                <Search size={16} />
+              </button>
             </div>
           )}
 

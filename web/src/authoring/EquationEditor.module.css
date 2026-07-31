@@ -194,6 +194,7 @@
   align-items: center;
   gap: var(--space-2);
   height: 40px;
+  margin-bottom: var(--space-2);
   padding: 0 var(--space-3);
   border-radius: var(--radius-full);
   background: var(--bg-raised);
@@ -201,6 +202,33 @@
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast);
+}
+
+/* Collapsed state: category chips + a compact search icon on the right. */
+.catRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.searchToggle {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.searchToggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .searchRow:focus-within {
@@ -245,10 +273,11 @@
 }
 
 .catNav {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  margin: var(--space-3) 0 var(--space-1);
 }
 
 .catChip {
