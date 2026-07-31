@@ -66,6 +66,21 @@ export const EQ_CATEGORIES: EqCategory[] = [
     ],
   },
   {
+    id: "styles",
+    symbols: [
+      { ch: "𝐁", name: "bold", latex: "\\mathbf", insert: "\\mathbf{}", caret: -1, keywords: "mathbf boldface" },
+      { ch: "𝑖", name: "italic", latex: "\\mathit", insert: "\\mathit{}", caret: -1, keywords: "mathit" },
+      { ch: "rm", name: "upright roman", latex: "\\mathrm", insert: "\\mathrm{}", caret: -1, keywords: "roman units differential dx" },
+      { ch: "ℝ", name: "blackboard", latex: "\\mathbb", insert: "\\mathbb{}", caret: -1, keywords: "mathbb double struck sets reals" },
+      { ch: "abc", name: "text", latex: "\\text", insert: "\\text{}", caret: -1, keywords: "plain words label" },
+      { ch: "𝒜", name: "script calligraphic", latex: "\\mathcal", insert: "\\mathcal{}", caret: -1, keywords: "mathcal" },
+      { ch: "𝐯", name: "bold symbol", latex: "\\boldsymbol", insert: "\\boldsymbol{}", caret: -1, keywords: "vector bold greek" },
+      { ch: "𝔄", name: "fraktur", latex: "\\mathfrak", insert: "\\mathfrak{}", caret: -1, keywords: "gothic" },
+      { ch: "𝖠", name: "sans serif", latex: "\\mathsf", insert: "\\mathsf{}", caret: -1, keywords: "mathsf" },
+      { ch: "𝙰", name: "monospace", latex: "\\mathtt", insert: "\\mathtt{}", caret: -1, keywords: "typewriter code mathtt" },
+    ],
+  },
+  {
     id: "greek",
     symbols: [
       g("α", "alpha", "\\alpha"), g("β", "beta", "\\beta"), g("γ", "gamma", "\\gamma"),
