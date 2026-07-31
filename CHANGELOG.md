@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **Colored labels.** Custom folders can be color-coded — a colored dot in
+  the sidebar, set from a right-click palette (or cleared). Colors round-trip on
+  `Mailbox/get`/`Mailbox/set` and are validated to a strict `#rrggbb` (migration
+  0025).
+- Improved: **Settings redesigned** as a two-pane preferences panel (General ·
+  Filters & rules · Organization) with proper section headers and cards, in
+  place of the old flat single column.
 - New: **Filters & rules + Block sender.** A visual rule builder in Settings:
   match incoming mail on From / To / Cc / Subject (contains / is, all or any)
   and act — move to a folder, mark read, star, or delete. Rules run **on the
