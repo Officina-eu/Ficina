@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- New: **Send later.** Schedule a composed message for a chosen time instead of
+  sending now — the Send button has a **▾ menu** (Tomorrow morning / afternoon,
+  Monday morning, or a custom date & time). The draft moves to a **Scheduled**
+  folder and a background sweeper sends it when due, filing it to Sent; **Cancel
+  send** (reading pane) returns it to Drafts. Scheduling runs the same send-from
+  validation as an immediate send, so a forbidden send is refused up front; the
+  sweeper claims each due message before it hits the wire, so a crash can never
+  double-send (`POST /send-later`, migration 0023).
 - New: **AI smart replies.** When AI is configured, an open conversation shows up
   to **three short, ready-to-send replies** as pills below the thread (only when
   the newest message is from someone else). Picking one opens a reply
