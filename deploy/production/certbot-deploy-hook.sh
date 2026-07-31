@@ -7,7 +7,7 @@
 # become group-traversable (0750) and the private key group-readable (0640),
 # owned root:<gid>, so only root and the service group can read it.
 set -e
-GID="${ALO_GID:-999}"
+GID="${ALO_GID:-10001}"
 for d in /etc/letsencrypt/live /etc/letsencrypt/archive; do
 	[ -d "$d" ] || continue
 	chgrp -R "$GID" "$d"

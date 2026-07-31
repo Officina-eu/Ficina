@@ -43,17 +43,31 @@ The volumes are pinned to their pre-rebrand names (`ficina_pg_data`,
 `ficina_blobs`, `ficina_smtp_spool`, `ficina_certs`, `ficina_caddy_data`), so the
 new `alo` services attach to the existing data automatically.
 
-## 4. IF blob/spool permission errors appear (uid changed to 10001)
+## 4. Fix volume/file ownership for the new uid/gid 10001 (REQUIRED)
 
-The app user is now pinned to uid/gid `10001`. If the pre-rebrand volumes were
-written by a different uid, fix ownership once (data is untouched):
+The app user is now pinned to uid/gid `10001`; the pre-rebrand volumes were
+written by the old `--system` uid (999 on the reference host). Fix ownership
+once — data is untouched. Do this **between** step 1 (down) and step 3 (up):
 
 ```sh
+# blob store + mail spool: owned by the app user
 for v in ficina_blobs ficina_smtp_spool; do
   docker run --rm -v "$v":/d alpine chown -R 10001:10001 /d
 done
-docker compose -f "$COMPOSE/docker-compose.yml" restart alo-smtp alo-imap alo-jmap alo-control
+
+# DKIM private key (host bind mount): the new smtp must read it
+chown 10001:10001 "$COMPOSE/dkim/"*.key
+
+# TLS certs: smtp/imap read fullchain/privkey; make them GROUP-readable by 10001
+# (the live/ dir is group-only, group was the old gid). Also set ALO_GID=10001 in
+# .env so the certbot renewal hook keeps them readable after each renewal.
+docker run --rm -v ficina_certs:/c alpine \
+  sh -c 'chgrp -R 10001 /c/live /c/archive && chmod -R g+rX /c/live /c/archive'
+grep -q '^ALO_GID=' "$COMPOSE/.env" && sed -i 's/^ALO_GID=.*/ALO_GID=10001/' "$COMPOSE/.env" || echo 'ALO_GID=10001' >> "$COMPOSE/.env"
 ```
+
+If you skip the certs step, `alo-smtp` and `alo-imap` crash-loop with
+`reading certificates … Permission denied`.
 
 ## 5. Systemd units (backup/monitor) were renamed ficina-* → alo-*
 

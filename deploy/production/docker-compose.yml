@@ -84,7 +84,7 @@ services:
     environment:
       # The gid the alo services run as; the deploy hook grants this group
       # read access to the certificate.
-      ALO_GID: ${ALO_GID:-999}
+      ALO_GID: ${ALO_GID:-10001}
     entrypoint: >
       sh -c 'trap exit TERM;
              while :; do certbot renew --standalone --quiet;
