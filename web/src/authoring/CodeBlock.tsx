@@ -88,9 +88,11 @@ interface CodeBlockProps {
   onChange: (code: string) => void;
   language: string;
   onLanguageChange: (id: string) => void;
+  /** Give the editor a comfortable minimum height (the insert modal). */
+  tall?: boolean;
 }
 
-export function CodeBlock({ code, onChange, language, onLanguageChange }: CodeBlockProps) {
+export function CodeBlock({ code, onChange, language, onLanguageChange, tall }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const html = useMemo(() => highlight(code, language), [code, language]);
@@ -143,10 +145,12 @@ export function CodeBlock({ code, onChange, language, onLanguageChange }: CodeBl
           )}
         </div>
         <div className={styles.spacer} />
-        <button type="button" className={styles.copy} onClick={copy}>
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? strings.codeCopied : strings.codeCopy}
-        </button>
+        {code.length > 0 && (
+          <button type="button" className={styles.copy} onClick={copy}>
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? strings.codeCopied : strings.codeCopy}
+          </button>
+        )}
       </div>
       <div className={styles.body}>
         <div className={styles.gutter} aria-hidden="true">
@@ -156,7 +160,7 @@ export function CodeBlock({ code, onChange, language, onLanguageChange }: CodeBl
             </span>
           ))}
         </div>
-        <div className={styles.codeCell}>
+        <div className={cx(styles.codeCell, tall && styles.tall)}>
           <pre className={styles.pre} aria-hidden="true">
             <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: html }} />
           </pre>
@@ -165,6 +169,7 @@ export function CodeBlock({ code, onChange, language, onLanguageChange }: CodeBl
             value={code}
             spellCheck={false}
             wrap="off"
+            placeholder={strings.codePlaceholder}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             aria-label={strings.codeInputLabel}

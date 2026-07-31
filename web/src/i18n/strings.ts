@@ -580,6 +580,7 @@ export const strings = {
   sizeLarge: "Large",
   sizeHuge: "Huge",
   codeInsertTitle: "Insert code block",
+  codeInsertHint: "⌘/Ctrl + Enter to insert",
   insertCancel: "Cancel",
   insertConfirm: "Insert",
 
@@ -628,6 +629,7 @@ export const strings = {
   codeCopy: "Copy",
   codeCopied: "Copied",
   codeInputLabel: "Code",
+  codePlaceholder: "Paste or type your code…",
 
   // cross-reference chips + picker
   refSection: "Section",

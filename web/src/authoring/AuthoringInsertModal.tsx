@@ -4,6 +4,7 @@
 // code) that the compose editor drops in at the caret. Lazy-loaded, so KaTeX/
 // Prism stay off the mail path until a user actually inserts one.
 import { useState } from "react";
+import { Code2 } from "lucide-react";
 
 import { strings } from "../i18n";
 import { EquationEditor } from "./EquationEditor";
@@ -35,15 +36,31 @@ function EquationInsert({ onInsert, onClose }: Omit<InsertProps, "kind">) {
 function CodeInsert({ onInsert, onClose }: Omit<InsertProps, "kind">) {
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
+  const canInsert = code.trim().length > 0;
   return (
     <div className={styles.overlay} onMouseDown={onClose}>
-      <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
-        <div className={styles.head}>{strings.codeInsertTitle}</div>
+      <div
+        className={styles.modal}
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            onClose();
+          } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && canInsert) {
+            onInsert(codeEmailHtml(code, language));
+          }
+        }}
+      >
+        <div className={styles.head}>
+          <Code2 size={18} className={styles.headIcon} />
+          {strings.codeInsertTitle}
+          <span className={styles.headHint}>{strings.codeInsertHint}</span>
+        </div>
         <CodeBlock
           code={code}
           onChange={setCode}
           language={language}
           onLanguageChange={setLanguage}
+          tall
         />
         <div className={styles.footer}>
           <button type="button" className={styles.cancel} onClick={onClose}>
@@ -52,7 +69,7 @@ function CodeInsert({ onInsert, onClose }: Omit<InsertProps, "kind">) {
           <button
             type="button"
             className={styles.insert}
-            disabled={code.trim().length === 0}
+            disabled={!canInsert}
             onClick={() => onInsert(codeEmailHtml(code, language))}
           >
             {strings.insertConfirm}

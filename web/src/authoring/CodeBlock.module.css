@@ -195,6 +195,11 @@
   overflow-x: auto;
 }
 
+/* Modal variant: a comfortable editing area even when empty (grows with content). */
+.tall {
+  min-height: 200px;
+}
+
 .pre {
   margin: 0;
   padding: var(--code-pad-y) var(--code-pad-x);
@@ -226,6 +231,13 @@
 
 .input:focus {
   outline: none;
+}
+
+/* The typed text is transparent (Prism shows it underneath), but the placeholder
+   must be visible — give it its own dim color. */
+.input::placeholder {
+  color: var(--code-dim);
+  opacity: 1;
 }
 
 /* Prism tokens — dark palette */
