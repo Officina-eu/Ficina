@@ -632,6 +632,25 @@ impl TenantStore {
         Ok(id)
     }
 
+    /// Renames a group in this tenant. Runtime query (kept off the offline
+    /// cache path, like the other newer writes).
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the group isn't this tenant's;
+    /// [`StoreError::Conflict`] if the name is taken in this tenant.
+    pub async fn rename_group(&self, group: &GroupId, name: &str) -> Result<()> {
+        let done = sqlx::query("UPDATE groups SET name = $3 WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant().as_str())
+            .bind(group.as_str())
+            .bind(name)
+            .execute(self.pool())
+            .await?;
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
     /// Adds a user to a group (both in this tenant). Idempotent.
     ///
     /// # Errors

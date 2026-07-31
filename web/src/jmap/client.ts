@@ -509,6 +509,11 @@ export class JmapClient {
     await this.#admin(`/admin/groups/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
+  /** Rename a group / distribution list (admin). */
+  async renameGroup(id: string, name: string): Promise<void> {
+    await this.#adminPost("/admin/groups/name", { groupId: id, name });
+  }
+
   /** Set or clear a group's distribution-list address (admin). */
   async setGroupAddress(groupId: string, address: string | null): Promise<void> {
     await this.#adminPost("/admin/groups/address", address === null ? { groupId } : { groupId, address });

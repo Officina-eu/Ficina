@@ -116,6 +116,7 @@ pub fn app(state: AppState) -> Router {
             "/admin/groups",
             get(admin::list_groups).post(admin::create_group),
         )
+        .route("/admin/groups/name", post(admin::rename_group))
         .route("/admin/groups/address", post(admin::set_group_address))
         .route("/admin/groups/members", post(admin::add_group_member))
         .route(

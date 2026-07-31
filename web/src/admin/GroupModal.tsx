@@ -19,6 +19,7 @@ interface GroupModalProps {
 export function GroupModal({ group, onClose, onChanged }: GroupModalProps) {
   const client = useJmapClient();
   const [name, setName] = useState("");
+  const [listName, setListName] = useState(group?.name ?? "");
   const [members, setMembers] = useState(group?.members ?? []);
   const [address, setAddress] = useState(group?.address ?? "");
   const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
@@ -46,6 +47,19 @@ export function GroupModal({ group, onClose, onChanged }: GroupModalProps) {
       onChanged();
     } catch {
       setError(strings.groupCreateError);
+      setBusy(false);
+    }
+  }
+
+  async function saveName() {
+    if (group === undefined || busy || listName.trim().length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.renameGroup(group.id, listName.trim());
+      onChanged();
+    } catch {
+      setError(strings.groupActionError);
       setBusy(false);
     }
   }
@@ -184,6 +198,25 @@ export function GroupModal({ group, onClose, onChanged }: GroupModalProps) {
           </button>
         </div>
         <div className={styles.modalBody}>
+          <div className={styles.field}>
+            <span className={styles.label}>{strings.groupName}</span>
+            <div className={styles.keyRow}>
+              <input
+                className={styles.input}
+                value={listName}
+                onChange={(e) => setListName(e.target.value)}
+              />
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => void saveName()}
+                disabled={busy || listName.trim().length === 0 || listName.trim() === group.name}
+              >
+                {strings.groupRename}
+              </button>
+            </div>
+          </div>
+
           <div className={styles.field}>
             <span className={styles.label}>{strings.groupListAddress}</span>
             <div className={styles.keyRow}>

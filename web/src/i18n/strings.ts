@@ -451,6 +451,7 @@ export const strings = {
   adminNewGroup: "New group",
   adminGroupsError: "Couldn't load groups.",
   groupName: "Group name",
+  groupRename: "Rename",
   groupCreate: "Create group",
   groupListBadge: "List",
   groupMembers: "Members",

@@ -520,6 +520,27 @@ pub async fn delete_group(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// `POST /admin/groups/name` — rename a group. Body `{ groupId, name }`.
+pub async fn rename_group(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let group_id = str_field(&v, "groupId").ok_or_else(|| bad("groupId required"))?;
+    let name = str_field(&v, "name").ok_or_else(|| bad("name required"))?;
+    state
+        .store
+        .for_tenant(account.tenant.clone())
+        .rename_group(&GroupId::new(group_id.clone()), &name)
+        .await
+        .map_err(store_admin_err)?;
+    audit(&state, &account, "group.rename", Some(&group_id), Some(&name)).await;
+    Ok(Json(json!({ "ok": true })))
+}
+
 /// `POST /admin/groups/address` — set or clear a group's list address. Body
 /// `{ groupId, address? }`. An empty/absent address turns the list off.
 pub async fn set_group_address(
