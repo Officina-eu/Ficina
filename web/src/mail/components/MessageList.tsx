@@ -23,11 +23,13 @@ import {
 import { strings } from "../../i18n";
 import { IconButton, Spinner, cx } from "../../ds";
 import { useJmapClient } from "../../jmap";
-import type { EmailHeaders } from "../../jmap";
+import type { Category, EmailHeaders } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import { formatDate, senderName, subjectOr } from "../format";
 import { groupThreads, flatRows, type ThreadRow } from "../threads";
+import { rowCategories } from "../categories";
 import { DRAG_EMAIL_MIME } from "../dnd";
+import { CategoryChips } from "./CategoryChips";
 import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./MessageList.module.css";
 
@@ -42,6 +44,8 @@ interface MessageListProps {
   /** Flat (per-message) list vs grouped conversations. */
   flat: boolean;
   onToggleView: () => void;
+  /** The account's category catalog, for the colored dots on each row. */
+  categories: Category[];
   onSelect: (thread: ThreadRow) => void;
   /** Batch conversation actions (a single row passes `[thread]`). */
   onArchive: (threads: ThreadRow[]) => void;
@@ -64,6 +68,7 @@ export function MessageList({
   folderName,
   flat,
   onToggleView,
+  categories,
   emails,
   selectedThreadId,
   readIds,
@@ -281,6 +286,7 @@ export function MessageList({
                     </span>
                   </span>
                   <span className={styles.line2}>
+                    <CategoryChips categories={rowCategories(thread, categories)} variant="dots" />
                     <span className={styles.subject}>{subjectOr(email)}</span>
                     {email.preview.length > 0 && (
                       <span className={styles.snippet}> — {email.preview}</span>

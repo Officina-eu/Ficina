@@ -1,7 +1,7 @@
 //! JMAP JSON representations of store entities (RFC 8621). Keeps the
 //! wire shapes — the public contract — in one place.
 
-use alo_store::{Mailbox, Message};
+use alo_store::{Category, Mailbox, Message};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 
@@ -17,6 +17,19 @@ pub fn utc_date(dt: OffsetDateTime) -> String {
         dt.minute(),
         dt.second()
     )
+}
+
+/// A `Category` (alo extension): a user-defined colored label. `keyword` is
+/// the `$category_<id>` a message carries when tagged — clients set, clear, and
+/// `hasKeyword`-filter on it directly, so the mapping never has to be guessed.
+pub fn category_json(c: &Category) -> Value {
+    json!({
+        "id": c.id.as_str(),
+        "name": c.name,
+        "color": c.color,
+        "sortOrder": c.sort_order,
+        "keyword": alo_store::category_keyword(&c.id),
+    })
 }
 
 /// A JMAP `Mailbox` (RFC 8621 §2). Counters come straight from the

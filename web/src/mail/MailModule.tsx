@@ -9,11 +9,12 @@ import type { CSSProperties } from "react";
 import { strings } from "../i18n";
 import { ResizeHandle, cx, usePanelWidth } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
-import type { EmailFull } from "../jmap";
+import type { Category, EmailFull } from "../jmap";
 import { useAuth } from "../auth";
-import { useEmailHeaders, useMailboxes, useThread } from "./state/useMail";
+import { useCategories, useEmailHeaders, useMailboxes, useThread } from "./state/useMail";
 import type { ThreadRow } from "./threads";
 import { FolderSidebar } from "./components/FolderSidebar";
+import { CategorySection } from "./components/CategorySection";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
 import { ComposeModal, formatSendAt } from "./components/ComposeModal";
@@ -24,12 +25,16 @@ export function MailModule() {
   const client = useJmapClient();
   const { identity } = useAuth();
   const mailboxes = useMailboxes();
+  const categories = useCategories();
+  const categoryList = categories.status === "ready" ? (categories.data ?? []) : [];
 
   // Resizable panels (drag the dividers; persisted across sessions).
   const folders = usePanelWidth("alo.mail.foldersWidth", 232, 176, 420);
   const list = usePanelWidth("alo.mail.listWidth", 372, 300, 640);
 
   const [mailboxId, setMailboxId] = useState<string | null>(null);
+  // Category filter (a facet on the current folder): null = show everything.
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
   // Conversation vs flat (per-message) list — a per-device preference.
   const [flatView, setFlatView] = useState(() => localStorage.getItem("alo.mail.flat") === "1");
@@ -70,7 +75,7 @@ export function MailModule() {
     });
   }
 
-  const emails = useEmailHeaders(mailboxId);
+  const emails = useEmailHeaders(mailboxId, categoryFilter);
   const thread = useThread(threadId);
 
   const boxes = mailboxes.status === "ready" ? (mailboxes.data ?? []) : [];
@@ -251,7 +256,57 @@ export function MailModule() {
 
   function openMailbox(id: string) {
     setMailboxId(id);
+    setCategoryFilter(null);
     setThreadId(null);
+  }
+
+  // Filter the current folder to one category (null clears the facet).
+  function selectCategory(id: string | null) {
+    setCategoryFilter(id);
+    setThreadId(null);
+  }
+
+  // Category catalog management: create, rename/recolor, delete.
+  async function createCategory(name: string, color: string | null) {
+    try {
+      await client.createCategory(name, color);
+      categories.reload();
+    } catch {
+      setToast(strings.categoryActionFailed);
+    }
+  }
+  async function updateCategory(id: string, name: string, color: string | null) {
+    try {
+      await client.updateCategory(id, name, color);
+      categories.reload();
+      emails.reload();
+    } catch {
+      setToast(strings.categoryActionFailed);
+    }
+  }
+  async function deleteCategory(cat: Category) {
+    if (!window.confirm(strings.categoryDeleteConfirm(cat.name))) return;
+    try {
+      await client.deleteCategory(cat.id);
+      if (categoryFilter === cat.id) selectCategory(null);
+      categories.reload();
+      emails.reload();
+    } catch {
+      setToast(strings.categoryActionFailed);
+    }
+  }
+
+  // Tag/untag the whole open conversation with a category (all its messages).
+  function toggleThreadCategory(categoryId: string, on: boolean) {
+    const ids = threadMessages.map((m) => m.id);
+    if (ids.length === 0) return;
+    void client
+      .setCategoryMany(ids, categoryId, on)
+      .then(() => {
+        emails.reload();
+        thread.reload();
+      })
+      .catch(fail);
   }
 
   function openThread(row: ThreadRow) {
@@ -404,6 +459,16 @@ export function MailModule() {
         onCreateFolder={(name, parentId) => void createFolder(name, parentId)}
         onRenameFolder={(id, name) => void renameFolder(id, name)}
         onDeleteFolder={(box) => void deleteFolder(box)}
+        extraSection={
+          <CategorySection
+            categories={categoryList}
+            selectedId={categoryFilter}
+            onSelect={selectCategory}
+            onCreate={(name, color) => void createCategory(name, color)}
+            onUpdate={(id, name, color) => void updateCategory(id, name, color)}
+            onDelete={(cat) => void deleteCategory(cat)}
+          />
+        }
       />
       {!foldersCollapsed && (
         <ResizeHandle
@@ -423,6 +488,7 @@ export function MailModule() {
         onToggleFolders={toggleFolders}
         flat={flatView}
         onToggleView={toggleView}
+        categories={categoryList}
         onSelect={openThread}
         onArchive={(ts) => archiveIds(ts.flatMap((t) => t.memberIds))}
         onDelete={(ts) => deleteIds(ts.flatMap((t) => t.memberIds))}
@@ -459,6 +525,8 @@ export function MailModule() {
         onBlockSender={(email) => void blockSender(email)}
         isScheduled={boxes.find((b) => b.id === mailboxId)?.role === "scheduled"}
         isJunk={boxes.find((b) => b.id === mailboxId)?.role === "junk"}
+        categories={categoryList}
+        onToggleCategory={toggleThreadCategory}
       />
       {compose !== null && (
         <ComposeModal

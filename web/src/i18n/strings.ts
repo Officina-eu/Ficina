@@ -193,6 +193,18 @@ export const strings = {
   folderNamePlaceholder: "Folder name",
   folderDeleteConfirm: (name: string) => `Delete the folder "${name}"? Its messages are not deleted.`,
   folderActionFailed: "That folder change didn't work — please try again.",
+  // Categories (colored message labels)
+  categories: "Categories",
+  categorize: "Categorize",
+  categoryNew: "New category",
+  categoryRename: "Rename",
+  categoryDelete: "Delete category",
+  categoryNamePlaceholder: "Category name",
+  categoryNoneHint: "No categories yet — add one from the sidebar.",
+  categoryDeleteConfirm: (name: string) =>
+    `Delete the category "${name}"? It is removed from every message that has it.`,
+  categoryActionFailed: "That category change didn't work — please try again.",
+  categoryClearFilter: "Show all messages",
   // alo Transfer (large files as expiring links)
   transferLink: "link",
   transferSharedFile: "📎 Shared file",

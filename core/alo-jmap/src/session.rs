@@ -13,6 +13,8 @@ const CAP_CORE: &str = "urn:ietf:params:jmap:core";
 const CAP_MAIL: &str = "urn:ietf:params:jmap:mail";
 const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
 const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
+/// alo extension: user-defined colored message categories (Category/get+set).
+const CAP_CATEGORIES: &str = "urn:alo:params:jmap:categories";
 
 /// `GET /.well-known/jmap` → the Session resource.
 pub async fn session(
@@ -45,7 +47,9 @@ pub async fn session(
             "name": account_id,
             "isPersonal": true,
             "isReadOnly": false,
-            "accountCapabilities": { CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {} }
+            "accountCapabilities": {
+                CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}
+            }
         }),
     );
     let mut primary = Map::new();
@@ -87,7 +91,8 @@ pub async fn session(
             CAP_SUBMISSION: {
                 "maxDelayedSend": 0,
                 "submissionExtensions": {}
-            }
+            },
+            CAP_CATEGORIES: {}
         },
         "accounts": accounts,
         "primaryAccounts": primary,

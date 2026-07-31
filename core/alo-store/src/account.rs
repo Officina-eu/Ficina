@@ -23,13 +23,13 @@ use time::OffsetDateTime;
 
 use crate::blob::{BlobStore, hash_hex};
 use crate::error::{Result, StoreError};
-use crate::id::{BlobId, MailboxId, MessageId, TenantId, ThreadId, UserId};
+use crate::id::{BlobId, CategoryId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 use crate::message;
 use crate::model::{
-    AiConfigRow, AiProviderRow, Blob, EmailQuery, Mailbox, Message, MessageSummary, Page,
+    AiConfigRow, AiProviderRow, Blob, Category, EmailQuery, Mailbox, Message, MessageSummary, Page,
     SortDirection,
 };
-use crate::store::{MAX_KEYWORD_LEN, MAX_KEYWORDS, SEEN};
+use crate::store::{MAX_KEYWORD_LEN, MAX_KEYWORDS, SEEN, category_keyword};
 use crate::thread;
 
 /// A handle scoped to one `(tenant, user)`. Holds both ids privately and
@@ -311,6 +311,151 @@ impl AccountStore {
         if done.rows_affected() == 0 {
             return Err(StoreError::NotFound);
         }
+        Ok(())
+    }
+
+    // ---- categories (colored message labels) --------------------------
+
+    /// Lists this account's categories, in the user's chosen order (then name).
+    /// Runtime query: the `categories` table is newer than the offline cache
+    /// path some builds compile against.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn categories(&self) -> Result<Vec<Category>> {
+        let rows = sqlx::query_as::<_, (String, String, Option<String>, i32)>(
+            "SELECT id, name, color, sort_order FROM categories \
+             WHERE tenant_id = $1 AND user_id = $2 ORDER BY sort_order, name",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, color, sort_order)| Category {
+                id: CategoryId::new(id),
+                name,
+                color,
+                sort_order,
+            })
+            .collect())
+    }
+
+    /// Creates a category (colored label) at the end of the user's list.
+    /// Returns its id, which is embedded in the `$category_<id>` keyword. The
+    /// caller validates `color` (a "#rrggbb" hex); the store only persists it.
+    ///
+    /// # Errors
+    /// [`StoreError::Conflict`] if the user already has a category of that name;
+    /// [`StoreError::Db`] on failure.
+    pub async fn create_category(&self, name: &str, color: Option<&str>) -> Result<CategoryId> {
+        let id = CategoryId::generate();
+        sqlx::query(
+            "INSERT INTO categories (tenant_id, user_id, id, name, color, sort_order) \
+             VALUES ($1, $2, $3, $4, $5, \
+                COALESCE((SELECT MAX(sort_order) + 1 FROM categories \
+                          WHERE tenant_id = $1 AND user_id = $2), 0))",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(id.as_str())
+        .bind(name)
+        .bind(color)
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// Renames and/or recolors one of this account's categories. `color` of
+    /// `None` clears the color; `Some(c)` sets it (validated by the caller).
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the category isn't this account's;
+    /// [`StoreError::Conflict`] on a duplicate name; [`StoreError::Db`] on
+    /// failure.
+    pub async fn update_category(
+        &self,
+        id: &CategoryId,
+        name: &str,
+        color: Option<&str>,
+    ) -> Result<()> {
+        let done = sqlx::query(
+            "UPDATE categories SET name = $4, color = $5 \
+             WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(id.as_str())
+        .bind(name)
+        .bind(color)
+        .execute(&self.pool)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Deletes one of this account's categories and strips its `$category_<id>`
+    /// keyword from every message that carried it, so no dangling tags remain.
+    /// Idempotent per membership: touched messages emit an `Email` change so
+    /// clients refresh their chips.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if the category isn't this account's;
+    /// [`StoreError::Db`] on failure.
+    pub async fn delete_category(&self, id: &CategoryId) -> Result<()> {
+        let keyword = category_keyword(id);
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+
+        let done = sqlx::query(
+            "DELETE FROM categories WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(id.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+
+        // Which of this user's messages still carry the tag → change records.
+        let tagged: Vec<String> = sqlx::query_scalar(
+            "SELECT k.message_id FROM message_keywords k \
+             JOIN messages m ON m.id = k.message_id \
+             WHERE k.tenant_id = $1 AND m.user_id = $2 AND k.keyword = $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(&keyword)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+
+        sqlx::query(
+            "DELETE FROM message_keywords k \
+             USING messages m \
+             WHERE k.message_id = m.id AND k.tenant_id = $1 AND m.user_id = $2 \
+                   AND k.keyword = $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(&keyword)
+        .execute(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+
+        if !tagged.is_empty() {
+            let changes: Vec<crate::changes::Change<'_>> = tagged
+                .iter()
+                .map(|mid| crate::changes::Change::updated(crate::changes::TYPE_EMAIL, mid))
+                .collect();
+            self.record(&mut tx, &changes).await?;
+        }
+        tx.commit().await.map_err(StoreError::Db)?;
         Ok(())
     }
 

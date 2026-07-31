@@ -99,6 +99,9 @@ interface FolderSidebarProps {
   onCreateFolder: (name: string, parentId: string | null) => void;
   onRenameFolder: (id: string, name: string) => void;
   onDeleteFolder: (box: Mailbox) => void;
+  /** Rendered below the folder list (the Categories section). Hidden when the
+   * sidebar is collapsed, alongside the other labels. */
+  extraSection?: ReactNode;
 }
 
 export function FolderSidebar({
@@ -112,6 +115,7 @@ export function FolderSidebar({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
+  extraSection,
 }: FolderSidebarProps) {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ box: Mailbox; x: number; y: number } | null>(null);
@@ -278,6 +282,7 @@ export function FolderSidebar({
             ))}
             {creating?.parentId === null && newFolderInput(null, 0)}
           </div>
+          {!collapsed && extraSection}
         </div>
       )}
 

@@ -5,6 +5,8 @@
 export const MAIL_CAPABILITY = "urn:ietf:params:jmap:mail";
 export const CORE_CAPABILITY = "urn:ietf:params:jmap:core";
 export const SUBMISSION_CAPABILITY = "urn:ietf:params:jmap:submission";
+/** alo extension: user-defined colored message categories (Category/get+set). */
+export const CATEGORIES_CAPABILITY = "urn:alo:params:jmap:categories";
 
 export interface Session {
   apiUrl: string;
@@ -224,3 +226,32 @@ export interface JmapResponse {
 /** JMAP keyword constants we read/set. */
 export const KEYWORD_SEEN = "$seen";
 export const KEYWORD_FLAGGED = "$flagged";
+
+/** A user-defined message category (alo extension): a colored label a message
+ * can be tagged with. Membership is the `$category_<id>` keyword; this is the
+ * catalog entry giving that keyword a name and color. */
+export interface Category {
+  id: string;
+  name: string;
+  /** "#rrggbb" or null. */
+  color: string | null;
+  /** The `$category_<id>` keyword a tagged message carries (server-supplied). */
+  keyword: string;
+}
+
+/** Keyword prefix recording category membership; mirrors the store's
+ * `CATEGORY_KEYWORD_PREFIX`. Prefer a Category's own `keyword`; use this only
+ * to detect category keywords on a message without the catalog. */
+export const CATEGORY_KEYWORD_PREFIX = "$category_";
+
+/** The `$category_<id>` keyword for a category id. */
+export function categoryKeyword(id: string): string {
+  return `${CATEGORY_KEYWORD_PREFIX}${id}`;
+}
+
+/** The category id embedded in a `$category_<id>` keyword, or null. */
+export function categoryIdOf(keyword: string): string | null {
+  return keyword.startsWith(CATEGORY_KEYWORD_PREFIX)
+    ? keyword.slice(CATEGORY_KEYWORD_PREFIX.length)
+    : null;
+}

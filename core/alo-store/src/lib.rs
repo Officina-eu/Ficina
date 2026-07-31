@@ -43,16 +43,16 @@ pub use control::PLATFORM_TENANT_NAME;
 pub use dkim::DkimSigningMaterial;
 pub use document::{Document, DocumentSummary};
 pub use error::{Result, StoreError};
-pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
+pub use id::{BlobId, CategoryId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
     RefreshTokenRow, SigningKeyRow, TotpRow,
 };
 pub use model::{
-    AiConfigRow, AiProviderRow, AuditEntry, Blob, DkimKeyRow, DomainRow, EmailFilter, EmailQuery,
-    GroupRow, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection, TenantSummary,
-    UserRow,
+    AiConfigRow, AiProviderRow, AuditEntry, Blob, Category, DkimKeyRow, DomainRow, EmailFilter,
+    EmailQuery, GroupRow, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection,
+    TenantSummary, UserRow,
 };
 pub use schedule::DueSend;
 pub use share::{ShareCreated, ShareTarget};
-pub use store::{SEEN, Store, TenantStore};
+pub use store::{CATEGORY_KEYWORD_PREFIX, SEEN, Store, TenantStore, category_keyword};

@@ -2,7 +2,7 @@
 
 use time::OffsetDateTime;
 
-use crate::id::{BlobId, MailboxId, MessageId, ThreadId};
+use crate::id::{BlobId, CategoryId, MailboxId, MessageId, ThreadId};
 
 /// The resolved AI backend a tenant's default provider points at (ADR 0011),
 /// mapped for the inference client. `api_key` is a secret, never returned to
@@ -174,6 +174,20 @@ pub struct Mailbox {
     pub total_messages: i64,
     /// Messages without the `$seen` keyword.
     pub unread_messages: i64,
+}
+
+/// A user-defined message category (an Outlook-style colored label). Its id is
+/// embedded in the `$category_<id>` keyword carried by tagged messages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Category {
+    /// Opaque id.
+    pub id: CategoryId,
+    /// Display name (unique within the user's account).
+    pub name: String,
+    /// Optional display color ("#rrggbb").
+    pub color: Option<String>,
+    /// Order among the user's categories (ascending).
+    pub sort_order: i32,
 }
 
 /// A compact message row for mailbox listings (no body).

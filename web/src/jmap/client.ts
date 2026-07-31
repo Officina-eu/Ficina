@@ -6,10 +6,13 @@ import {
   CORE_CAPABILITY,
   MAIL_CAPABILITY,
   SUBMISSION_CAPABILITY,
+  CATEGORIES_CAPABILITY,
+  categoryKeyword,
   type AdminGroup,
   type AdminUser,
   type AiProvider,
   type AuditEntry,
+  type Category,
   type ControlDomain,
   type ControlTenant,
   type EmailAddress,
@@ -98,7 +101,7 @@ export class JmapClient {
   async #request(methodCalls: MethodCall[]): Promise<JmapResponse> {
     const session = await this.session();
     const body: JmapRequest = {
-      using: [CORE_CAPABILITY, MAIL_CAPABILITY, SUBMISSION_CAPABILITY],
+      using: [CORE_CAPABILITY, MAIL_CAPABILITY, SUBMISSION_CAPABILITY, CATEGORIES_CAPABILITY],
       methodCalls,
     };
     let response: Response;
@@ -181,15 +184,73 @@ export class JmapClient {
     if (bad !== undefined) throw new JmapError("could not delete the folder");
   }
 
-  /** Header rows for a mailbox, newest first, via query + back-referenced get. */
-  async emailHeaders(mailboxId: string, limit = 60): Promise<EmailHeaders[]> {
+  // ---- categories (colored message labels) --------------------------
+
+  /** The account's categories (catalog of name + color), in the user's order. */
+  async categories(): Promise<Category[]> {
     const accountId = await this.accountId();
+    const res = await this.#request([["Category/get", { accountId, ids: null }, "c"]]);
+    return (this.#result(res, "c").list as Category[]) ?? [];
+  }
+
+  /** Creates a category; returns the created catalog entry (id + keyword). */
+  async createCategory(name: string, color: string | null): Promise<Category> {
+    const accountId = await this.accountId();
+    const props: Record<string, unknown> = { name };
+    if (color !== null) props.color = color;
+    const res = await this.#request([["Category/set", { accountId, create: { c: props } }, "s"]]);
+    const created = (this.#result(res, "s").created as Record<string, Category> | undefined)?.c;
+    if (created === undefined) throw new JmapError("could not create the category");
+    return created;
+  }
+
+  /** Renames and/or recolors a category (color null clears it). */
+  async updateCategory(id: string, name: string, color: string | null): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      ["Category/set", { accountId, update: { [id]: { name, color } } }, "s"],
+    ]);
+    const bad = (this.#result(res, "s").notUpdated as Record<string, unknown> | undefined)?.[id];
+    if (bad !== undefined) throw new JmapError("could not update the category");
+  }
+
+  /** Deletes a category, stripping its tag from every message that carried it. */
+  async deleteCategory(id: string): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([["Category/set", { accountId, destroy: [id] }, "s"]]);
+    const bad = (this.#result(res, "s").notDestroyed as Record<string, unknown> | undefined)?.[id];
+    if (bad !== undefined) throw new JmapError("could not delete the category");
+  }
+
+  /** Tags (or untags) a message with a category. */
+  async setCategory(emailId: string, categoryId: string, on: boolean): Promise<void> {
+    await this.#setKeyword(emailId, categoryKeyword(categoryId), on);
+  }
+
+  /** Tags/untags several messages with a category in one call (whole thread). */
+  async setCategoryMany(emailIds: string[], categoryId: string, on: boolean): Promise<void> {
+    if (emailIds.length === 0) return;
+    const accountId = await this.accountId();
+    const patch = { [`keywords/${categoryKeyword(categoryId)}`]: on ? true : null };
+    const update: Record<string, unknown> = {};
+    for (const id of emailIds) update[id] = patch;
+    const res = await this.#request([["Email/set", { accountId, update }, "s"]]);
+    this.#result(res, "s");
+  }
+
+  /** Header rows for a mailbox, newest first, via query + back-referenced get.
+   * When `categoryId` is given, the folder is further filtered to messages
+   * tagged with that category (server-side `hasKeyword`). */
+  async emailHeaders(mailboxId: string, limit = 60, categoryId?: string): Promise<EmailHeaders[]> {
+    const accountId = await this.accountId();
+    const filter: Record<string, unknown> = { inMailbox: mailboxId };
+    if (categoryId !== undefined) filter.hasKeyword = categoryKeyword(categoryId);
     const res = await this.#request([
       [
         "Email/query",
         {
           accountId,
-          filter: { inMailbox: mailboxId },
+          filter,
           sort: [{ property: "receivedAt", isAscending: false }],
           limit,
         },

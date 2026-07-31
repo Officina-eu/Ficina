@@ -124,6 +124,11 @@ opaque_id!(
     /// A content-addressed blob.
     BlobId
 );
+opaque_id!(
+    /// A user-defined message category (colored label). The id is embedded in
+    /// the message's `$category_<id>` keyword to record membership.
+    CategoryId
+);
 
 #[cfg(test)]
 mod tests {

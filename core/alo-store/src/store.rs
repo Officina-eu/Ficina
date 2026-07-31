@@ -19,6 +19,18 @@ use crate::id::{TenantId, UserId};
 /// The JMAP `$seen` keyword — the one that drives the unread counter.
 pub const SEEN: &str = "$seen";
 
+/// Keyword prefix that records category membership: a message tagged with
+/// category `<id>` carries the keyword `$category_<id>`. The store owns this
+/// convention (used to strip tags when a category is deleted); clients derive
+/// the same keyword to set, clear, and filter by a category.
+pub const CATEGORY_KEYWORD_PREFIX: &str = "$category_";
+
+/// The keyword recording membership in category `id`.
+#[must_use]
+pub fn category_keyword(id: &crate::id::CategoryId) -> String {
+    format!("{CATEGORY_KEYWORD_PREFIX}{}", id.as_str())
+}
+
 /// Maximum distinct keywords per message — bounds `message_keywords`
 /// growth so one message cannot force an unbounded keyword set.
 pub(crate) const MAX_KEYWORDS: i64 = 64;

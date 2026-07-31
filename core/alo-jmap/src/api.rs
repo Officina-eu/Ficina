@@ -3,8 +3,8 @@
 //! Thread methods mapped onto the tenant-scoped store.
 
 use alo_store::{
-    BlobId, EmailFilter, EmailQuery, MailboxId, MessageId, Page, SortDirection, StoreError,
-    ThreadId,
+    BlobId, CategoryId, EmailFilter, EmailQuery, MailboxId, MessageId, Page, SortDirection,
+    StoreError, ThreadId,
 };
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -22,6 +22,8 @@ const CAP_CORE: &str = "urn:ietf:params:jmap:core";
 const CAP_MAIL: &str = "urn:ietf:params:jmap:mail";
 const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
 const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
+/// alo extension: user-defined colored message categories (Category/get+set).
+const CAP_CATEGORIES: &str = "urn:alo:params:jmap:categories";
 
 /// `POST /jmap/api` — process a JMAP Request, return the Response.
 pub async fn api(
@@ -44,7 +46,8 @@ pub async fn api(
         .ok_or_else(Problem::not_request)?;
     for cap in using {
         match cap.as_str() {
-            Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) | Some(CAP_SUBMISSION) => {}
+            Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) | Some(CAP_SUBMISSION)
+            | Some(CAP_CATEGORIES) => {}
             other => {
                 return Err(Problem::unknown_capability().detail(other.unwrap_or("").to_owned()));
             }
@@ -173,6 +176,8 @@ async fn dispatch(
         "Mailbox/get" => mailbox_get(account, args).await,
         "Mailbox/set" => mailbox_set(account, args).await,
         "Mailbox/changes" => changes(account, args, alo_store::changes::TYPE_MAILBOX, state).await,
+        "Category/get" => category_get(account, args).await,
+        "Category/set" => category_set(account, args).await,
         "Email/get" => email_get(account, args, state).await,
         "Email/query" => email_query(account, args).await,
         "Email/set" => email_set(account, args).await,
@@ -380,6 +385,142 @@ async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
             // destroy_mailbox is account-scoped: a foreign mailbox is
             // NotFound → notDestroyed, no separate guard to forget.
             match account.acc.destroy_mailbox(&mbox).await {
+                Ok(()) => destroyed.push(json!(id)),
+                Err(e) => {
+                    not_destroyed.insert(id.to_owned(), set_error(&e));
+                }
+            }
+        }
+    }
+
+    let new_state = account.acc.state().await.map_err(store_err)?;
+    Ok(json!({
+        "accountId": account.account_id(), "oldState": old_state, "newState": new_state,
+        "created": created, "updated": updated, "destroyed": destroyed,
+        "notCreated": not_created, "notUpdated": not_updated, "notDestroyed": not_destroyed
+    }))
+}
+
+// ---- Category (alo extension) -----------------------------------------
+// A user-defined colored label. Membership lives in the message's
+// `$category_<id>` keyword (set/cleared/filtered via the standard Email
+// methods); these methods only manage the catalog of name + color.
+
+async fn category_get(account: &Account, args: &Value) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let state = account.acc.state().await.map_err(store_err)?;
+    let all = account.acc.categories().await.map_err(store_err)?;
+
+    let ids = args.get("ids");
+    let mut list = Vec::new();
+    let mut not_found = Vec::new();
+    if ids.is_none() || ids == Some(&Value::Null) {
+        list.extend(all.iter().map(jtypes::category_json));
+    } else {
+        for id in ids.and_then(Value::as_array).into_iter().flatten() {
+            let Some(id) = id.as_str() else { continue };
+            match all.iter().find(|c| c.id.as_str() == id) {
+                Some(c) => list.push(jtypes::category_json(c)),
+                None => not_found.push(json!(id)),
+            }
+        }
+    }
+    Ok(
+        json!({ "accountId": account.account_id(), "state": state, "list": list, "notFound": not_found }),
+    )
+}
+
+async fn category_set(account: &Account, args: &Value) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let old_state = account.acc.state().await.map_err(store_err)?;
+    if let Some(expected) = args.get("ifInState").and_then(Value::as_str)
+        && expected != old_state
+    {
+        return Err(method_error("stateMismatch"));
+    }
+
+    let (mut created, mut not_created) = (Map::new(), Map::new());
+    let (mut updated, mut not_updated) = (Map::new(), Map::new());
+    let (mut destroyed, mut not_destroyed) = (Vec::new(), Map::new());
+
+    // create
+    if let Some(creates) = args.get("create").and_then(Value::as_object) {
+        for (cid, props) in creates {
+            let name = props.get("name").and_then(Value::as_str).unwrap_or("").trim();
+            if name.is_empty() {
+                not_created.insert(
+                    cid.clone(),
+                    method_error_desc("invalidProperties", "name required"),
+                );
+                continue;
+            }
+            let color = match parse_color(props.get("color")) {
+                Ok(c) => c,
+                Err(e) => {
+                    not_created.insert(cid.clone(), e);
+                    continue;
+                }
+            };
+            match account.acc.create_category(name, color.as_deref()).await {
+                Ok(id) => {
+                    created.insert(
+                        cid.clone(),
+                        json!({ "id": id.as_str(), "keyword": alo_store::category_keyword(&id) }),
+                    );
+                }
+                Err(e) => {
+                    not_created.insert(cid.clone(), set_error(&e));
+                }
+            }
+        }
+    }
+
+    // update (name and/or color)
+    if let Some(updates) = args.get("update").and_then(Value::as_object) {
+        // Snapshot the current catalog to resolve partial patches (name-only or
+        // color-only) against the stored value, and to reject foreign ids.
+        let current = account.acc.categories().await.map_err(store_err)?;
+        for (id, patch) in updates {
+            let Some(existing) = current.iter().find(|c| c.id.as_str() == id.as_str()) else {
+                not_updated.insert(id.clone(), method_error("notFound"));
+                continue;
+            };
+            let name = match patch.get("name") {
+                None => existing.name.clone(),
+                Some(Value::String(s)) if !s.trim().is_empty() => s.trim().to_owned(),
+                Some(_) => {
+                    not_updated
+                        .insert(id.clone(), method_error_desc("invalidProperties", "invalid name"));
+                    continue;
+                }
+            };
+            let color = match patch.get("color") {
+                None => existing.color.clone(),
+                Some(c) => match parse_color(Some(c)) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        not_updated.insert(id.clone(), e);
+                        continue;
+                    }
+                },
+            };
+            let cat = CategoryId::new(id.as_str());
+            match account.acc.update_category(&cat, &name, color.as_deref()).await {
+                Ok(()) => {
+                    updated.insert(id.clone(), Value::Null);
+                }
+                Err(e) => {
+                    not_updated.insert(id.clone(), set_error(&e));
+                }
+            }
+        }
+    }
+
+    // destroy
+    if let Some(ids) = args.get("destroy").and_then(Value::as_array) {
+        for id in ids {
+            let Some(id) = id.as_str() else { continue };
+            match account.acc.delete_category(&CategoryId::new(id)).await {
                 Ok(()) => destroyed.push(json!(id)),
                 Err(e) => {
                     not_destroyed.insert(id.to_owned(), set_error(&e));

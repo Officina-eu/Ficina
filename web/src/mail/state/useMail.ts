@@ -4,7 +4,7 @@
 import { useCallback } from "react";
 
 import { useJmapClient } from "../../jmap";
-import type { EmailFull, EmailHeaders, Mailbox } from "../../jmap";
+import type { Category, EmailFull, EmailHeaders, Mailbox } from "../../jmap";
 import { useAsync } from "./useAsync";
 import type { Async } from "./useAsync";
 
@@ -14,13 +14,26 @@ export function useMailboxes(): Async<Mailbox[]> {
   return useAsync(useCallback(() => client.mailboxes(), [client]));
 }
 
-/** Header rows for a mailbox (null selection yields an empty, ready list). */
-export function useEmailHeaders(mailboxId: string | null): Async<EmailHeaders[]> {
+/** The account's categories (colored labels). */
+export function useCategories(): Async<Category[]> {
+  const client = useJmapClient();
+  return useAsync(useCallback(() => client.categories(), [client]));
+}
+
+/** Header rows for a mailbox, optionally filtered to one category (null
+ * selection yields an empty, ready list). */
+export function useEmailHeaders(
+  mailboxId: string | null,
+  categoryId?: string | null,
+): Async<EmailHeaders[]> {
   const client = useJmapClient();
   return useAsync(
     useCallback(
-      () => (mailboxId === null ? Promise.resolve([]) : client.emailHeaders(mailboxId)),
-      [client, mailboxId],
+      () =>
+        mailboxId === null
+          ? Promise.resolve([])
+          : client.emailHeaders(mailboxId, 60, categoryId ?? undefined),
+      [client, mailboxId, categoryId],
     ),
   );
 }

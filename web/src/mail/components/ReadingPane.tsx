@@ -27,12 +27,21 @@ import {
 import { strings } from "../../i18n";
 import { IconButton, Menu, Spinner } from "../../ds";
 import type { MenuItem } from "../../ds";
-import { KEYWORD_FLAGGED, type EmailFull, type Mailbox, useJmapClient } from "../../jmap";
+import {
+  KEYWORD_FLAGGED,
+  type Category,
+  type EmailFull,
+  type Mailbox,
+  useJmapClient,
+} from "../../jmap";
 import { useAuth } from "../../auth";
 import type { Async } from "../state/useAsync";
 import { senderName, subjectOr } from "../format";
+import { threadCategoryIds } from "../categories";
 import { htmlContent, textContent, threadDigest } from "../body";
 import { ThreadMessage } from "./ThreadMessage";
+import { CategoryChips } from "./CategoryChips";
+import { CategoryPicker } from "./CategoryPicker";
 import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./ReadingPane.module.css";
 
@@ -96,6 +105,10 @@ interface ReadingPaneProps {
   isScheduled: boolean;
   /** Whether the open conversation is in the Junk folder (flips Report/Not spam). */
   isJunk: boolean;
+  /** The account's category catalog (for the Categorize picker + chips). */
+  categories: Category[];
+  /** Tag/untag the whole open conversation with a category. */
+  onToggleCategory: (categoryId: string, on: boolean) => void;
 }
 
 export function ReadingPane({
@@ -119,6 +132,8 @@ export function ReadingPane({
   onBlockSender,
   isScheduled,
   isJunk,
+  categories,
+  onToggleCategory,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
   const client = useJmapClient();
@@ -231,6 +246,10 @@ export function ReadingPane({
   }
 
   const flagged = flagOverrides.get(latest.id) ?? latest.keywords[KEYWORD_FLAGGED] === true;
+  // Categories present on any message of the conversation, and their catalog
+  // entries (for the pills below the subject).
+  const activeCategoryIds = threadCategoryIds(messages, categories);
+  const activeCategories = categories.filter((c) => activeCategoryIds.has(c.id));
   const me = identity?.email.toLowerCase();
 
   function toggle(id: string) {
@@ -382,6 +401,11 @@ export function ReadingPane({
           icon={<Star className={flagged ? styles.starOn : ""} />}
           onClick={onToggleFlag}
         />
+        <CategoryPicker
+          categories={categories}
+          activeIds={activeCategoryIds}
+          onToggle={onToggleCategory}
+        />
         <IconButton size="sm" label={strings.delete} icon={<Trash2 />} onClick={onDelete} />
         <Menu label={strings.moreActions} icon={<MoreHorizontal />} items={moreItems} />
       </div>
@@ -395,6 +419,11 @@ export function ReadingPane({
             </span>
           )}
         </div>
+        {activeCategories.length > 0 && (
+          <div className={styles.categoryRow}>
+            <CategoryChips categories={activeCategories} variant="pills" />
+          </div>
+        )}
 
         {summary.status !== "off" && (
           <section className={styles.summary} aria-live="polite">
