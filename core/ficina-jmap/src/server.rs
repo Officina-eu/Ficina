@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
-use crate::{admin, ai, api, blob, docs, push, security, session, settings, snooze};
+use crate::{
+    admin, ai, api, blob, docs, push, schedule, security, session, settings, snooze,
+};
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
 /// OAuth 2.0 provider (`ficina-identity`) is mounted alongside so a Phase-1
@@ -54,6 +56,9 @@ pub fn app(state: AppState) -> Router {
         )
         // Snooze: hide conversations until a chosen time (a background sweeper wakes them).
         .route("/snooze", post(snooze::snooze))
+        // Send later: hold a draft until a chosen time (a background sweeper sends it).
+        .route("/send-later", post(schedule::send_later))
+        .route("/send-later/cancel", post(schedule::cancel_send))
         // Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.
         .route("/docs", get(docs::list).post(docs::create))
         .route(

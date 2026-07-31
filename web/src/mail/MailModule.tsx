@@ -16,7 +16,7 @@ import type { ThreadRow } from "./threads";
 import { FolderSidebar } from "./components/FolderSidebar";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
-import { ComposeModal } from "./components/ComposeModal";
+import { ComposeModal, formatSendAt } from "./components/ComposeModal";
 import type { ComposeContext, QueuedSend } from "./components/ComposeModal";
 import styles from "./MailModule.module.css";
 
@@ -164,6 +164,32 @@ export function MailModule() {
   const flushRef = useRef(flushSend);
   flushRef.current = flushSend;
   useEffect(() => () => void flushRef.current(), []);
+
+  // Send later: the draft is created; schedule it server-side (it moves to the
+  // Scheduled mailbox and a sweeper sends it when due). No Undo window — the
+  // Scheduled folder's "Cancel send" is the take-back.
+  async function scheduleSend(queued: QueuedSend & { sendAt: number }) {
+    setCompose(null);
+    try {
+      await client.scheduleSend(queued.emailId, queued.fromEmail, queued.rcpts, queued.sendAt);
+      afterChange(strings.mailScheduled(formatSendAt(queued.sendAt)));
+    } catch {
+      setToast(strings.scheduleError);
+      emails.reload();
+      mailboxes.reload();
+    }
+  }
+
+  // Cancel a scheduled send: the draft returns to Drafts, editable again.
+  async function cancelScheduledSend(emailId: string) {
+    try {
+      await client.cancelScheduledSend(emailId);
+      afterChange(strings.sendCancelled);
+      setThreadId(null);
+    } catch {
+      fail();
+    }
+  }
 
   function openMailbox(id: string) {
     setMailboxId(id);
@@ -365,6 +391,8 @@ export function MailModule() {
         onSmartReply={(text) =>
           latest !== undefined && setCompose({ mode: "reply", replyTo: latest, body: text })
         }
+        onCancelSend={() => latest !== undefined && void cancelScheduledSend(latest.id)}
+        isScheduled={boxes.find((b) => b.id === mailboxId)?.role === "scheduled"}
         isJunk={boxes.find((b) => b.id === mailboxId)?.role === "junk"}
       />
       {compose !== null && (
@@ -377,6 +405,7 @@ export function MailModule() {
           orgFooter={mailSettings.orgFooter}
           onClose={() => setCompose(null)}
           onQueueSend={queueSend}
+          onScheduleSend={scheduleSend}
         />
       )}
       {pendingSend !== null && (

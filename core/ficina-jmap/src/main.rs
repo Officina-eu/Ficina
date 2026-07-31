@@ -128,6 +128,21 @@ async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| "could not initialise the credential authority")?;
 
     let state = app_state(store, identity, base_url);
+
+    // Background scheduled-send sweeper (send later): submit drafts whose chosen
+    // time has arrived, through the same outbound path as an interactive send.
+    // Needs the full app state (submission listener address), so it starts here.
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                tick.tick().await;
+                ficina_jmap::submission::run_due_scheduled(&state).await;
+            }
+        });
+    }
+
     tracing::info!(%addr, "ficina-jmap (API + OIDC provider) starting");
     // `serve` provisions the OIDC signing key at startup (fail-fast).
     serve(addr, state).await?;

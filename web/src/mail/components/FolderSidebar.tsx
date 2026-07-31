@@ -4,6 +4,8 @@
 import { useState } from "react";
 import {
   Archive,
+  CalendarClock,
+  Clock,
   Hash,
   Inbox,
   PenLine,
@@ -23,7 +25,9 @@ import styles from "./FolderSidebar.module.css";
 
 const ROLE_ICON: Record<string, LucideIcon> = {
   inbox: Inbox,
+  snoozed: Clock,
   drafts: FileText,
+  scheduled: CalendarClock,
   sent: Send,
   archive: Archive,
   junk: ShieldAlert,
@@ -32,11 +36,13 @@ const ROLE_ICON: Record<string, LucideIcon> = {
 
 const ROLE_ORDER: Record<string, number> = {
   inbox: 0,
-  drafts: 1,
-  sent: 2,
-  archive: 3,
-  junk: 4,
-  trash: 5,
+  snoozed: 1,
+  drafts: 2,
+  scheduled: 3,
+  sent: 4,
+  archive: 5,
+  junk: 6,
+  trash: 7,
 };
 
 function ordered(list: Mailbox[]): { system: Mailbox[]; custom: Mailbox[] } {

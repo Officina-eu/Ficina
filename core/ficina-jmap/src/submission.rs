@@ -35,7 +35,7 @@ pub async fn set(account: &Account, args: &Value, state: &AppState) -> Result<Va
         for (cid, props) in creates {
             match create_one(account, props, state).await {
                 Ok(email_id) => {
-                    post_send(account, &MessageId::new(&email_id)).await;
+                    post_send(&account.acc, &MessageId::new(&email_id)).await;
                     created.insert(
                         cid.clone(),
                         json!({ "id": format!("s{email_id}"), "emailId": email_id }),
@@ -57,6 +57,50 @@ pub async fn set(account: &Account, args: &Value, state: &AppState) -> Result<Va
 }
 
 async fn create_one(account: &Account, props: &Value, state: &AppState) -> Result<String, Value> {
+    let prepared = validate_and_prepare(account, props, state).await?;
+
+    // Submit through the trusted internal listener (DKIM-signed + queued there).
+    // Failures are logged server-side without recipient/body detail.
+    let Some(addr) = state.submission_addr.as_deref() else {
+        tracing::error!("EmailSubmission/set: no submission listener configured");
+        return Err(set_err("forbiddenToSend", "sending is not available"));
+    };
+    // Privacy: strip the `Bcc:` header from the bytes put on the wire so
+    // recipients never learn who was blind-copied. The sender's own copy (moved
+    // to Sent by `post_send`) keeps `bytes` intact; delivery to the bcc'd
+    // addresses happens through the envelope `rcptTo`.
+    let wire = strip_bcc_header(prepared.bytes.as_ref());
+    submit(addr, &prepared.mail_from, &prepared.rcpts, &wire)
+        .await
+        .map_err(|reason| {
+            tracing::error!(reason = %reason, "EmailSubmission/set: submission failed");
+            set_err("forbiddenToSend", "the message could not be sent")
+        })?;
+
+    Ok(prepared.mid.as_str().to_owned())
+}
+
+/// A draft that has passed every send check, ready to be submitted now (an
+/// immediate `EmailSubmission/set`) or later (a scheduled send). Both paths must
+/// run exactly the same validation, so it lives here once.
+pub(crate) struct Prepared {
+    pub mid: MessageId,
+    pub bytes: bytes::Bytes,
+    pub mail_from: String,
+    pub rcpts: Vec<String>,
+}
+
+/// Validate a submission request against the authenticated account: the draft
+/// exists and is a draft, its visible `From:` and the envelope `mailFrom` are
+/// addresses this account owns (anti-spoof), and the envelope has a sane
+/// recipient set. Returns the validated envelope; performs no send. Shared by
+/// immediate submission and scheduled send so the security checks cannot drift
+/// apart.
+pub(crate) async fn validate_and_prepare(
+    account: &Account,
+    props: &Value,
+    state: &AppState,
+) -> Result<Prepared, Value> {
     // 1. The draft to send.
     let Some(email_id) = props.get("emailId").and_then(Value::as_str) else {
         return Err(set_err("invalidProperties", "emailId is required"));
@@ -148,25 +192,7 @@ async fn create_one(account: &Account, props: &Value, state: &AppState) -> Resul
         ));
     }
 
-    // 5. Submit through the trusted internal listener (DKIM-signed + queued
-    // there). Failures are logged server-side without recipient/body detail.
-    let Some(addr) = state.submission_addr.as_deref() else {
-        tracing::error!("EmailSubmission/set: no submission listener configured");
-        return Err(set_err("forbiddenToSend", "sending is not available"));
-    };
-    // Privacy: strip the `Bcc:` header from the bytes put on the wire so
-    // recipients never learn who was blind-copied. The sender's own copy (moved
-    // to Sent by `post_send`) keeps `bytes` intact; delivery to the bcc'd
-    // addresses happens through the envelope `rcptTo` above.
-    let wire = strip_bcc_header(bytes.as_ref());
-    submit(addr, &mail_from, &rcpts, &wire)
-        .await
-        .map_err(|reason| {
-            tracing::error!(reason = %reason, "EmailSubmission/set: submission failed");
-            set_err("forbiddenToSend", "the message could not be sent")
-        })?;
-
-    Ok(email_id.to_owned())
+    Ok(Prepared { mid, bytes, mail_from, rcpts })
 }
 
 /// One SMTP transaction to the internal listener via the shared client.
@@ -202,17 +228,62 @@ async fn submit(
     }
 }
 
+/// Submit every scheduled send that is now due. Called on an interval by the
+/// background sweeper (see `main.rs`). Rows are **claimed** (deleted) up front by
+/// [`claim_due_sends`](ficina_store::Store::claim_due_sends), so the schedule is
+/// gone before the message reaches the wire: a crash or DB hiccup after
+/// submission can never re-send it (at-most-once). Each claimed message is put
+/// through the same outbound path as an interactive send; on success it is filed
+/// to Sent, and a send that fails is returned to Drafts so nothing is lost (the
+/// user can resend by hand) but it is never silently re-sent. Cross-tenant
+/// maintenance; never surfaces to a client.
+pub async fn run_due_scheduled(state: &AppState) {
+    let Some(addr) = state.submission_addr.as_deref() else {
+        return; // sending isn't configured on this node; nothing to do
+    };
+    let due = match state.store.claim_due_sends(100).await {
+        Ok(due) => due,
+        Err(error) => {
+            tracing::warn!(%error, "scheduled-send sweep: could not claim due sends");
+            return;
+        }
+    };
+    for send in due {
+        let acc = state.store.for_account(send.tenant.clone(), send.user.clone());
+        // The draft may have been deleted between scheduling and now — the row is
+        // already claimed, so there is nothing to clean up; just move on.
+        let bytes = match acc.message_bytes(&send.message_id).await {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let wire = strip_bcc_header(bytes.as_ref());
+        match submit(addr, &send.mail_from, &send.rcpts, &wire).await {
+            Ok(()) => post_send(&acc, &send.message_id).await,
+            Err(reason) => {
+                tracing::error!(reason = %reason, "scheduled-send sweep: submission failed");
+                // The claim already removed the schedule; return the draft to
+                // Drafts so the message isn't stranded in Scheduled forever.
+                if let Err(error) = acc.return_to_drafts(&send.message_id).await {
+                    tracing::warn!(%error, "scheduled-send sweep: could not return to Drafts");
+                }
+            }
+        }
+    }
+}
+
 /// After a successful send: clear `$draft`, mark `$seen`, and file into Sent
-/// (removing it from Drafts). Best-effort — the mail is already sent, so a
-/// filing hiccup is logged, never surfaced as a send failure.
-async fn post_send(account: &Account, mid: &MessageId) {
-    if let Err(error) = account.acc.set_keyword(mid, "$draft", false).await {
+/// (removing it from Drafts and — for a scheduled send — Scheduled). Best-effort
+/// — the mail is already sent, so a filing hiccup is logged, never surfaced as a
+/// send failure. Takes the account store directly so both the interactive
+/// submission path and the background scheduled-send sweeper can call it.
+async fn post_send(acc: &ficina_store::AccountStore, mid: &MessageId) {
+    if let Err(error) = acc.set_keyword(mid, "$draft", false).await {
         tracing::warn!(%error, "post-send: could not clear $draft");
     }
-    if let Err(error) = account.acc.set_keyword(mid, "$seen", true).await {
+    if let Err(error) = acc.set_keyword(mid, "$seen", true).await {
         tracing::warn!(%error, "post-send: could not set $seen");
     }
-    let boxes = match account.acc.mailboxes(Page::first(MAX_PAGE)).await {
+    let boxes = match acc.mailboxes(Page::first(MAX_PAGE)).await {
         Ok(boxes) => boxes,
         Err(error) => {
             tracing::warn!(%error, "post-send: mailbox list failed");
@@ -222,13 +293,16 @@ async fn post_send(account: &Account, mid: &MessageId) {
     let Some(sent) = boxes.iter().find(|m| m.role.as_deref() == Some("sent")) else {
         return; // no Sent mailbox: leave the message where it is
     };
-    if let Err(error) = account.acc.add_to_mailbox(mid, &sent.id).await {
+    if let Err(error) = acc.add_to_mailbox(mid, &sent.id).await {
         tracing::warn!(%error, "post-send: could not file to Sent");
         return;
     }
-    for drafts in boxes.iter().filter(|m| m.role.as_deref() == Some("drafts")) {
-        if let Err(error) = account.acc.remove_from_mailbox(mid, &drafts.id).await {
-            tracing::warn!(%error, "post-send: could not remove from Drafts");
+    for src in boxes
+        .iter()
+        .filter(|m| matches!(m.role.as_deref(), Some("drafts" | "scheduled")))
+    {
+        if let Err(error) = acc.remove_from_mailbox(mid, &src.id).await {
+            tracing::warn!(%error, "post-send: could not remove from source mailbox");
         }
     }
 }

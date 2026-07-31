@@ -818,4 +818,35 @@ export class JmapClient {
       throw new JmapError(notCreated?.description ?? notCreated?.type ?? "the message could not be sent");
     }
   }
+
+  /** Schedule a draft to be sent at `sendAt` (Unix seconds) instead of now. The
+   * draft moves to the Scheduled mailbox; a server sweeper submits it when due.
+   * Same send-from validation as an immediate submission (rejects up front). */
+  async scheduleSend(
+    emailId: string,
+    mailFrom: string,
+    rcptTo: string[],
+    sendAt: number,
+  ): Promise<void> {
+    const res = await this.#fetch(`${window.location.origin}/send-later`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        emailId,
+        envelope: { mailFrom: { email: mailFrom }, rcptTo: rcptTo.map((email) => ({ email })) },
+        sendAt,
+      }),
+    });
+    if (!res.ok) throw new JmapError(`send-later ${res.status}`);
+  }
+
+  /** Cancel a scheduled send: the draft returns to Drafts, editable again. */
+  async cancelScheduledSend(emailId: string): Promise<void> {
+    const res = await this.#fetch(`${window.location.origin}/send-later/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ emailId }),
+    });
+    if (!res.ok) throw new JmapError(`send-later/cancel ${res.status}`);
+  }
 }

@@ -8,6 +8,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   ArrowRight,
+  ChevronDown,
+  Clock,
   Maximize2,
   Minimize2,
   Minus,
@@ -128,6 +130,8 @@ interface ComposeModalProps {
   onClose: () => void;
   /** Hand off a created draft to send after the Undo window. */
   onQueueSend: (queued: QueuedSend) => void;
+  /** Hand off a created draft to be sent later at `sendAt` (Unix seconds). */
+  onScheduleSend: (queued: QueuedSend & { sendAt: number }) => void;
 }
 
 /** The signature + org footer as an HTML block to seed the editor with, or ""
@@ -135,6 +139,50 @@ interface ComposeModalProps {
 function signatureBlock(signature: string, orgFooter: string): string {
   const parts = [signature, orgFooter].map((s) => s.trim()).filter((s) => s.length > 0);
   return parts.length === 0 ? "" : `<br><br>${parts.join("<br>")}`;
+}
+
+/** Unix seconds for `hour:00` local time, `dayOffset` days from today. */
+function atLocal(dayOffset: number, hour: number): number {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(hour, 0, 0, 0);
+  return Math.floor(d.getTime() / 1000);
+}
+
+/** Epoch seconds → a `datetime-local` input value (`YYYY-MM-DDTHH:mm`) in the
+ * user's local time, for the custom-time picker's `min`. */
+function toLocalInputValue(epochSecs: number): string {
+  const d = new Date(epochSecs * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Days from today until the next Monday (always ≥ 1, so "Monday" is never today). */
+function daysUntilNextMonday(): number {
+  const today = new Date().getDay(); // 0 = Sun … 1 = Mon
+  const delta = (1 - today + 7) % 7;
+  return delta === 0 ? 7 : delta;
+}
+
+/** The Gmail-style quick schedule presets, as (label, Unix-seconds) pairs. Times
+ * beyond the workday roll to the next sensible slot via the day offsets. */
+function schedulePresets(): { label: string; at: number }[] {
+  return [
+    { label: strings.scheduleTomorrowMorning, at: atLocal(1, 8) },
+    { label: strings.scheduleTomorrowAfternoon, at: atLocal(1, 13) },
+    { label: strings.scheduleMondayMorning, at: atLocal(daysUntilNextMonday(), 8) },
+  ];
+}
+
+/** Format a future send time for the confirmation toast, in the user's locale. */
+export function formatSendAt(epochSecs: number): string {
+  return new Date(epochSecs * 1000).toLocaleString(undefined, {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 interface Prefill {
@@ -287,6 +335,7 @@ export function ComposeModal({
   orgFooter,
   onClose,
   onQueueSend,
+  onScheduleSend,
 }: ComposeModalProps) {
   const client = useJmapClient();
   const prefill = useMemo(() => buildPrefill(context, fromEmail), [context, fromEmail]);
@@ -353,6 +402,7 @@ export function ComposeModal({
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   async function onPickFiles(files: FileList) {
@@ -383,15 +433,17 @@ export function ComposeModal({
     return seen.size;
   }, [to, cc, bcc]);
 
-  async function onSend(event: FormEvent) {
-    event.preventDefault();
+  /** Validate, build the body, and create the draft. Returns the queued send
+   * (draft id + envelope) or null on failure (error/sending state is set here).
+   * Shared by immediate send and schedule-send so the two never diverge. */
+  async function createDraftForSend(): Promise<QueuedSend | null> {
     if (to.length === 0 && cc.length === 0 && bcc.length === 0) {
       setError(strings.composeNoRecipients);
-      return;
+      return null;
     }
     if (draftsMailboxId === null) {
       setError(strings.composeSendError);
-      return;
+      return null;
     }
     setSending(true);
     setError(null);
@@ -424,15 +476,30 @@ export function ComposeModal({
       // Bcc is written into the draft so the sender's own Sent copy records who
       // was blind-copied; the server strips the Bcc header from the bytes it
       // transmits, so recipients never see it. Bcc addresses still ride the
-      // envelope recipients here so they are actually delivered. The draft now
-      // exists; hand it to the parent, which holds it for the Undo window and
-      // submits after. Undo just leaves it in Drafts.
+      // envelope recipients here so they are actually delivered.
       const rcpts = [...to, ...cc, ...bcc].map((a) => a.email);
-      onQueueSend({ emailId, fromEmail, rcpts });
+      return { emailId, fromEmail, rcpts };
     } catch {
       setError(strings.composeSendError);
       setSending(false);
+      return null;
     }
+  }
+
+  async function onSend(event: FormEvent) {
+    event.preventDefault();
+    // The draft now exists; hand it to the parent, which holds it for the Undo
+    // window and submits after. Undo just leaves it in Drafts.
+    const queued = await createDraftForSend();
+    if (queued !== null) onQueueSend(queued);
+  }
+
+  /** Schedule the composed message for `sendAt` (Unix seconds). Creates the
+   * draft exactly as a normal send, then hands it to the parent to schedule. */
+  async function onScheduleAt(sendAt: number) {
+    setScheduleOpen(false);
+    const queued = await createDraftForSend();
+    if (queued !== null) onScheduleSend({ ...queued, sendAt });
   }
 
   return (
@@ -618,16 +685,70 @@ export function ComposeModal({
               </button>
             )}
             <div className={styles.headSpacer} />
-            <button type="submit" className={styles.send} disabled={sending || uploading > 0}>
-              {sending ? (
-                <Spinner size={16} label={strings.composeSending} />
-              ) : (
+            <div className={styles.sendGroup}>
+              <button type="submit" className={styles.send} disabled={sending || uploading > 0}>
+                {sending ? (
+                  <Spinner size={16} label={strings.composeSending} />
+                ) : (
+                  <>
+                    <span>{strings.composeSend}</span>
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className={styles.sendCaret}
+                onClick={() => setScheduleOpen((v) => !v)}
+                disabled={sending || uploading > 0}
+                aria-haspopup="menu"
+                aria-expanded={scheduleOpen}
+                aria-label={strings.scheduleSend}
+              >
+                <ChevronDown size={16} />
+              </button>
+              {scheduleOpen && (
                 <>
-                  <span>{strings.composeSend}</span>
-                  <ArrowRight size={16} />
+                  <button
+                    type="button"
+                    className={styles.scheduleScrim}
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setScheduleOpen(false)}
+                  />
+                  <div className={styles.schedulePop} role="menu">
+                    <div className={styles.scheduleHead}>
+                      <Clock size={14} />
+                      <span>{strings.scheduleSend}</span>
+                    </div>
+                    {schedulePresets().map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        role="menuitem"
+                        className={styles.scheduleItem}
+                        onClick={() => void onScheduleAt(preset.at)}
+                      >
+                        <span>{preset.label}</span>
+                        <span className={styles.scheduleWhen}>{formatSendAt(preset.at)}</span>
+                      </button>
+                    ))}
+                    <label className={styles.scheduleCustom}>
+                      <span>{strings.schedulePickTime}</span>
+                      <input
+                        type="datetime-local"
+                        className={styles.scheduleInput}
+                        min={toLocalInputValue(atLocal(0, new Date().getHours() + 1))}
+                        onChange={(e) => {
+                          const ms = Date.parse(e.target.value);
+                          if (!Number.isNaN(ms)) void onScheduleAt(Math.floor(ms / 1000));
+                        }}
+                      />
+                    </label>
+                  </div>
                 </>
               )}
-            </button>
+            </div>
           </footer>
         </form>
       </div>

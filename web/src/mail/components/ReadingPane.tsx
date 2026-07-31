@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import {
   Archive,
+  CalendarClock,
   Code2,
   Download,
   FolderInput,
@@ -86,6 +87,10 @@ interface ReadingPaneProps {
   onForwardAttachment: () => void;
   /** Open a reply to the latest message pre-filled with a picked AI reply. */
   onSmartReply: (text: string) => void;
+  /** Cancel a scheduled send (only shown while viewing the Scheduled folder). */
+  onCancelSend: () => void;
+  /** Whether the open conversation is in the Scheduled folder (send later). */
+  isScheduled: boolean;
   /** Whether the open conversation is in the Junk folder (flips Report/Not spam). */
   isJunk: boolean;
 }
@@ -107,6 +112,8 @@ export function ReadingPane({
   onReportSpam,
   onForwardAttachment,
   onSmartReply,
+  onCancelSend,
+  isScheduled,
   isJunk,
 }: ReadingPaneProps) {
   const { identity } = useAuth();
@@ -232,7 +239,9 @@ export function ReadingPane({
   }
 
   const moveItems: MenuItem[] = mailboxes
-    .filter((m) => m.id !== currentMailboxId)
+    // Snoozed/Scheduled are managed by their own flows — a manual move there
+    // wouldn't set a wake/send time, so they're not valid "Move to" targets.
+    .filter((m) => m.id !== currentMailboxId && m.role !== "snoozed" && m.role !== "scheduled")
     .sort(
       (a, b) =>
         (ROLE_ORDER[a.role ?? ""] ?? 50) - (ROLE_ORDER[b.role ?? ""] ?? 50) ||
@@ -303,6 +312,16 @@ export function ReadingPane({
   }
 
   const moreItems: MenuItem[] = [
+    ...(isScheduled
+      ? [
+          {
+            key: "cancel-send",
+            label: strings.cancelSend,
+            icon: <CalendarClock />,
+            onClick: onCancelSend,
+          },
+        ]
+      : []),
     { key: "unread", label: strings.markUnread, icon: <MailOpen />, onClick: onMarkUnread },
     {
       key: "spam",

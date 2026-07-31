@@ -23,6 +23,7 @@ pub mod maintenance;
 pub mod message;
 pub mod model;
 pub mod rfc2047;
+pub mod schedule;
 pub mod settings;
 pub mod snooze;
 pub mod store;
@@ -40,6 +41,7 @@ pub use dkim::DkimSigningMaterial;
 pub use document::{Document, DocumentSummary};
 pub use error::{Result, StoreError};
 pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
+pub use schedule::DueSend;
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
     RefreshTokenRow, SigningKeyRow, TotpRow,
