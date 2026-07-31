@@ -3,6 +3,8 @@
 // KaTeX), the LaTeX it inserts, and search terms, so the picker behaves like an
 // emoji picker: browse by category or search across everything. Only
 // KaTeX-supported commands are listed, so an inserted symbol always renders.
+import { EXTRA } from "./equationSymbolsExtra";
+
 export interface EqSymbol {
   /** The glyph shown in the grid. */
   ch: string;
@@ -36,7 +38,7 @@ export function haystack(s: EqSymbol): string {
 const g = (ch: string, name: string, latex: string, keywords?: string): EqSymbol =>
   keywords !== undefined ? { ch, name, latex, keywords } : { ch, name, latex };
 
-export const EQ_CATEGORIES: EqCategory[] = [
+const BASE: EqCategory[] = [
   {
     id: "structures",
     symbols: [
@@ -239,3 +241,11 @@ export const EQ_CATEGORIES: EqCategory[] = [
     ],
   },
 ];
+
+/** The full catalogue: the hand-curated symbols first (nice names + keywords),
+ * then every remaining KaTeX symbol appended to its category (auto-generated in
+ * `equationSymbolsExtra.ts`), so the picker lists the complete KaTeX set. */
+export const EQ_CATEGORIES: EqCategory[] = BASE.map((c) => ({
+  ...c,
+  symbols: [...c.symbols, ...(EXTRA[c.id] ?? [])],
+}));
