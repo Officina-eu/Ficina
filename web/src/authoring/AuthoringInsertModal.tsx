@@ -62,6 +62,16 @@ function CodeInsert({ onInsert, onClose }: Omit<InsertProps, "kind">) {
           onLanguageChange={setLanguage}
           tall
         />
+        {canInsert && (
+          <div className={styles.previewWrap}>
+            <span className={styles.previewLabel}>{strings.codePreviewLabel}</span>
+            {/* Our own generated, code-escaped email HTML — safe to render. */}
+            <div
+              className={styles.preview}
+              dangerouslySetInnerHTML={{ __html: codeEmailHtml(code, language) }}
+            />
+          </div>
+        )}
         <div className={styles.footer}>
           <button type="button" className={styles.cancel} onClick={onClose}>
             {strings.insertCancel}

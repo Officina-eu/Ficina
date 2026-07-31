@@ -10,12 +10,45 @@
 }
 
 .modal {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 640px;
+  max-height: 88vh;
+  overflow-y: auto;
   padding: var(--space-5);
   border-radius: var(--radius-xl, 16px);
   background: var(--bg-app);
   box-shadow: var(--shadow-lg, 0 24px 60px rgba(0, 0, 0, 0.28));
+}
+
+/* Live preview of exactly how the code card renders in the sent email. */
+.previewWrap {
+  margin-top: var(--space-4);
+}
+
+.previewLabel {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.preview {
+  max-height: 220px;
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+
+/* The email card renders at its natural size inside the preview frame. */
+.preview :global(pre) {
+  margin: 0;
 }
 
 .head {

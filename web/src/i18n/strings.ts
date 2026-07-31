@@ -581,6 +581,7 @@ export const strings = {
   sizeHuge: "Huge",
   codeInsertTitle: "Insert code block",
   codeInsertHint: "⌘/Ctrl + Enter to insert",
+  codePreviewLabel: "Preview — how it looks in the email",
   insertCancel: "Cancel",
   insertConfirm: "Insert",
 
@@ -630,6 +631,7 @@ export const strings = {
   codeCopied: "Copied",
   codeInputLabel: "Code",
   codePlaceholder: "Paste or type your code…",
+  codeWrap: "Word wrap",
 
   // cross-reference chips + picker
   refSection: "Section",

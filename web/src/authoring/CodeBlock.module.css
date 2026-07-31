@@ -49,6 +49,30 @@
   background: rgba(255, 255, 255, 0.14);
 }
 
+/* Header icon button (word-wrap toggle). */
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--code-dim);
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.iconBtn:hover {
+  color: var(--code-fg);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.iconBtnOn {
+  color: var(--code-fg);
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .copy {
   display: inline-flex;
   align-items: center;
@@ -198,6 +222,18 @@
 /* Modal variant: a comfortable editing area even when empty (grows with content). */
 .tall {
   min-height: 200px;
+}
+
+/* Word-wrap mode: long lines wrap instead of scrolling horizontally. The pre and
+   the textarea must wrap identically so the highlight stays aligned. */
+.wrapped {
+  overflow-x: hidden;
+}
+
+.wrapped .pre,
+.wrapped .input {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .pre {

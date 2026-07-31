@@ -4,11 +4,12 @@
 // picker is a light dropdown with a search field and colored language badges —
 // explicit choice, never auto-detected. Highlighting is browser-local.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, Search } from "lucide-react";
+import { Check, ChevronDown, Copy, Search, WrapText } from "lucide-react";
 
 import { strings } from "../i18n";
 import { cx } from "../ds";
 import { LANGUAGES, highlight, languageLabel } from "./prism";
+import { detectLanguage } from "./detectLanguage";
 import styles from "./CodeBlock.module.css";
 
 /** The searchable language dropdown with colored badges. */
@@ -95,8 +96,17 @@ interface CodeBlockProps {
 export function CodeBlock({ code, onChange, language, onLanguageChange, tall }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [wrap, setWrap] = useState(false);
   const html = useMemo(() => highlight(code, language), [code, language]);
   const lineCount = useMemo(() => code.split("\n").length, [code]);
+
+  // Auto-detect the language on a fresh paste (empty editor) — a guess the user
+  // can still override with the picker.
+  function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (code.trim().length > 0) return;
+    const detected = detectLanguage(e.clipboardData.getData("text"));
+    if (detected !== null) onLanguageChange(detected);
+  }
 
   async function copy() {
     try {
@@ -145,6 +155,16 @@ export function CodeBlock({ code, onChange, language, onLanguageChange, tall }: 
           )}
         </div>
         <div className={styles.spacer} />
+        <button
+          type="button"
+          className={cx(styles.iconBtn, wrap && styles.iconBtnOn)}
+          onClick={() => setWrap((v) => !v)}
+          aria-pressed={wrap}
+          title={strings.codeWrap}
+          aria-label={strings.codeWrap}
+        >
+          <WrapText size={14} />
+        </button>
         {code.length > 0 && (
           <button type="button" className={styles.copy} onClick={copy}>
             {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -153,14 +173,16 @@ export function CodeBlock({ code, onChange, language, onLanguageChange, tall }: 
         )}
       </div>
       <div className={styles.body}>
-        <div className={styles.gutter} aria-hidden="true">
-          {Array.from({ length: lineCount }, (_, i) => (
-            <span key={i} className={styles.lineNo}>
-              {i + 1}
-            </span>
-          ))}
-        </div>
-        <div className={cx(styles.codeCell, tall && styles.tall)}>
+        {!wrap && (
+          <div className={styles.gutter} aria-hidden="true">
+            {Array.from({ length: lineCount }, (_, i) => (
+              <span key={i} className={styles.lineNo}>
+                {i + 1}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className={cx(styles.codeCell, tall && styles.tall, wrap && styles.wrapped)}>
           <pre className={styles.pre} aria-hidden="true">
             <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: html }} />
           </pre>
@@ -168,10 +190,11 @@ export function CodeBlock({ code, onChange, language, onLanguageChange, tall }: 
             className={styles.input}
             value={code}
             spellCheck={false}
-            wrap="off"
+            wrap={wrap ? "soft" : "off"}
             placeholder={strings.codePlaceholder}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             aria-label={strings.codeInputLabel}
           />
         </div>
