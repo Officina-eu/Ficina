@@ -120,6 +120,12 @@ impl Store {
         &self.pool
     }
 
+    /// The blob backend, for sibling modules that serve bytes outside an account
+    /// scope (e.g. the public share-download path in [`crate::share`]).
+    pub(crate) fn blobs(&self) -> &BlobStore {
+        &self.blobs
+    }
+
     /// Resolves a recipient email address to its `(tenant, user)` for local
     /// delivery, checking canonical user addresses **and** aliases
     /// (`ficina-identity`). `None` if no account has that address, or if it

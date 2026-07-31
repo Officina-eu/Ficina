@@ -24,8 +24,11 @@ use ficina_identity::{Identity, IdentityConfig};
 use ficina_jmap::{app_state, serve};
 use ficina_store::{BlobStore, Store};
 
-/// Per-object blob ceiling; matches the SMTP + IMAP services.
-const BLOB_MAX_BYTES: usize = 50 * 1024 * 1024;
+/// Per-object blob ceiling. Sized for the large-file share path (Ficina
+/// Transfer); ordinary attachments stay bounded to the smaller
+/// `Limits.max_size_upload` at the `/jmap/upload` route, and share blobs are
+/// never message-referenced, so the SMTP/IMAP read ceiling is unaffected.
+const BLOB_MAX_BYTES: usize = ficina_jmap::share::SHARE_MAX_BYTES;
 /// Default internal bind (the front proxy terminates TLS and forwards here).
 const DEFAULT_ADDR: &str = "0.0.0.0:8080";
 
@@ -119,6 +122,23 @@ async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
                     Ok(n) if n > 0 => tracing::info!(woken = n, "snooze sweep"),
                     Ok(_) => {}
                     Err(error) => tracing::warn!(%error, "snooze sweep failed"),
+                }
+            }
+        });
+    }
+
+    // Background share-expiry sweeper (Ficina Transfer): drop expired share links
+    // and reclaim any blob no live share still holds.
+    {
+        let store = Arc::clone(&store);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                tick.tick().await;
+                match store.sweep_expired_shares().await {
+                    Ok(n) if n > 0 => tracing::info!(expired = n, "share sweep"),
+                    Ok(_) => {}
+                    Err(error) => tracing::warn!(%error, "share sweep failed"),
                 }
             }
         });

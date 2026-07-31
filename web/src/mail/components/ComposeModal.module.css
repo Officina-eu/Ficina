@@ -263,6 +263,16 @@
   font-size: var(--text-sm);
 }
 
+/* A large file sent as a share link — tinted to read as a link, not a file. */
+.linkChip {
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+
+.linkChip .attachIcon {
+  color: var(--accent);
+}
+
 .attachIcon {
   color: var(--text-tertiary);
   flex-shrink: 0;

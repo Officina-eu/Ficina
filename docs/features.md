@@ -30,6 +30,12 @@ Rule of the file: nothing gets built that isn't listed here, and nothing gets li
 - [L] Full-text search that is actually fast (store-level index)
 - [L] Spam/phishing filtering with a visible "why was this flagged" banner
 - [L] One-click unsubscribe surfacing (RFC 8058)
+- [L] Large files as expiring share links (Ficina Transfer) — a file too big to
+  attach uploads once and rides the message as a private, expiring download link
+  instead of an inline attachment, sidestepping recipient attachment-size limits.
+  This is the Drive share-link capability (password/expiry/download-off) surfaced
+  in compose; v1 ships an unguessable-link + expiry, with password/download-off
+  tracked to the Drive work.
 - [2] ★ Follow-up nudges — "no reply after 3 days" resurfacing, per-thread
 - [2] ★ Shared-inbox collaboration: assign a thread to a colleague, internal comments on a thread, collision alert ("Kevin is already replying") — Front-style teamwork on info@/sales@ boxes, which Outlook simply cannot do
 - [2] Templates / snippets with variables

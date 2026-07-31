@@ -748,6 +748,21 @@ export class JmapClient {
     return { blobId: json.blobId, type: json.type, size: json.size };
   }
 
+  /** Upload a large file as an expiring public share link (Ficina Transfer),
+   * instead of an inline attachment. Returns the link plus its metadata. */
+  async uploadShare(
+    file: File,
+  ): Promise<{ url: string; filename: string; size: number; expiresAt: number }> {
+    const url = `${window.location.origin}/share/upload?name=${encodeURIComponent(file.name)}`;
+    const res = await this.#fetch(url, {
+      method: "POST",
+      headers: { "content-type": file.type.length > 0 ? file.type : "application/octet-stream" },
+      body: file,
+    });
+    if (!res.ok) throw new JmapError(`share ${res.status}`);
+    return (await res.json()) as { url: string; filename: string; size: number; expiresAt: number };
+  }
+
   /** Create a draft message; returns the new email id. */
   async createDraft(params: {
     mailboxId: string;

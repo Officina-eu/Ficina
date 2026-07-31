@@ -4,7 +4,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, http::HeaderMap};
@@ -114,8 +114,9 @@ fn parse_attachment_id(blob_id: &str) -> Option<(&str, usize)> {
 }
 
 /// Serve raw bytes as a downloadable attachment: the given content type,
-/// `nosniff`, and a sanitized `Content-Disposition` filename.
-fn serve_download(bytes: Bytes, ctype: &str, filename: &str) -> Response {
+/// `nosniff`, and a sanitized `Content-Disposition` filename. Shared with the
+/// public share-download path ([`crate::share`]).
+pub(crate) fn serve_download(bytes: Bytes, ctype: &str, filename: &str) -> Response {
     let mut resp = (StatusCode::OK, bytes).into_response();
     let h = resp.headers_mut();
     h.insert(
@@ -127,6 +128,9 @@ fn serve_download(bytes: Bytes, ctype: &str, filename: &str) -> Response {
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
+    // Never let a shared proxy/CDN retain downloaded bytes (matters most for the
+    // public share path, where the URL is a capability).
+    h.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     let safe = filename.replace(['\r', '\n', '"', '\\'], "");
     h.insert(
         CONTENT_DISPOSITION,

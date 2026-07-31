@@ -186,3 +186,31 @@ these two remain as tracked follow-ups:
   channel with a **Unix domain socket** shared only between ficina-jmap and
   ficina-smtp (eliminates the network surface); alternatively a dedicated
   internal network + interface-bound listener.
+
+## Ficina Transfer (large-file share links) — v1 follow-ups
+
+The share feature (`core/ficina-{store,jmap}/src/share.rs`) shipped with these
+deliberate v1 limitations, each accepted for now and tracked here:
+
+- **Streaming downloads.** `GET /share/{token}` buffers the whole blob (≤ 100 MB)
+  into memory before responding, because `BlobStore::get` returns a fully
+  materialised `Bytes`. A service-wide semaphore (`MAX_CONCURRENT_DOWNLOADS`)
+  bounds peak memory on this unauthenticated path, but the proper fix is a
+  streaming/range-capable blob read so large files don't buffer at all. Until
+  then the per-request cap is 100 MB.
+- **Blob reclamation.** `sweep_expired_shares` deletes only the share row
+  (disabling the link); it does **not** delete the blob bytes, because
+  content-addressed dedup means a share's blob may back a message attachment or
+  a not-yet-embedded upload, and `blobs.refcount` cannot currently distinguish
+  those. An expired share therefore leaks its bytes exactly like any other
+  unreferenced blob. A dedicated blob GC with a correct reference model (and a
+  refcount decrement on message delete, which also does not exist yet) is the
+  real fix.
+- **Capability token in the URL.** The link is `…/share/<raw-token>`, so the live
+  token can land in reverse-proxy access logs and browser history (the DB stores
+  only its hash). This is inherent to the WeTransfer-style capability-URL model;
+  the download sends `Cache-Control: no-store`. If stronger secrecy is wanted,
+  exclude `/share/*` from access logging or move the token out of the path.
+- **Per-IP rate limiting.** There is no rate-limit layer in ficina-jmap; the
+  share download relies on the concurrency cap above plus the unguessable token.
+  A gateway/per-IP limit is a general hardening item, not specific to this path.

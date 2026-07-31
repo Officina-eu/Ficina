@@ -26,6 +26,7 @@ pub mod model;
 pub mod rfc2047;
 pub mod schedule;
 pub mod settings;
+pub mod share;
 pub mod snooze;
 pub mod store;
 pub mod thread;
@@ -44,6 +45,7 @@ pub use error::{Result, StoreError};
 pub use id::{BlobId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
 pub use contacts::AddressHeaders;
 pub use schedule::DueSend;
+pub use share::{ShareCreated, ShareTarget};
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
     RefreshTokenRow, SigningKeyRow, TotpRow,

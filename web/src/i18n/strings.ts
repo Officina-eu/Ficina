@@ -184,6 +184,12 @@ export const strings = {
   labelColor: "Label color",
   labelColorHint: "right-click to color",
   labelColorClear: "No color",
+  // Ficina Transfer (large files as expiring links)
+  transferLink: "link",
+  transferSharedFile: "📎 Shared file",
+  transferDownload: "Download",
+  transferExpires: (date: string) => `link expires ${date}`,
+  transferTooLarge: (max: string) => `That file is too large — the limit is ${max}.`,
   blockSenderNamed: (email: string) => `Block ${email}`,
   senderBlocked: (email: string) => `Blocked ${email} — their mail now goes to Junk.`,
   // Filters & rules

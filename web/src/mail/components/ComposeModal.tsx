@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ChevronDown,
   Clock,
+  Link as LinkIcon,
   Maximize2,
   Minimize2,
   Minus,
@@ -34,6 +35,43 @@ interface PendingAttachment {
   name: string;
   type: string;
   size: number;
+}
+
+/** A large file sent as an expiring share link (Ficina Transfer) rather than an
+ * inline attachment. */
+interface LinkAttachment {
+  url: string;
+  name: string;
+  size: number;
+  expiresAt: number;
+}
+
+/** Files at or below this size attach inline; above it they upload as a share
+ * link (sidestepping recipient attachment-size limits). */
+const ATTACH_MAX_BYTES = 25 * 1024 * 1024;
+/** The hard ceiling for a share upload (mirrors the server's SHARE_MAX_BYTES). */
+const SHARE_MAX_BYTES = 100 * 1024 * 1024;
+
+/** The download-link card appended to an outgoing message's HTML body. */
+function linkCardHtml(link: LinkAttachment): string {
+  const expires = new Date(link.expiresAt * 1000).toLocaleDateString();
+  const name = escapeHtml(link.name);
+  const url = escapeHtml(link.url);
+  const meta = `${formatBytes(link.size)} · ${strings.transferExpires(expires)}`;
+  return (
+    `<div style="border:1px solid #dcd7cc;border-radius:10px;padding:14px 16px;margin-top:12px;max-width:420px;font-family:system-ui,-apple-system,sans-serif">` +
+    `<div style="font-size:13px;color:#8a8578;margin-bottom:6px">${strings.transferSharedFile}</div>` +
+    `<div style="font-weight:600;color:#2b2a26;word-break:break-all">${name}</div>` +
+    `<div style="font-size:12px;color:#8a8578;margin:4px 0 10px">${escapeHtml(meta)}</div>` +
+    `<a href="${url}" style="display:inline-block;background:#5b8a72;color:#fff;text-decoration:none;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600">${strings.transferDownload}</a>` +
+    `</div>`
+  );
+}
+
+/** The plain-text fallback line for a share link. */
+function linkCardText(link: LinkAttachment): string {
+  const expires = new Date(link.expiresAt * 1000).toLocaleDateString();
+  return `${link.name} (${formatBytes(link.size)}) — ${link.url} (${strings.transferExpires(expires)})`;
 }
 
 /** True when the composed HTML carries real formatting (not just line breaks),
@@ -417,6 +455,7 @@ export function ComposeModal({
   const [view, setView] = useState<"normal" | "min" | "full">("normal");
   const minimized = view === "min";
   const [attachments, setAttachments] = useState<PendingAttachment[]>(context.attachments ?? []);
+  const [links, setLinks] = useState<LinkAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -426,13 +465,27 @@ export function ComposeModal({
   async function onPickFiles(files: FileList) {
     setError(null);
     for (const file of Array.from(files)) {
+      // Over the hard ceiling: refuse (and say the limit). Over the inline-attach
+      // size: send as an expiring share link. Otherwise attach normally.
+      if (file.size > SHARE_MAX_BYTES) {
+        setError(strings.transferTooLarge(formatBytes(SHARE_MAX_BYTES)));
+        continue;
+      }
       setUploading((n) => n + 1);
       try {
-        const up = await client.uploadFile(file);
-        setAttachments((prev) => [
-          ...prev,
-          { blobId: up.blobId, name: file.name, type: up.type, size: up.size },
-        ]);
+        if (file.size > ATTACH_MAX_BYTES) {
+          const share = await client.uploadShare(file);
+          setLinks((prev) => [
+            ...prev,
+            { url: share.url, name: share.filename, size: share.size, expiresAt: share.expiresAt },
+          ]);
+        } else {
+          const up = await client.uploadFile(file);
+          setAttachments((prev) => [
+            ...prev,
+            { blobId: up.blobId, name: file.name, type: up.type, size: up.size },
+          ]);
+        }
       } catch {
         setError(strings.attachmentUploadFailed);
       } finally {
@@ -443,6 +496,10 @@ export function ComposeModal({
 
   function removeAttachment(blobId: string) {
     setAttachments((prev) => prev.filter((a) => a.blobId !== blobId));
+  }
+
+  function removeLink(url: string) {
+    setLinks((prev) => prev.filter((l) => l.url !== url));
   }
 
   const recipientTotal = useMemo(() => {
@@ -468,14 +525,19 @@ export function ComposeModal({
     // The editor holds HTML; derive the text/plain alternative and append the
     // quoted original (as text, and as HTML when we're sending a formatted body).
     const text = htmlToText(body);
-    const fullText = prefill.quoted.length > 0 ? `${text}\n\n${prefill.quoted}` : text;
+    // Large files ride the message as expiring share links (Ficina Transfer).
+    const linkText = links.length > 0 ? `\n\n${links.map(linkCardText).join("\n")}` : "";
+    const linkHtml = links.map(linkCardHtml).join("");
+    const withQuote = prefill.quoted.length > 0 ? `${text}\n\n${prefill.quoted}` : text;
+    const fullText = `${withQuote}${linkText}`;
     let bodyHtml: string | undefined;
-    if (hasFormatting(body)) {
+    // Force an HTML part whenever there are link cards, even for a plain body.
+    if (hasFormatting(body) || links.length > 0) {
       const quotedHtml =
         prefill.quoted.length > 0
           ? `<br><br><blockquote>${escapeHtml(prefill.quoted).replace(/\n/g, "<br>")}</blockquote>`
           : "";
-      bodyHtml = `${body}${quotedHtml}`;
+      bodyHtml = `${body}${linkHtml}${quotedHtml}`;
     }
     try {
       const emailId = await client.createDraft({
@@ -668,6 +730,28 @@ export function ComposeModal({
                   <span className={styles.attachName}>{strings.attachmentUploading}</span>
                 </span>
               )}
+            </div>
+          )}
+
+          {links.length > 0 && (
+            <div className={styles.attachRow}>
+              {links.map((l) => (
+                <span key={l.url} className={cx(styles.attachChip, styles.linkChip)}>
+                  <LinkIcon size={14} className={styles.attachIcon} />
+                  <span className={styles.attachName}>{l.name}</span>
+                  <span className={styles.attachSize}>
+                    {formatBytes(l.size)} · {strings.transferLink}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.attachRemove}
+                    onClick={() => removeLink(l.url)}
+                    aria-label={strings.removeRecipient(l.name)}
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
             </div>
           )}
 

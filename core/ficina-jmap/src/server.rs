@@ -16,7 +16,7 @@ use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
     admin, ai, api, blob, contacts, docs, filters, push, schedule, security, session, settings,
-    snooze,
+    share, snooze,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -62,6 +62,13 @@ pub fn app(state: AppState) -> Router {
         .route("/send-later/cancel", post(schedule::cancel_send))
         // Recent correspondents for compose recipient autocomplete.
         .route("/contacts", get(contacts::list))
+        // Ficina Transfer: upload a large file (authenticated) for an expiring
+        // link, and the PUBLIC download route the recipient's link points at.
+        .route(
+            "/share/upload",
+            post(share::upload).layer(DefaultBodyLimit::max(share::SHARE_MAX_BYTES)),
+        )
+        .route("/share/{token}", get(share::download))
         // Server-side mail filters (rules) + one-click Block sender.
         .route("/filters", get(filters::list).put(filters::save))
         .route("/filters/block", post(filters::block))
