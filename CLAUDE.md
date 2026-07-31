@@ -48,12 +48,16 @@ was formerly named Ficina — see ADR 0016.)
   fetched by `scripts/fetch-engines.sh` for reading alongside our code.
 - **One agent per working tree.** Concurrent editors on one checkout
   are forbidden — a second editor produces uncommitted, ambiguously
-  authored work that cannot be trusted. Every agent commits with a
-  distinct git author (`claude-code <agent@alo.dev>` style) so
-  authorship is never ambiguous. The canonical checkout lives OUTSIDE
-  any file-sync folder (OneDrive/Dropbox/iCloud): git and the remote
-  are the only sync mechanism. A checkout inside a sync folder is a
-  configuration bug to be reported and moved before further work.
+  authored work that cannot be trusted. Commits are authored as the
+  **repository owner** (the identity in the checkout's git config —
+  `Disan Ssebowa Basalidde <ssebowadisan1@gmail.com>`), so the work is
+  credited to the owner; do NOT override the configured author. Which
+  agent actually made the commit is recorded transparently in the
+  `Co-Authored-By: Claude …` trailer the harness appends. The canonical
+  checkout lives OUTSIDE any file-sync folder (OneDrive/Dropbox/iCloud):
+  git and the remote are the only sync mechanism. A checkout inside a
+  sync folder is a configuration bug to be reported and moved before
+  further work.
 
 ## Workflow
 
