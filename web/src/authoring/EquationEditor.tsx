@@ -1,49 +1,30 @@
-// The equation editor (ADR 0015), styled to the Figma Docs "Equation" modal: a
-// Σ-marked panel with a LaTeX/Visual view toggle, a LaTeX source input, a live
-// centered KaTeX preview, a common-symbol quick bar, and an Insert button.
-// Rendering is browser-local; invalid LaTeX shows inline and never breaks the page.
+// The equation editor (ADR 0015): a Σ-marked panel with a LaTeX/Visual view
+// toggle, a LaTeX source input, a live centered KaTeX preview, and an
+// emoji-picker-style symbol browser — search across the full catalogue or
+// browse by category. Rendering is browser-local; invalid LaTeX shows inline
+// and never breaks the page.
 import { useMemo, useRef, useState } from "react";
-import { Bold, Italic, Sigma, X } from "lucide-react";
+import { Bold, Italic, Search, Sigma, X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { cx } from "../ds";
 import { renderMath } from "./katex";
+import { EQ_CATEGORIES, haystack, insertText, type EqSymbol } from "./equationSymbols";
 import styles from "./EquationEditor.module.css";
 
-interface Symbol {
-  tip: string;
-  face: string;
-  insert: string;
-  /** Caret offset from the end of `insert` (negative = inside braces). */
-  caret?: number;
-}
-
-// The symbol set shown in the Figma modal.
-const SYMBOLS: Symbol[] = [
-  { tip: "Sum", face: "\\sum", insert: "\\sum_{}^{}", caret: -3 },
-  { tip: "Integral", face: "\\int", insert: "\\int_{}^{}", caret: -3 },
-  { tip: "Square root", face: "\\sqrt{x}", insert: "\\sqrt{}", caret: -1 },
-  { tip: "Pi", face: "\\pi", insert: "\\pi " },
-  { tip: "Infinity", face: "\\infty", insert: "\\infty " },
-  { tip: "Less or equal", face: "\\le", insert: "\\le " },
-  { tip: "Greater or equal", face: "\\ge", insert: "\\ge " },
-  { tip: "Alpha", face: "\\alpha", insert: "\\alpha " },
-  { tip: "Beta", face: "\\beta", insert: "\\beta " },
-];
-
-function SymbolButton({ symbol, onInsert }: { symbol: Symbol; onInsert: (s: Symbol) => void }) {
-  const face = useMemo(() => renderMath(symbol.face, false), [symbol.face]);
-  return (
-    <button
-      type="button"
-      className={styles.symbol}
-      title={symbol.tip}
-      aria-label={symbol.tip}
-      onClick={() => onInsert(symbol)}
-      dangerouslySetInnerHTML={{ __html: face.html }}
-    />
-  );
-}
+/** Localised category headings, keyed by category id. */
+const CAT_LABEL: Record<string, string> = {
+  structures: strings.eqCatStructures,
+  greek: strings.eqCatGreek,
+  operators: strings.eqCatOperators,
+  relations: strings.eqCatRelations,
+  sets: strings.eqCatSets,
+  arrows: strings.eqCatArrows,
+  bigops: strings.eqCatBigops,
+  calculus: strings.eqCatCalculus,
+  delimiters: strings.eqCatDelimiters,
+  misc: strings.eqCatMisc,
+};
 
 interface EquationEditorProps {
   value: string;
@@ -68,20 +49,54 @@ export function EquationEditor({
   onToggleNumbered,
 }: EquationEditorProps) {
   const [view, setView] = useState<"latex" | "visual">("latex");
+  const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const catRefs = useRef(new Map<string, HTMLElement>());
   const rendered = useMemo(() => renderMath(value, display), [value, display]);
 
-  function insert(symbol: Symbol) {
+  // Flat search across the whole catalogue (name + command + keywords).
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length === 0) return null;
+    const out: EqSymbol[] = [];
+    for (const cat of EQ_CATEGORIES) {
+      for (const s of cat.symbols) if (haystack(s).includes(q)) out.push(s);
+    }
+    return out;
+  }, [query]);
+
+  function scrollToCat(id: string) {
+    catRefs.current.get(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
+  function insert(symbol: EqSymbol) {
     const el = inputRef.current;
     const start = el?.selectionStart ?? value.length;
     const end = el?.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + symbol.insert + value.slice(end);
+    const ins = insertText(symbol);
+    const next = value.slice(0, start) + ins + value.slice(end);
     onChange(next);
-    const caret = start + symbol.insert.length + (symbol.caret ?? 0);
+    const caret = start + ins.length + (symbol.caret ?? 0);
     requestAnimationFrame(() => {
       el?.focus();
       el?.setSelectionRange(caret, caret);
     });
+  }
+
+  function symbolButton(symbol: EqSymbol, key: string) {
+    return (
+      <button
+        key={key}
+        type="button"
+        className={styles.symbol}
+        title={`${symbol.name} · ${symbol.latex}`}
+        aria-label={symbol.name}
+        onClick={() => insert(symbol)}
+      >
+        {symbol.ch}
+      </button>
+    );
   }
 
   // Wrap the selected LaTeX (or the caret) in a math style command, e.g.
@@ -219,12 +234,74 @@ export function EquationEditor({
           </div>
         </div>
 
-        <div className={styles.footer}>
-          <div className={styles.symbols}>
-            {SYMBOLS.map((s) => (
-              <SymbolButton key={s.tip} symbol={s} onInsert={insert} />
-            ))}
+        <div className={styles.palette}>
+          <div className={styles.searchRow}>
+            <Search size={16} className={styles.searchIcon} />
+            <input
+              type="text"
+              className={styles.search}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={strings.eqSearchPlaceholder}
+              aria-label={strings.eqSearchLabel}
+              spellCheck={false}
+            />
+            {query.length > 0 && (
+              <button
+                type="button"
+                className={styles.searchClear}
+                onClick={() => setQuery("")}
+                aria-label={strings.eqSearchClear}
+              >
+                <X size={15} />
+              </button>
+            )}
           </div>
+
+          {matches === null && (
+            <div className={styles.catNav} role="tablist" aria-label={strings.eqSearchLabel}>
+              {EQ_CATEGORIES.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={styles.catChip}
+                  onClick={() => scrollToCat(c.id)}
+                >
+                  {CAT_LABEL[c.id]}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className={styles.paletteScroll} ref={scrollRef}>
+            {matches !== null ? (
+              matches.length > 0 ? (
+                <div className={styles.grid}>
+                  {matches.map((s, i) => symbolButton(s, `r-${i}`))}
+                </div>
+              ) : (
+                <p className={styles.noMatches}>{strings.eqNoMatches}</p>
+              )
+            ) : (
+              EQ_CATEGORIES.map((c) => (
+                <section
+                  key={c.id}
+                  className={styles.catSection}
+                  ref={(el) => {
+                    if (el !== null) catRefs.current.set(c.id, el);
+                  }}
+                >
+                  <h4 className={styles.catHead}>{CAT_LABEL[c.id]}</h4>
+                  <div className={styles.grid}>
+                    {c.symbols.map((s, i) => symbolButton(s, `${c.id}-${i}`))}
+                  </div>
+                </section>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className={styles.footer}>
           {onToggleNumbered !== undefined && (
             <label className={styles.numbered}>
               <input
@@ -235,6 +312,7 @@ export function EquationEditor({
               {strings.eqNumbered}
             </label>
           )}
+          <div className={styles.spacer} />
           <button
             type="button"
             className={styles.insert}

@@ -549,6 +549,21 @@ export const strings = {
   eqUpright: "Upright / roman",
   eqBlackboard: "Blackboard (ℝ, ℕ …)",
   eqPlainText: "Plain text in math",
+  // equation symbol picker
+  eqSearchLabel: "Search symbols",
+  eqSearchPlaceholder: "Search symbols — e.g. sum, alpha, arrow",
+  eqSearchClear: "Clear search",
+  eqNoMatches: "No symbols match your search.",
+  eqCatStructures: "Structures",
+  eqCatGreek: "Greek",
+  eqCatOperators: "Operators",
+  eqCatRelations: "Relations",
+  eqCatSets: "Sets & logic",
+  eqCatArrows: "Arrows",
+  eqCatBigops: "Large operators",
+  eqCatCalculus: "Calculus",
+  eqCatDelimiters: "Delimiters",
+  eqCatMisc: "Symbols",
 
   // compose — insert math/code into an email
   composeInsertEquation: "Insert equation",
