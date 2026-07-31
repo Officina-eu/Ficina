@@ -1,6 +1,6 @@
 # TLS + submission (design note)
 
-Phase 1 milestone M3 for `ficina-smtp`. Adds transport security and
+Phase 1 milestone M3 for `alo-smtp`. Adds transport security and
 authenticated submission on top of the M1 receive path and M2 queue.
 
 ## Surface
@@ -51,7 +51,7 @@ AUTH introduces **identity**: a successful login records an
 `AuthIdentity` on the session. Credentials never appear in logs,
 errors, or the spool. This is the seam the tenant model plugs into —
 the `Authenticator` trait is config-backed now and becomes
-`ficina-identity` in M9.
+`alo-identity` in M9.
 
 ## Contracts
 
@@ -72,7 +72,7 @@ the `Authenticator` trait is config-backed now and becomes
   do the safe, non-destructive subset (Date, Message-ID) only.
 - **Sender authorization** (binding `MAIL FROM` to the authenticated
   identity / a send-as permission model, RFC 6409 §6.1) — deferred to
-  ficina-identity (M9): a strict "sender == login" rule breaks
+  alo-identity (M9): a strict "sender == login" rule breaks
   legitimate shared mailboxes and aliases, so it needs the real
   permission model, not an interim approximation.
 - TLS client-certificate authentication.
@@ -81,13 +81,13 @@ the `Authenticator` trait is config-backed now and becomes
 
 Fixed in this milestone (security audit + cold review): the MX
 open-relay guard (`local_domains`), the self-signed-in-production gate
-(`FICINA_SMTP_ALLOW_SELF_SIGNED`), a per-connection failed-AUTH cap,
+(`ALO_SMTP_ALLOW_SELF_SIGNED`), a per-connection failed-AUTH cap,
 control-character rejection in SASL identities, and keeping the login
 name out of default-visible logs. Two LOW findings are deferred with
 rationale:
 
 - **Constant-time credential comparison.** `StaticAuthenticator` is the
-  dev bootstrap; `ficina-identity` (M9) owns the real backend and must
+  dev bootstrap; `alo-identity` (M9) owns the real backend and must
   use a constant-time verify plus a dummy-hash path for unknown users
   so wrong-password and unknown-user are timing-indistinguishable.
 - **Per-source-IP connection limit.** Today one IP can occupy the whole

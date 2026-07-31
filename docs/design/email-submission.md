@@ -4,8 +4,8 @@ Status: building · 2026-07 · ROADMAP Phase 2 "Mail: … compose/reply" and the
 deferred `EmailSubmission/set` seam.
 
 The web app can read mail; it cannot send. This wires the JMAP layer
-(`ficina-jmap`, what the web app talks to) to the SMTP outbound path
-(`ficina-smtp`, what delivers) so a composed/replied message actually leaves
+(`alo-jmap`, what the web app talks to) to the SMTP outbound path
+(`alo-smtp`, what delivers) so a composed/replied message actually leaves
 the server — signed, queued, and delivered like all other outbound mail.
 
 ## The seam (and the alternative rejected)
@@ -16,11 +16,11 @@ queue runner does **not** sign. So a message must travel **through a submission
 pipeline** to be signed; writing it straight to the spool would deliver it
 **unsigned → DMARC fail → spam/reject**.
 
-**Decision:** `ficina-smtp` gains a **trusted internal submission listener** —
+**Decision:** `alo-smtp` gains a **trusted internal submission listener** —
 a submission-role runtime with the full pipeline (RFC 6409 fixups + DKIM +
 `Received:` stamp + spool) but with **AUTH disabled**, bound inside the
 container and **never published to the host/internet** (docker-network only).
-`ficina-jmap` speaks SMTP to it to send. This reuses the entire proven outbound
+`alo-jmap` speaks SMTP to it to send. This reuses the entire proven outbound
 path (signing, queue, MX delivery, DSN) and keeps the DKIM key in one service.
 It is API-based (SMTP is a defined protocol), honoring ARCHITECTURE's "cross-
 service communication through defined APIs … never shared tables/storage".
@@ -36,9 +36,9 @@ Two independent controls, either sufficient, both required:
 
 1. **Network isolation.** The internal listener's port is **not** in any
    compose `ports:` mapping, so it is reachable only from other containers on
-   the private `ficina` network — never from the internet. (Verified after
+   the private `alo` network — never from the internet. (Verified after
    deploy: the port does not listen on the host.)
-2. **Send-as binding.** `ficina-jmap` sets the envelope `MAIL FROM` to the
+2. **Send-as binding.** `alo-jmap` sets the envelope `MAIL FROM` to the
    **authenticated user's own** canonical address or a registered alias
    (`TenantStore::email_of` / `aliases_of`), rejecting any other From
    (`forbiddenFrom`). A bearer token cannot send as another identity.
@@ -49,9 +49,9 @@ internet-reachable, and its only caller enforces the From binding.
 
 ## Surface
 
-- **New config:** `FICINA_SMTP_INTERNAL_SUBMISSION_ADDR` (e.g. `0.0.0.0:2526`),
-  `None` disables. `ficina-jmap` gets `FICINA_JMAP_SUBMISSION_ADDR`
-  (host:port of that listener, e.g. `ficina-smtp:2526`).
+- **New config:** `ALO_SMTP_INTERNAL_SUBMISSION_ADDR` (e.g. `0.0.0.0:2526`),
+  `None` disables. `alo-jmap` gets `ALO_JMAP_SUBMISSION_ADDR`
+  (host:port of that listener, e.g. `alo-smtp:2526`).
 - **JMAP capability:** advertise `urn:ietf:params:jmap:submission`.
 - **`Email/set` create** (extended, minimally): accept the fields a real
   outgoing/draft message needs — `subject`, `from`, full `to` + `cc`, a text

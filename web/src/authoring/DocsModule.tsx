@@ -1,4 +1,4 @@
-// Ficina Docs (ADR 0015): the technical-authoring module. Lists the caller's
+// alo Docs (ADR 0015): the technical-authoring module. Lists the caller's
 // documents, opens one into the block editor, and autosaves edits through the
 // tenant/owner-scoped /docs API. This is the standalone Docs surface today; it
 // docks into the Collabora shell (ADR 0010) when that lands.

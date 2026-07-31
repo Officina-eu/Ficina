@@ -50,7 +50,7 @@ const HEADER_PROPS = [
   "hasAttachment",
   "messageId",
   "references",
-  "ficina:authentication",
+  "alo:authentication",
 ];
 
 /** A document list entry from `/docs` (metadata only). */
@@ -245,13 +245,13 @@ export class JmapClient {
   /** Whether AI features are enabled for this tenant (session flag). */
   async aiEnabled(): Promise<boolean> {
     const session = await this.session();
-    return session["ficina:aiEnabled"] === true;
+    return session["alo:aiEnabled"] === true;
   }
 
   /** Whether the signed-in user is a tenant admin (session flag). */
   async isAdmin(): Promise<boolean> {
     const session = await this.session();
-    return session["ficina:isAdmin"] === true;
+    return session["alo:isAdmin"] === true;
   }
 
   async #admin(path: string, init: RequestInit): Promise<unknown> {
@@ -599,7 +599,7 @@ export class JmapClient {
     if (!res.ok) throw new JmapError(`snooze ${res.status}`);
   }
 
-  // ---- Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring docs ----
+  // ---- alo Docs (ADR 0015): tenant/owner-scoped technical-authoring docs ----
 
   /** List the caller's documents (metadata only), newest-first. */
   async listDocs(): Promise<DocsSummaryDto[]> {
@@ -748,7 +748,7 @@ export class JmapClient {
     return { blobId: json.blobId, type: json.type, size: json.size };
   }
 
-  /** Upload a large file as an expiring public share link (Ficina Transfer),
+  /** Upload a large file as an expiring public share link (alo Transfer),
    * instead of an inline attachment. `days` is the link lifetime chosen by the
    * sender. The file is streamed, so there is no size limit. */
   async uploadShare(

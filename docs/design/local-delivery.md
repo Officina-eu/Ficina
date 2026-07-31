@@ -1,7 +1,7 @@
 # Inbound local delivery (design note)
 
 This closes the spine both prior sessions left open: inbound SMTP has
-terminated at a spool, so a received message never reached `ficina-store`,
+terminated at a spool, so a received message never reached `alo-store`,
 which is why Sieve and IMAP could not show end-to-end evidence and why
 dogfooding was blocked. This milestone carries a received message the last
 hop — SMTP → store — with Sieve at the boundary. It is **wiring, not new
@@ -13,7 +13,7 @@ half-built change; the arc is worked whole.
 
 ## Shape
 
-`ficina-smtp` gains an optional `LocalDelivery` (a `Store` handle + the
+`alo-smtp` gains an optional `LocalDelivery` (a `Store` handle + the
 inbound `Spool` for enqueuing Sieve's outbound actions). It is wired only
 on the **MX** role and only when a database URL is configured; the
 submission role and the outbound queue are untouched.
@@ -45,7 +45,7 @@ submission role and the outbound queue are untouched.
 
 Delivered message bytes go to a **durable on-disk blob backend**
 (`BlobStore::local`, object-store's filesystem backend, rooted at
-`FICINA_SMTP_BLOB_DIR`, default `./blobs`), so a delivered body survives a
+`ALO_SMTP_BLOB_DIR`, default `./blobs`), so a delivered body survives a
 restart — the store's commit point (the DB row) is only reached after the
 blob is durably written. Multi-node production swaps in Garage/S3 behind
 the store's `garage` feature; the in-memory backend is tests only. A single
@@ -121,6 +121,6 @@ spool remains the **outbound** queue's durable store (M2, unchanged).
 
 Per-recipient DSN at DATA (above); `<postmaster>` without a backing account
 (accepted at RCPT, delivered if an account exists, else the conservative
-4xx — a dedicated alias table is ficina-identity's job); catch-all / alias
-expansion (ficina-identity); and the general spool-migration tool for a
+4xx — a dedicated alias table is alo-identity's job); catch-all / alias
+expansion (alo-identity); and the general spool-migration tool for a
 mixed inbound/outbound backlog beyond the all-local startup pass.

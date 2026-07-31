@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/ficina-smtp", "core/ficina-smtp-client", "core/ficina-auth-mail", "core/ficina-store", "core/ficina-jmap", "core/ficina-imap", "core/ficina-sieve", "core/ficina-identity", "core/ficina-ai", "control", "migrate"]
+members = ["core/alo-smtp", "core/alo-smtp-client", "core/alo-auth-mail", "core/alo-store", "core/alo-jmap", "core/alo-imap", "core/alo-sieve", "core/alo-identity", "core/alo-ai", "control", "migrate"]
 
 [workspace.package]
 version = "0.0.1"
@@ -35,13 +35,13 @@ base64 = "0.22"
 # multipart walking, transfer-encoding + charset decoding. Reading incoming
 # mail correctly is a parser's job, not something to hand-roll.
 mail-parser = "0.11"
-# HTTP client for the AI inference layer (ficina-ai) — calling an operator-set
+# HTTP client for the AI inference layer (alo-ai) — calling an operator-set
 # OpenAI-compatible endpoint (Ollama/vLLM/hosted) needs real TLS + response
 # handling. rustls only (no OpenSSL), matching our TLS stack.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 # Browser-grade charset decoding for RFC 2047 encoded-word header values.
 encoding_rs = "0.8"
-# Trust-stack (ficina-auth-mail) crypto primitives. RSA sign/verify use
+# Trust-stack (alo-auth-mail) crypto primitives. RSA sign/verify use
 # `ring` (constant-time, already in-tree via rustls) rather than the
 # `rsa` crate, which carries the unfixed Marvin timing sidechannel
 # (RUSTSEC-2023-0071). Ed25519 (DKIM RFC 8463) via ed25519-dalek;
@@ -50,28 +50,28 @@ ring = "0.17"
 ed25519-dalek = { version = "2", features = ["pkcs8", "rand_core"] }
 sha2 = "0.10"
 zeroize = "1"
-# Auditable constant-time byte comparison for ficina-identity's secret and
+# Auditable constant-time byte comparison for alo-identity's secret and
 # token-hash checks (ring's own helper is deprecated as "no side-channel
 # promises"). `subtle` is the canonical, purpose-built primitive.
 subtle = "2"
 # Public-suffix list for DMARC organizational-domain discovery
 # (RFC 7489 §3.2); the crate embeds a compiled list (no runtime fetch).
 psl = "2"
-# ficina-store: PostgreSQL (system of record) via sqlx with
+# alo-store: PostgreSQL (system of record) via sqlx with
 # compile-checked queries; rustls (no OpenSSL). Timestamps map through
 # the `time` crate at the DB boundary. Blobs go through the
 # `object_store` abstraction; the default build carries only its lean
 # in-memory/local core, and the S3 (Garage) client — which pulls the
-# reqwest/quick-xml tree — is gated behind ficina-store's `garage`
+# reqwest/quick-xml tree — is gated behind alo-store's `garage`
 # feature (see docs/decisions/0006). `bytes` for zero-copy blob buffers.
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "time"] }
 time = { version = "0.3", default-features = false, features = ["std", "parsing", "formatting"] }
 object_store = { version = "0.11", default-features = false }
 bytes = "1"
-# ficina-identity: argon2id password hashing (the credential authority).
+# alo-identity: argon2id password hashing (the credential authority).
 # See docs/design/identity.md and docs/decisions/0008.
 argon2 = "0.5"
-# ficina-jmap: the JMAP HTTP service (RFC 8620/8621). axum over hyper
+# alo-jmap: the JMAP HTTP service (RFC 8620/8621). axum over hyper
 # (already in-tree) for routing, JSON, and Server-Sent-Events push;
 # `futures` for the SSE stream.
 axum = "0.8"

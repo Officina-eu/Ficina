@@ -1,7 +1,7 @@
 # JMAP API (design note)
 
-`ficina-jmap` is Ficina's native client protocol (RFC 8620 core, RFC
-8621 mail) — an HTTP service over `ficina-store`. **From merge it is a
+`alo-jmap` is alo's native client protocol (RFC 8620 core, RFC
+8621 mail) — an HTTP service over `alo-store`. **From merge it is a
 public contract:** the web app, desktop cache, and compat adapters speak
 it, so every surface here changes *additively* forever (CLAUDE.md
 "contracts outlive code").
@@ -31,7 +31,7 @@ it, so every surface here changes *additively* forever (CLAUDE.md
 ## Interim auth (b)
 
 Identity (OIDC) is a later milestone, so auth is deliberately minimal
-and **behind a trait** (`Authenticator`) the future `ficina-identity`
+and **behind a trait** (`Authenticator`) the future `alo-identity`
 implements without touching method code:
 
 - `POST /auth/token` `{ username, password }` → verifies an **argon2**
@@ -44,7 +44,7 @@ implements without touching method code:
   is never taken from the request body.
 
 **Rejected — session cookies / a full OAuth2 flow now.** Rejected: it
-is identity-server theater we would rebuild against `ficina-identity`
+is identity-server theater we would rebuild against `alo-identity`
 anyway, and a stateful cookie session is a second auth model to migrate.
 A bearer token that maps to `(tenant, account)` is the smallest thing
 that (a) exercises the real tenant door and (b) swaps cleanly for
@@ -55,7 +55,7 @@ only the issuer changes.
 
 JMAP `/changes` needs monotonic state. We add to the **store** (this is
 the sanctioned store change; per Law 3 it lives in a new
-`ficina-store::changes` module, not bolted onto `store.rs`):
+`alo-store::changes` module, not bolted onto `store.rs`):
 
 - `tenant_modseq(tenant_id, modseq BIGINT)` — a per-tenant monotonic
   counter, bumped once per mutating transaction.

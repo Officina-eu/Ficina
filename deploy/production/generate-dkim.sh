@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Generate the DKIM signing key and print the DNS record to publish.
-# The key is 2048-bit RSA in PKCS#8 PEM (what ficina-smtp expects), written
+# The key is 2048-bit RSA in PKCS#8 PEM (what alo-smtp expects), written
 # to ./dkim/dkim.key with 0600 permissions (the server refuses a
 # group/world-readable key). Re-running refuses to clobber an existing key.
 #
-# Usage: ./generate-dkim.sh   (reads FICINA_SMTP_DKIM_SELECTOR and the mail
+# Usage: ./generate-dkim.sh   (reads ALO_SMTP_DKIM_SELECTOR and the mail
 #                              domain from .env)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -12,12 +12,12 @@ cd "$(dirname "$0")"
 # shellcheck disable=SC1091
 [ -f .env ] && set -a && . ./.env && set +a
 
-SELECTOR="${FICINA_SMTP_DKIM_SELECTOR:-fic}"
-DOMAIN="${FICINA_SMTP_DKIM_DOMAIN:-${FICINA_SMTP_LOCAL_DOMAINS%%,*}}"
+SELECTOR="${ALO_SMTP_DKIM_SELECTOR:-fic}"
+DOMAIN="${ALO_SMTP_DKIM_DOMAIN:-${ALO_SMTP_LOCAL_DOMAINS%%,*}}"
 KEY=./dkim/dkim.key
 
 if [ -z "${DOMAIN}" ]; then
-	echo "error: set FICINA_SMTP_DKIM_DOMAIN (or FICINA_SMTP_LOCAL_DOMAINS) in .env first" >&2
+	echo "error: set ALO_SMTP_DKIM_DOMAIN (or ALO_SMTP_LOCAL_DOMAINS) in .env first" >&2
 	exit 1
 fi
 if [ -f "${KEY}" ]; then
@@ -34,7 +34,7 @@ PUB=$(openssl rsa -in "${KEY}" -pubout -outform DER 2>/dev/null | openssl base64
 
 echo "Wrote ${KEY} (0600)."
 echo
-echo "Publish this DNS TXT record, then set FICINA_SMTP_DKIM_* in .env:"
+echo "Publish this DNS TXT record, then set ALO_SMTP_DKIM_* in .env:"
 echo
 echo "  Host:  ${SELECTOR}._domainkey.${DOMAIN}"
 echo "  Type:  TXT"

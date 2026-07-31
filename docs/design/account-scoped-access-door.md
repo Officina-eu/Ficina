@@ -1,6 +1,6 @@
 # The account-scoped access door
 
-`ficina-store` makes **tenancy structural**: mail data is reachable only
+`alo-store` makes **tenancy structural**: mail data is reachable only
 through a `TenantStore`, obtained via `Store::for_tenant`, and every
 query bakes `tenant_id = $tenant`. This note extends the same discipline
 one level down — to the **account** (a JMAP account is a user) — so that

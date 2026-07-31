@@ -1,4 +1,4 @@
-# Design note — the Ficina web shell (product foundation)
+# Design note — the alo web shell (product foundation)
 
 Status: building · 2026-07 · ROADMAP Phase 2, "Web app shell" (first item)
 
@@ -17,8 +17,8 @@ and ADR 0008 (identity/OIDC) are the governing decisions; this note records
 - **Outputs:** the rendered workspace — left rail (logo, ＋New, module icons,
   ✦AI, avatar) plus the active module's panels.
 - **Who calls it:** end users in a browser (PWA later). It talks to two live
-  backends at the same origin: `ficina-identity` (OIDC, for login) and
-  `ficina-jmap` (JMAP, for mail data).
+  backends at the same origin: `alo-identity` (OIDC, for login) and
+  `alo-jmap` (JMAP, for mail data).
 
 ### Module plug-in seam
 
@@ -48,7 +48,7 @@ never copy-pasted.
 
 ## Login flow (first-party OIDC + PKCE)
 
-`ficina-identity` exposes `authorization_code` + **PKCE S256** and treats our
+`alo-identity` exposes `authorization_code` + **PKCE S256** and treats our
 web app as a **public client** (no secret). Its `/oauth/authorize` accepts the
 username/password/OTP as a POST form — i.e. **the web app renders the login
 form itself** (first-party pattern; the IdP has no its-own login page). Flow:
@@ -65,7 +65,7 @@ form itself** (first-party pattern; the IdP has no its-own login page). Flow:
    authorizes JMAP calls (`Authorization: Bearer`).
 
 Redirect URI: `https://<domain>/auth/callback` (a client-side route).
-Registered once with `identityctl register-client web "Ficina Web"
+Registered once with `identityctl register-client web "alo Web"
 https://<domain>/auth/callback`.
 
 **Token storage (v1, with a documented hardening path):** access token in
@@ -89,7 +89,7 @@ when built.
 ## Tenancy
 
 The client holds **no cross-tenant data by construction**: every JMAP request
-carries the user's bearer token, and `ficina-jmap` scopes every read/write to
+carries the user's bearer token, and `alo-jmap` scopes every read/write to
 that token's `(tenant, user)` at the store (the isolation is enforced and
 tested server-side — ADR 0008, the wrong-tenant suite). The shell only ever
 renders what the authenticated account's own JMAP responses return; there is

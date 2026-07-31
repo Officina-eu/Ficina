@@ -1,9 +1,9 @@
 # IMAP + POP3 compatibility shims (design note)
 
-`ficina-imap` is a compatibility surface, not a differentiator: JMAP is
-Ficina's native protocol (ADR 0001), and IMAP/POP3 exist so the thirty
+`alo-imap` is a compatibility surface, not a differentiator: JMAP is
+alo's native protocol (ADR 0001), and IMAP/POP3 exist so the thirty
 years of deployed clients — Thunderbird, Apple Mail, Outlook, mutt,
-phones over IMAP — can reach a Ficina mailbox unchanged. The crate speaks
+phones over IMAP — can reach a alo mailbox unchanged. The crate speaks
 **IMAP4rev2 (RFC 9051)** and **IMAP4rev1 (RFC 3501)** — most clients
 still negotiate rev1 — plus **IDLE (RFC 2177)**, **special-use (RFC
 6154)**, and **MOVE (RFC 6851)**, and a minimal **POP3 (RFC 1939)**. It
@@ -19,20 +19,20 @@ isolation guarantee is inherited from the store, not re-implemented here.
   the SMTP crate's submission gate.
 - **POP3:** implicit TLS on **995** only (no cleartext 110 — POP3 auth is
   USER/PASS in the clear, so we never offer it without TLS).
-- Ports/hostname/TLS cert are configured by env, mirroring `ficina-smtp`
-  (`FICINA_IMAP_*`, `FICINA_POP3_*`). Off unless an address is set.
+- Ports/hostname/TLS cert are configured by env, mirroring `alo-smtp`
+  (`ALO_IMAP_*`, `ALO_POP3_*`). Off unless an address is set.
 
-Transport reuse — **the shared-transport question.** `ficina-smtp`
+Transport reuse — **the shared-transport question.** `alo-smtp`
 already has a rustls acceptor builder (`tls.rs`) and a plain/TLS stream
 enum (`stream.rs`) for its STARTTLS swap. IMAP needs the same two pieces.
 
-- **Rejected — extract a `ficina-common` (or `ficina-net`) transport
+- **Rejected — extract a `alo-common` (or `alo-net`) transport
   crate now.** A shared crate earns its keep once ≥3 consumers and a
   stable seam exist; today it would mean a new crate, a shared error
   type both SMTP and IMAP must map, and a version to bump in lockstep —
   premature coupling for ~100 lines. Per CLAUDE.md's judgement clause and
   the milestone brief, **duplicated TLS/stream code beats a premature
-  common crate.** `ficina-imap` carries its own `tls.rs` and `stream.rs`
+  common crate.** `alo-imap` carries its own `tls.rs` and `stream.rs`
   (its own `ImapError::Tls`, no cross-crate dependency). The moment a
   third listener wants them (e.g. ManageSieve, or a DAV port), we extract
   the crate — with the duplication as three worked examples of exactly
@@ -56,7 +56,7 @@ are RFC-exact.
 `LOGIN`/`AUTHENTICATE` verify the interim argon2 credentials via a new
 `Store::verify_login(username, password) -> Option<(TenantId, UserId)>`
 (the same anti-enumeration burn as `issue_token`, minus token issuance —
-the identity swap stays the one seam ficina-identity replaces). The
+the identity swap stays the one seam alo-identity replaces). The
 resulting `(tenant, user)` yields an [`AccountStore`] via
 `Store::for_account`, and **every** subsequent command reaches data only
 through that handle. There is no code path in the crate that takes a
@@ -176,7 +176,7 @@ named here so their absence is a decision, not an oversight.
 
 ## POP3 (the approved cut seam)
 
-`ficina-pop3` (module, same crate): implicit TLS on 995, `USER`/`PASS`
+`alo-pop3` (module, same crate): implicit TLS on 995, `USER`/`PASS`
 → `verify_login`, then `STAT`/`LIST`/`RETR`/`DELE`/`RSET`/`NOOP`/`QUIT`/
 `UIDL`/`TOP`, **inbox only**. `UIDL` reuses the inbox UIDs (stable), so a
 POP3 client's "leave on server" bookkeeping is consistent with IMAP.

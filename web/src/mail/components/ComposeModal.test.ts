@@ -8,10 +8,10 @@ describe("replyAllRecipients", () => {
   it("puts the sender and all original To recipients in To, minus me", () => {
     const source = {
       from: [addr("steve@rebuild.com")],
-      to: [addr("me@ficina.dev"), addr("adam@gmail.com")],
+      to: [addr("me@alo.dev"), addr("adam@gmail.com")],
       cc: null,
     };
-    const { to, cc } = replyAllRecipients(source, "me@ficina.dev");
+    const { to, cc } = replyAllRecipients(source, "me@alo.dev");
     expect(to.map((a) => a.email)).toEqual(["steve@rebuild.com", "adam@gmail.com"]);
     expect(cc).toEqual([]);
   });
@@ -20,9 +20,9 @@ describe("replyAllRecipients", () => {
     const source = {
       from: [addr("steve@rebuild.com")],
       to: [addr("adam@gmail.com")],
-      cc: [addr("me@ficina.dev"), addr("adam@gmail.com"), addr("lena@rebuild.com")],
+      cc: [addr("me@alo.dev"), addr("adam@gmail.com"), addr("lena@rebuild.com")],
     };
-    const { to, cc } = replyAllRecipients(source, "me@ficina.dev");
+    const { to, cc } = replyAllRecipients(source, "me@alo.dev");
     expect(to.map((a) => a.email)).toEqual(["steve@rebuild.com", "adam@gmail.com"]);
     expect(cc.map((a) => a.email)).toEqual(["lena@rebuild.com"]);
   });
@@ -33,17 +33,17 @@ describe("replyAllRecipients", () => {
       to: [addr("steve@rebuild.com"), addr(""), addr("adam@gmail.com")],
       cc: null,
     };
-    const { to } = replyAllRecipients(source, "me@ficina.dev");
+    const { to } = replyAllRecipients(source, "me@alo.dev");
     expect(to.map((a) => a.email)).toEqual(["Steve@Rebuild.com", "adam@gmail.com"]);
   });
 
   it("excludes me even when I am the sender (reply to my own message)", () => {
     const source = {
-      from: [addr("me@ficina.dev")],
+      from: [addr("me@alo.dev")],
       to: [addr("adam@gmail.com")],
       cc: null,
     };
-    const { to } = replyAllRecipients(source, "me@ficina.dev");
+    const { to } = replyAllRecipients(source, "me@alo.dev");
     expect(to.map((a) => a.email)).toEqual(["adam@gmail.com"]);
   });
 });

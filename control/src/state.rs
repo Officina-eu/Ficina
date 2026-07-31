@@ -1,17 +1,17 @@
 //! Control-plane service state and platform-operator authentication.
 //!
 //! The operator is authenticated exactly like any user — the same opaque
-//! bearer token resolved by `ficina-identity` (ADR 0008) — and then gated on
+//! bearer token resolved by `alo-identity` (ADR 0008) — and then gated on
 //! the global `is_platform_admin` flag (ADR 0012). Crucially, holding an
 //! operator token grants the `/control/*` governance surface only; it is never
 //! a key into any tenant's mail, which stays behind the store's tenant door.
 
 use std::sync::Arc;
 
+use alo_identity::Identity;
+use alo_store::{Store, TenantId, UserId};
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
-use ficina_identity::Identity;
-use ficina_store::{Store, TenantId, UserId};
 
 use crate::error::Problem;
 

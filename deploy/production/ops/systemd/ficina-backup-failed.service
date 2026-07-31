@@ -1,6 +1,0 @@
-[Unit]
-Description=Alert that the Ficina backup failed
-
-[Service]
-Type=oneshot
-ExecStart=/opt/ficina/monitoring/send-alert.sh "[Ficina] BACKUP FAILED" "The nightly Ficina backup job failed. Run: journalctl -u ficina-backup.service -n50  on the server to see why. Until it succeeds, no new off-site-ready snapshot exists."

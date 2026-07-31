@@ -1,4 +1,4 @@
-# Ficina production ops layer (backups + monitoring)
+# alo production ops layer (backups + monitoring)
 
 These are the host-level operational pieces that sit **around** the Docker
 stack: encrypted backups and health-and-alerting monitoring. They are plain
@@ -16,37 +16,37 @@ procedure — is in [`docs/operations-runbook.md`](../../../docs/operations-runb
 | `backup.sh` | Nightly encrypted backup (DB + message blobs + TLS certs + config/DKIM) via restic. |
 | `monitor.py` | Health checks (services, disk, memory, cert expiry, backup freshness, failed-login bursts) that email an alert when something is wrong. De-duplicates so it won't spam. |
 | `send-alert.sh` | One-shot alert sender used by the backup-failure unit. |
-| `monitor.env.example` | Template for the monitor config. Copy to `/root/.config/ficina/monitor.env` (0600) and fill in real values. **Never commit the real file — it holds a password.** |
-| `systemd/ficina-backup.{service,timer}` | Runs `backup.sh` daily at 03:30 (catches up if the server was off). |
-| `systemd/ficina-backup-failed.service` | `OnFailure` hook that emails you if a backup fails. |
-| `systemd/ficina-monitor.{service,timer}` | Runs `monitor.py` every 10 minutes. |
+| `monitor.env.example` | Template for the monitor config. Copy to `/root/.config/alo/monitor.env` (0600) and fill in real values. **Never commit the real file — it holds a password.** |
+| `systemd/alo-backup.{service,timer}` | Runs `backup.sh` daily at 03:30 (catches up if the server was off). |
+| `systemd/alo-backup-failed.service` | `OnFailure` hook that emails you if a backup fails. |
+| `systemd/alo-monitor.{service,timer}` | Runs `monitor.py` every 10 minutes. |
 
 ## Install on the server (one time)
 
 ```sh
 # 1. scripts
-install -D -m700 backup.sh      /opt/ficina/backups/backup.sh
-install -D -m700 monitor.py     /opt/ficina/monitoring/monitor.py
-install -D -m700 send-alert.sh  /opt/ficina/monitoring/send-alert.sh
+install -D -m700 backup.sh      /opt/alo/backups/backup.sh
+install -D -m700 monitor.py     /opt/alo/monitoring/monitor.py
+install -D -m700 send-alert.sh  /opt/alo/monitoring/send-alert.sh
 
 # 2. config (fill in real values, keep 0600)
-install -D -m600 monitor.env.example /root/.config/ficina/monitor.env
-$EDITOR /root/.config/ficina/monitor.env
+install -D -m600 monitor.env.example /root/.config/alo/monitor.env
+$EDITOR /root/.config/alo/monitor.env
 
 # 3. restic repo + password (password: generate once, store OFF the server too)
-mkdir -p /opt/ficina/backups
-openssl rand -base64 24 > /root/.config/ficina/restic-password
-chmod 600 /root/.config/ficina/restic-password
-RESTIC_PASSWORD_FILE=/root/.config/ficina/restic-password \
-  restic -r /opt/ficina/backups/restic init
+mkdir -p /opt/alo/backups
+openssl rand -base64 24 > /root/.config/alo/restic-password
+chmod 600 /root/.config/alo/restic-password
+RESTIC_PASSWORD_FILE=/root/.config/alo/restic-password \
+  restic -r /opt/alo/backups/restic init
 
 # 4. systemd units
 cp systemd/*.service systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now ficina-backup.timer ficina-monitor.timer
+systemctl enable --now alo-backup.timer alo-monitor.timer
 
 # 5. prove alerting works — you should get an email
-python3 /opt/ficina/monitoring/monitor.py --test
+python3 /opt/alo/monitoring/monitor.py --test
 ```
 
 ## Not included here (needs an external account — see the runbook)

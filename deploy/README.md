@@ -1,7 +1,7 @@
 # deploy/ — the composed engine set
 
 Engines run as version-pinned, unmodified upstream containers behind
-Ficina's APIs (ADR 0003). The image tags in `docker-compose.yml` are
+alo's APIs (ADR 0003). The image tags in `docker-compose.yml` are
 the single source of truth for versions; `scripts/fetch-engines.sh`
 derives its source checkouts from them.
 
@@ -9,7 +9,7 @@ derives its source checkouts from them.
 
 ```
 cp .env.example .env        # then edit values
-docker compose up -d --wait postgres garage rspamd ficina-smtp
+docker compose up -d --wait postgres garage rspamd alo-smtp
 ```
 
 These four reach `healthy` with no further steps. Verify SMTP:
@@ -29,12 +29,12 @@ public tracker exists (nothing here is silently skipped):
   `docker compose run --rm synapse generate`
   Then `docker compose up -d synapse`. Real deployment (postgres
   backend instead of the generated sqlite default, one instance per
-  tenant, OIDC delegated to ficina-identity) is ROADMAP Phase 2
+  tenant, OIDC delegated to alo-identity) is ROADMAP Phase 2
   "Chat & Meet".
 - **LiveKit** — boots with the dev placeholder key in
-  `livekit/livekit.yaml`. Token minting from Ficina identities is
+  `livekit/livekit.yaml`. Token minting from alo identities is
   ROADMAP Phase 2 "Chat & Meet".
-- **Collabora** — boots standalone; it becomes useful when Ficina
+- **Collabora** — boots standalone; it becomes useful when alo
   Drive serves the WOPI endpoints it calls (ROADMAP Phase 2
   "Drive & Docs"). `COLLABORA_ALIASGROUP1` must then name Drive's
   public host.

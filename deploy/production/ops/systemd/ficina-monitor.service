@@ -1,8 +1,0 @@
-[Unit]
-Description=Ficina production monitor (health + alerting)
-After=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/python3 /opt/ficina/monitoring/monitor.py
-WorkingDirectory=/opt/ficina/deploy/production

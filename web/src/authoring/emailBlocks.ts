@@ -1,7 +1,7 @@
 // Email-safe renderings of math and code (ADR 0015). Outgoing mail can't rely on
 // our KaTeX/Prism CSS or fonts in the recipient's client, so:
 //   - equations are emitted as **MathML** (renders natively in browsers,
-//     including Ficina's reading-pane iframe; the LaTeX rides in `data-ficina-latex`
+//     including alo's reading-pane iframe; the LaTeX rides in `data-alo-latex`
 //     and the message's text/plain part, so non-MathML clients still get it);
 //   - code blocks are a **dark <pre> with fully inline styles** (Prism token
 //     colours baked in), which renders everywhere with no external CSS.
@@ -68,13 +68,13 @@ const PRE_STYLE =
 /** Email HTML for a code block: a self-contained dark, inline-styled `<pre>`. */
 export function codeEmailHtml(code: string, language: string): string {
   return (
-    `<pre data-ficina-lang="${escapeAttr(language)}" contenteditable="false" style="${PRE_STYLE}">` +
+    `<pre data-alo-lang="${escapeAttr(language)}" contenteditable="false" style="${PRE_STYLE}">` +
     `<code>${inlineHighlight(code, language)}</code></pre>`
   );
 }
 
 /** Email HTML for an equation: bare MathML (renders natively), with the LaTeX in
- * `data-ficina-latex` for the plain-text fallback. `display` centers it. */
+ * `data-alo-latex` for the plain-text fallback. `display` centers it. */
 export function equationEmailHtml(latex: string, display: boolean): string {
   const rendered = katex.renderToString(latex, {
     output: "mathml",
@@ -87,7 +87,7 @@ export function equationEmailHtml(latex: string, display: boolean): string {
   const mathml = rendered.match(/<math[\s\S]*?<\/math>/i)?.[0] ?? rendered;
   const attr = escapeAttr(latex);
   if (display) {
-    return `<div data-ficina-latex="${attr}" contenteditable="false" style="text-align:center;margin:12px 0">${mathml}</div>`;
+    return `<div data-alo-latex="${attr}" contenteditable="false" style="text-align:center;margin:12px 0">${mathml}</div>`;
   }
-  return `<span data-ficina-latex="${attr}" contenteditable="false">${mathml}</span>`;
+  return `<span data-alo-latex="${attr}" contenteditable="false">${mathml}</span>`;
 }

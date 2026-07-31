@@ -145,7 +145,7 @@ export function ReadingPane({
     };
   }, [client]);
 
-  // The Ficina conversation summary. Fetched when a long-enough thread opens and
+  // The alo conversation summary. Fetched when a long-enough thread opens and
   // AI is on; soft-degrades to nothing on any error (never blocks reading).
   const [summary, setSummary] = useState<SummaryState>({ status: "off" });
   useEffect(() => {
@@ -400,7 +400,7 @@ export function ReadingPane({
           <section className={styles.summary} aria-live="polite">
             <div className={styles.summaryHead}>
               <Sparkles size={14} className={styles.summaryIcon} />
-              <span>{strings.ficinaSummary}</span>
+              <span>{strings.aloSummary}</span>
             </div>
             {summary.status === "loading" ? (
               <p className={styles.summaryPending}>{strings.summaryPending}</p>

@@ -1,6 +1,6 @@
 # Message store (design note)
 
-`ficina-store` is where customer data comes to rest: mailboxes,
+`alo-store` is where customer data comes to rest: mailboxes,
 messages, flags, threads, and blob metadata on PostgreSQL, message
 bytes in Garage (S3). It is the load-bearing crate — tenancy becomes
 *structural* here, not conventional.

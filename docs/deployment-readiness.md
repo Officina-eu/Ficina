@@ -21,7 +21,7 @@ doing it to the same standard as the rest, not rushed.
 
 ## Goal 1 — Receive mail
 
-**What exists:** the SMTP receiver (`ficina-smtp`) is a real, running
+**What exists:** the SMTP receiver (`alo-smtp`) is a real, running
 service with a Docker image. It accepts internet mail, runs the full trust
 stack (SPF/DKIM/DMARC + spam scoring), and — when connected to the database
 — files the message into the right mailbox with the user's filters applied.
@@ -38,7 +38,7 @@ This part is genuinely done.
 ## Goal 2 — Send mail
 
 **What exists:** the submission service (authenticated send on ports
-587/465) and the outbound delivery queue both exist in `ficina-smtp`, with
+587/465) and the outbound delivery queue both exist in `alo-smtp`, with
 DKIM signing built in. Sending is wired; it's just switched **off by
 default** for safety.
 

@@ -1,13 +1,13 @@
 #!/bin/sh
 # certbot deploy hook: runs inside the certbot container after every
-# successful issuance/renewal. The Ficina services (SMTP/IMAP/Caddy) run as a
+# successful issuance/renewal. The alo services (SMTP/IMAP/Caddy) run as a
 # non-root user, so they cannot read certbot's default root-only cert store.
 # This grants the services' group (uid/gid 999 by default) read access —
 # WITHOUT making the private key world-readable: the live/archive directories
 # become group-traversable (0750) and the private key group-readable (0640),
 # owned root:<gid>, so only root and the service group can read it.
 set -e
-GID="${FICINA_GID:-999}"
+GID="${ALO_GID:-999}"
 for d in /etc/letsencrypt/live /etc/letsencrypt/archive; do
 	[ -d "$d" ] || continue
 	chgrp -R "$GID" "$d"

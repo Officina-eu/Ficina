@@ -13,7 +13,7 @@ cut seams, tracked in ROADMAP).
   IP, HELO, MAIL FROM, RCPT TOs). Consulted only on the MX role, after
   SPF/DKIM/DMARC, before the `250`.
 - **Transport:** an HTTP `POST /checkv2` to Rspamd's controller
-  (`FICINA_SMTP_RSPAMD_URL`, e.g. `http://127.0.0.1:11333`). The raw
+  (`ALO_SMTP_RSPAMD_URL`, e.g. `http://127.0.0.1:11333`). The raw
   message is the body; envelope fields ride as `IP`/`Helo`/`From`/
   `Rcpt`/`MTA-Name` request headers (Rspamd's documented metadata
   protocol). All attacker-controlled header values are CR/LF-stripped
@@ -43,7 +43,7 @@ store/admin concern for a later phase.)
 
 ### Rollout
 
-Off by default: with `FICINA_SMTP_RSPAMD_URL` unset there is no scanner
+Off by default: with `ALO_SMTP_RSPAMD_URL` unset there is no scanner
 and mail flows unscanned (dev/receive-only). Fail-closed applies only
 when a scanner *is* configured — configuring one and having it down must
 not silently disable filtering. Watch-metric: rate of 451/550 spam
@@ -59,13 +59,13 @@ module verdict), Rspamd's own DKIM/ARC signing, and bayes training UI.
 
 ### Surface
 
-- **Render** (in `ficina-auth-mail::mta_sts`): a validated
+- **Render** (in `alo-auth-mail::mta_sts`): a validated
   `MtaStsPolicy { mode, mx[], max_age, id }` produces the RFC 8461 §3.2
   policy text and the `_mta-sts` DNS TXT value (`v=STSv1; id=…`). The
   `id` is derived from the policy content by default, so it changes iff
   the policy changes (RFC 8461 §3.1 requires a new id on change).
-- **Serve** (in `ficina-smtp::mta_sts`): a minimal HTTP responder bound
-  to `FICINA_SMTP_MTA_STS_ADDR` answering `GET
+- **Serve** (in `alo-smtp::mta_sts`): a minimal HTTP responder bound
+  to `ALO_SMTP_MTA_STS_ADDR` answering `GET
   /.well-known/mta-sts.txt` with the rendered policy (200, `text/plain`),
   404 for any other path, 405 for non-GET. Plaintext behind the deploy
   TLS-terminating proxy — RFC 8461 requires HTTPS with a WebPKI-valid
@@ -79,7 +79,7 @@ Per-deployment, not per-tenant: the policy names this server's hostname
 
 ### Rollout
 
-Off by default (no `FICINA_SMTP_MTA_STS_ADDR` → not served). Enabling is
+Off by default (no `ALO_SMTP_MTA_STS_ADDR` → not served). Enabling is
 a config change plus publishing two DNS records (documented); disabling
 is unsetting the addr and dropping the `_mta-sts` TXT to `id` change.
 

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release workflow for Ficina. Use when cutting, tagging, shipping, or deploying a release, bumping versions, or writing release notes. Releases are boring by design — this checklist is what makes them boring.
+description: Release workflow for alo. Use when cutting, tagging, shipping, or deploying a release, bumping versions, or writing release notes. Releases are boring by design — this checklist is what makes them boring.
 ---
 
 # Cut a release

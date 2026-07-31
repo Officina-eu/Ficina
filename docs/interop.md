@@ -35,7 +35,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   or the spool sidecar. SMTPUTF8 (M3) will widen this to U-labels.
 - 2026-07-27 · **Outbound delivery off by default** · M1 accepts any recipient;
   turning on relaying before the AUTH gate (M3) would make an exposed instance
-  an open relay. Delivery requires `FICINA_SMTP_OUTBOUND_ENABLED=true`, and a
+  an open relay. Delivery requires `ALO_SMTP_OUTBOUND_ENABLED=true`, and a
   smarthost route is the supported self-hosted mode until MX+AUTH are complete.
 - 2026-07-27 · **Empty MAIL FROM on outbound = null path** · we send
   `MAIL FROM:<>` for DSNs and never generate a DSN for a message that itself
@@ -85,7 +85,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   sign/verify use ring (constant-time). DKIM public keys (SPKI) are unwrapped
   to PKCS#1 by a small bounded DER parser before ring verification.
 - 2026-07-27 · **Rspamd fail-closed at DATA (M4b)** · when a scanner is
-  configured (`FICINA_SMTP_RSPAMD_URL`) and is unreachable / times out / answers
+  configured (`ALO_SMTP_RSPAMD_URL`) and is unreachable / times out / answers
   unparseably, the message is deferred **451**, not accepted — a scanner outage
   must never silently disable filtering. `reject` → 550, `soft reject`/`greylist`
   → 451, else accept with an `x-spam` method in Authentication-Results. DMARC
@@ -98,8 +98,8 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   cannot inject extra HTTP headers into the scanner request.
 - 2026-07-27 · **MTA-STS served in plaintext behind the TLS proxy (M4b)** ·
   RFC 8461 §3.2 mandates HTTPS with a WebPKI-valid cert on `mta-sts.<domain>`;
-  `ficina-smtp` serves the policy over plaintext HTTP on
-  `FICINA_SMTP_MTA_STS_ADDR` and the deploy reverse proxy terminates TLS. The
+  `alo-smtp` serves the policy over plaintext HTTP on
+  `ALO_SMTP_MTA_STS_ADDR` and the deploy reverse proxy terminates TLS. The
   policy `id` is derived from the policy content, so it rotates automatically on
   any change. **DNS records to publish:** `_mta-sts.<domain> TXT "v=STSv1;
   id=<the id we render>"` and `mta-sts.<domain>` A/AAAA (or CNAME) pointing at
@@ -133,7 +133,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   From-domain (RFC 7489 §6.6.1).
 - 2026-07-27 · **JMAP mailbox thread counts approximate email counts** ·
   RFC 8621 §2 requires `totalThreads`/`unreadThreads`; the interim store does
-  not compute distinct thread counts per mailbox, so `ficina-jmap` reports them
+  not compute distinct thread counts per mailbox, so `alo-jmap` reports them
   equal to `totalEmails`/`unreadEmails`. Clients rely mainly on
   `unreadEmails`; exact thread counts are an additive refinement.
 - 2026-07-27 · **JMAP state tokens are one per-account modseq shared by types** ·
@@ -160,16 +160,16 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   sequentially rather than rejected as `invalidPatch` (documented, not fatal).
 - 2026-07-27 · **JMAP rate-limiting / concurrent-upload caps deferred to the
   gateway** · `/auth/token` throttling and `maxConcurrentUpload` enforcement
-  belong at the gateway/identity layer (ficina-identity); `maxObjectsInGet`,
+  belong at the gateway/identity layer (alo-identity); `maxObjectsInGet`,
   `maxSizeRequestObject` (per-route body limit), and pagination caps ARE
   enforced in-process now.
 - 2026-07-27 · **JMAP auth is interim bearer tokens (not OIDC yet)** ·
   `/auth/token` issues opaque bearer tokens against argon2 credentials in the
-  store; the token → `(tenant, account)` resolution is the seam ficina-identity
+  store; the token → `(tenant, account)` resolution is the seam alo-identity
   (OIDC) replaces later. No cookies, no OAuth flow yet (deliberate — see
   `docs/design/jmap-api.md`).
 - 2026-07-27 · **Store threading is references-only and forward-only** ·
-  `ficina-store` threads a message onto an *earlier* message it references
+  `alo-store` threads a message onto an *earlier* message it references
   (`In-Reply-To`/`References`); it does not merge on base subject alone
   (RFC 8621 §3 permits subject as a tiebreaker, but subject-only merging bleeds
   unrelated conversations, so we omit it). Consequence: a reply delivered
@@ -177,7 +177,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   is not retro-merged. Accepted trade-off; revisit if real mail shows
   meaningful out-of-order fragmentation.
 
-## IMAP / POP3 shims (ficina-imap)
+## IMAP / POP3 shims (alo-imap)
 
 - 2026-07-27 · **Real-client interop: Python imaplib 3.14 + raw openssl s_client** ·
   the IMAP shim was driven end-to-end by Python's `imaplib` (a real, widely-
@@ -262,7 +262,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   deduped to one blob by content-addressing) is strictly safer than losing
   mail (RFC 5321 §6.1). Per-recipient DSN is additive later.
 - 2026-07-28 · **Local delivery uses a durable filesystem blob backend** ·
-  message bytes are written to `FICINA_SMTP_BLOB_DIR` (default `./blobs`) via
+  message bytes are written to `ALO_SMTP_BLOB_DIR` (default `./blobs`) via
   the store's on-disk backend, so a delivered body survives a restart (the DB
   row is only the commit point after the blob is durable). Multi-node
   production swaps in Garage/S3 behind the store's `garage` feature.
@@ -273,7 +273,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   crash between deliver and spool-removal re-delivers a deduped duplicate on
   the next start, never a loss.
 
-## Sieve filtering (ficina-sieve)
+## Sieve filtering (alo-sieve)
 
 - 2026-07-27 · **Sieve runs at the store delivery entry; SMTP local delivery
   is M5** · the engine filters at `AccountStore::deliver_sieve` — the ingestion
@@ -310,7 +310,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   vacation-send budget and alias-aware self checks are recorded follow-ups (the
   vacation path is 1:1 with no amplification and its outbound is M5-deferred).
 
-## Identity / OIDC (ficina-identity)
+## Identity / OIDC (alo-identity)
 
 - 2026-07-28 · **`/oauth/authorize` is POST-only (credential submission), not
   a browser `GET`** · the first-party web app renders its own login page and
@@ -319,7 +319,7 @@ Client quirks and RFC deviations. Format per entry: date · client+version · qu
   back with the code. A third-party RP that does the classic browser `GET`
   redirect to `authorization_endpoint` gets `405` until a GET consent/login
   render lands (Phase-2 webmail). Recorded because discovery advertises the
-  endpoint and the "trust Ficina as your IdP" goal implies external RPs.
+  endpoint and the "trust alo as your IdP" goal implies external RPs.
 - 2026-07-28 · **ID tokens are signed EdDSA (Ed25519), never RS256** · the
   JWKS publishes `{"kty":"OKP","crv":"Ed25519","alg":"EdDSA"}` and discovery
   advertises `id_token_signing_alg_values_supported:["EdDSA"]`. An RP whose
@@ -352,7 +352,7 @@ decode encoded-words on display), so this is a *local display/index* gap, not a
 send bug — the outgoing header is correct (RFC 2047 is exactly how non-ASCII
 subjects must be encoded on the wire).
 
-Fixed: `ficina-store` now RFC 2047-decodes the `subject` and the `From`/`To`
+Fixed: `alo-store` now RFC 2047-decodes the `subject` and the `From`/`To`
 display names at ingestion (`rfc2047::decode`, applied in `message::parse`) —
 any charset via `encoding_rs`, `B`/`Q` encodings, with adjacent-encoded-word
 whitespace dropped (§6.2). The addr-spec inside `<…>` is never an encoded-word,

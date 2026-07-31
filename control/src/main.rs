@@ -1,15 +1,15 @@
-//! Binary entry point for the Ficina control plane: read config from the
+//! Binary entry point for the alo control plane: read config from the
 //! environment, wire the store + identity, serve `/control/*`. All logic lives
 //! in the library (new-component skill).
 //!
 //! Environment:
 //! - `DATABASE_URL` — the Postgres system of record (required),
-//! - `FICINA_BLOB_DIR` — the on-disk blob backend, shared with the other
+//! - `ALO_BLOB_DIR` — the on-disk blob backend, shared with the other
 //!   services (required; the store needs it, though the control plane serves
 //!   no blobs),
-//! - `FICINA_IDENTITY_ISSUER` — the OIDC issuer URL (required; the control
-//!   plane resolves operator tokens through `ficina-identity`),
-//! - `FICINA_CONTROL_ADDR` — the internal bind address (default
+//! - `ALO_IDENTITY_ISSUER` — the OIDC issuer URL (required; the control
+//!   plane resolves operator tokens through `alo-identity`),
+//! - `ALO_CONTROL_ADDR` — the internal bind address (default
 //!   `0.0.0.0:8090`; TLS is terminated by the front proxy).
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -17,9 +17,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use ficina_control::{control_state, serve};
-use ficina_identity::{Identity, IdentityConfig};
-use ficina_store::{BlobStore, Store};
+use alo_control::{control_state, serve};
+use alo_identity::{Identity, IdentityConfig};
+use alo_store::{BlobStore, Store};
 
 /// Per-object blob ceiling; matches the other services (the control plane
 /// never stores blobs, but the store constructor needs a ceiling).
@@ -32,7 +32,7 @@ async fn main() -> ExitCode {
     let addr = match bind_addr() {
         Ok(addr) => addr,
         Err(error) => {
-            eprintln!("ficina-control: {error}");
+            eprintln!("alo-control: {error}");
             return ExitCode::FAILURE;
         }
     };
@@ -42,7 +42,7 @@ async fn main() -> ExitCode {
         return match healthcheck(addr).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
-                eprintln!("ficina-control: {error}");
+                eprintln!("alo-control: {error}");
                 ExitCode::FAILURE
             }
         };
@@ -66,8 +66,8 @@ async fn main() -> ExitCode {
 
 async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
     let database_url = require_env("DATABASE_URL")?;
-    let blob_dir = PathBuf::from(require_env("FICINA_BLOB_DIR")?);
-    let issuer = require_env("FICINA_IDENTITY_ISSUER")?;
+    let blob_dir = PathBuf::from(require_env("ALO_BLOB_DIR")?);
+    let issuer = require_env("ALO_IDENTITY_ISSUER")?;
 
     let blobs = BlobStore::local(&blob_dir, BLOB_MAX_BYTES)
         .map_err(|e| format!("cannot open blob directory {}: {e}", blob_dir.display()))?;
@@ -84,7 +84,7 @@ async fn run(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| "could not initialise the credential authority")?;
 
     let state = control_state(store, identity);
-    tracing::info!(%addr, "ficina-control (multi-tenant control plane) starting");
+    tracing::info!(%addr, "alo-control (multi-tenant control plane) starting");
     serve(addr, state).await?;
     Ok(())
 }
@@ -102,9 +102,9 @@ async fn healthcheck(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn bind_addr() -> Result<SocketAddr, String> {
-    let raw = std::env::var("FICINA_CONTROL_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_owned());
+    let raw = std::env::var("ALO_CONTROL_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_owned());
     raw.parse()
-        .map_err(|e| format!("FICINA_CONTROL_ADDR: invalid socket address {raw:?}: {e}"))
+        .map_err(|e| format!("ALO_CONTROL_ADDR: invalid socket address {raw:?}: {e}"))
 }
 
 fn loopback(bind: SocketAddr) -> SocketAddr {

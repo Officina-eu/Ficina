@@ -118,7 +118,7 @@ function recipientLine(to: EmailAddress[] | null, me: string | undefined): strin
 /** True when inbound authentication passed strongly enough to vouch for the
  * sender: DMARC pass, or DKIM pass in the absence of a DMARC verdict. */
 function isVerified(email: EmailFull): boolean {
-  const auth = email["ficina:authentication"];
+  const auth = email["alo:authentication"];
   if (auth === undefined || auth === null) return false;
   if (auth.dmarc === "pass") return true;
   return auth.dkim === "pass" && (auth.dmarc === null || auth.dmarc === "none");

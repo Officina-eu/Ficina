@@ -1,42 +1,46 @@
-# Ficina
+# alo workplace
 
 **The sovereign, AI-native workspace for Europe.**
 
-Ficina is a complete replacement for Microsoft 365, built and hosted in
+> **History:** this project was formerly named **Ficina**. The umbrella brand is
+> **alo** (lowercase wordmark); the suite is **alo workplace**. See
+> [ADR 0016](docs/decisions/0016-rebrand-ficina-to-alo.md) for the rename.
+
+alo workplace is a complete replacement for Microsoft 365, built and hosted in
 Europe. It combines mail, calendar, chat, video meetings, file storage, and
 document editing into one product, unified by an AI assistant that runs on
 European infrastructure and sees across everything — mail, conversations,
 meetings, and files — inside a single tenant.
 
-> Everyone else built a cheaper Exchange. Ficina is the first workspace where
+> Everyone else built a cheaper Exchange. alo is the first workspace where
 > the mail thinks — open, European, and complete enough to cancel Microsoft.
 
 ## Two editions, one codebase
 
 | Edition | How it works |
 |---|---|
-| **Ficina Cloud** | Hosted by us on EU infrastructure. Change DNS, migrate, done. |
-| **Ficina Self-Hosted** | The same product on your own hardware or European VPS, for organizations that require full physical control. |
+| **alo Cloud** | Hosted by us on EU infrastructure. Change DNS, migrate, done. |
+| **alo Self-Hosted** | The same product on your own hardware or European VPS, for organizations that require full physical control. |
 
 ## The modules
 
 | Module | What it does |
 |---|---|
-| **Ficina Mail** | Full business email: mailboxes, aliases, shared mailboxes, distribution lists, server-side rules (Sieve), archiving, spam and phishing filtering. |
-| **Ficina Agenda** | Calendars, shared calendars, free/busy, invitations, room and resource booking, out-of-office. |
-| **Ficina Chat** | Channel-first messaging with real threads, reactions, powerful search, and guest access. History is queryable knowledge, not a paywalled archive. |
-| **Ficina Meet** | Video meetings integrated with Agenda and Chat. |
-| **Ficina Drive** | File storage and sharing with permissions, desktop sync, lossless Office-format files. |
-| **Ficina Docs** | Documents, spreadsheets, and presentations edited in the browser, in Microsoft formats. |
-| **Ficina AI** | The unifier: semantic search across all modules, inbox triage, thread and meeting summarization, drafted replies, attachment understanding, and an MCP server for your own AI agents. |
-| **Ficina Migrate** | The M365 exit suite: tenant audit, identity takeover, mail/calendar/file migration with permissions, dual delivery, rollback — complete enough that a 30-person company can cancel M365 the day after migrating. |
+| **alo Mail** | Full business email: mailboxes, aliases, shared mailboxes, distribution lists, server-side rules (Sieve), archiving, spam and phishing filtering. |
+| **alo Agenda** | Calendars, shared calendars, free/busy, invitations, room and resource booking, out-of-office. |
+| **alo Chat** | Channel-first messaging with real threads, reactions, powerful search, and guest access. History is queryable knowledge, not a paywalled archive. |
+| **alo Meet** | Video meetings integrated with Agenda and Chat. |
+| **alo Drive** | File storage and sharing with permissions, desktop sync, lossless Office-format files. |
+| **alo Docs** | Documents, spreadsheets, and presentations edited in the browser, in Microsoft formats. |
+| **alo AI** | The unifier: semantic search across all modules, inbox triage, thread and meeting summarization, drafted replies, attachment understanding, and an MCP server for your own AI agents. |
+| **alo Migrate** | The M365 exit suite: tenant audit, identity takeover, mail/calendar/file migration with permissions, dual delivery, rollback — complete enough that a 30-person company can cancel M365 the day after migrating. |
 | **Admin console** | Tenant management, users and groups, domains, deliverability autopilot, audit logging, GDPR exports, backups. |
 
 ## Why this exists
 
 Twenty-five years of Exchange alternatives failed the same ways: ideology
 instead of a better experience, broken Outlook and phones, hobbyist-grade
-administration, feature-parity chasing, and no sales channel. Ficina is built
+administration, feature-parity chasing, and no sales channel. alo is built
 against each failure:
 
 - **Better, not parity** — the server itself is intelligent; AI is the
@@ -64,7 +68,7 @@ forked. See [ARCHITECTURE.md](ARCHITECTURE.md).
 core/      Rust services: smtp, auth-mail, store, jmap, imap, dav, identity, ai
 web/       TypeScript web application: all modules, one design system
 control/   Multi-tenant control plane: provisioning, quotas, billing hooks
-migrate/   Ficina Migrate: the M365 exit suite (Graph API based)
+migrate/   alo Migrate: the M365 exit suite (Graph API based)
 deploy/    Container composition, pinned engine versions, infrastructure
 docs/      Product, protocol, and operations documentation
 ```

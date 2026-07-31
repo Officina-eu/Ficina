@@ -98,7 +98,7 @@
   white-space: nowrap;
 }
 
-/* Ficina AI conversation summary — a quiet card above the thread. Uses the
+/* alo AI conversation summary — a quiet card above the thread. Uses the
    accent-soft ground and a sparkle so it reads as machine-written, not a
    message. Only shown when AI is on and the thread is long enough to warrant it. */
 .summary {

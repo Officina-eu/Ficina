@@ -1,7 +1,7 @@
-# LiveKit configuration for the Ficina development/CI compose stack.
+# LiveKit configuration for the alo development/CI compose stack.
 # The key pair below is a development placeholder — production keys
 # are minted per deployment and injected via the control plane
-# (ROADMAP.md Phase 2, "LiveKit deployed; token minting from Ficina
+# (ROADMAP.md Phase 2, "LiveKit deployed; token minting from alo
 # identities").
 port: 7880
 rtc:
@@ -9,6 +9,6 @@ rtc:
   port_range_end: 50019
   use_external_ip: false
 keys:
-  ficina-dev-key: ficina-dev-secret-placeholder-not-for-production
+  alo-dev-key: alo-dev-secret-placeholder-not-for-production
 logging:
   level: info

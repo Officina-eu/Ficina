@@ -50,7 +50,7 @@ export function ControlConsole() {
           <p>{strings.controlDeniedBody}</p>
           <Link to="/mail" className={styles.deniedBtn}>
             <ArrowLeft size={16} />
-            <span>{strings.adminBackToFicina}</span>
+            <span>{strings.adminBackToalo}</span>
           </Link>
         </div>
       </div>
@@ -62,7 +62,7 @@ export function ControlConsole() {
       <aside className={styles.sidebar}>
         <Link to="/mail" className={styles.back}>
           <ArrowLeft size={16} />
-          <span>{strings.adminBackToFicina}</span>
+          <span>{strings.adminBackToalo}</span>
         </Link>
         <div className={styles.brand}>{strings.controlTitle}</div>
         <nav className={styles.sideNav}>

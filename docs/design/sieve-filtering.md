@@ -9,7 +9,7 @@ mail, amplify into a redirect storm, or reach another account).
 
 ## Shape — three parts, one direction
 
-- **`ficina-sieve` — the engine, pure and protocol-agnostic.** It compiles
+- **`alo-sieve` — the engine, pure and protocol-agnostic.** It compiles
   script text into an AST (enforcing `require` and hard parse limits) and
   evaluates a compiled script against a message, returning an **outcome**:
   an ordered list of [`Action`]s (keep / fileinto / discard / redirect /
@@ -97,7 +97,7 @@ per-correspondent (`:days`), which stops a flood at one victim but not one
 reply each to many spoofed-but-owner-addressed correspondents (1:1, no
 amplification, and the outbound path is M5-deferred, so this is bounded).
 And the self-redirect / vacation-self checks match only the account's
-primary address; they widen to cover aliases when ficina-identity lands
+primary address; they widen to cover aliases when alo-identity lands
 aliases. **M5 must-do:** the outbound bridge that turns
 `OutboundAction`'s `subject`/`from`/`address` into headers/envelope MUST
 CR/LF-validate them first (a script string may carry raw CR/LF) — no

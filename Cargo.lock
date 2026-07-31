@@ -18,6 +18,190 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "alo-ai"
+version = "0.0.1"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "alo-auth-mail"
+version = "0.0.1"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "hickory-resolver",
+ "jiff",
+ "psl",
+ "ring",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "alo-control"
+version = "0.0.1"
+dependencies = [
+ "alo-auth-mail",
+ "alo-identity",
+ "alo-store",
+ "axum",
+ "hickory-resolver",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "alo-identity"
+version = "0.0.1"
+dependencies = [
+ "alo-store",
+ "argon2",
+ "axum",
+ "base64",
+ "ed25519-dalek",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "alo-imap"
+version = "0.0.1"
+dependencies = [
+ "alo-identity",
+ "alo-store",
+ "base64",
+ "bytes",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "alo-jmap"
+version = "0.0.1"
+dependencies = [
+ "alo-ai",
+ "alo-auth-mail",
+ "alo-identity",
+ "alo-sieve",
+ "alo-smtp-client",
+ "alo-store",
+ "axum",
+ "base64",
+ "bytes",
+ "futures",
+ "hickory-resolver",
+ "mail-parser",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "alo-migrate"
+version = "0.0.1"
+
+[[package]]
+name = "alo-sieve"
+version = "0.0.1"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "alo-smtp"
+version = "0.0.1"
+dependencies = [
+ "alo-auth-mail",
+ "alo-identity",
+ "alo-sieve",
+ "alo-smtp-client",
+ "alo-store",
+ "base64",
+ "hickory-resolver",
+ "jiff",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
+name = "alo-smtp-client"
+version = "0.0.1"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "alo-store"
+version = "0.0.1"
+dependencies = [
+ "alo-auth-mail",
+ "alo-sieve",
+ "argon2",
+ "base64",
+ "bytes",
+ "encoding_rs",
+ "futures",
+ "object_store",
+ "ring",
+ "sha2",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -565,190 +749,6 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
-
-[[package]]
-name = "ficina-ai"
-version = "0.0.1"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "ficina-auth-mail"
-version = "0.0.1"
-dependencies = [
- "base64",
- "ed25519-dalek",
- "hickory-resolver",
- "jiff",
- "psl",
- "ring",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "ficina-control"
-version = "0.0.1"
-dependencies = [
- "axum",
- "ficina-auth-mail",
- "ficina-identity",
- "ficina-store",
- "hickory-resolver",
- "serde",
- "serde_json",
- "time",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "ficina-identity"
-version = "0.0.1"
-dependencies = [
- "argon2",
- "axum",
- "base64",
- "ed25519-dalek",
- "ficina-store",
- "ring",
- "serde",
- "serde_json",
- "sha2",
- "subtle",
- "thiserror",
- "time",
- "tokio",
- "tower",
- "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "ficina-imap"
-version = "0.0.1"
-dependencies = [
- "base64",
- "bytes",
- "ficina-identity",
- "ficina-store",
- "rcgen",
- "rustls",
- "rustls-pki-types",
- "sqlx",
- "thiserror",
- "time",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "ficina-jmap"
-version = "0.0.1"
-dependencies = [
- "axum",
- "base64",
- "bytes",
- "ficina-ai",
- "ficina-auth-mail",
- "ficina-identity",
- "ficina-sieve",
- "ficina-smtp-client",
- "ficina-store",
- "futures",
- "hickory-resolver",
- "mail-parser",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror",
- "time",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "ficina-migrate"
-version = "0.0.1"
-
-[[package]]
-name = "ficina-sieve"
-version = "0.0.1"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
-name = "ficina-smtp"
-version = "0.0.1"
-dependencies = [
- "base64",
- "ficina-auth-mail",
- "ficina-identity",
- "ficina-sieve",
- "ficina-smtp-client",
- "ficina-store",
- "hickory-resolver",
- "jiff",
- "rcgen",
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
- "zeroize",
-]
-
-[[package]]
-name = "ficina-smtp-client"
-version = "0.0.1"
-dependencies = [
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "ficina-store"
-version = "0.0.1"
-dependencies = [
- "argon2",
- "base64",
- "bytes",
- "encoding_rs",
- "ficina-auth-mail",
- "ficina-sieve",
- "futures",
- "object_store",
- "ring",
- "sha2",
- "sqlx",
- "thiserror",
- "time",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "find-msvc-tools"

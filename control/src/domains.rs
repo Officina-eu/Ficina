@@ -3,10 +3,10 @@
 //! the precondition the mail services enforce before a tenant may assign an
 //! address in it, closing the cross-tenant mail-capture path.
 
+use alo_store::{DomainRow, StoreError, TenantId};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, body::Bytes};
-use ficina_store::{DomainRow, StoreError, TenantId};
 use hickory_resolver::TokioResolver;
 use hickory_resolver::proto::rr::RData;
 use serde_json::{Value, json};
@@ -17,7 +17,7 @@ use crate::error::Problem;
 use crate::state::{ControlState, audit, authenticate_operator};
 
 /// The DNS label under a domain where the ownership token is published.
-const VERIFY_PREFIX: &str = "_ficina-verify";
+const VERIFY_PREFIX: &str = "_alo-verify";
 
 fn iso(dt: OffsetDateTime) -> String {
     dt.format(&Rfc3339).unwrap_or_default()
@@ -143,7 +143,7 @@ pub async fn verify_domain(
         state.store.active_dkim_material(&record.domain).await,
         Ok(None)
     ) {
-        if let Some(key) = ficina_auth_mail::dkim::keystore::generate_ed25519_key() {
+        if let Some(key) = alo_auth_mail::dkim::keystore::generate_ed25519_key() {
             if let Err(error) = state
                 .store
                 .install_active_dkim_key(

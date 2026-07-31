@@ -2,14 +2,14 @@
 
 Phase 1 milestone M4: email authentication (SPF, DKIM, DMARC, ARC),
 transport-security policy (MTA-STS, TLS-RPT), and spam scoring (Rspamd)
-for `ficina-smtp`. Delivered as a new crate `ficina-auth-mail` (the
+for `alo-smtp`. Delivered as a new crate `alo-auth-mail` (the
 component ARCHITECTURE.md designates for exactly this), which
-`ficina-smtp` calls at DATA time (inbound verdicts) and at submission
+`alo-smtp` calls at DATA time (inbound verdicts) and at submission
 (DKIM signing).
 
 ## Surface
 
-`ficina-auth-mail` exposes, per RFC:
+`alo-auth-mail` exposes, per RFC:
 
 - **SPF** (RFC 7208): `check_host(ip, helo, mail_from)` → result
   (`pass`/`fail`/`softfail`/`neutral`/`none`/`temperror`/`permerror`),
@@ -31,7 +31,7 @@ component ARCHITECTURE.md designates for exactly this), which
 - **Authentication-Results** (RFC 8601): the one builder that renders
   every verdict — see Contracts.
 
-`ficina-smtp` integration: at DATA (before `250`) it runs SPF (on the
+`alo-smtp` integration: at DATA (before `250`) it runs SPF (on the
 MAIL FROM domain + connecting IP), verifies DKIM signatures, evaluates
 DMARC, consults Rspamd, stamps `Received-SPF` and
 `Authentication-Results`, and applies disposition. On submission it
@@ -82,7 +82,7 @@ legacy tooling, but the authoritative machine-readable record is
   filtering. Deliverability of our own outbound is unaffected (this is
   inbound scoring).
 - **Integrating an existing auth library (e.g. mail-auth).** Rejected:
-  ARCHITECTURE.md designates `ficina-auth-mail` as built by us, and
+  ARCHITECTURE.md designates `alo-auth-mail` as built by us, and
   the trust stack's exact behavior (lookup-limit hardness, fail-closed
   policy, the Authentication-Results contract, key rotation) is
   policy we must own and evolve, not inherit. Crypto primitives

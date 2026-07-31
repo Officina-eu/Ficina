@@ -1,11 +1,11 @@
 ---
 name: implement
-description: End-to-end feature implementation workflow for Ficina, run with the discipline of a senior big-tech engineering team. Use for ANY production code change — new features, endpoints, protocol commands, handlers, modules, schema changes, or extending existing ones — even small ones, and even when the user just says "add X" or "make Y work". Enforces scope-gate, design review, contract review, test-first, full-depth delivery, staged rollout thinking, and a verifiable definition of done. Triggers on "implement", "add", "build", "create", "extend", "support", "handle", or any request that ends with Ficina code being written.
+description: End-to-end feature implementation workflow for alo, run with the discipline of a senior big-tech engineering team. Use for ANY production code change — new features, endpoints, protocol commands, handlers, modules, schema changes, or extending existing ones — even small ones, and even when the user just says "add X" or "make Y work". Enforces scope-gate, design review, contract review, test-first, full-depth delivery, staged rollout thinking, and a verifiable definition of done. Triggers on "implement", "add", "build", "create", "extend", "support", "handle", or any request that ends with alo code being written.
 ---
 
 # Implement like a senior team
 
-Ficina is built by a small team, so we import what makes elite
+alo is built by a small team, so we import what makes elite
 engineering organizations reliable — review culture, contracts,
 compatibility discipline, staged rollout, blameless verification —
 and drop what makes them slow. Every role below is real; on a small
@@ -72,7 +72,7 @@ code:
   depends on it. Tenants run this in production; there is no "just
   rerun it".
 - **User-facing strings** are externalized for i18n from day one —
-  Ficina is European; hardcoded English is a bug, not a default.
+  alo is European; hardcoded English is a bug, not a default.
 
 ## 3. Tests first — the QA engineer's chair
 

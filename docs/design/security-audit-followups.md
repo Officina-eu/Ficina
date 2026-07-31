@@ -13,7 +13,7 @@ not a code enforcement — so they are tracked here.
    `RCPT TO:` for any domain and spools it. With outbound enabled this
    would relay to arbitrary externals — a classic open relay. Fix
    applied in M3: an optional hosted-domains allowlist
-   (`FICINA_SMTP_LOCAL_DOMAINS`) on the MX `RCPT` path (550 for
+   (`ALO_SMTP_LOCAL_DOMAINS`) on the MX `RCPT` path (550 for
    non-local recipients when set), plus a loud startup refusal to
    enable outbound while the MX allowlist is empty — so the safety is
    enforced in code, not by the outbound-off default.
@@ -54,7 +54,7 @@ not a code enforcement — so they are tracked here.
   but explicitly did not require the split, recommending it "the first
   time this file is touched again." Tracked here so it is not lost.
 
-## ficina-identity audit (identity milestone)
+## alo-identity audit (identity milestone)
 
 The identity security audit + cold review returned **one blocker**
 (non-atomic refresh-token rotation defeating replay-chain revocation under
@@ -82,7 +82,7 @@ dogfood; must-close before broad multi-tenant / self-service exposure):**
   self-service signup, or be dropped. Follow-up.
 - **argon2 param-change enumeration window.** The unknown-user dummy hash
   uses the *configured* params while a real verify uses the *stored* PHC
-  params; if a deployment changes `FICINA_IDENTITY_ARGON2_*` after hashes
+  params; if a deployment changes `ALO_IDENTITY_ARGON2_*` after hashes
   exist, the two costs diverge until each account rehashes on next login —
   a transient, self-healing timing skew. A fixed decoy PHC captured at the
   stored baseline would close the window. Follow-up.
@@ -104,7 +104,7 @@ dogfood; must-close before broad multi-tenant / self-service exposure):**
   authenticated identity is still deferred (see item 2 above) — it needs
   the group/alias permission model this milestone ships the data for.
 
-## ficina-identity audit — second pass (deployment-readiness)
+## alo-identity audit — second pass (deployment-readiness)
 
 A fresh, independent security audit + cold review before considering
 internet exposure found gaps the first pass missed. **Fixed in this pass:**
@@ -176,20 +176,20 @@ these two remain as tracked follow-ups:
 - **Per-user / per-tenant send-rate quota.** The submission path caps recipients
   per message (100) but has no rate limit, so an authenticated user could drive
   sustained DKIM-signed outbound (spam / IP-reputation risk). Add a send-rate
-  quota (reuse the `ficina-identity` rate limiter or a store-backed counter)
-  before `submit` in `core/ficina-jmap/src/submission.rs`.
+  quota (reuse the `alo-identity` rate limiter or a store-backed counter)
+  before `submit` in `core/alo-jmap/src/submission.rs`.
 - **Internal submission listener network exposure.** The trusted no-auth
-  listener binds `0.0.0.0:2526` on the shared `ficina` docker network, so a CVE
+  listener binds `0.0.0.0:2526` on the shared `alo` docker network, so a CVE
   in any co-networked container (rspamd/caddy/postgres) could pivot to a relay.
   It is not internet-reachable (unpublished port) and send-as is enforced in
-  ficina-jmap, so this is defence-in-depth. Recommended fix: replace the TCP
-  channel with a **Unix domain socket** shared only between ficina-jmap and
-  ficina-smtp (eliminates the network surface); alternatively a dedicated
+  alo-jmap, so this is defence-in-depth. Recommended fix: replace the TCP
+  channel with a **Unix domain socket** shared only between alo-jmap and
+  alo-smtp (eliminates the network surface); alternatively a dedicated
   internal network + interface-bound listener.
 
-## Ficina Transfer (large-file share links) — v1 follow-ups
+## alo Transfer (large-file share links) — v1 follow-ups
 
-The share feature (`core/ficina-{store,jmap}/src/share.rs`) now **streams** both
+The share feature (`core/alo-{store,jmap}/src/share.rs`) now **streams** both
 upload and download and has **no size limit**; the sender chooses the expiry
 window. Two of the original v1 limitations are resolved by that redesign; the
 remainder are tracked here.
@@ -215,7 +215,7 @@ STILL OPEN:
   only its hash). Inherent to the WeTransfer-style capability-URL model; the
   download sends `Cache-Control: no-store`. If stronger secrecy is wanted, exclude
   `/share/*` from access logging or move the token out of the path.
-- **Per-IP rate limiting.** There is no rate-limit layer in ficina-jmap; the
+- **Per-IP rate limiting.** There is no rate-limit layer in alo-jmap; the
   public share download relies on the unguessable token alone. A gateway/per-IP
   limit is a general hardening item, not specific to this path — more relevant now
   that the size is unbounded (an attacker with a link can pull a large file

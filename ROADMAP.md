@@ -1,4 +1,4 @@
-# Ficina — ROADMAP.md
+# alo — ROADMAP.md
 
 Progress is marked, never dated: a phase advances when its exit gate is fully
 checked, however long that takes. Mark items [x] only when they meet the
@@ -21,7 +21,7 @@ Rules of this file:
 - [ ] Company/IP structure decided and set up
 - [ ] License model fixed: AGPL-3.0 core + commercial (per ADR 0002); open-core boundary written down
 - [ ] CLA text chosen and signing tool wired (before the repo is public, not after)
-- [ ] Name confirmed via EUIPO search (Ficina vs Atelier — Open Decisions closes)
+- [ ] Name confirmed via EUIPO search (alo vs Atelier — Open Decisions closes)
 - [ ] Trademark filed, classes 9 + 42
 - [ ] Domains registered (.eu, .com, .io) + GitHub/Forgejo org + social handles
 
@@ -36,7 +36,7 @@ Rules of this file:
 
 ### Exit gate — Phase 0 done when:
 
-- [ ] `ficina-smtp` (stub) accepts one message on the test domain, delivered through CI-built artifacts
+- [ ] `alo-smtp` (stub) accepts one message on the test domain, delivered through CI-built artifacts
 - [ ] A stranger could clone the repo and understand the project from CLAUDE.md + docs alone
 
 ## Phase 1 — Mail core
@@ -50,13 +50,13 @@ Rules of this file:
   - Local delivery now exists (see "Local delivery" below), so a mixed remote+local envelope's local recipients are filed directly; the remaining deferral is holding the *remote* recipients' bounce for a mixed envelope and i18n'ing the DSN prose
 - [x] Outbound delivery: MX resolution + delivery, per-pass connection reuse
   - Deferred (not launch-blocking): cross-pass connection pooling and per-destination concurrency caps — delivery is currently sequential per pass; hardened when volume warrants
-- [x] STARTTLS + AUTH; TLS enforced on submission (M3: STARTTLS/implicit-TLS via rustls, AUTH PLAIN/LOGIN over TLS on submission, truthful EHLO capabilities; credentials are a config-file dev bootstrap until ficina-identity in M9)
+- [x] STARTTLS + AUTH; TLS enforced on submission (M3: STARTTLS/implicit-TLS via rustls, AUTH PLAIN/LOGIN over TLS on submission, truthful EHLO capabilities; credentials are a config-file dev bootstrap until alo-identity in M9)
 - [x] Size limits enforced during read; timeouts per RFC 5321
-- [x] Local delivery: inbound SMTP files into the account store with Sieve at the boundary — recipients resolved via `Store::account_by_email` at RCPT (unknown local user → `550 5.1.1` at RCPT, not after DATA), each resolved recipient delivered through `AccountStore::deliver_sieve` (parse → spam score → Sieve → file), Sieve `redirect`/`vacation` enqueued through the M2 outbound queue with CR/LF-stripped headers, per-recipient try-then-commit with a conservative whole-message `4xx` on transient store faults (no mail loss), durable on-disk blobs (`BlobStore::local`, `FICINA_SMTP_BLOB_DIR`); the inbound spool is retired as the local sink and its all-local backlog migrated into the store once at startup. Design note `docs/design/local-delivery.md`; reviewed + security-audited
+- [x] Local delivery: inbound SMTP files into the account store with Sieve at the boundary — recipients resolved via `Store::account_by_email` at RCPT (unknown local user → `550 5.1.1` at RCPT, not after DATA), each resolved recipient delivered through `AccountStore::deliver_sieve` (parse → spam score → Sieve → file), Sieve `redirect`/`vacation` enqueued through the M2 outbound queue with CR/LF-stripped headers, per-recipient try-then-commit with a conservative whole-message `4xx` on transient store faults (no mail loss), durable on-disk blobs (`BlobStore::local`, `ALO_SMTP_BLOB_DIR`); the inbound spool is retired as the local sink and its all-local backlog migrated into the store once at startup. Design note `docs/design/local-delivery.md`; reviewed + security-audited
 
 ### Trust stack
 
-Built as the `ficina-auth-mail` crate, wired into `ficina-smtp` at DATA
+Built as the `alo-auth-mail` crate, wired into `alo-smtp` at DATA
 (inbound verdicts → `Received-SPF` + `Authentication-Results`, the
 RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 `ring` (constant-time), not the `rsa` crate (RUSTSEC-2023-0071).
@@ -73,23 +73,23 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Store & APIs
 
-- [x] `ficina-store`: mailboxes, messages, flags, threads, blobs on Postgres + Garage; full-text index (opaque JMAP ids, hierarchical mailboxes with transactional counters, References threading, content-addressed blobs per-tenant, parsed Authentication-Results stored queryable, Postgres `tsvector` FTS; sqlx compile-checked with an offline cache; ADR 0006)
+- [x] `alo-store`: mailboxes, messages, flags, threads, blobs on Postgres + Garage; full-text index (opaque JMAP ids, hierarchical mailboxes with transactional counters, References threading, content-addressed blobs per-tenant, parsed Authentication-Results stored queryable, Postgres `tsvector` FTS; sqlx compile-checked with an offline cache; ADR 0006)
   - Deferred: the Garage S3 *live-integration* test (backend is behind the `garage` feature and compiles; in-memory backend is tested). The one-way spool-migration seam is now built as the local-delivery startup pass (all-local spool entries migrate into the store before the queue runner starts); a general mixed inbound/outbound backlog migration remains out of scope
   - A durable on-disk blob backend (`BlobStore::local`, object-store's filesystem store) now backs single-node local delivery, so a delivered body survives a restart without requiring Garage/S3
 - [x] Every store operation tenant-scoped; wrong-tenant test suite in place and required by CI (tenancy by construction — a `TenantStore` is the only door and bakes the tenant predicate into every query; the isolation suite covers every public read/write path and CI runs it against real Postgres)
-- [x] JMAP: session, Mailbox/*, Email/get|query|set|changes, push (RFC 8620/8621) (`ficina-jmap`: Session with honest enforced limits, request batching + result references, interim bearer auth (argon2, trait-swappable for OIDC), Mailbox/Email/Thread get/set/query/changes with per-tenant modseq state tokens, blob upload/download, EventSource push; ADR-style design note; wrong-tenant suite extended to every method + blob + push, CI-gated)
+- [x] JMAP: session, Mailbox/*, Email/get|query|set|changes, push (RFC 8620/8621) (`alo-jmap`: Session with honest enforced limits, request batching + result references, interim bearer auth (argon2, trait-swappable for OIDC), Mailbox/Email/Thread get/set/query/changes with per-tenant modseq state tokens, blob upload/download, EventSource push; ADR-style design note; wrong-tenant suite extended to every method + blob + push, CI-gated)
   - Deferred (sanctioned cut seam): `EmailSubmission/set` (h) — sending a draft through the M2/M3 queue; recorded for the next pass. Also additive-later: full MIME `bodyStructure`/attachments in `Email/get`, JMAP-over-WebSocket (RFC 8887)
-- [x] IMAP shim: LOGIN/SELECT/FETCH/STORE/SEARCH/IDLE against the store (9051/3501 compat) (`ficina-imap`: implicit-TLS 993 + STARTTLS 143, LOGIN/AUTHENTICATE over TLS only with a failed-auth cap; full mailbox + message command set incl. UID variants, COPY/MOVE (6851), APPEND through the one ingestion path, special-use LIST (6154), and IDLE (2177) as account-scoped push; stable per-mailbox UIDs + UIDVALIDITY (migration 0006); byte-exact FETCH body sections + bounded-honest BODYSTRUCTURE; cross-tenant AND cross-account isolation suite over real TLS; reviewed + security-audited)
+- [x] IMAP shim: LOGIN/SELECT/FETCH/STORE/SEARCH/IDLE against the store (9051/3501 compat) (`alo-imap`: implicit-TLS 993 + STARTTLS 143, LOGIN/AUTHENTICATE over TLS only with a failed-auth cap; full mailbox + message command set incl. UID variants, COPY/MOVE (6851), APPEND through the one ingestion path, special-use LIST (6154), and IDLE (2177) as account-scoped push; stable per-mailbox UIDs + UIDVALIDITY (migration 0006); byte-exact FETCH body sections + bounded-honest BODYSTRUCTURE; cross-tenant AND cross-account isolation suite over real TLS; reviewed + security-audited)
   - Deferred (additive later, named in `docs/design/imap-pop3-shims.md`): CONDSTORE/QRESYNC, SORT/THREAD, ACL/QUOTA/METADATA/COMPRESS/BINARY, sub-second IDLE via LISTEN/NOTIFY; a Thunderbird desktop-GUI interop pass (imaplib + openssl transcript stand in for this milestone)
-- [x] POP3 shim (`ficina-imap::pop3`: implicit-TLS 995, USER/PASS via the same credential seam, STAT/LIST/RETR/DELE/RSET/NOOP/QUIT/UIDL/TOP, inbox-only, UIDL reusing the stable IMAP UIDs, deletion committed on QUIT)
-- [x] Sieve engine: base + vacation + subaddress; rules stored per user (`ficina-sieve`: RFC 5228 parser/AST/evaluator with `require` enforcement and hard parse limits + an instruction budget — all security controls; actions keep/fileinto/discard/redirect/stop with implicit keep and mail-never-lost on any failure; vacation (5230) with RFC 3834 guards + per-correspondent `:days` suppression, subaddress (5233), imap4flags (5232) mapped to store keywords. Wired at the store delivery entry `AccountStore::deliver_sieve` (after spam scoring, before filing), with per-account script storage, vacation suppression, and a per-account redirect rate budget — all account-scoped, isolation inherited. Rule management is JMAP for Sieve (RFC 9661, ADR 0007): `SieveScript/{get,set,validate}` compile-checked on set. Reviewed + security-audited.)
+- [x] POP3 shim (`alo-imap::pop3`: implicit-TLS 995, USER/PASS via the same credential seam, STAT/LIST/RETR/DELE/RSET/NOOP/QUIT/UIDL/TOP, inbox-only, UIDL reusing the stable IMAP UIDs, deletion committed on QUIT)
+- [x] Sieve engine: base + vacation + subaddress; rules stored per user (`alo-sieve`: RFC 5228 parser/AST/evaluator with `require` enforcement and hard parse limits + an instruction budget — all security controls; actions keep/fileinto/discard/redirect/stop with implicit keep and mail-never-lost on any failure; vacation (5230) with RFC 3834 guards + per-correspondent `:days` suppression, subaddress (5233), imap4flags (5232) mapped to store keywords. Wired at the store delivery entry `AccountStore::deliver_sieve` (after spam scoring, before filing), with per-account script storage, vacation suppression, and a per-account redirect rate budget — all account-scoped, isolation inherited. Rule management is JMAP for Sieve (RFC 9661, ADR 0007): `SieveScript/{get,set,validate}` compile-checked on set. Reviewed + security-audited.)
   - The SMTP → mailbox **local-delivery bridge** that turns swaks into a filed message is now built (see "Local delivery" under "Receiving & sending"): the seam (`Store::account_by_email` + `deliver_sieve`, returning redirect/vacation `OutboundAction`s) is exercised on the real inbound path, with Sieve outbound actions enqueued through the M2 queue. Also additive-later, per `docs/design/sieve-filtering.md`: ManageSieve, `body`/`regex`/`variables`/`relational`/`date`/`notify`/`include` extensions, a per-account vacation-send budget, and blob-based (vs inline) SieveScript content.
-- [x] `ficina-identity` v1: users, groups, aliases, argon2 credentials, OIDC provider, 2FA (TOTP) (`ficina-identity` is the credential authority behind SMTP AUTH, IMAP/POP3 `LOGIN`, and the JMAP bearer — the interim `StaticAuthenticator`, the store's `auth.rs`, and the SMTP credentials-file loader are **deleted**. **argon2id** password hashing with a documented parameter contract and a **constant-time** verify plus **dummy-hash** for unknown users, closing the pinned M3 timing oracle — proven by a timing test, `ratio≈1.0`. Every secret compared constant-time (`subtle`); tokens/recovery codes stored only as SHA-256 hashes. Identity model: tenants → users → aliases + groups; `account_by_email` is **alias-aware**; admin bootstrap is a CLI (`identityctl`), never a public endpoint. **OIDC/OAuth 2.0 provider**: discovery (RFC 8414), JWKS, `authorization_code` + **PKCE S256** (RFC 6749/7636), token + userinfo + revoke (RFC 7009); **opaque revocable access tokens**, rotated refresh tokens with replay-chain revocation, **EdDSA** ID tokens (ADR 0008). **TOTP 2FA** (RFC 6238) with drift window + single-use recovery codes; enforced everywhere — the OIDC flow prompts for the code, and the legacy protocols (which cannot) **fail closed** for a 2FA account, so a phished password cannot bypass 2FA over IMAP. Per-`(client,)username` backoff on the token endpoints **and** the legacy auth path. Reviewed + security-audited across **two independent passes**; cross-tenant AND cross-account isolation tested on every identity operation, plus OAuth negative-path coverage (wrong PKCE verifier, code/refresh replay → chain revoke, unregistered redirect). Design note `docs/design/identity.md`, ADR 0008)
+- [x] `alo-identity` v1: users, groups, aliases, argon2 credentials, OIDC provider, 2FA (TOTP) (`alo-identity` is the credential authority behind SMTP AUTH, IMAP/POP3 `LOGIN`, and the JMAP bearer — the interim `StaticAuthenticator`, the store's `auth.rs`, and the SMTP credentials-file loader are **deleted**. **argon2id** password hashing with a documented parameter contract and a **constant-time** verify plus **dummy-hash** for unknown users, closing the pinned M3 timing oracle — proven by a timing test, `ratio≈1.0`. Every secret compared constant-time (`subtle`); tokens/recovery codes stored only as SHA-256 hashes. Identity model: tenants → users → aliases + groups; `account_by_email` is **alias-aware**; admin bootstrap is a CLI (`identityctl`), never a public endpoint. **OIDC/OAuth 2.0 provider**: discovery (RFC 8414), JWKS, `authorization_code` + **PKCE S256** (RFC 6749/7636), token + userinfo + revoke (RFC 7009); **opaque revocable access tokens**, rotated refresh tokens with replay-chain revocation, **EdDSA** ID tokens (ADR 0008). **TOTP 2FA** (RFC 6238) with drift window + single-use recovery codes; enforced everywhere — the OIDC flow prompts for the code, and the legacy protocols (which cannot) **fail closed** for a 2FA account, so a phished password cannot bypass 2FA over IMAP. Per-`(client,)username` backoff on the token endpoints **and** the legacy auth path. Reviewed + security-audited across **two independent passes**; cross-tenant AND cross-account isolation tested on every identity operation, plus OAuth negative-path coverage (wrong PKCE verifier, code/refresh replay → chain revoke, unregistered redirect). Design note `docs/design/identity.md`, ADR 0008)
   - Sanctioned cut seam (named in the design note): app-specific passwords + `XOAUTH2` on submission (how a 2FA user drives a legacy IMAP/SMTP client — the interim is account-password-on-legacy, TOTP enforced on the browser flow). Also deferred: binding submission `MAIL FROM` to the authenticated identity (send-as), which needs the group/alias permission model this milestone ships the data for; confidential clients, dynamic client registration, device/client-credentials grants, WebAuthn/passkeys, and an admin HTTP console
 
 ### Exit gate — Phase 1 done when:
 
-- [ ] The founder's real daily mail runs on Ficina via Thunderbird + a raw JMAP client, for two continuous weeks, zero lost messages
+- [ ] The founder's real daily mail runs on alo via Thunderbird + a raw JMAP client, for two continuous weeks, zero lost messages
 - [ ] Interop pass recorded: Thunderbird, Apple Mail, Gmail-app-via-IMAP send/receive/flag/search correctly (transcripts in `docs/interop.md` where quirks surfaced)
 - [ ] Deliverability: our mail reaches Gmail/Outlook.com/Proton inboxes (not spam) from the warmed IP
 
@@ -97,7 +97,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Webmail & mail UX
 
-- [x] Web app shell: design system, auth flow, navigation — the one-product frame (React/Vite/TS app: "warm workshop" design tokens + self-hosted Inter/EB Garamond + shared primitives; the left rail + layout frame + a module registry that makes Agenda/Chat/Drive/Docs one entry each; first-party OIDC authorization-code + PKCE login against `ficina-identity` with 2FA-on-demand; a typed JMAP client with bearer + transparent refresh. Served at the same origin as the API behind Caddy (SPA + `/oauth`+`/jmap`+`/.well-known` proxied), strict CSP; login verified end-to-end on the live deployment. Design note `docs/design/web-shell.md`)
+- [x] Web app shell: design system, auth flow, navigation — the one-product frame (React/Vite/TS app: "warm workshop" design tokens + self-hosted Inter/EB Garamond + shared primitives; the left rail + layout frame + a module registry that makes Agenda/Chat/Drive/Docs one entry each; first-party OIDC authorization-code + PKCE login against `alo-identity` with 2FA-on-demand; a typed JMAP client with bearer + transparent refresh. Served at the same origin as the API behind Caddy (SPA + `/oauth`+`/jmap`+`/.well-known` proxied), strict CSP; login verified end-to-end on the live deployment. Design note `docs/design/web-shell.md`)
   - This item is the *frame*; the mail body below it is read-only so far (folders → message list → reading pane), with compose/reply and the rest as their own items
 - [ ] Mail: read/compose/reply, conversation view + flat toggle, folders/subfolders, drag-drop
 - [ ] Organization primitives: flags with due dates, categories/colors, archive keystroke, unread counts
@@ -109,25 +109,25 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Agenda
 
-- [ ] `ficina-dav`: CalDAV/CardDAV over the store
+- [ ] `alo-dav`: CalDAV/CardDAV over the store
 - [ ] Events, invitations (iTIP/iMIP), free/busy, recurring events with exceptions (the interop minefield — its own test corpus)
 - [ ] Shared calendars, room/resource booking
 - [ ] Agenda UI integrated with Mail (invite cards) and later Meet
 
 ### Chat & Meet
 
-- [ ] Synapse per tenant provisioned by control plane; OIDC delegated to `ficina-identity`
-- [ ] Ficina Chat UI: channels, DMs, threads, reactions, mentions, guest access — Matrix invisible
+- [ ] Synapse per tenant provisioned by control plane; OIDC delegated to `alo-identity`
+- [ ] alo Chat UI: channels, DMs, threads, reactions, mentions, guest access — Matrix invisible
 - [ ] Application service streaming events to the (future) AI bus
-- [ ] LiveKit deployed; token minting from Ficina identities; Meet UI on the components SDK
+- [ ] LiveKit deployed; token minting from alo identities; Meet UI on the components SDK
 - [ ] Meeting links native in Agenda; recording to Drive with consent indicators
 
 ### Drive & Docs
 
 - [ ] Drive: spaces, permissions, share links (password/expiry), trash/restore, version history
 - [ ] WOPI endpoints (CheckFileInfo/GetFile/PutFile) served by Drive
-- [ ] Collabora embedded, Ficina-themed; Docs/Sheets/Slides live per `features.md`
-- [ ] Technical authoring: browser-local math (KaTeX) + code (Prism) + Ficina auto-numbering/cross-references — standalone module first, docks into the Docs shell (ADR 0015)
+- [ ] Collabora embedded, alo-themed; Docs/Sheets/Slides live per `features.md`
+- [ ] Technical authoring: browser-local math (KaTeX) + code (Prism) + alo auto-numbering/cross-references — standalone module first, docks into the Docs shell (ADR 0015)
 - [ ] Fidelity CI: real-document corpus round-trips to desktop Office without mangling
 - [ ] Desktop sync client v1
 
@@ -137,7 +137,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [ ] Deliverability autopilot v1: DNS wizard, DKIM rotation, DMARC monitoring, blacklist alerts
 - [ ] Multi-tenant control plane: provisioning APIs for every engine, billing hooks
       — tenant lifecycle, domain ownership, quotas, and the operator surface
-      (`ficina-control`) landed (ADR 0012); per-engine provisioning + billing remain
+      (`alo-control`) landed (ADR 0012); per-engine provisioning + billing remain
 - [ ] Native distribution lists + shared mailboxes with delegation
 - [ ] Backups per DR targets; restore rehearsal scripted and passing
 - [ ] Audit log; GDPR export; tenant export (exit as a feature)
@@ -145,7 +145,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Exit gate — Phase 2 done when:
 
-- [ ] Axon company #1 fully cut over: every employee's mail, calendar, chat, meetings, files on Ficina
+- [ ] Axon company #1 fully cut over: every employee's mail, calendar, chat, meetings, files on alo
 - [ ] One non-technical Axon user, asked how many products they're using, answers "one"
 - [ ] A restore rehearsal recovered a full tenant within the RTO target
 
@@ -167,7 +167,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 ### Docs & Sheets AI (editor-native)
 
 Depends on the Collabora integration (Phase 2, "Drive & Docs") **and** the AI
-layer above — the editors are a Ficina-owned shell over Collabora (ADR 0010),
+layer above — the editors are a alo-owned shell over Collabora (ADR 0010),
 so these ship after the core suite, never in Phase 1. UX source of truth:
 Figma pages "10 · Docs" and "11 · Sheets". Trust model throughout: **the AI
 proposes and diffs; the user accepts** — never a silent overwrite of a
@@ -191,10 +191,10 @@ document or a formula.
 ## Phase 4 — Migration suite
 
 - [ ] Tenant audit tool: Graph API scan → usage report, blocker flags (macros, Power Automate), readiness score, savings figure
-- [ ] Identity import from Entra ID; Ficina as IdP for the customer's other SaaS
+- [ ] Identity import from Entra ID; alo as IdP for the customer's other SaaS
 - [ ] Mailbox import: mail, folders, rules, signatures, OOF, aliases; PST import
 - [ ] Shared mailboxes + delegation permissions mapped
-- [ ] Calendar import: recurrences with exceptions, rooms/resources; Teams links in future events rewritten to Ficina Meet
+- [ ] Calendar import: recurrences with exceptions, rooms/resources; Teams links in future events rewritten to alo Meet
 - [ ] Contacts import
 - [ ] OneDrive/SharePoint import with permission mapping + unmappable-items report
 - [ ] Autodiscover/autoconfig endpoints: clients self-configure from an email address
@@ -203,7 +203,7 @@ document or a formula.
 
 ### Exit gate — Phase 4 done when:
 
-- [ ] A non-Axon pilot company is migrated in one weekend by their own IT person — Ficina staff observing, not driving
+- [ ] A non-Axon pilot company is migrated in one weekend by their own IT person — alo staff observing, not driving
 - [ ] The pilot cancels (or formally schedules cancellation of) their M365 subscription
 
 ## Phase 5 — Launch
@@ -230,12 +230,12 @@ document or a formula.
 - [ ] Offline-first local cache (design review first, per ADR 0005)
 - [ ] Mobile apps
 - [ ] MAPI-over-HTTP adapter: native Outlook — the last wall
-- [ ] Remote support / screen control (AnyDesk/TeamViewer-class — the EU IT-management play: one sovereign suite instead of a bolted-on remote tool). **Integrate** a self-hostable engine (RustDesk primary candidate); never build the capture/stream/input-injection engine ourselves — the highest-CVE-density surface in the product (ADR 0009). Ficina owns the UI/UX, session brokering, auth, consent, and audit logging. Launches from **Chat** (primary: the 1:1 DM header + person-profile quick-actions, beside Meet/Call/Email — where "help me" conversations live) and **Meet** (secondary: an in-call control-bar button for take-over-while-talking); a dedicated Remote/Support **rail tab is deferred** until the feature needs its own session management, history, and audit views. Requirements: native per-device agent (browsers cannot grant OS-level control — a hard boundary), E2E-encrypted session, **explicit per-session consent before any input**, an audit-log entry in the controlled user's security log, instant termination by either party, and a self-hosted relay (no third-party cloud). Screen *share* (read-only) is already in Meet; this is remote *control*, correctly sequenced post-launch. UX source of truth: the Figma design (request access / consent prompt / active-control banner with stop-sharing)
+- [ ] Remote support / screen control (AnyDesk/TeamViewer-class — the EU IT-management play: one sovereign suite instead of a bolted-on remote tool). **Integrate** a self-hostable engine (RustDesk primary candidate); never build the capture/stream/input-injection engine ourselves — the highest-CVE-density surface in the product (ADR 0009). alo owns the UI/UX, session brokering, auth, consent, and audit logging. Launches from **Chat** (primary: the 1:1 DM header + person-profile quick-actions, beside Meet/Call/Email — where "help me" conversations live) and **Meet** (secondary: an in-call control-bar button for take-over-while-talking); a dedicated Remote/Support **rail tab is deferred** until the feature needs its own session management, history, and audit views. Requirements: native per-device agent (browsers cannot grant OS-level control — a hard boundary), E2E-encrypted session, **explicit per-session consent before any input**, an audit-log entry in the controlled user's security log, instant termination by either party, and a self-hosted relay (no third-party cloud). Screen *share* (read-only) is already in Meet; this is remote *control*, correctly sequenced post-launch. UX source of truth: the Figma design (request access / consent prompt / active-control banner with stop-sharing)
 - [ ] Second developer hired and shipping independently (bus factor > 1 proven by a release the founder didn't cut)
 
 ### Exit gate — Phase 6 done when:
 
-- [ ] An Outlook desktop user works a full week against Ficina without knowing Exchange is gone
+- [ ] An Outlook desktop user works a full week against alo without knowing Exchange is gone
 
 ---
 

@@ -1,4 +1,4 @@
-# Caddy fronts the HTTPS origin for Ficina. It does NOT obtain certificates
+# Caddy fronts the HTTPS origin for alo. It does NOT obtain certificates
 # here — the dedicated `certbot` service obtains and renews one Let's Encrypt
 # certificate into the shared `certs` volume, and every service (Caddy, SMTP,
 # IMAP) reads it from the same stable path /certs/live/<domain>/. Caddy just
@@ -10,7 +10,7 @@
 	auto_https off
 }
 
-# The one origin: the Ficina web app (SPA) plus the JMAP API + OIDC provider it
+# The one origin: the alo web app (SPA) plus the JMAP API + OIDC provider it
 # talks to. The app and its backend share an origin, so there is no CORS and
 # the login redirect stays first-party.
 https://{$DOMAIN} {
@@ -23,7 +23,7 @@ https://{$DOMAIN} {
 	# route (falls through to the SPA).
 	@backend path /jmap/* /ai/* /admin/* /settings/* /docs /docs/* /snooze /send-later /send-later/* /contacts /filters /filters/* /share/* /oauth/* /.well-known/* /auth/token
 	handle @backend {
-		reverse_proxy ficina-jmap:8080
+		reverse_proxy alo-jmap:8080
 	}
 
 	# The multi-tenant control plane (ADR 0012): the platform-operator surface,
@@ -31,7 +31,7 @@ https://{$DOMAIN} {
 	# a future hardening restricts this path to an ops network.
 	@control path /control/*
 	handle @control {
-		reverse_proxy ficina-control:8090
+		reverse_proxy alo-control:8090
 	}
 
 	# The web app: static files with client-side-routing fallback to index.html.
@@ -57,5 +57,5 @@ https://{$DOMAIN} {
 # certificate (issued with both names as SANs — see init-certs.sh).
 https://mta-sts.{$DOMAIN} {
 	tls /certs/live/{$DOMAIN}/fullchain.pem /certs/live/{$DOMAIN}/privkey.pem
-	reverse_proxy ficina-smtp:8461
+	reverse_proxy alo-smtp:8461
 }

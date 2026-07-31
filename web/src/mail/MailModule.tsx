@@ -26,8 +26,8 @@ export function MailModule() {
   const mailboxes = useMailboxes();
 
   // Resizable panels (drag the dividers; persisted across sessions).
-  const folders = usePanelWidth("ficina.mail.foldersWidth", 232, 176, 420);
-  const list = usePanelWidth("ficina.mail.listWidth", 372, 300, 640);
+  const folders = usePanelWidth("alo.mail.foldersWidth", 232, 176, 420);
+  const list = usePanelWidth("alo.mail.listWidth", 372, 300, 640);
 
   const [mailboxId, setMailboxId] = useState<string | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -42,7 +42,7 @@ export function MailModule() {
   });
   const [foldersCollapsed, setFoldersCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem("ficina.mail.foldersCollapsed") === "1";
+      return localStorage.getItem("alo.mail.foldersCollapsed") === "1";
     } catch {
       return false;
     }
@@ -52,7 +52,7 @@ export function MailModule() {
     setFoldersCollapsed((collapsed) => {
       const next = !collapsed;
       try {
-        localStorage.setItem("ficina.mail.foldersCollapsed", next ? "1" : "0");
+        localStorage.setItem("alo.mail.foldersCollapsed", next ? "1" : "0");
       } catch {
         // ignore — collapse state simply won't persist
       }

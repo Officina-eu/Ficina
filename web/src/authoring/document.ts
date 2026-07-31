@@ -1,4 +1,4 @@
-// The Ficina Docs document model (ADR 0015): a document is an ordered list of
+// The alo Docs document model (ADR 0015): a document is an ordered list of
 // blocks. Equations, tables, and headings (sections) are referenceable — the
 // numbering engine assigns their numbers from block order, and cross-references
 // stored in paragraph text resolve to the current number. This model is what the

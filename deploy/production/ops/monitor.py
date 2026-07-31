@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ficina production monitor.
+"""alo production monitor.
 
 Runs on a timer. Checks the health of the whole stack and emails an alert
 (via the server's own authenticated submission, so no third-party account)
@@ -21,13 +21,13 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 
-STATE_DIR = Path("/var/lib/ficina-monitor")
+STATE_DIR = Path("/var/lib/alo-monitor")
 STATE_FILE = STATE_DIR / "state.json"
-COMPOSE_DIR = "/opt/ficina/deploy/production"
+COMPOSE_DIR = "/opt/alo/deploy/production"
 RE_ALERT_HOURS = 6
 
 
-def load_env(path="/root/.config/ficina/monitor.env"):
+def load_env(path="/root/.config/alo/monitor.env"):
     env = {}
     with open(path) as fh:
         for line in fh:
@@ -144,10 +144,10 @@ def check_backup():
     problems = []
     max_hours = int(ENV.get("BACKUP_MAX_HOURS", "26"))
     env = dict(os.environ)
-    env["RESTIC_REPOSITORY"] = "/opt/ficina/backups/restic"
-    env["RESTIC_PASSWORD_FILE"] = "/root/.config/ficina/restic-password"
+    env["RESTIC_REPOSITORY"] = "/opt/alo/backups/restic"
+    env["RESTIC_PASSWORD_FILE"] = "/root/.config/alo/restic-password"
     p = subprocess.run(
-        ["restic", "snapshots", "--json", "--latest", "1", "--tag", "ficina"],
+        ["restic", "snapshots", "--json", "--latest", "1", "--tag", "alo"],
         capture_output=True, text=True, env=env, timeout=60,
     )
     if p.returncode != 0:
@@ -173,7 +173,7 @@ def check_failed_logins():
     patterns = ("authentication failed", "AUTHENTICATIONFAILED",
                 "auth failed", "invalid credentials", "login failed")
     total = 0
-    for svc in ("ficina-smtp", "ficina-imap", "ficina-jmap"):
+    for svc in ("alo-smtp", "alo-imap", "alo-jmap"):
         rc, out, err = run(
             ["docker", "compose", "logs", "--since", f"{window}m", "--no-log-prefix", svc],
             timeout=30,
@@ -236,8 +236,8 @@ def main():
     force_test = "--test" in sys.argv
     if force_test:
         send_email(
-            "[Ficina] test alert — monitoring is working",
-            "This is a harmless test alert from your Ficina server monitor.\n\n"
+            "[alo] test alert — monitoring is working",
+            "This is a harmless test alert from your alo server monitor.\n\n"
             "If you are reading this in your inbox, alerting works: you will be\n"
             "emailed here if a service goes down, the disk fills up, the TLS\n"
             "certificate is about to expire, a backup is missed, or there is a\n"
@@ -279,7 +279,7 @@ def main():
     if to_send or recovered:
         lines = []
         if to_send:
-            lines.append("PROBLEMS DETECTED on your Ficina server:\n")
+            lines.append("PROBLEMS DETECTED on your alo server:\n")
             for tag, msg in to_send:
                 lines.append(f"  [{tag}] {msg}")
         if recovered:
@@ -289,8 +289,8 @@ def main():
         lines.append(f"\nChecked {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC} on {ENV.get('ALERT_HOST')}.")
         n = len(to_send)
         subject = (
-            f"[Ficina] {n} problem{'s' if n != 1 else ''} detected"
-            if to_send else "[Ficina] server recovered"
+            f"[alo] {n} problem{'s' if n != 1 else ''} detected"
+            if to_send else "[alo] server recovered"
         )
         try:
             send_email(subject, "\n".join(lines))

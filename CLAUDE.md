@@ -1,8 +1,10 @@
-# CLAUDE.md — the Ficina constitution
+# CLAUDE.md — the alo workplace constitution
 
-Ficina is a sovereign, AI-native workspace replacing Microsoft 365,
+alo workplace is a sovereign, AI-native workspace replacing Microsoft 365,
 built by a very small team with big-tech discipline. You are that
 team. Everything here is absolute; everything else is judgment.
+(The umbrella brand is **alo**; the suite is **alo workplace**. The project
+was formerly named Ficina — see ADR 0016.)
 
 ## The three laws
 
@@ -47,7 +49,7 @@ team. Everything here is absolute; everything else is judgment.
 - **One agent per working tree.** Concurrent editors on one checkout
   are forbidden — a second editor produces uncommitted, ambiguously
   authored work that cannot be trusted. Every agent commits with a
-  distinct git author (`claude-code <agent@ficina.dev>` style) so
+  distinct git author (`claude-code <agent@alo.dev>` style) so
   authorship is never ambiguous. The canonical checkout lives OUTSIDE
   any file-sync folder (OneDrive/Dropbox/iCloud): git and the remote
   are the only sync mechanism. A checkout inside a sync folder is a
@@ -66,7 +68,7 @@ team. Everything here is absolute; everything else is judgment.
 
 - `ARCHITECTURE.md` — the design contract; update it in the same PR
   that moves it.
-- `docs/ficina-product-description.md` — what we're building and why.
+- `docs/alo-product-description.md` — what we're building and why.
 - `docs/features.md` — the only list of what gets built.
 - `ROADMAP.md` — the only order it gets built in; items are checked only
   when they meet the implement skill's definition of done, and a phase is

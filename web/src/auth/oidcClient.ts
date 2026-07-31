@@ -1,4 +1,4 @@
-// The OIDC/OAuth client for the first-party web app. `ficina-identity` treats
+// The OIDC/OAuth client for the first-party web app. `alo-identity` treats
 // this app as a PUBLIC client (no secret) and requires PKCE S256. Unusually
 // for OIDC, its /oauth/authorize accepts the credentials as a POST form (the
 // IdP renders no login page of its own), so THIS app owns the login UI and

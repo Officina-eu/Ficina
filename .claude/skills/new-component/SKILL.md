@@ -1,6 +1,6 @@
 ---
 name: new-component
-description: Scaffold a new Rust crate or TypeScript module in the Ficina monorepo with the standard structure, so one-file-one-responsibility holds from the first commit. Use when creating a new crate, service, module, or web feature area.
+description: Scaffold a new Rust crate or TypeScript module in the alo monorepo with the standard structure, so one-file-one-responsibility holds from the first commit. Use when creating a new crate, service, module, or web feature area.
 ---
 
 # New component scaffold
@@ -18,7 +18,7 @@ new component starts with responsibilities mapped to files *before* code.
 ## 2. Rust crate (in `core/`, `control/`, or `migrate/`)
 
 ```
-core/ficina-<name>/
+core/alo-<name>/
 ├── Cargo.toml          # workspace-inherited version/edition/lints
 ├── src/
 │   ├── lib.rs          # public API surface ONLY: re-exports + crate docs

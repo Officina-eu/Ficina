@@ -6,7 +6,7 @@ contracts.
 
 ## Unreleased
 
-- New: **Ficina Transfer — large files as links.** A file too big to attach
+- New: **alo Transfer — large files as links.** A file too big to attach
   (over 25 MB) uploads once and rides the message as a private, expiring download
   link instead of an inline attachment, so it sidesteps recipient
   attachment-size limits. **No size limit** — the file is streamed straight to
@@ -62,11 +62,11 @@ contracts.
 - New: **Math & code in emails.** The compose toolbar can insert an **equation**
   (the LaTeX editor with a live preview) and a **code block** (dark, with a
   language picker). Equations are sent as **MathML** and code as a
-  self-contained **inline-styled block**, so they render in Ficina's reading
+  self-contained **inline-styled block**, so they render in alo's reading
   pane and other modern clients; the message's plain-text part carries the raw
   LaTeX and fenced code as the universal fallback. KaTeX/Prism are code-split —
   loaded only when a user inserts one, never on the normal mail path (ADR 0015).
-- New: **Ficina Docs — real documents.** Technical authoring is now a working
+- New: **alo Docs — real documents.** Technical authoring is now a working
   editor, not a demo: each user creates, opens, renames, and deletes their own
   **documents** (tenant- and owner-scoped store; a document is reachable only by
   its owner — isolation is tested). The editor is **block-based** — add, reorder,
@@ -74,7 +74,7 @@ contracts.
   numbered display equations, dark syntax-highlighted code blocks, and editable
   tables — and **autosaves** as you type. New API: `GET/POST /docs`,
   `GET/PUT/DELETE /docs/{id}` (migration 0020, `documents`). Reached via Drive.
-- New: **Technical authoring in Ficina Docs.** Write specs with math and code,
+- New: **Technical authoring in alo Docs.** Write specs with math and code,
   all rendered **in the browser** (no draft equation or line of code leaves the
   client): an **equation editor** with a LaTeX input, a live **KaTeX** preview, a
   LaTeX/Visual toggle, a common-symbol quick bar, and inline vs numbered display
@@ -83,9 +83,9 @@ contracts.
   with auto-numbering** — equations, tables, figures, and sections number
   themselves and reference chips ("Eq. 3", "Table 1", "Section 2.3") stay correct
   when items are reordered or inserted, with an insert-cross-reference picker
-  (tabs). Ships as a standalone Ficina Docs surface (reached via Drive) that will
+  (tabs). Ships as a standalone alo Docs surface (reached via Drive) that will
   dock into the Collabora Docs shell when that lands. KaTeX + Prism are MIT; the
-  numbering/reference layer is Ficina's own (ADR 0015). The libraries are
+  numbering/reference layer is alo's own (ADR 0015). The libraries are
   code-split, so the mail app never loads them.
 - New: **Cc and Bcc.** Compose sends to Cc and Bcc recipients; the reading pane
   shows the full To / Cc / Bcc of each message. Bcc is written into the sender's
@@ -94,7 +94,7 @@ contracts.
   Bcc addresses are still delivered via the envelope. A received message's Bcc is
   always empty, and Cc (never Bcc) joins the searchable text.
 - New: **AI conversation summary.** Opening a conversation can produce a short
-  Ficina-written summary through the tenant's configured model
+  alo-written summary through the tenant's configured model
   (`POST /ai/summarize`), degrading quietly when AI is off.
 - New: **Verified sender badge.** A message whose inbound authentication passed
   (DMARC, or DKIM in DMARC's absence) shows a "Verified" pill in the reading pane.
@@ -124,11 +124,11 @@ contracts.
   Domains page shows the DKIM record to publish and offers **Rotate** (selector
   rollover — the old record stays valid until removed). The secret key never
   leaves the server or a client response. The existing single deployment key
-  (`FICINA_SMTP_DKIM_*`) is unchanged and remains the fallback, so single-tenant
+  (`ALO_SMTP_DKIM_*`) is unchanged and remains the fallback, so single-tenant
   deployments sign exactly as before. New route: `/admin/domains/dkim/rotate`;
   the `/admin/domains` listing gains a `dkim` record per domain. RSA keys are
   not generated in-process (Ed25519 only; operators needing RSA supply it via
-  the file key). Groundwork for no-touch rotation once Ficina serves
+  the file key). Groundwork for no-touch rotation once alo serves
   authoritative DNS (ADR 0013, deferred).
 - New: **Admin console completed + storage quotas + audit log.** The tenant
   Admin console now opens on an **Overview** dashboard (users, storage,
@@ -139,48 +139,48 @@ contracts.
   (operator-set; `NULL` = unlimited, the default) are enforced at the
   blob-write choke points: over-quota JMAP upload → **507**, `set` → `overQuota`,
   and inbound mail is deferred with a transient **452**. New operator env
-  `FICINA_AI_EGRESS` (default `open` for self-hosting; `restricted` on shared
+  `ALO_AI_EGRESS` (default `open` for self-hosting; `restricted` on shared
   hosting requires https and blocks loopback/private/link-local AI endpoints —
-  an SSRF guard with the vetted IP pinned) and `FICINA_ENFORCE_DOMAIN_OWNERSHIP`
+  an SSRF guard with the vetted IP pinned) and `ALO_ENFORCE_DOMAIN_OWNERSHIP`
   (default `off`). Both deferred findings in
   `docs/design/multi-tenant-trust-boundary.md` are now closed.
-- New: **Multi-tenant control plane (`ficina-control`).** A dedicated
+- New: **Multi-tenant control plane (`alo-control`).** A dedicated
   platform-operator service (ADR 0012), separate from the tenant API, for
   governing a shared deployment: **tenant lifecycle** (list, provision a
   tenant + its first admin, suspend/resume, delete with an id-echo
   confirmation) and **tenant→domain ownership** (register a domain, verify it
-  by a `_ficina-verify` DNS TXT proof, list, remove). Operators are a new
+  by a `_alo-verify` DNS TXT proof, list, remove). Operators are a new
   principal — a user carrying `is_platform_admin`, created by `identityctl
   bootstrap-operator`, authenticated by the same opaque token path as everyone
   else; an operator token authorizes `/control/*` governance only and is
   **never** a key into any tenant's mail. Address assignment
   (`create_user`/alias/list) can now be constrained to a tenant's verified
   domains — the fix for the cross-tenant mail-capture risk — behind
-  `FICINA_ENFORCE_DOMAIN_OWNERSHIP` (default off; flip once domains are
-  registered). New service: compose `ficina-control` + Caddy `/control/*`
+  `ALO_ENFORCE_DOMAIN_OWNERSHIP` (default off; flip once domains are
+  registered). New service: compose `alo-control` + Caddy `/control/*`
   route. Schema (additive): `users.is_platform_admin`, `tenants.status`, a
   `domains` table. Design + threat model: ADR
   `0012-multi-tenant-control-plane.md`, `docs/design/multi-tenant-trust-boundary.md`.
 - New: **Tenant Admin console + AI inference layer.** A full-screen,
   tenant-admin-only console (reached from the user menu, gated on the new
-  `ficina:isAdmin` session key) with four working pages: **Users & mailboxes**
+  `alo:isAdmin` session key) with four working pages: **Users & mailboxes**
   (create, reset password, grant/revoke admin with self-lockout protection,
   aliases, delete), **Groups & lists** (groups, membership, and distribution
   **list addresses** that fan inbound mail out to every member's inbox),
   **Security & trust** (live SPF/DKIM/DMARC/MX/reverse-DNS/MTA-STS
   deliverability checks run as real DNS + HTTPS queries against the email
-  domain), and **AI providers**. New backend crate **`ficina-ai`** speaks the
+  domain), and **AI providers**. New backend crate **`alo-ai`** speaks the
   OpenAI-compatible Chat Completions contract, so the AI backend is
   *configured, never bundled* — bring your own: local Ollama, a self-hosted
   model, or a hosted provider (OpenAI/Anthropic/custom), per tenant. The web
   Compose **"Improve"** action calls it via a new authenticated, tenant-scoped
-  **`POST /ai/improve`** (new `ficina:aiEnabled` session key hides the control
+  **`POST /ai/improve`** (new `alo:aiEnabled` session key hides the control
   when AI is off). API keys are stored server-side and **never returned to
   clients** (only a `hasKey` flag) or logged; prompts and completions are
   never logged (law #1). New HTTP surface: `/admin/users*`, `/admin/groups*`,
   `/admin/security/checks`, `/admin/ai/*`, `/ai/improve`. New operator env for
   the admin: `bootstrap-admin` marks the first user; the Security page reads
-  `FICINA_SMTP_LOCAL_DOMAINS` / `FICINA_SMTP_DKIM_*`. Design + threat model:
+  `ALO_SMTP_LOCAL_DOMAINS` / `ALO_SMTP_DKIM_*`. Design + threat model:
   ADR `0011-ai-inference-layer.md`, `docs/design/multi-tenant-trust-boundary.md`.
 - New: **Sending mail** — JMAP **`EmailSubmission/set`** (RFC 8621 §7), so the
   web app's Compose and Reply actually send. A composed message is built as a
@@ -191,16 +191,16 @@ contracts.
   outbound path, then filed to Sent. **Send-as is enforced on both the SMTP
   envelope and the visible `From:` header** (a token cannot send as another
   identity), only drafts are sendable, and recipients are capped per message.
-  The outbound SMTP client is now a shared `ficina-smtp-client` crate used by
+  The outbound SMTP client is now a shared `alo-smtp-client` crate used by
   both the delivery path and this submission path (no duplication). New config:
-  `FICINA_SMTP_INTERNAL_SUBMISSION_ADDR` (never publish this port) and
-  `FICINA_JMAP_SUBMISSION_ADDR`. Design + security review:
+  `ALO_SMTP_INTERNAL_SUBMISSION_ADDR` (never publish this port) and
+  `ALO_JMAP_SUBMISSION_ADDR`. Design + security review:
   `docs/design/email-submission.md`.
-- New: **Ficina web app** — the one-product workspace shell, web-first
+- New: **alo web app** — the one-product workspace shell, web-first
   (`web/`). The "warm workshop" design system (paper / verdigris / copper /
   ink tokens, self-hosted Inter + EB Garamond, shared primitives), the left
   rail + layout frame with a module registry that Agenda/Chat/Drive/Docs plug
-  into later, first-party **OIDC + PKCE** sign-in against `ficina-identity`
+  into later, first-party **OIDC + PKCE** sign-in against `alo-identity`
   (2FA field revealed on demand), and a **Mail read surface** — folders,
   message list, and a reading pane that renders plain text in Garamond and
   isolates untrusted HTML in a sandboxed, CSP-locked iframe that blocks remote
@@ -208,8 +208,8 @@ contracts.
   Caddy; sign-in verified end-to-end on the live deployment. Compose/reply,
   PWA/offline, and the other modules are the next items. Design note
   `docs/design/web-shell.md`.
-- New: **`ficina-identity`** — the credential authority and an **OpenID
-  Connect / OAuth 2.0 provider** (Ficina-as-IdP). It replaces every interim
+- New: **`alo-identity`** — the credential authority and an **OpenID
+  Connect / OAuth 2.0 provider** (alo-as-IdP). It replaces every interim
   auth path: SMTP AUTH, IMAP/POP3 `LOGIN`, and the JMAP bearer now
   authenticate through one crate, and the dev `StaticAuthenticator`, the
   store's interim `auth.rs`, and the SMTP credentials-file loader are
@@ -268,7 +268,7 @@ contracts.
   yields a conservative whole-message `4xx` so the sender retries (RFC 5321 §6.1
   — **duplicate delivery is preferred to loss**; blobs dedup by content), and
   **no failure path loses mail**. Delivered bytes go to a **durable on-disk blob
-  backend** (`BlobStore::local`, `FICINA_SMTP_BLOB_DIR`, default `./blobs`), so a
+  backend** (`BlobStore::local`, `ALO_SMTP_BLOB_DIR`, default `./blobs`), so a
   body survives a restart on single-node deployments without Garage/S3. The
   inbound **spool is retired as the local sink**: its all-local backlog is
   migrated into the store once at startup (before the queue runner claims), and
@@ -276,7 +276,7 @@ contracts.
   security-audited. See `docs/design/local-delivery.md` and the new inbound
   entries in `docs/interop.md`.
 
-- New: **`ficina-sieve`** + delivery-time filtering — user **Sieve** filter
+- New: **`alo-sieve`** + delivery-time filtering — user **Sieve** filter
   scripts (RFC 5228, with **vacation** RFC 5230, **subaddress** RFC 5233,
   **imap4flags** RFC 5232) compiled and run on the server at delivery time.
   Sieve scripts are user-supplied programs, so every limit is a security
@@ -300,10 +300,10 @@ contracts.
   real inbound path (see "inbound local delivery" above). See
   `docs/design/sieve-filtering.md` and `docs/decisions/0007-sieve-rule-management.md`.
 
-- New: **`ficina-imap`** — IMAP4rev2 (RFC 9051) / IMAP4rev1 (RFC 3501) and
+- New: **`alo-imap`** — IMAP4rev2 (RFC 9051) / IMAP4rev1 (RFC 3501) and
   POP3 (RFC 1939) **compatibility shims** over the account store, so the
   installed base of mail clients (Thunderbird, Apple Mail, Outlook, phones
-  over IMAP) can reach a Ficina mailbox unchanged. JMAP stays the native
+  over IMAP) can reach a alo mailbox unchanged. JMAP stays the native
   protocol (ADR 0001); these are thin translators over `AccountStore`, so
   tenant/account isolation is **inherited**, not re-implemented. IMAP on
   implicit TLS (993) and STARTTLS (143), POP3 on implicit TLS (995);
@@ -336,8 +336,8 @@ contracts.
   change log was already per-account; only the counter was shared. State
   tokens stay opaque; `/changes` resumes unchanged.
 
-- New: **`ficina-jmap`** — the JMAP API (RFC 8620 core, RFC 8621 mail),
-  an HTTP service over the store and Ficina's native client protocol.
+- New: **`alo-jmap`** — the JMAP API (RFC 8620 core, RFC 8621 mail),
+  an HTTP service over the store and alo's native client protocol.
   **A public contract from merge** (web/desktop/compat adapters speak
   it): the Session resource with honest, enforced limits; the
   Request/Response envelope with ordered method dispatch and result
@@ -347,11 +347,11 @@ contracts.
   tenant-scoped, served with the stored Content-Type and `nosniff`); and
   an EventSource push endpoint emitting `StateChange` per tenant with
   heartbeats. `/changes` is backed by a new per-tenant monotonic modseq
-  and change log in the store (`ficina-store::changes`), with opaque
+  and change log in the store (`alo-store::changes`), with opaque
   state tokens and an honest `cannotCalculateChanges`. **Interim bearer
   auth** (`/auth/token`, argon2 credentials in the store) resolves each
   token to `(tenant, account)` and enters the store only through
-  `for_account` — behind a seam the future ficina-identity OIDC replaces
+  `for_account` — behind a seam the future alo-identity OIDC replaces
   without touching method code. Isolation is **per-account** (accountId =
   user): every by-id read/mutate, `/changes`, `Thread/get`, and blob
   download is scoped to the token's `(tenant, user)`, so a user cannot
@@ -363,7 +363,7 @@ contracts.
   `EmailSubmission/set` (send), full MIME `bodyStructure`, and
   JMAP-over-WebSocket are follow-ups. See `docs/design/jmap-api.md`.
 
-- New: **`ficina-store`** — the account-scoped message store on
+- New: **`alo-store`** — the account-scoped message store on
   PostgreSQL (system of record, via `sqlx` with compile-checked queries)
   and Garage/S3 (message bytes). **Isolation is structural, enforced by
   the type you hold:** user-owned mail data is reachable only through an
@@ -395,24 +395,24 @@ contracts.
 
 - New: **Rspamd spam scoring** at DATA and **MTA-STS** policy serving
   (Phase 1 M4b), finishing M4's deferrals. On the MX role, after
-  SPF/DKIM/DMARC, `ficina-smtp` consults Rspamd over `POST /checkv2`
-  (`FICINA_SMTP_RSPAMD_URL`): a `reject` action refuses with **550**,
+  SPF/DKIM/DMARC, `alo-smtp` consults Rspamd over `POST /checkv2`
+  (`ALO_SMTP_RSPAMD_URL`): a `reject` action refuses with **550**,
   `soft reject`/`greylist` defer with **451**, and otherwise the message
   is accepted with the score recorded as an `x-spam` method in
   `Authentication-Results`. A scanner that is unreachable, slow, or
   answers unparseably **fails closed** (451) — configuring a scanner and
   having it down never silently disables filtering. Scanning is off
-  until the URL is set (`FICINA_SMTP_RSPAMD_TIMEOUT_SECS` bounds the
+  until the URL is set (`ALO_SMTP_RSPAMD_TIMEOUT_SECS` bounds the
   call). **MTA-STS** (RFC 8461): the policy (`mode`/`mx`/`max_age`, with
   a content-derived `id`) is rendered from config and served at
-  `GET /.well-known/mta-sts.txt` on `FICINA_SMTP_MTA_STS_ADDR` (plaintext
-  behind the deploy TLS proxy); knobs `FICINA_SMTP_MTA_STS_MODE/MX/
+  `GET /.well-known/mta-sts.txt` on `ALO_SMTP_MTA_STS_ADDR` (plaintext
+  behind the deploy TLS proxy); knobs `ALO_SMTP_MTA_STS_MODE/MX/
   MAX_AGE/ID`, with the `_mta-sts` and `mta-sts` DNS records documented
   in `docs/interop.md`. ARC, TLS-RPT reporting, and DMARC report
   delivery remain deferred (see ROADMAP).
 
-- New: `ficina-auth-mail` — the email-authentication trust stack (Phase
-  1 M4), wired into `ficina-smtp`. Inbound (MX) at DATA: **SPF** (RFC
+- New: `alo-auth-mail` — the email-authentication trust stack (Phase
+  1 M4), wired into `alo-smtp`. Inbound (MX) at DATA: **SPF** (RFC
   7208 full `check_host` with macro expansion and the 10-DNS-lookup /
   2-void-lookup hard limits), **DKIM** verification (RFC 6376 + Ed25519
   per RFC 8463; relaxed/simple canonicalization, `l=`/`x=`, multiple
@@ -429,29 +429,29 @@ contracts.
   addressed by `(domain, selector)` behind a `KeyStore` (file backend
   with permission checks and zeroizing buffers) so rotation is a config
   change. RSA uses `ring` (constant-time), not the `rsa` crate
-  (RUSTSEC-2023-0071). New knobs: `FICINA_SMTP_DKIM_DOMAIN/SELECTOR/KEY/
+  (RUSTSEC-2023-0071). New knobs: `ALO_SMTP_DKIM_DOMAIN/SELECTOR/KEY/
   ALGORITHM`. DMARC report delivery, ARC, MTA-STS, TLS-RPT, and Rspamd
   are deferred (see ROADMAP).
 
-- New: `ficina-smtp` TLS and authenticated submission (Phase 1 M3).
+- New: `alo-smtp` TLS and authenticated submission (Phase 1 M3).
   **STARTTLS** (RFC 3207) on the MX and submission ports and **implicit
   TLS** (port 465), via rustls with the ring provider — pure Rust, no
   OpenSSL. A PEM certificate/key is loaded from disk
-  (`FICINA_SMTP_TLS_CERT`/`FICINA_SMTP_TLS_KEY`) or a self-signed one is
+  (`ALO_SMTP_TLS_CERT`/`ALO_SMTP_TLS_KEY`) or a self-signed one is
   generated for development. **AUTH PLAIN and LOGIN** (RFC 4954),
   offered only on a submission port over active TLS; wrong password and
   unknown user are indistinguishable (535, anti-enumeration).
-  **Submission listeners** (`FICINA_SMTP_SUBMISSION_ADDR` for STARTTLS,
-  `FICINA_SMTP_IMPLICIT_TLS_ADDR` for 465) require authentication before
+  **Submission listeners** (`ALO_SMTP_SUBMISSION_ADDR` for STARTTLS,
+  `ALO_SMTP_IMPLICIT_TLS_ADDR` for 465) require authentication before
   MAIL (530) — closing the open-relay hole ahead of enabling outbound.
-  Credentials come from `FICINA_SMTP_CREDENTIALS_FILE` (a dev bootstrap;
-  ficina-identity replaces it in M9). **RFC 6409** submission fixups add
+  Credentials come from `ALO_SMTP_CREDENTIALS_FILE` (a dev bootstrap;
+  alo-identity replaces it in M9). **RFC 6409** submission fixups add
   a `Date:` and `Message-ID:` when absent. EHLO now advertises a
   truthful capability set (STARTTLS/AUTH/SIZE/8BITMIME) reflecting the
   connection's exact state, and MAIL accepts `SIZE=`/`BODY=`/`AUTH=`
   parameters for the advertised extensions. `Received:` records
   `ESMTPS` for TLS-protected sessions (RFC 3848).
-- New: `ficina-smtp` outbound delivery (Phase 1 M2) — a durable queue
+- New: `alo-smtp` outbound delivery (Phase 1 M2) — a durable queue
   over the spool relays accepted mail. MX resolution (RFC 5321 §5.1:
   preference order, implicit MX, RFC 7505 null-MX = permanent),
   outbound SMTP client with RFC 5321 §4.5.3.2 timeouts and
@@ -460,33 +460,33 @@ contracts.
   re-sends to already-delivered recipients, and RFC 3464 DSN bounces
   from the null sender (never bouncing a null-sender message, §4.5.5).
   **Relay safety: outbound is OFF by default** — enabled only via
-  `FICINA_SMTP_OUTBOUND_ENABLED=true`, because open relaying must wait
-  for the AUTH gate (M3). `FICINA_SMTP_SMARTHOST` routes all mail to
-  one host (self-hosted mode). Knobs: `FICINA_SMTP_RETRY_BASE_SECS`,
-  `FICINA_SMTP_RETRY_CAP_SECS`, `FICINA_SMTP_MAX_ATTEMPTS`,
-  `FICINA_SMTP_QUEUE_INTERVAL_SECS`. Domainless recipients (bare
+  `ALO_SMTP_OUTBOUND_ENABLED=true`, because open relaying must wait
+  for the AUTH gate (M3). `ALO_SMTP_SMARTHOST` routes all mail to
+  one host (self-hosted mode). Knobs: `ALO_SMTP_RETRY_BASE_SECS`,
+  `ALO_SMTP_RETRY_CAP_SECS`, `ALO_SMTP_MAX_ATTEMPTS`,
+  `ALO_SMTP_QUEUE_INTERVAL_SECS`. Domainless recipients (bare
   `postmaster`) are parked pending local delivery (M5), never dropped.
-- New: `ficina-smtp` receives mail end-to-end (Phase 1 M1) — full
+- New: `alo-smtp` receives mail end-to-end (Phase 1 M1) — full
   MAIL FROM / RCPT TO / DATA transactions with RFC 5321 sequencing
   (503 on out-of-order commands), address parsing incl. quoted local
   parts, address literals, source routes, the null sender and
   `<postmaster>`; DATA with dot-unstuffing, the size limit enforced
   during read (552), and bare-line-ending rejection (SMTP-smuggling
   defense); a `Received:` header stamped on every accepted message;
-  durable maildir-style spool (`FICINA_SMTP_SPOOL_DIR`) with fsync +
-  atomic-rename commit. New knobs: `FICINA_SMTP_MAX_MESSAGE_SIZE`
-  (default 25 MiB), `FICINA_SMTP_MAX_RCPT` (default 100). HELO, RSET,
+  durable maildir-style spool (`ALO_SMTP_SPOOL_DIR`) with fsync +
+  atomic-rename commit. New knobs: `ALO_SMTP_MAX_MESSAGE_SIZE`
+  (default 25 MiB), `ALO_SMTP_MAX_RCPT` (default 100). HELO, RSET,
   NOOP, VRFY (252, anti-enumeration), HELP/EXPN → 502.
-- New: `ficina-smtp` service — accepts TCP connections on port 2525,
+- New: `alo-smtp` service — accepts TCP connections on port 2525,
   greets with a 220 banner, and answers EHLO and QUIT with
   RFC 5321-correct replies. Enforces the 512-octet command-line limit
   during read, rejects bare-LF line endings (SMTP-smuggling defense),
   and closes idle sessions after 5 minutes with 421. Configuration:
-  `FICINA_SMTP_ADDR`, `FICINA_SMTP_HOSTNAME`. `--healthcheck` flag
+  `ALO_SMTP_ADDR`, `ALO_SMTP_HOSTNAME`. `--healthcheck` flag
   probes a running instance for container health.
 - New: `deploy/docker-compose.yml` — the pinned engine set (Synapse
   v1.157.1, LiveKit v1.13.4, Collabora CODE 25.04.9.4.1, Garage
-  v2.3.0, PostgreSQL 16.14, Rspamd 4.1.2) plus ficina-smtp, with
+  v2.3.0, PostgreSQL 16.14, Rspamd 4.1.2) plus alo-smtp, with
   healthchecks and `.env.example`.
 - New: `scripts/fetch-engines.sh` — clones engine sources into
   `../engines` (read-only reference) at exactly the compose-pinned

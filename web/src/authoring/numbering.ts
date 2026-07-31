@@ -1,4 +1,4 @@
-// The cross-reference and auto-numbering engine — Ficina's own logic, not a
+// The cross-reference and auto-numbering engine — alo's own logic, not a
 // library feature (ADR 0015). Equations, tables, figures, and sections are
 // numbered by their ORDER in the document; a cross-reference stores the target
 // item's stable `id` and is resolved to that item's CURRENT number at render

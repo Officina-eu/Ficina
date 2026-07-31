@@ -1,4 +1,4 @@
-# Ficina — architecture contract
+# alo — architecture contract
 
 This file is the design contract. Code that moves it must update it in
 the same PR (CLAUDE.md law of the map). Rationale for every major
@@ -7,10 +7,10 @@ state *why*.
 
 ## The five layers
 
-1. **Clients** — Ficina web app (PWA → Tauri desktop → mobile shells);
+1. **Clients** — alo web app (PWA → Tauri desktop → mobile shells);
    Outlook/phones via compat adapters (EAS, later MAPI — year two);
    any standard IMAP/DAV/Matrix client.
-2. **Gateway & identity** — single entry point; `ficina-identity`
+2. **Gateway & identity** — single entry point; `alo-identity`
    (built) is the credential authority and OIDC/OAuth2 IdP —
    argon2id credentials, authorization-code + PKCE, opaque revocable
    access tokens, EdDSA ID tokens, and TOTP 2FA (SAML later). Every
@@ -18,15 +18,15 @@ state *why*.
    authenticate through it, so tenant enforcement is anchored HERE
    before any service trusts a request. See ADR 0008.
 3. **Core services** —
-   built: `ficina-smtp`, `ficina-store`, `ficina-jmap`, `ficina-imap`,
-   `ficina-dav`; integrated engines behind our APIs: Synapse (chat,
+   built: `alo-smtp`, `alo-store`, `alo-jmap`, `alo-imap`,
+   `alo-dav`; integrated engines behind our APIs: Synapse (chat,
    one instance per tenant), LiveKit (meet), Collabora via WOPI
-   endpoints we serve (docs). `ficina-jmap` also serves the
+   endpoints we serve (docs). `alo-jmap` also serves the
    **tenant-admin console** API (`/admin/*`): users & mailboxes,
    groups & distribution lists, live deliverability checks, and AI
    provider config — every route gated on an admin claim resolved at
    the gateway (layer 2) and re-checked against `users.is_admin`.
-4. **AI layer** — `ficina-ai`. Built: the **model-agnostic inference
+4. **AI layer** — `alo-ai`. Built: the **model-agnostic inference
    API** (ADR 0011) — one wire contract, OpenAI-compatible Chat
    Completions, so the backend is *configured, never bundled*
    (per-tenant: local Ollama, self-hosted model, or a hosted

@@ -1,6 +1,6 @@
 ---
 name: protocol
-description: Protocol-correctness reference for Ficina. Consult for ANY work touching SMTP, JMAP, IMAP, POP3, Sieve, CalDAV/CardDAV, iCalendar, DKIM/SPF/DMARC/ARC, or wire formats — implementing commands, parsing, reply codes, or debugging client behavior. Triggers on RFC numbers, protocol names, "reply code", "header", "parsing", or interop bugs.
+description: Protocol-correctness reference for alo. Consult for ANY work touching SMTP, JMAP, IMAP, POP3, Sieve, CalDAV/CardDAV, iCalendar, DKIM/SPF/DMARC/ARC, or wire formats — implementing commands, parsing, reply codes, or debugging client behavior. Triggers on RFC numbers, protocol names, "reply code", "header", "parsing", or interop bugs.
 ---
 
 # Protocol work

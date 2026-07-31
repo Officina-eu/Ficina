@@ -3,10 +3,10 @@
 //! platform operator first; the operator's own tenant is irrelevant to the
 //! target, which is named explicitly in the path/body.
 
+use alo_store::{StoreError, TenantId, TenantSummary};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, body::Bytes};
-use ficina_store::{StoreError, TenantId, TenantSummary};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -102,7 +102,7 @@ pub async fn create_tenant(
         .bootstrap_admin(&name, &email, password)
         .await
         .map_err(|e| match e {
-            ficina_identity::IdentityError::Store(se) => store_err(se),
+            alo_identity::IdentityError::Store(se) => store_err(se),
             _ => Problem::server_error(),
         })?;
     tracing::info!(tenant = %account.tenant.as_str(), "control: tenant provisioned");

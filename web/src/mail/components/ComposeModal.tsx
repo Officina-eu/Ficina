@@ -37,7 +37,7 @@ interface PendingAttachment {
   size: number;
 }
 
-/** A large file sent as an expiring share link (Ficina Transfer) rather than an
+/** A large file sent as an expiring share link (alo Transfer) rather than an
  * inline attachment. */
 interface LinkAttachment {
   url: string;
@@ -82,7 +82,7 @@ function hasFormatting(html: string): boolean {
   return (
     /<(?:b|strong|i|em|u|s|strike|a|ul|ol|li|h[1-6]|blockquote|pre|img|hr|font|span)\b/i.test(html) ||
     /style="/i.test(html) ||
-    /data-ficina-(?:latex|lang)=/i.test(html)
+    /data-alo-(?:latex|lang)=/i.test(html)
   );
 }
 
@@ -109,18 +109,18 @@ function htmlToText(html: string): string {
   const withBlocks = html
     // code blocks → fenced code
     .replace(
-      /<pre\b[^>]*data-ficina-lang="([^"]*)"[^>]*>([\s\S]*?)<\/pre>/gi,
+      /<pre\b[^>]*data-alo-lang="([^"]*)"[^>]*>([\s\S]*?)<\/pre>/gi,
       (_m, lang: string, inner: string) =>
         `\n\`\`\`${decodeAttr(lang)}\n${stripTags(inner)}\n\`\`\`\n`,
     )
     // display equations → LaTeX on its own line
     .replace(
-      /<div\b[^>]*data-ficina-latex="([^"]*)"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\b[^>]*data-alo-latex="([^"]*)"[^>]*>[\s\S]*?<\/div>/gi,
       (_m, latex: string) => `\n${decodeAttr(latex)}\n`,
     )
     // inline equations → inline LaTeX
     .replace(
-      /<span\b[^>]*data-ficina-latex="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi,
+      /<span\b[^>]*data-alo-latex="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi,
       (_m, latex: string) => ` ${decodeAttr(latex)} `,
     );
   const withBreaks = withBlocks
@@ -524,7 +524,7 @@ export function ComposeModal({
     // The editor holds HTML; derive the text/plain alternative and append the
     // quoted original (as text, and as HTML when we're sending a formatted body).
     const text = htmlToText(body);
-    // Large files ride the message as expiring share links (Ficina Transfer).
+    // Large files ride the message as expiring share links (alo Transfer).
     const linkText = links.length > 0 ? `\n\n${links.map(linkCardText).join("\n")}` : "";
     const linkHtml = links.map(linkCardHtml).join("");
     const withQuote = prefill.quoted.length > 0 ? `${text}\n\n${prefill.quoted}` : text;

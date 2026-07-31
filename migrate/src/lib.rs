@@ -1,4 +1,4 @@
-//! # ficina-migrate — the M365 exit suite (not yet implemented)
+//! # alo-migrate — the M365 exit suite (not yet implemented)
 //!
 //! Future role (product doc §6, ROADMAP.md Phase 4): Graph-API tenant
 //! audit with readiness score, identity import from Entra ID, mailbox

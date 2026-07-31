@@ -8,7 +8,7 @@
 // hardening step is a backend-for-frontend holding tokens in an httpOnly
 // cookie (out of JS reach) — recorded, not yet built.
 
-const REFRESH_KEY = "ficina.rt";
+const REFRESH_KEY = "alo.rt";
 
 export interface Identity {
   /** OIDC subject — the stable user id. */

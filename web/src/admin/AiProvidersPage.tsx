@@ -1,4 +1,4 @@
-// Admin — AI providers. A catalog of the backends Ficina can use, grouped into
+// Admin — AI providers. A catalog of the backends alo can use, grouped into
 // self-hosted (data never leaves your servers) and your-own-API-keys. Each card
 // shows status, a Default badge, Manage, and an enable toggle; configuring one
 // opens the provider modal. Matches the design-system admin screen.

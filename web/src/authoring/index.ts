@@ -1,6 +1,6 @@
 // Technical authoring (ADR 0015): browser-local math (KaTeX) + code (Prism), a
-// tenant/owner-scoped document store, and Ficina's own auto-numbering /
-// cross-reference engine. The standalone Ficina Docs surface today; docks into
+// tenant/owner-scoped document store, and alo's own auto-numbering /
+// cross-reference engine. The standalone alo Docs surface today; docks into
 // the Collabora Docs shell when that lands.
 export { DocsModule } from "./DocsModule";
 export { DocumentEditor } from "./DocumentEditor";

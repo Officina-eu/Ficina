@@ -31,12 +31,12 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist
-          cp target/release/ficina-smtp dist/
-          tar -C web -czf dist/ficina-web.tar.gz dist
+          cp target/release/alo-smtp dist/
+          tar -C web -czf dist/alo-web.tar.gz dist
       - name: Draft GitHub release with artifacts
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           files: |
-            dist/ficina-smtp
-            dist/ficina-web.tar.gz
+            dist/alo-smtp
+            dist/alo-web.tar.gz

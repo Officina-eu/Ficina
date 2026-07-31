@@ -1,12 +1,12 @@
-# Ficina — single-server production stack (receive + read + login).
+# alo — single-server production stack (receive + read + login).
 #
 # This runs the full first-class mail path on ONE host and ONE database:
-#   - ficina-smtp : receive (25) + authenticated submission (587/465) + outbound
-#   - ficina-imap : read mail from any mail app (993 IMAPS, 995 POP3S). Port
+#   - alo-smtp : receive (25) + authenticated submission (587/465) + outbound
+#   - alo-imap : read mail from any mail app (993 IMAPS, 995 POP3S). Port
 #                   143 (cleartext-then-STARTTLS) is deliberately NOT published
 #                   to the host — secure implicit-TLS 993 fully covers reading
 #                   mail, so the downgrade-capable port is closed (see README).
-#   - ficina-jmap : the native API + the OpenID Connect login provider (behind Caddy)
+#   - alo-jmap : the native API + the OpenID Connect login provider (behind Caddy)
 #   - postgres    : system of record
 #   - rspamd      : spam scoring at SMTP time (fail-closed)
 #   - caddy       : HTTPS reverse proxy for the web/login origin (port 443)
@@ -15,7 +15,7 @@
 #                   shared volume at a stable path (/certs/live/<domain>/).
 #
 # Message bodies live on a shared on-disk volume (`blobs`), so all three
-# Ficina services read and write the same blob store (single-node; a
+# alo services read and write the same blob store (single-node; a
 # multi-node deployment swaps this for Garage/S3 — see docs/decisions/0006).
 #
 # Bring-up and the TLS model are documented in ./README.md. Copy
@@ -23,29 +23,37 @@
 # holds a real secret in the repo (CLAUDE.md law 1). The certificate is
 # obtained once with ./init-certs.sh before the first `up`.
 
-name: ficina
+name: alo
 
 networks:
-  ficina:
+  alo:
 
 volumes:
+  # Pinned to the pre-rebrand names so the renamed `alo` project attaches to the
+  # EXISTING data volumes created under the old `ficina` project rather than
+  # provisioning empty ones. See docs/rename-migration.md.
   pg_data:
+    name: ficina_pg_data
   blobs:
+    name: ficina_blobs
   smtp_spool:
+    name: ficina_smtp_spool
   certs:
+    name: ficina_certs
   caddy_data:
+    name: ficina_caddy_data
 
 services:
   postgres:
     image: postgres:16.14
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ficina}
+      POSTGRES_USER: ${POSTGRES_USER:-alo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-ficina}
+      POSTGRES_DB: ${POSTGRES_DB:-alo}
     volumes:
       - pg_data:/var/lib/postgresql/data
-    networks: [ficina]
+    networks: [alo]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -56,7 +64,7 @@ services:
   rspamd:
     image: rspamd/rspamd:4.1.2
     restart: unless-stopped
-    networks: [ficina]
+    networks: [alo]
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/11334'"]
       interval: 15s
@@ -74,160 +82,160 @@ services:
     image: certbot/certbot:v3.1.0
     restart: unless-stopped
     environment:
-      # The gid the Ficina services run as; the deploy hook grants this group
+      # The gid the alo services run as; the deploy hook grants this group
       # read access to the certificate.
-      FICINA_GID: ${FICINA_GID:-999}
+      ALO_GID: ${ALO_GID:-999}
     entrypoint: >
       sh -c 'trap exit TERM;
              while :; do certbot renew --standalone --quiet;
                          sleep 12h & wait $${!}; done'
     volumes:
       - certs:/etc/letsencrypt
-      - ./certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/50-ficina-perms.sh:ro
+      - ./certbot-deploy-hook.sh:/etc/letsencrypt/renewal-hooks/deploy/50-alo-perms.sh:ro
     ports:
       - "80:80"
-    networks: [ficina]
+    networks: [alo]
 
-  ficina-smtp:
+  alo-smtp:
     build:
       context: ../..
-      dockerfile: core/ficina-smtp/Dockerfile
+      dockerfile: core/alo-smtp/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
       rspamd: { condition: service_started }
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
-      # The SMTP service reads its own FICINA_SMTP_BLOB_DIR; the shared value
+      DATABASE_URL: postgres://${POSTGRES_USER:-alo}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alo}?sslmode=disable
+      # The SMTP service reads its own ALO_SMTP_BLOB_DIR; the shared value
       # is set too so the whole stack points at one blob backend.
-      FICINA_BLOB_DIR: /var/lib/ficina/blobs
-      FICINA_SMTP_BLOB_DIR: /var/lib/ficina/blobs
-      FICINA_SMTP_SPOOL_DIR: /var/spool/ficina
-      FICINA_SMTP_ADDR: 0.0.0.0:25
-      FICINA_SMTP_HOSTNAME: ${DOMAIN:?set DOMAIN in .env}
-      FICINA_SMTP_LOCAL_DOMAINS: ${FICINA_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
-      FICINA_SMTP_SUBMISSION_ADDR: 0.0.0.0:587
-      FICINA_SMTP_IMPLICIT_TLS_ADDR: 0.0.0.0:465
-      # Trusted internal submission listener for ficina-jmap's EmailSubmission/set.
+      ALO_BLOB_DIR: /var/lib/alo/blobs
+      ALO_SMTP_BLOB_DIR: /var/lib/alo/blobs
+      ALO_SMTP_SPOOL_DIR: /var/spool/alo
+      ALO_SMTP_ADDR: 0.0.0.0:25
+      ALO_SMTP_HOSTNAME: ${DOMAIN:?set DOMAIN in .env}
+      ALO_SMTP_LOCAL_DOMAINS: ${ALO_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
+      ALO_SMTP_SUBMISSION_ADDR: 0.0.0.0:587
+      ALO_SMTP_IMPLICIT_TLS_ADDR: 0.0.0.0:465
+      # Trusted internal submission listener for alo-jmap's EmailSubmission/set.
       # NO AUTH — safe ONLY because this port is never published (see the `ports:`
       # block below: 2526 is absent, so it is reachable only on the private
       # docker network). Never add 2526 to a published ports mapping.
-      FICINA_SMTP_INTERNAL_SUBMISSION_ADDR: 0.0.0.0:2526
+      ALO_SMTP_INTERNAL_SUBMISSION_ADDR: 0.0.0.0:2526
       # Outbound sending: ON in production. Requires LOCAL_DOMAINS (set
       # above) or startup is refused (anti-open-relay).
-      FICINA_SMTP_OUTBOUND_ENABLED: ${FICINA_SMTP_OUTBOUND_ENABLED:-true}
-      FICINA_SMTP_SMARTHOST: ${FICINA_SMTP_SMARTHOST:-}
+      ALO_SMTP_OUTBOUND_ENABLED: ${ALO_SMTP_OUTBOUND_ENABLED:-true}
+      ALO_SMTP_SMARTHOST: ${ALO_SMTP_SMARTHOST:-}
       # The shared Let's Encrypt certificate (one stable path for every
       # service). allow_self_signed stays false so the server refuses to
       # present an untrusted cert (set true only for a local test with no
       # public domain — see README).
-      FICINA_SMTP_TLS_CERT: ${FICINA_SMTP_TLS_CERT:-/certs/live/${DOMAIN}/fullchain.pem}
-      FICINA_SMTP_TLS_KEY: ${FICINA_SMTP_TLS_KEY:-/certs/live/${DOMAIN}/privkey.pem}
-      FICINA_SMTP_ALLOW_SELF_SIGNED: ${FICINA_SMTP_ALLOW_SELF_SIGNED:-false}
+      ALO_SMTP_TLS_CERT: ${ALO_SMTP_TLS_CERT:-/certs/live/${DOMAIN}/fullchain.pem}
+      ALO_SMTP_TLS_KEY: ${ALO_SMTP_TLS_KEY:-/certs/live/${DOMAIN}/privkey.pem}
+      ALO_SMTP_ALLOW_SELF_SIGNED: ${ALO_SMTP_ALLOW_SELF_SIGNED:-false}
       # DKIM signing (all three together). Publish the public key at
       # <selector>._domainkey.<domain>. Generate with ./generate-dkim.sh.
-      FICINA_SMTP_DKIM_DOMAIN: ${FICINA_SMTP_DKIM_DOMAIN:-}
-      FICINA_SMTP_DKIM_SELECTOR: ${FICINA_SMTP_DKIM_SELECTOR:-}
-      FICINA_SMTP_DKIM_KEY: ${FICINA_SMTP_DKIM_KEY:-}
-      FICINA_SMTP_DKIM_ALGORITHM: ${FICINA_SMTP_DKIM_ALGORITHM:-rsa}
+      ALO_SMTP_DKIM_DOMAIN: ${ALO_SMTP_DKIM_DOMAIN:-}
+      ALO_SMTP_DKIM_SELECTOR: ${ALO_SMTP_DKIM_SELECTOR:-}
+      ALO_SMTP_DKIM_KEY: ${ALO_SMTP_DKIM_KEY:-}
+      ALO_SMTP_DKIM_ALGORITHM: ${ALO_SMTP_DKIM_ALGORITHM:-rsa}
       # Spam scoring (fail-closed if unreachable).
-      FICINA_SMTP_RSPAMD_URL: http://rspamd:11333
+      ALO_SMTP_RSPAMD_URL: http://rspamd:11333
       # MTA-STS policy served internally; Caddy fronts mta-sts.<domain>.
-      FICINA_SMTP_MTA_STS_ADDR: 0.0.0.0:8461
-      FICINA_SMTP_MTA_STS_MODE: ${FICINA_SMTP_MTA_STS_MODE:-enforce}
+      ALO_SMTP_MTA_STS_ADDR: 0.0.0.0:8461
+      ALO_SMTP_MTA_STS_MODE: ${ALO_SMTP_MTA_STS_MODE:-enforce}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - blobs:/var/lib/ficina/blobs
-      - smtp_spool:/var/spool/ficina
+      - blobs:/var/lib/alo/blobs
+      - smtp_spool:/var/spool/alo
       - certs:/certs:ro
       - ${DKIM_KEY_HOST_DIR:-./dkim}:/dkim:ro
     ports:
       - "25:25"
       - "587:587"
       - "465:465"
-    networks: [ficina]
+    networks: [alo]
     healthcheck:
-      test: ["CMD", "/usr/local/bin/ficina-smtp", "--healthcheck"]
+      test: ["CMD", "/usr/local/bin/alo-smtp", "--healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
 
-  ficina-imap:
+  alo-imap:
     build:
       context: ../..
-      dockerfile: core/ficina-imap/Dockerfile
+      dockerfile: core/alo-imap/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
-      FICINA_BLOB_DIR: /var/lib/ficina/blobs
-      FICINA_IDENTITY_ISSUER: https://${DOMAIN}
-      FICINA_IMAP_HOSTNAME: ${DOMAIN}
-      FICINA_IMAPS_ADDR: 0.0.0.0:993
-      FICINA_IMAP_ADDR: 0.0.0.0:143
-      FICINA_POP3S_ADDR: 0.0.0.0:995
-      FICINA_IMAP_TLS_CERT: ${FICINA_IMAP_TLS_CERT:-/certs/live/${DOMAIN}/fullchain.pem}
-      FICINA_IMAP_TLS_KEY: ${FICINA_IMAP_TLS_KEY:-/certs/live/${DOMAIN}/privkey.pem}
-      FICINA_IMAP_ALLOW_SELF_SIGNED: ${FICINA_IMAP_ALLOW_SELF_SIGNED:-false}
+      DATABASE_URL: postgres://${POSTGRES_USER:-alo}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alo}?sslmode=disable
+      ALO_BLOB_DIR: /var/lib/alo/blobs
+      ALO_IDENTITY_ISSUER: https://${DOMAIN}
+      ALO_IMAP_HOSTNAME: ${DOMAIN}
+      ALO_IMAPS_ADDR: 0.0.0.0:993
+      ALO_IMAP_ADDR: 0.0.0.0:143
+      ALO_POP3S_ADDR: 0.0.0.0:995
+      ALO_IMAP_TLS_CERT: ${ALO_IMAP_TLS_CERT:-/certs/live/${DOMAIN}/fullchain.pem}
+      ALO_IMAP_TLS_KEY: ${ALO_IMAP_TLS_KEY:-/certs/live/${DOMAIN}/privkey.pem}
+      ALO_IMAP_ALLOW_SELF_SIGNED: ${ALO_IMAP_ALLOW_SELF_SIGNED:-false}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - blobs:/var/lib/ficina/blobs
+      - blobs:/var/lib/alo/blobs
       - certs:/certs:ro
     # 143 is intentionally NOT published (downgrade-capable); 993 covers IMAP.
     ports:
       - "993:993"
       - "995:995"
-    networks: [ficina]
+    networks: [alo]
     healthcheck:
-      test: ["CMD", "/usr/local/bin/ficina-imap", "--healthcheck"]
+      test: ["CMD", "/usr/local/bin/alo-imap", "--healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
 
-  ficina-jmap:
+  alo-jmap:
     build:
       context: ../..
-      dockerfile: core/ficina-jmap/Dockerfile
+      dockerfile: core/alo-jmap/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
-      FICINA_BLOB_DIR: /var/lib/ficina/blobs
+      DATABASE_URL: postgres://${POSTGRES_USER:-alo}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alo}?sslmode=disable
+      ALO_BLOB_DIR: /var/lib/alo/blobs
       # The public HTTPS origin (Caddy terminates TLS and forwards here).
-      FICINA_IDENTITY_ISSUER: https://${DOMAIN}
-      FICINA_JMAP_BASE_URL: https://${DOMAIN}
-      FICINA_JMAP_ADDR: 0.0.0.0:8080
+      ALO_IDENTITY_ISSUER: https://${DOMAIN}
+      ALO_JMAP_BASE_URL: https://${DOMAIN}
+      ALO_JMAP_ADDR: 0.0.0.0:8080
       # Where EmailSubmission/set sends: the SMTP trusted internal listener,
       # reached over the private docker network (not the internet).
-      FICINA_JMAP_SUBMISSION_ADDR: ficina-smtp:2526
+      ALO_JMAP_SUBMISSION_ADDR: alo-smtp:2526
       # For the admin Security & trust page's live DNS checks: the hosted mail
-      # domain(s) — the same value ficina-smtp treats as local, so SPF/DMARC/MX
+      # domain(s) — the same value alo-smtp treats as local, so SPF/DMARC/MX
       # are checked at the email domain (e.g. example.com), not the server FQDN
       # (mail.example.com) — plus the DKIM selector/domain (mirrors smtp's DKIM).
       DOMAIN: ${DOMAIN}
-      FICINA_SMTP_LOCAL_DOMAINS: ${FICINA_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
-      FICINA_SMTP_DKIM_SELECTOR: ${FICINA_SMTP_DKIM_SELECTOR:-}
-      FICINA_SMTP_DKIM_DOMAIN: ${FICINA_SMTP_DKIM_DOMAIN:-}
+      ALO_SMTP_LOCAL_DOMAINS: ${ALO_SMTP_LOCAL_DOMAINS:?set the hosted mail domain(s) in .env}
+      ALO_SMTP_DKIM_SELECTOR: ${ALO_SMTP_DKIM_SELECTOR:-}
+      ALO_SMTP_DKIM_DOMAIN: ${ALO_SMTP_DKIM_DOMAIN:-}
       # AI backend egress policy (ADR 0012). Default `open` allows any endpoint
       # — correct for self-hosted deployments where the model runs on localhost
       # or a private LAN. Set to `restricted` on shared/multi-tenant hosting to
       # require https and block loopback/link-local/private/ULA targets (SSRF
       # guard, since a tenant admin is then a customer, not the box operator).
-      FICINA_AI_EGRESS: ${FICINA_AI_EGRESS:-open}
+      ALO_AI_EGRESS: ${ALO_AI_EGRESS:-open}
       # Enforce tenant->domain ownership on address assignment (ADR 0012). Off
       # by default (single-tenant safe); set to `on` once domains are registered
       # and verified for every tenant on a shared deployment.
-      FICINA_ENFORCE_DOMAIN_OWNERSHIP: ${FICINA_ENFORCE_DOMAIN_OWNERSHIP:-off}
+      ALO_ENFORCE_DOMAIN_OWNERSHIP: ${ALO_ENFORCE_DOMAIN_OWNERSHIP:-off}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - blobs:/var/lib/ficina/blobs
-    networks: [ficina]
+      - blobs:/var/lib/alo/blobs
+    networks: [alo]
     healthcheck:
-      test: ["CMD", "/usr/local/bin/ficina-jmap", "--healthcheck"]
+      test: ["CMD", "/usr/local/bin/alo-jmap", "--healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -236,27 +244,27 @@ services:
   # The multi-tenant control plane (ADR 0012): the platform-operator surface
   # for tenant lifecycle + domain ownership, at /control/*. A distinct service
   # (own credentials, own blast radius) from the tenant JMAP/admin API. It does
-  # NOT run migrations — ficina-jmap owns the single migrator — so it starts
+  # NOT run migrations — alo-jmap owns the single migrator — so it starts
   # after jmap is healthy (schema applied).
-  ficina-control:
+  alo-control:
     build:
       context: ../..
       dockerfile: control/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
-      ficina-jmap: { condition: service_healthy }
+      alo-jmap: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-ficina}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ficina}?sslmode=disable
-      FICINA_BLOB_DIR: /var/lib/ficina/blobs
-      FICINA_IDENTITY_ISSUER: https://${DOMAIN}
-      FICINA_CONTROL_ADDR: 0.0.0.0:8090
+      DATABASE_URL: postgres://${POSTGRES_USER:-alo}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alo}?sslmode=disable
+      ALO_BLOB_DIR: /var/lib/alo/blobs
+      ALO_IDENTITY_ISSUER: https://${DOMAIN}
+      ALO_CONTROL_ADDR: 0.0.0.0:8090
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - blobs:/var/lib/ficina/blobs
-    networks: [ficina]
+      - blobs:/var/lib/alo/blobs
+    networks: [alo]
     healthcheck:
-      test: ["CMD", "/usr/local/bin/ficina-control", "--healthcheck"]
+      test: ["CMD", "/usr/local/bin/alo-control", "--healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -269,8 +277,8 @@ services:
     image: caddy:2.8-alpine
     restart: unless-stopped
     depends_on:
-      ficina-jmap: { condition: service_started }
-      ficina-control: { condition: service_started }
+      alo-jmap: { condition: service_started }
+      alo-control: { condition: service_started }
     environment:
       DOMAIN: ${DOMAIN}
     volumes:
@@ -280,4 +288,4 @@ services:
       - caddy_data:/data
     ports:
       - "443:443"
-    networks: [ficina]
+    networks: [alo]

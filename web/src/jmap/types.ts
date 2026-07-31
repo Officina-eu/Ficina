@@ -1,5 +1,5 @@
 // The subset of JMAP (RFC 8620 core, RFC 8621 mail) the web app uses. These
-// mirror the wire shapes `ficina-jmap` returns; they are the client-side half
+// mirror the wire shapes `alo-jmap` returns; they are the client-side half
 // of the contract and change additively with it.
 
 export const MAIL_CAPABILITY = "urn:ietf:params:jmap:mail";
@@ -14,10 +14,10 @@ export interface Session {
   /** capability URN → account id */
   primaryAccounts: Record<string, string>;
   state: string;
-  /** Ficina extension: whether AI features are enabled for this tenant. */
-  "ficina:aiEnabled"?: boolean;
-  /** Ficina extension: whether the signed-in user is a tenant admin. */
-  "ficina:isAdmin"?: boolean;
+  /** alo extension: whether AI features are enabled for this tenant. */
+  "alo:aiEnabled"?: boolean;
+  /** alo extension: whether the signed-in user is a tenant admin. */
+  "alo:isAdmin"?: boolean;
 }
 
 export interface EmailAddress {
@@ -38,7 +38,7 @@ export interface Mailbox {
   unreadEmails: number;
 }
 
-/** A server-side mail filter (rule). Mirrors the ficina-jmap rule model; the
+/** A server-side mail filter (rule). Mirrors the alo-jmap rule model; the
  * server compiles these to a Sieve script that runs at delivery. */
 export type FilterField = "from" | "to" | "cc" | "subject";
 export type FilterOp = "contains" | "is";
@@ -90,10 +90,10 @@ export interface EmailHeaders {
   messageId: string[] | null;
   references: string[] | null;
   /**
-   * Ficina's parsed inbound-authentication verdict (non-standard, additive).
+   * alo's parsed inbound-authentication verdict (non-standard, additive).
    * Absent on outgoing copies; each field is "pass" | "fail" | "none" | etc.
    */
-  "ficina:authentication"?: MessageAuthentication | null;
+  "alo:authentication"?: MessageAuthentication | null;
 }
 
 export interface MessageAuthentication {

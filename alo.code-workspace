@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "name": "alo",
+      "path": "."
+    },
+    {
+      "name": "engines (read-only reference)",
+      "path": "../engines"
+    }
+  ],
+  "settings": {
+    "files.readonlyInclude": {
+      "../engines/**": true
+    }
+  }
+}

@@ -1,14 +1,14 @@
-# ficina-identity v1 (design note)
+# alo-identity v1 (design note)
 
 Identity is the authority every other surface trusts. Until now auth was
-a **deliberately interim** seam: `ficina-store::auth` hashed passwords
-with argon2 and minted opaque bearer tokens for JMAP; `ficina-smtp` had a
+a **deliberately interim** seam: `alo-store::auth` hashed passwords
+with argon2 and minted opaque bearer tokens for JMAP; `alo-smtp` had a
 plaintext `StaticAuthenticator`; IMAP/POP3 called `Store::verify_login`.
 Each carried a comment pointing here. This milestone delivers the real
-thing and **deletes the interim**: a new crate `core/ficina-identity`
+thing and **deletes the interim**: a new crate `core/alo-identity`
 becomes the single credential authority behind SMTP AUTH, IMAP/POP3
-LOGIN, and JMAP bearer, and Ficina gains an OpenID Connect provider so a
-customer's other SaaS can one day trust Ficina as its IdP — the M365
+LOGIN, and JMAP bearer, and alo gains an OpenID Connect provider so a
+customer's other SaaS can one day trust alo as its IdP — the M365
 lock-in killer.
 
 This is the last security-critical foundation before real users and real
@@ -20,13 +20,13 @@ constant time; no secret in a log, error, or `Debug`).
 ## Dependency shape (no cycle)
 
 ```
-ficina-smtp  ┐
-ficina-imap  ┼─→ ficina-identity ─→ ficina-store ─→ Postgres
-ficina-jmap  ┘
+alo-smtp  ┐
+alo-imap  ┼─→ alo-identity ─→ alo-store ─→ Postgres
+alo-jmap  ┘
 ```
 
-`ficina-identity` depends on `ficina-store`; the three protocol crates
-depend on `ficina-identity` for authentication and on `ficina-store` for
+`alo-identity` depends on `alo-store`; the three protocol crates
+depend on `alo-identity` for authentication and on `alo-store` for
 data. The store never depends on identity, so `account_by_email` /
 `for_account` / `for_tenant` — the tenant doors every surface already
 consumes — stay in the store. Identity owns **policy and protocol**;
@@ -76,7 +76,7 @@ do not use it.) Secrets are wrapped in a redacting `Secret` newtype, are
 
 **argon2id parameters (contract):** `m = 19456 KiB (19 MiB)`, `t = 2`,
 `p = 1` — the OWASP-recommended argon2id baseline, overridable per
-deployment via `FICINA_IDENTITY_ARGON2_*` for higher-memory hardware.
+deployment via `ALO_IDENTITY_ARGON2_*` for higher-memory hardware.
 Stored hashes are self-describing (PHC string), so raising params is
 backward-compatible: an old hash still verifies and is transparently
 rehashed on next successful login.
@@ -137,7 +137,7 @@ its un-revocability is correct. Access = opaque + revocable; ID = signed
 
 ## OIDC / OAuth 2.0 provider
 
-Ficina-as-IdP. Endpoints (issuer = `FICINA_IDENTITY_ISSUER`):
+alo-as-IdP. Endpoints (issuer = `ALO_IDENTITY_ISSUER`):
 
 - `GET /.well-known/openid-configuration` — discovery (RFC 8414 / OIDC
   Discovery): `issuer`, `authorization_endpoint`, `token_endpoint`,
@@ -199,8 +199,8 @@ contract.
   path; it is not `password` OAuth grant on the public `/oauth/token`.
 - **SMTP** — `StaticAuthenticator` is deleted; the submission AUTH
   PLAIN/LOGIN path verifies through identity's constant-time password
-  check. The `Authenticator` trait indirection is removed; `ficina-smtp`
-  depends on `ficina-identity` directly (the trait existed only to defer
+  check. The `Authenticator` trait indirection is removed; `alo-smtp`
+  depends on `alo-identity` directly (the trait existed only to defer
   this crate — its reason to exist is gone).
 - **IMAP/POP3** — `Store::verify_login` is replaced by identity's
   password check; `for_account` is still how the session reaches data.

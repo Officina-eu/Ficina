@@ -1,4 +1,4 @@
-# Ficina — features.md
+# alo — features.md
 
 Feature inventory per module. Three tiers, mapped to the roadmap:
 **[L]** = launch (must exist to cancel M365) · **[2]** = fast-follow, first year after launch · **[3]** = later, revenue-funded.
@@ -30,7 +30,7 @@ Rule of the file: nothing gets built that isn't listed here, and nothing gets li
 - [L] Full-text search that is actually fast (store-level index)
 - [L] Spam/phishing filtering with a visible "why was this flagged" banner
 - [L] One-click unsubscribe surfacing (RFC 8058)
-- [L] Large files as expiring share links (Ficina Transfer) — a file too big to
+- [L] Large files as expiring share links (alo Transfer) — a file too big to
   attach uploads once and rides the message as a private, expiring download link
   instead of an inline attachment, sidestepping recipient attachment-size limits.
   This is the Drive share-link capability (password/expiry/download-off) surfaced
@@ -45,11 +45,11 @@ Rule of the file: nothing gets built that isn't listed here, and nothing gets li
 
 ## Outlook toolbar audit — keep / do-better / drop
 
-Outlook's toolbar is a thin core of email actions wrapped in a ring of Microsoft-ecosystem hooks and third-party add-ins. Almost everything we **drop** below is one of those hooks or add-ins — not email — so Ficina's mail toolbar ends up *cleaner* than Outlook's (the daily actions minus the clutter) **plus** the AI actions Outlook lacks (summarize, draft, why-flagged).
+Outlook's toolbar is a thin core of email actions wrapped in a ring of Microsoft-ecosystem hooks and third-party add-ins. Almost everything we **drop** below is one of those hooks or add-ins — not email — so alo's mail toolbar ends up *cleaner* than Outlook's (the daily actions minus the clutter) **plus** the AI actions Outlook lacks (summarize, draft, why-flagged).
 
 **Keep** — core mail actions, table stakes:
 
-| Outlook | Ficina |
+| Outlook | alo |
 |---|---|
 | Reply · Reply All · Forward | [L] the spine of email — identical |
 | Delete · Archive | [L] daily one-keystroke actions |
@@ -62,11 +62,11 @@ Outlook's toolbar is a thin core of email actions wrapped in a ring of Microsoft
 | Address Book · Search People | [L] from CardDAV contacts |
 | Filter Email | [L] sort/filter the list |
 
-**Do better** — keep the capability; Ficina's version is superior:
+**Do better** — keep the capability; alo's version is superior:
 
-| Outlook | Ficina |
+| Outlook | alo |
 |---|---|
-| New Meeting · Scheduling Poll | [L] Ficina Meet + [2] ★ native meeting polls (kills the Doodle bolt-on) |
+| New Meeting · Scheduling Poll | [L] alo Meet + [2] ★ native meeting polls (kills the Doodle bolt-on) |
 | Translate | [2] ★★ AI-native and EU-hosted — the Belgium differentiator, not an add-in |
 | Read Aloud | [3] accessibility, later tier |
 | Recall | [2] ★ actually works inside a tenant — we own the store, unlike Exchange's famously fake recall |
@@ -75,7 +75,7 @@ Outlook's toolbar is a thin core of email actions wrapped in a ring of Microsoft
 
 | Outlook | Why it's gone |
 |---|---|
-| Share to Teams | replaced by "share to Ficina Chat" |
+| Share to Teams | replaced by "share to alo Chat" |
 | Viva Insights | a Microsoft analytics add-in, not our product |
 | TeamViewer | a third-party add-in, never a mail feature |
 | Browse Groups | an M365 Groups construct — our distribution lists + shared mailboxes cover the real need |
@@ -102,7 +102,7 @@ This table doubles as the answer to a prospect asking "where's feature X?" — e
 - [L] Guest access for externals, per-channel
 - [2] Reminders ("remind me about this message tomorrow"), saved items
 - [2] Instant huddle — one-click voice in a channel, no calendar event
-- [2] ★ Cross-org channels between two Ficina tenants (agencies ↔ clients)
+- [2] ★ Cross-org channels between two alo tenants (agencies ↔ clients)
 - [3] Message workflows/automations (approval emoji triggers, simple bots)
 
 ## Meet
@@ -119,23 +119,23 @@ This table doubles as the answer to a prospect asking "where's feature X?" — e
 - [L] Files/folders, per-user and per-team spaces, permissions, trash/restore
 - [L] Desktop sync client (the OneDrive replacement)
 - [L] Share links with password, expiry, and download-off option
-- [L] In-browser editing of Word/Excel/PowerPoint formats (Collabora embedded, Ficina-themed). What users get per editor:
+- [L] In-browser editing of Word/Excel/PowerPoint formats (Collabora embedded, alo-themed). What users get per editor:
 
-  **Ficina Docs (Word-like)**
+  **alo Docs (Word-like)**
   - [L] Full .docx/.odt editing: styles, headers/footers, tables, images, TOC, footnotes, page numbering
   - [L] Real-time co-editing with visible cursors
   - [L] Track changes and comments — round-trippable with desktop Word (the lawyer/HR dealbreaker)
   - [L] Export to PDF; print-faithful layout
   - [2] Compare documents; org templates with locked branding
 
-  **Ficina Sheets (Excel-like)**
+  **alo Sheets (Excel-like)**
   - [L] Full .xlsx/.ods editing: the formula set (LibreOffice Calc covers the overwhelming majority of Excel functions), multi-sheet, cell formatting, conditional formatting
   - [L] Charts, pivot tables, sorting/filtering, freeze panes
   - [L] Co-editing; comments
   - [2] CSV import wizardry; named ranges; data validation
   - Known honest limit: **VBA macros do not run** — flagged by the Migrate audit; the playbook answer is desktop LibreOffice/one perpetual Excel license for the macro workbook (see product doc §6)
 
-  **Ficina Slides (PowerPoint-like)**
+  **alo Slides (PowerPoint-like)**
   - [L] Full .pptx/.odp editing: layouts, master slides, transitions, presenter notes
   - [L] Present directly in the browser; present into a Meet call
   - [2] Org slide templates; export to PDF handout
@@ -150,13 +150,13 @@ This table doubles as the answer to a prospect asking "where's feature X?" — e
 - [3] E-signature workflow (eIDAS-aware — European advantage)
 - [3] Retention policies and legal hold per space
 
-## Ficina Docs — the AI-native document editor
+## alo Docs — the AI-native document editor
 
-Not a cheaper European Word. Ficina Docs differentiates on being **AI-native,
+Not a cheaper European Word. alo Docs differentiates on being **AI-native,
 whole-suite, and sovereign**, attacking documented, widespread Word/Docs
 frustrations that Microsoft/Google structurally cannot fix without dismantling
-their own architecture. The editor is a **Ficina-branded shell over the
-integrated Collabora engine** (via WOPI); Ficina owns the shell, the AI layer,
+their own architecture. The editor is a **alo-branded shell over the
+integrated Collabora engine** (via WOPI); alo owns the shell, the AI layer,
 and the four inventions below (ADR 0010). Base .docx/.odt editing lives under
 **Drive & Docs** above; this is the differentiator layer. UX source of truth:
 Figma page "10 · Docs".
@@ -177,7 +177,7 @@ The four inventions:
 - [3] ★ **Semantic-conflict flag** — beyond CRDT text-merge: when two
   collaborators' edits no longer reconcile in *meaning* (one changes a unit
   price, another the total, so they no longer add up), the AI surfaces an
-  inline flag ("Ficina noticed a possible conflict — these no longer add up")
+  inline flag ("alo noticed a possible conflict — these no longer add up")
   with keep-A / keep-B / let-me-fix. Directly targets the documented
   silent-corruption of Word/Docs real-time co-authoring, which merges
   conflicting edits into nonsense with no warning.
@@ -185,7 +185,7 @@ The four inventions:
   from real workspace context: the AI lists the sources it will use (the
   relevant email thread, a meeting recording + its AI notes, related
   spreadsheets) and generates a first draft from them. The cross-suite killer
-  move — only possible because Ficina owns Mail + Meet + Drive + Docs in one
+  move — only possible because alo owns Mail + Meet + Drive + Docs in one
   sovereign place.
 
 **Ask-AI is agentic** — it acts on the document, always **proposing, never
@@ -205,9 +205,9 @@ silently changing**:
   a sovereignty product.
 
 **Technical authoring** — specs with math, equations, and code, for engineers,
-finance, and technical writers. A Ficina-owned shell capability (ADR 0015)
+finance, and technical writers. A alo-owned shell capability (ADR 0015)
 rendered **browser-local** (no draft equation or source line leaves the client);
-KaTeX + Prism (both MIT); the numbering/reference layer is Ficina's own. UX
+KaTeX + Prism (both MIT); the numbering/reference layer is alo's own. UX
 source of truth: the Figma technical-authoring screens.
 
 - [2] ★ **Equations** — an equation editor with LaTeX input and a **live
@@ -235,15 +235,15 @@ Cross-cutting Docs principles:
 - [L] ★ Web-first, single-version — no desktop-vs-browser split (the one thing
   everyone praises Google Docs for).
 
-## Ficina Sheets — the AI-native, auditable spreadsheet
+## alo Sheets — the AI-native, auditable spreadsheet
 
 Not a cheaper European Excel. Differentiates on **AI-native + auditable +
 whole-suite + sovereign**. Finance teams abandon spreadsheets over two things
 the research documents clearly: **error-blindness** (a CFO study found 41%
 struggle to identify and correct errors) and **lack of auditability / data
-lineage**. Ficina attacks both directly. The editor is a Ficina-branded shell
+lineage**. alo attacks both directly. The editor is a alo-branded shell
 over the integrated Collabora engine (via WOPI), the same pattern as Docs (ADR
-0010); Ficina owns the shell, the AI layer, and the inventions below. Base
+0010); alo owns the shell, the AI layer, and the inventions below. Base
 .xlsx/.ods editing lives under **Drive & Docs** above. UX source of truth:
 Figma page "11 · Sheets".
 
@@ -254,7 +254,7 @@ The four inventions:
   plus one-click fixes (re-point the range / restore the row). AI proposes, user
   accepts.
 - [2] ★ **Natural-language formulas** — type plain English ("average revenue per
-  region, excluding France"); Ficina generates the formula, **shows the actual
+  region, excluding France"); alo generates the formula, **shows the actual
   formula**, and explains it in one line. Never a black box — transparent and
   auditable (treat NL as a draft, keep the transparent formula).
 - [2] ★ **Formula paste-guard** — when a raw value is about to overwrite a
@@ -277,7 +277,7 @@ Cross-cutting Sheets principles:
 - [3] Optional agent mode for multi-step data tasks ("build a Q3 forecast from
   the actuals tab") with a visible plan + approval, mirroring the Docs agent.
 
-## Ficina AI (the differentiator layer — every item ★)
+## alo AI (the differentiator layer — every item ★)
 
 - [L] Semantic search across mail, chat, files in one query bar
 - [L] Thread summarization ("catch me up on this 40-mail thread")
@@ -299,14 +299,14 @@ Cross-cutting Sheets principles:
   - [2] Per-tenant DKIM keys with selector-rollover rotation — ADR 0014
   - [3] ★ "Just works" onboarding: change your nameservers, we run authoritative DNS and manage the whole zone (MX/SPF/DKIM/DMARC/mta-sts) automatically — the universal, sovereign path (not per-registrar APIs). DKIM-CNAME makes rotation no-touch on top of it. Engine + direction: ADR 0013
 - [L] Audit log, GDPR subject-access export, tenant data export (no lock-in — exit is a feature)
-- [L] SSO: Ficina as OIDC/SAML IdP + 2FA enforcement
+- [L] SSO: alo as OIDC/SAML IdP + 2FA enforcement
 - [L] Backup status visibility ("last verified restore: date")
 - [2] ★ White-label/reseller mode: MSP branding, multi-tenant management console — the channel play productized
 - [2] Per-tenant feature flags and AI on/off switches
 - [3] DLP-lite: outbound rules ("warn on external send with attachment X")
 - [3] Compliance packs: NIS2 evidence exports, processing-record templates
 
-## Ficina Migrate
+## alo Migrate
 
 - [L] Everything in product-doc §6 — audit, identity, mail furniture, calendars, files+permissions, autodiscover, cutover safety, subscription retirement. Migrate is launch-critical and fully specified there; it is listed here so no one forgets it is a *product*, not a script.
 

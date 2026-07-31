@@ -2,12 +2,12 @@
 
 > **Update (ADR 0012 shipped):** **both findings are now addressed.**
 > Finding 1 (tenant→domain ownership) — the `domains` table, the
-> `ficina-control` operator plane that registers + DNS-verifies domains, and
+> `alo-control` operator plane that registers + DNS-verifies domains, and
 > the address-assignment guard all exist; enforcement is live behind
-> `FICINA_ENFORCE_DOMAIN_OWNERSHIP` (default off until a deployment registers
-> its domains, then flip). Finding 2 (AI-endpoint SSRF) — `ficina-ai` now has
+> `ALO_ENFORCE_DOMAIN_OWNERSHIP` (default off until a deployment registers
+> its domains, then flip). Finding 2 (AI-endpoint SSRF) — `alo-ai` now has
 > a deployment-mode egress policy: default `open` (self-hosted, model on
-> localhost/LAN) allows any host; `FICINA_AI_EGRESS=restricted` (shared
+> localhost/LAN) allows any host; `ALO_AI_EGRESS=restricted` (shared
 > hosting) requires https and refuses any host resolving to a
 > loopback/link-local/private/ULA address, pinning the vetted IP to defeat DNS
 > rebinding, with every rejection indistinguishable from an unreachable host
@@ -22,10 +22,10 @@ list fan-out is loop-free and same-tenant, and no secret or message
 body reaches a log.
 
 It surfaced two **medium** findings that share one root cause: the
-**multi-tenant trust boundary is not built yet**. Today Ficina ships
+**multi-tenant trust boundary is not built yet**. Today alo ships
 as a single-tenant, self-hosted sovereign deployment — the tenant
 admin *is* the box operator, and there is one global mail domain
-(`FICINA_SMTP_LOCAL_DOMAINS`). Both findings are only exploitable once
+(`ALO_SMTP_LOCAL_DOMAINS`). Both findings are only exploitable once
 we host multiple mutually-distrusting tenants on shared
 infrastructure — the **multi-tenant control plane** (a later phase).
 They are recorded here so they close *before* that boundary is
@@ -94,7 +94,7 @@ multi-tenant boundary:
 
 - **Response-size cap on AI backend replies** — a hostile/broken
   backend can no longer force an unbounded in-memory buffer
-  (`ficina-ai` streams with a 4 MiB ceiling).
+  (`alo-ai` streams with a 4 MiB ceiling).
 - **Per-route body limit on `/ai/improve`** — the draft cap (64 KiB)
   is enforced before buffering, not the large blob-upload ceiling.
 - **`set_default_ai_provider` no longer silently disables AI** — a

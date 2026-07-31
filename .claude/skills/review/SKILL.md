@@ -1,6 +1,6 @@
 ---
 name: review
-description: Cold code-review workflow for Ficina. Use when reviewing any diff, PR, or "look at this code" request, and as the final pass of the implement skill. Adversarial stance — the reviewer's job is to find the reason NOT to merge.
+description: Cold code-review workflow for alo. Use when reviewing any diff, PR, or "look at this code" request, and as the final pass of the implement skill. Adversarial stance — the reviewer's job is to find the reason NOT to merge.
 ---
 
 # Review a diff cold

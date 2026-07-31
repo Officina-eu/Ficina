@@ -1,6 +1,6 @@
 // The AI-provider catalog the admin screen presents. Every kind here speaks the
 // OpenAI-compatible Chat Completions contract our inference layer drives:
-// self-hosted Ollama, the built-in Ficina AI (point it at your EU-hosted or
+// self-hosted Ollama, the built-in alo AI (point it at your EU-hosted or
 // local endpoint), OpenAI, Anthropic (via its OpenAI-compatible endpoint), and
 // a custom endpoint.
 import { strings } from "../i18n";
@@ -26,9 +26,9 @@ export const CATALOG: CatalogEntry[] = [
     needsKey: false,
   },
   {
-    kind: "ficina",
-    name: strings.kindFicina,
-    description: strings.ficinaDesc,
+    kind: "alo",
+    name: strings.kindalo,
+    description: strings.aloDesc,
     group: "self",
     defaultBaseUrl: "",
     needsKey: false,

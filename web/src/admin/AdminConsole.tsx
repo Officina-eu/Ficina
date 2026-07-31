@@ -64,7 +64,7 @@ export function AdminConsole() {
           <p>{strings.adminDeniedBody}</p>
           <Link to="/mail" className={styles.deniedBtn}>
             <ArrowLeft size={16} />
-            <span>{strings.adminBackToFicina}</span>
+            <span>{strings.adminBackToalo}</span>
           </Link>
         </div>
       </div>
@@ -76,7 +76,7 @@ export function AdminConsole() {
       <aside className={styles.sidebar}>
         <Link to="/mail" className={styles.back}>
           <ArrowLeft size={16} />
-          <span>{strings.adminBackToFicina}</span>
+          <span>{strings.adminBackToalo}</span>
         </Link>
         <div className={styles.brand}>{strings.adminTitle}</div>
         <nav className={styles.sideNav}>

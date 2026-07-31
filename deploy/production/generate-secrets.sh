@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 
 if [ ! -f .env ]; then
 	cp .env.example .env
-	echo "created .env from .env.example — edit DOMAIN / FICINA_SMTP_LOCAL_DOMAINS / ACME_EMAIL before bringing the stack up"
+	echo "created .env from .env.example — edit DOMAIN / ALO_SMTP_LOCAL_DOMAINS / ACME_EMAIL before bringing the stack up"
 fi
 
 rand() { openssl rand -base64 32 | tr -d '/+=' | cut -c1-40; }

@@ -1,4 +1,4 @@
-# Ficina — single-server production deployment
+# alo — single-server production deployment
 
 This runs the **complete first-class mail path** on one server and one
 database: **receive** mail, **read** it from any mail app, **send**, and
@@ -12,14 +12,14 @@ separate Phase-2 build). Everything needed for a mail app to work is here.
 
 | Service | Purpose | Ports |
 |---|---|---|
-| `ficina-smtp` | receive (25) + authenticated send (587/465) + outbound + spam/trust stack | 25, 587, 465 |
-| `ficina-imap` | read mail from a mail app | 993 (IMAPS), 995 (POP3S) — 143 closed |
-| `ficina-jmap` | native API **and** the OpenID Connect login provider (behind Caddy) | internal 8080 |
+| `alo-smtp` | receive (25) + authenticated send (587/465) + outbound + spam/trust stack | 25, 587, 465 |
+| `alo-imap` | read mail from a mail app | 993 (IMAPS), 995 (POP3S) — 143 closed |
+| `alo-jmap` | native API **and** the OpenID Connect login provider (behind Caddy) | internal 8080 |
 | `caddy` | automatic Let's Encrypt HTTPS for the login/API origin | 80, 443 |
 | `postgres` | system of record | internal |
 | `rspamd` | spam scoring at receive time | internal |
 
-Message bodies are stored on a shared on-disk volume all three Ficina
+Message bodies are stored on a shared on-disk volume all three alo
 services mount (single-node; multi-node would swap in Garage/S3).
 
 ## Prerequisites
@@ -47,7 +47,7 @@ services mount (single-node; multi-node would swap in Garage/S3).
 ```sh
 cd deploy/production
 cp .env.example .env
-# Edit .env: DOMAIN, FICINA_SMTP_LOCAL_DOMAINS, ACME_EMAIL.
+# Edit .env: DOMAIN, ALO_SMTP_LOCAL_DOMAINS, ACME_EMAIL.
 ./generate-secrets.sh          # fills POSTGRES_PASSWORD with fresh randomness
 ./generate-dkim.sh             # writes dkim/dkim.key and PRINTS the DNS record
 # → add the printed TXT record at fic._domainkey.<your-domain>, then continue.
@@ -68,8 +68,8 @@ Create your first admin mailbox (password read from the environment, never
 the command line):
 
 ```sh
-docker compose exec -e FICINA_ADMIN_PASSWORD='a-strong-password' \
-  ficina-jmap identityctl bootstrap-admin your-org you@your-domain.com
+docker compose exec -e ALO_ADMIN_PASSWORD='a-strong-password' \
+  alo-jmap identityctl bootstrap-admin your-org you@your-domain.com
 ```
 
 ## Connect a mail app (the day-one inbox)
@@ -91,8 +91,8 @@ Once up, the OpenID Connect endpoints are live at `https://<DOMAIN>`:
 webmail) with:
 
 ```sh
-docker compose exec ficina-jmap \
-  identityctl register-client web "Ficina Web" https://<DOMAIN>/callback
+docker compose exec alo-jmap \
+  identityctl register-client web "alo Web" https://<DOMAIN>/callback
 ```
 
 ## TLS certificates
@@ -110,7 +110,7 @@ proxy's internal storage.
 - **Renewal is automatic:** the `certbot` service runs `certbot renew` on a
   12-hour loop and only touches port 80 when a cert is within 30 days of
   expiry. The mail services pick up a renewed cert on their next restart, so
-  a monthly `docker compose restart ficina-smtp ficina-imap` (or a
+  a monthly `docker compose restart alo-smtp alo-imap` (or a
   reload-on-change hook) keeps them current — a small operational note, not a
   blocker.
 
@@ -130,7 +130,7 @@ verified. Two real-world constraints to know:
   even split into quoted strings — and a 2048-bit RSA DKIM record is ~400
   chars. If your DNS host can't store it, either move DNS to a provider that
   handles long TXT records (Cloudflare does, for free), **or** use an
-  **Ed25519** DKIM key: set `FICINA_SMTP_DKIM_ALGORITHM=ed25519`, generate with
+  **Ed25519** DKIM key: set `ALO_SMTP_DKIM_ALGORITHM=ed25519`, generate with
   `openssl genpkey -algorithm ed25519 -out dkim/dkim.key`, and publish
   `v=DKIM1; k=ed25519; p=<base64 of the 32-byte public key>` (only ~60 chars).
   Ed25519 DKIM (RFC 8463) is verified by Gmail/Outlook and passes DMARC; note
@@ -145,18 +145,18 @@ Let's Encrypt cannot issue for a private/local name, so for a laptop smoke
 test skip certbot + Caddy and let the mail services self-sign. In `.env`:
 
 ```sh
-FICINA_SMTP_ALLOW_SELF_SIGNED=true
-FICINA_IMAP_ALLOW_SELF_SIGNED=true
-FICINA_SMTP_TLS_CERT=
-FICINA_SMTP_TLS_KEY=
-FICINA_IMAP_TLS_CERT=
-FICINA_IMAP_TLS_KEY=
+ALO_SMTP_ALLOW_SELF_SIGNED=true
+ALO_IMAP_ALLOW_SELF_SIGNED=true
+ALO_SMTP_TLS_CERT=
+ALO_SMTP_TLS_KEY=
+ALO_IMAP_TLS_CERT=
+ALO_IMAP_TLS_KEY=
 ```
 
 Then bring up only the core services (no cert needed):
 
 ```sh
-docker compose up -d --build postgres rspamd ficina-smtp ficina-imap ficina-jmap
+docker compose up -d --build postgres rspamd alo-smtp alo-imap alo-jmap
 ```
 
 The mail services present self-signed certs (mail apps will warn) and the
@@ -170,25 +170,25 @@ never for production. Do not run `init-certs.sh` locally.
   A detected token replay or a failed revoke logs a `warn` a monitor can
   alert on.
 - **Turn off outbound sending** (kill-switch): set
-  `FICINA_SMTP_OUTBOUND_ENABLED=false` in `.env` and
-  `docker compose up -d ficina-smtp`.
+  `ALO_SMTP_OUTBOUND_ENABLED=false` in `.env` and
+  `docker compose up -d alo-smtp`.
 - **Stop everything:** `docker compose down` (data volumes persist);
   `docker compose down -v` also deletes the data (irreversible).
 
 ## The web app
 
-The Ficina web app (the browser workspace — Mail first) is served at the same
+The alo web app (the browser workspace — Mail first) is served at the same
 origin as the API: Caddy serves the built SPA for normal paths and reverse-
 proxies the backend paths (`/oauth/*`, `/jmap/*`, `/.well-known/*`,
-`/auth/token`) to `ficina-jmap`. Same origin means no CORS and a first-party
+`/auth/token`) to `alo-jmap`. Same origin means no CORS and a first-party
 OIDC login redirect. The files live in a mounted directory (`./web`, mapped to
 `/srv` in the Caddy container), so publishing is a static-file copy — no
 restart.
 
 ```sh
 # one time: register the web app as a public OIDC client (PKCE, no secret)
-docker compose exec ficina-jmap identityctl register-client \
-  web "Ficina Web" https://<DOMAIN>/auth/callback
+docker compose exec alo-jmap identityctl register-client \
+  web "alo Web" https://<DOMAIN>/auth/callback
 
 # build + publish (from a machine with the repo + Node):
 DEPLOY_HOST=root@<DOMAIN> DEPLOY_KEY=~/.ssh/<key> ./deploy-web.sh

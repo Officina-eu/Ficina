@@ -1,7 +1,7 @@
-//! Ficina multi-tenant control plane (ADR 0012).
+//! alo multi-tenant control plane (ADR 0012).
 //!
 //! The operator surface — distinct from the tenant `/admin/*` surface on
-//! `ficina-jmap` — for governing tenants across a shared deployment: list,
+//! `alo-jmap` — for governing tenants across a shared deployment: list,
 //! provision, suspend/resume, and delete tenants, and register/verify the
 //! domains a tenant is allowed to assign addresses in. Every route is gated on
 //! a platform operator (`users.is_platform_admin`); an operator token grants

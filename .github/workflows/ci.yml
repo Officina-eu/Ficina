@@ -18,18 +18,18 @@ jobs:
     # and clippy do not need the database — only the tests do.
     env:
       SQLX_OFFLINE: "true"
-      DATABASE_URL: "postgres://ficina:ficina-dev-only@localhost:5432/ficina"
+      DATABASE_URL: "postgres://alo:alo-dev-only@localhost:5432/alo"
     services:
       postgres:
         image: postgres:16.14
         env:
-          POSTGRES_USER: ficina
-          POSTGRES_PASSWORD: ficina-dev-only
-          POSTGRES_DB: ficina
+          POSTGRES_USER: alo
+          POSTGRES_PASSWORD: alo-dev-only
+          POSTGRES_DB: alo
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ficina -d ficina"
+          --health-cmd "pg_isready -U alo -d alo"
           --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
@@ -88,14 +88,14 @@ jobs:
       - name: Boot the Phase 0 working set
         run: >
           docker compose -f deploy/docker-compose.yml up -d --build --wait
-          --wait-timeout 300 postgres garage rspamd ficina-smtp
+          --wait-timeout 300 postgres garage rspamd alo-smtp
       - name: Show service health
         if: always()
         run: docker compose -f deploy/docker-compose.yml ps
-      - name: Wire test against the composed ficina-smtp
+      - name: Wire test against the composed alo-smtp
         env:
-          FICINA_SMTP_TEST_ADDR: 127.0.0.1:2525
-        run: cargo test --package ficina-smtp --test smtp_wire
+          ALO_SMTP_TEST_ADDR: 127.0.0.1:2525
+        run: cargo test --package alo-smtp --test smtp_wire
       - name: Logs on failure
         if: failure()
         run: docker compose -f deploy/docker-compose.yml logs

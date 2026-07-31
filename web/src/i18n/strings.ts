@@ -5,7 +5,7 @@
 // inline English.
 export const strings = {
   // brand
-  appName: "Ficina",
+  appName: "alo",
   tagline: "The sovereign, AI-native workspace for Europe.",
 
   // modules (rail labels + titles)
@@ -121,7 +121,7 @@ export const strings = {
   mailActionFailed: "That didn't work — please try again.",
   endOfMessage: "End of message",
   threadMessages: "messages",
-  ficinaSummary: "Ficina summary",
+  aloSummary: "alo summary",
   summaryPending: "Summarizing this conversation…",
   smartReplies: "Suggested replies",
   quickReplyHint: "Reply all · Forward above",
@@ -184,7 +184,7 @@ export const strings = {
   labelColor: "Label color",
   labelColorHint: "right-click to color",
   labelColorClear: "No color",
-  // Ficina Transfer (large files as expiring links)
+  // alo Transfer (large files as expiring links)
   transferLink: "link",
   transferSharedFile: "📎 Shared file",
   transferDownload: "Download",
@@ -273,7 +273,7 @@ export const strings = {
 
   // admin console
   adminTitle: "Admin",
-  adminBackToFicina: "Back to Ficina",
+  adminBackToalo: "Back to alo",
   adminOpen: "Admin console",
 
   // admin — overview dashboard
@@ -446,7 +446,7 @@ export const strings = {
   userActionError: "That didn't work — please try again.",
   userClose: "Close",
   adminAiProviders: "AI providers",
-  adminAiIntro: "Choose which models power Ficina — self-hosted, or your own API keys.",
+  adminAiIntro: "Choose which models power alo — self-hosted, or your own API keys.",
   adminAddProvider: "Add provider",
   adminManage: "Manage",
   adminDefaultBadge: "Default",
@@ -463,13 +463,13 @@ export const strings = {
   providerReady: "Ready",
   providerNotConfigured: "Not configured",
   kindOllama: "Ollama",
-  kindFicina: "Ficina AI",
+  kindalo: "alo AI",
   kindOpenai: "OpenAI",
   kindAnthropic: "Anthropic",
   kindCustom: "Custom endpoint",
   builtInTag: "Built in",
   ollamaDesc: "Local models on your server — Llama 3, Mistral, and more. Fully private.",
-  ficinaDesc: "Built-in, EU-hosted model tuned for Ficina — point it at your Ficina AI endpoint.",
+  aloDesc: "Built-in, EU-hosted model tuned for alo — point it at your alo AI endpoint.",
   openaiDesc: "GPT-4o, GPT-4o mini. Add your OpenAI key to enable.",
   anthropicDesc: "Claude models. Add your Anthropic API key to enable.",
   customDesc: "Any OpenAI-compatible API — self-hosted vLLM, Together, Groq, OpenRouter…",
@@ -504,7 +504,7 @@ export const strings = {
   archiveUnavailable: "There's no archive folder to move this to.",
 
   // technical authoring (Docs) — equations, code, cross-references
-  // Ficina Docs surface (document chrome)
+  // alo Docs surface (document chrome)
   docTitle: "Q3 Offer — Proceq",
   docSaved: "Saved to Drive · all changes saved",
   docAskAi: "Ask AI",
@@ -586,7 +586,7 @@ export const strings = {
   insertConfirm: "Insert",
 
   // Docs — the module (browser + editor chrome)
-  docsTitle: "Ficina Docs",
+  docsTitle: "alo Docs",
   docsNew: "New document",
   docsEmpty: "No documents yet. Create one to start writing.",
   docsDelete: (title: string) => `Delete ${title}`,

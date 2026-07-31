@@ -1,16 +1,16 @@
 [package]
-name = "ficina-control"
-description = "Ficina multi-tenant control plane: tenant lifecycle, domains, operators"
+name = "alo-control"
+description = "alo multi-tenant control plane: tenant lifecycle, domains, operators"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-ficina-store = { path = "../core/ficina-store" }
-ficina-identity = { path = "../core/ficina-identity" }
+alo-store = { path = "../core/alo-store" }
+alo-identity = { path = "../core/alo-identity" }
 # Per-domain DKIM key generation when a domain is verified (ADR 0014).
-ficina-auth-mail = { path = "../core/ficina-auth-mail" }
+alo-auth-mail = { path = "../core/alo-auth-mail" }
 # DNS TXT lookup to verify a tenant's domain ownership (same resolver the
 # Security & trust checks use).
 hickory-resolver = { workspace = true }

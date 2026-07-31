@@ -1,6 +1,6 @@
 ---
 name: quality-gate
-description: The mandatory verification gate for Ficina. Run before declaring ANY code change done, before every commit of production code, and whenever asked to "check", "verify", or "make sure it works". All checks must pass — zero warnings, all tests green, tenant isolation included. Never report done with a failing or skipped gate.
+description: The mandatory verification gate for alo. Run before declaring ANY code change done, before every commit of production code, and whenever asked to "check", "verify", or "make sure it works". All checks must pass — zero warnings, all tests green, tenant isolation included. Never report done with a failing or skipped gate.
 ---
 
 # Quality gate

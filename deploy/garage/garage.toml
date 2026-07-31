@@ -1,4 +1,4 @@
-# Garage configuration for the Ficina development/CI compose stack.
+# Garage configuration for the alo development/CI compose stack.
 # Secrets come from the environment (GARAGE_RPC_SECRET,
 # GARAGE_ADMIN_TOKEN in docker-compose.yml) — never from this file.
 # Production topology (replication across two EU locations per the DR
@@ -16,7 +16,7 @@ rpc_public_addr = "127.0.0.1:3901"
 [s3_api]
 s3_region = "garage"
 api_bind_addr = "[::]:3900"
-root_domain = ".s3.ficina.test"
+root_domain = ".s3.alo.test"
 
 [admin]
 api_bind_addr = "[::]:3903"
