@@ -1,24 +1,29 @@
-// Account settings, opened from the account menu: the user's mail signature,
-// and (for admins) the tenant-wide organization footer. Both are HTML the
-// compose surface inserts into outgoing mail. Reuses the mail rich-text editor
-// and the admin console's modal styles.
+// Account settings, opened from the account menu, laid out as a two-pane
+// preferences panel (section nav + content) in the spirit of Gmail / Outlook
+// settings. Sections: General (signature + vacation), Filters & rules, and —
+// for admins — the tenant Organization footer. General/Organization save via
+// the footer button; Filters persist themselves.
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Building2, PenLine, SlidersHorizontal, X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Button, Spinner } from "../ds";
 import { useJmapClient } from "../jmap";
 import { RichTextEditor } from "../mail/components/RichTextEditor";
 import { FiltersSection } from "./FiltersSection";
-import styles from "../admin/admin.module.css";
+import styles from "./SettingsModal.module.css";
 
 interface SettingsModalProps {
   isAdmin: boolean;
   onClose: () => void;
 }
 
+type Tab = "general" | "filters" | "org";
+
 export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
   const client = useJmapClient();
+  const [tab, setTab] = useState<Tab>("general");
   const [loaded, setLoaded] = useState(false);
   const [signature, setSignature] = useState("");
   const [orgFooter, setOrgFooter] = useState("");
@@ -53,6 +58,7 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
   async function save() {
     if (oooEnabled && oooMessage.trim() === "") {
       setError(strings.settingsOooNeedsMessage);
+      setTab("general");
       return;
     }
     setBusy(true);
@@ -70,6 +76,14 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
     }
   }
 
+  const nav: { key: Tab; label: string; icon: ReactNode }[] = [
+    { key: "general", label: strings.settingsTabGeneral, icon: <PenLine size={16} /> },
+    { key: "filters", label: strings.settingsFilters, icon: <SlidersHorizontal size={16} /> },
+    ...(isAdmin
+      ? [{ key: "org" as Tab, label: strings.settingsTabOrg, icon: <Building2 size={16} /> }]
+      : []),
+  ];
+
   return (
     <div className={styles.overlay} onMouseDown={onClose}>
       <div
@@ -79,7 +93,10 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
         aria-label={strings.settingsTitle}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className={styles.modalHead}>
+        <div className={styles.head}>
+          <span className={styles.headIcon}>
+            <SlidersHorizontal size={17} />
+          </span>
           <h2>{strings.settingsTitle}</h2>
           <button
             type="button"
@@ -90,81 +107,118 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
             <X size={18} />
           </button>
         </div>
-        <div className={styles.modalBody}>
-          {!loaded && error === null ? (
-            <div className={styles.state}>
-              <Spinner size={22} />
-            </div>
-          ) : (
-            <>
-              <div className={styles.field}>
-                <span className={styles.label}>{strings.settingsSignature}</span>
-                <div className={styles.sigEditor}>
-                  <RichTextEditor
-                    initialHtml={signature}
-                    onChange={setSignature}
-                    placeholder={strings.settingsSignatureHint}
-                  />
-                </div>
-              </div>
 
-              <div className={styles.field}>
-                <label className={styles.oooToggleRow}>
-                  <span className={styles.label}>{strings.settingsOutOfOffice}</span>
-                  <span className={styles.toggle}>
-                    <input
-                      type="checkbox"
-                      checked={oooEnabled}
-                      onChange={(e) => setOooEnabled(e.target.checked)}
-                    />
-                    <span className={styles.track} />
-                  </span>
-                </label>
-                <p className={styles.pageIntro}>{strings.settingsOutOfOfficeHint}</p>
-                {oooEnabled && (
-                  <>
-                    <input
-                      className={styles.input}
-                      value={oooSubject}
-                      onChange={(e) => setOooSubject(e.target.value)}
-                      placeholder={strings.settingsOooSubjectPlaceholder}
-                    />
-                    <textarea
-                      className={styles.textarea}
-                      rows={4}
-                      value={oooMessage}
-                      onChange={(e) => setOooMessage(e.target.value)}
-                      placeholder={strings.settingsOooMessagePlaceholder}
-                    />
-                  </>
-                )}
-              </div>
-              <FiltersSection />
+        {!loaded && error === null ? (
+          <div className={styles.loading}>
+            <Spinner size={24} />
+          </div>
+        ) : (
+          <div className={styles.body}>
+            <nav className={styles.nav} aria-label={strings.settingsTitle}>
+              {nav.map((n) => (
+                <button
+                  key={n.key}
+                  type="button"
+                  className={tab === n.key ? styles.navItemOn : styles.navItem}
+                  onClick={() => setTab(n.key)}
+                  aria-current={tab === n.key}
+                >
+                  <span className={styles.navIcon}>{n.icon}</span>
+                  <span>{n.label}</span>
+                </button>
+              ))}
+            </nav>
 
-              {isAdmin && (
-                <div className={styles.field}>
-                  <span className={styles.label}>{strings.settingsOrgFooter}</span>
-                  <p className={styles.pageIntro}>{strings.settingsOrgFooterHint}</p>
-                  <div className={styles.sigEditor}>
+            <div className={styles.content}>
+              {tab === "general" && (
+                <>
+                  <section className={styles.section}>
+                    <h3 className={styles.sectionTitle}>{strings.settingsSignature}</h3>
+                    <p className={styles.sectionDesc}>{strings.settingsSignatureHint}</p>
+                    <div className={styles.editorCard}>
+                      <RichTextEditor
+                        initialHtml={signature}
+                        onChange={setSignature}
+                        placeholder={strings.settingsSignatureHint}
+                      />
+                    </div>
+                  </section>
+
+                  <section className={styles.section}>
+                    <h3 className={styles.sectionTitle}>{strings.settingsOutOfOffice}</h3>
+                    <div className={styles.oooCard}>
+                      <label className={styles.oooRow}>
+                        <span className={styles.oooRowText}>
+                          <span className={styles.oooRowTitle}>{strings.settingsOooToggle}</span>
+                          <span className={styles.oooRowHint}>
+                            {strings.settingsOutOfOfficeHint}
+                          </span>
+                        </span>
+                        <span className={styles.toggle}>
+                          <input
+                            type="checkbox"
+                            checked={oooEnabled}
+                            onChange={(e) => setOooEnabled(e.target.checked)}
+                          />
+                          <span className={styles.track} />
+                        </span>
+                      </label>
+                      {oooEnabled && (
+                        <>
+                          <input
+                            className={styles.input}
+                            value={oooSubject}
+                            onChange={(e) => setOooSubject(e.target.value)}
+                            placeholder={strings.settingsOooSubjectPlaceholder}
+                          />
+                          <textarea
+                            className={styles.textarea}
+                            rows={4}
+                            value={oooMessage}
+                            onChange={(e) => setOooMessage(e.target.value)}
+                            placeholder={strings.settingsOooMessagePlaceholder}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {tab === "filters" && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>{strings.settingsFilters}</h3>
+                  <p className={styles.sectionDesc}>{strings.settingsFiltersHint}</p>
+                  <FiltersSection />
+                </section>
+              )}
+
+              {tab === "org" && isAdmin && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>{strings.settingsOrgFooter}</h3>
+                  <p className={styles.sectionDesc}>{strings.settingsOrgFooterHint}</p>
+                  <div className={styles.editorCard}>
                     <RichTextEditor
                       initialHtml={orgFooter}
                       onChange={setOrgFooter}
                       placeholder={strings.settingsOrgFooterPlaceholder}
                     />
                   </div>
-                </div>
+                </section>
               )}
-              {note !== null && <span className={styles.hintOk}>{note}</span>}
-              {error !== null && (
-                <p className={styles.error} role="alert">
-                  {error}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-        <div className={styles.modalFoot}>
-          <div className={styles.footSpacer} />
+            </div>
+          </div>
+        )}
+
+        <div className={styles.foot}>
+          <span className={styles.footMsg}>
+            {note !== null && <span className={styles.footOk}>{note}</span>}
+            {error !== null && (
+              <span className={styles.footErr} role="alert">
+                {error}
+              </span>
+            )}
+          </span>
           <button type="button" className={styles.textBtn} onClick={onClose}>
             {strings.userClose}
           </button>

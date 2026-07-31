@@ -1,3 +1,9 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .loading {
   display: flex;
   justify-content: center;

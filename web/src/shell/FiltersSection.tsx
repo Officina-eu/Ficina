@@ -134,20 +134,14 @@ export function FiltersSection() {
 
   if (!loaded && error === null) {
     return (
-      <div className={admin.field}>
-        <span className={admin.label}>{strings.settingsFilters}</span>
-        <div className={styles.loading}>
-          <Spinner size={18} />
-        </div>
+      <div className={styles.loading}>
+        <Spinner size={18} />
       </div>
     );
   }
 
   return (
-    <div className={admin.field}>
-      <span className={admin.label}>{strings.settingsFilters}</span>
-      <p className={admin.pageIntro}>{strings.settingsFiltersHint}</p>
-
+    <div className={styles.section}>
       {rules.length > 0 && (
         <ul className={styles.list}>
           {rules.map((rule) => (

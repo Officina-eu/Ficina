@@ -243,6 +243,9 @@ export const strings = {
   // account settings (signature + org footer)
   settingsOpen: "Settings",
   settingsTitle: "Mail settings",
+  settingsTabGeneral: "General",
+  settingsTabOrg: "Organization",
+  settingsOooToggle: "Send automatic replies",
   settingsSignature: "Your signature",
   settingsSignatureHint: "Added to the bottom of messages you send…",
   settingsOrgFooter: "Organization footer",
