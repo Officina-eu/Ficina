@@ -16,6 +16,7 @@ export {
   type EmailBodyValue,
   type EmailAttachment,
   type EmailAddress,
+  type MessageAuthentication,
   type MailFilterRule,
   type FilterCondition,
   type FilterAction,

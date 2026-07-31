@@ -42,6 +42,7 @@ import { htmlContent, textContent, threadDigest } from "../body";
 import { ThreadMessage } from "./ThreadMessage";
 import { CategoryChips } from "./CategoryChips";
 import { CategoryPicker } from "./CategoryPicker";
+import { SpamBanner } from "./SpamBanner";
 import { SnoozeMenu } from "./SnoozeMenu";
 import styles from "./ReadingPane.module.css";
 
@@ -411,6 +412,13 @@ export function ReadingPane({
       </div>
 
       <div className={styles.bodyScroll}>
+        {isJunk && (
+          <SpamBanner
+            auth={latest["alo:authentication"]}
+            from={latest.from}
+            onNotSpam={onReportSpam}
+          />
+        )}
         <div className={styles.subjectRow}>
           <h1 className={styles.subject}>{subjectOr(latest)}</h1>
           {messages.length > 1 && (

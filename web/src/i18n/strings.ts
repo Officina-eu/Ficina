@@ -258,6 +258,17 @@ export const strings = {
   print: "Print",
   reportSpam: "Report spam",
   notSpam: "Not spam",
+  // Spam "why was this flagged" banner (reading pane, Junk folder)
+  spamBannerTitle: "This message is in Spam",
+  spamReasonDmarc: (domain: string) =>
+    `We couldn't confirm it was really sent from ${domain} — it failed DMARC authentication, a common sign of spoofing.`,
+  spamReasonDkim: "Its cryptographic signature (DKIM) didn't validate, so the sender couldn't be verified.",
+  spamReasonSpf: (domain: string) =>
+    `The server that sent it isn't authorized to send mail for ${domain} (SPF failed).`,
+  spamReasonNone:
+    "We didn't detect a delivery problem with this message — it may match mail that you or a filter rule marked as spam before.",
+  spamBannerHint: "If this isn't spam, move it back to your Inbox.",
+  spamSenderFallback: "the sender's domain",
   forwardAsAttachment: "Forward as attachment",
   blockSender: "Block sender",
   junkUnavailable: "There's no Junk folder to move this to.",
