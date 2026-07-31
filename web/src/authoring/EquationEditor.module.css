@@ -246,19 +246,12 @@
 
 .catNav {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
-  overflow-x: auto;
   margin: var(--space-3) 0 var(--space-1);
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-
-.catNav::-webkit-scrollbar {
-  display: none;
 }
 
 .catChip {
-  flex-shrink: 0;
   padding: 4px var(--space-3);
   border-radius: var(--radius-full);
   background: var(--bg-raised);
