@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import {
   Archive,
+  Ban,
   CalendarClock,
   Code2,
   Download,
@@ -89,6 +90,8 @@ interface ReadingPaneProps {
   onSmartReply: (text: string) => void;
   /** Cancel a scheduled send (only shown while viewing the Scheduled folder). */
   onCancelSend: () => void;
+  /** Block the sender of the open conversation (files their mail to Junk). */
+  onBlockSender: (email: string) => void;
   /** Whether the open conversation is in the Scheduled folder (send later). */
   isScheduled: boolean;
   /** Whether the open conversation is in the Junk folder (flips Report/Not spam). */
@@ -113,6 +116,7 @@ export function ReadingPane({
   onForwardAttachment,
   onSmartReply,
   onCancelSend,
+  onBlockSender,
   isScheduled,
   isJunk,
 }: ReadingPaneProps) {
@@ -251,6 +255,7 @@ export function ReadingPane({
 
   /** The message these single-message actions apply to (the newest). */
   const target = latest;
+  const senderEmail = target.from?.[0]?.email;
   const emlName = `${(subjectOr(target) || "message").replace(/[^\w.-]+/g, "_").slice(0, 60)}.eml`;
 
   async function fetchRaw(): Promise<Blob> {
@@ -335,6 +340,16 @@ export function ReadingPane({
       icon: <Paperclip />,
       onClick: onForwardAttachment,
     },
+    ...(senderEmail !== undefined && senderEmail.toLowerCase() !== me
+      ? [
+          {
+            key: "block",
+            label: strings.blockSenderNamed(senderEmail),
+            icon: <Ban />,
+            onClick: () => onBlockSender(senderEmail),
+          },
+        ]
+      : []),
     { key: "print", label: strings.print, icon: <Printer />, onClick: () => printThread() },
     { key: "original", label: strings.showOriginal, icon: <Code2 />, onClick: () => void showOriginal() },
     { key: "download", label: strings.downloadEml, icon: <Download />, onClick: () => void downloadEml() },

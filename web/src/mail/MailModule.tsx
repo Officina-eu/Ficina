@@ -180,6 +180,16 @@ export function MailModule() {
     }
   }
 
+  // Block a sender: append a server-side rule that files their mail to Junk.
+  async function blockSender(email: string) {
+    try {
+      await client.blockSender(email);
+      setToast(strings.senderBlocked(email));
+    } catch {
+      fail();
+    }
+  }
+
   // Cancel a scheduled send: the draft returns to Drafts, editable again.
   async function cancelScheduledSend(emailId: string) {
     try {
@@ -392,6 +402,7 @@ export function MailModule() {
           latest !== undefined && setCompose({ mode: "reply", replyTo: latest, body: text })
         }
         onCancelSend={() => latest !== undefined && void cancelScheduledSend(latest.id)}
+        onBlockSender={(email) => void blockSender(email)}
         isScheduled={boxes.find((b) => b.id === mailboxId)?.role === "scheduled"}
         isJunk={boxes.find((b) => b.id === mailboxId)?.role === "junk"}
       />

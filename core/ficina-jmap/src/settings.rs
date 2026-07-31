@@ -65,11 +65,14 @@ pub async fn set_out_of_office(
             "a message is required to turn on out-of-office",
         ));
     }
+    // Persist the state only, then rebuild the single managed Sieve script so
+    // vacation coexists with any mail filters (one active script per account).
     account
         .acc
-        .set_out_of_office(enabled, subject, message)
+        .set_out_of_office_state(enabled, subject, message)
         .await
         .map_err(|_| Problem::server_error())?;
+    crate::filters::rebuild_managed_script(&account).await?;
     Ok(Json(json!({ "ok": true })))
 }
 

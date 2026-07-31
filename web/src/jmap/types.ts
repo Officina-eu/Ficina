@@ -36,6 +36,33 @@ export interface Mailbox {
   unreadEmails: number;
 }
 
+/** A server-side mail filter (rule). Mirrors the ficina-jmap rule model; the
+ * server compiles these to a Sieve script that runs at delivery. */
+export type FilterField = "from" | "to" | "cc" | "subject";
+export type FilterOp = "contains" | "is";
+export type FilterMatch = "all" | "any";
+
+export interface FilterCondition {
+  field: FilterField;
+  op: FilterOp;
+  value: string;
+}
+
+export type FilterAction =
+  | { type: "fileInto"; mailbox: string }
+  | { type: "markRead" }
+  | { type: "star" }
+  | { type: "delete" };
+
+export interface MailFilterRule {
+  id: string;
+  name: string;
+  match: FilterMatch;
+  conditions: FilterCondition[];
+  actions: FilterAction[];
+  enabled: boolean;
+}
+
 export interface EmailHeaders {
   id: string;
   threadId: string;

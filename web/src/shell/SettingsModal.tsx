@@ -9,6 +9,7 @@ import { strings } from "../i18n";
 import { Button, Spinner } from "../ds";
 import { useJmapClient } from "../jmap";
 import { RichTextEditor } from "../mail/components/RichTextEditor";
+import { FiltersSection } from "./FiltersSection";
 import styles from "../admin/admin.module.css";
 
 interface SettingsModalProps {
@@ -138,6 +139,8 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
                   </>
                 )}
               </div>
+              <FiltersSection />
+
               {isAdmin && (
                 <div className={styles.field}>
                   <span className={styles.label}>{strings.settingsOrgFooter}</span>

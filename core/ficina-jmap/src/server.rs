@@ -15,7 +15,8 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, blob, contacts, docs, push, schedule, security, session, settings, snooze,
+    admin, ai, api, blob, contacts, docs, filters, push, schedule, security, session, settings,
+    snooze,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -61,6 +62,9 @@ pub fn app(state: AppState) -> Router {
         .route("/send-later/cancel", post(schedule::cancel_send))
         // Recent correspondents for compose recipient autocomplete.
         .route("/contacts", get(contacts::list))
+        // Server-side mail filters (rules) + one-click Block sender.
+        .route("/filters", get(filters::list).put(filters::save))
+        .route("/filters/block", post(filters::block))
         // Ficina Docs (ADR 0015): tenant/owner-scoped technical-authoring documents.
         .route("/docs", get(docs::list).post(docs::create))
         .route(

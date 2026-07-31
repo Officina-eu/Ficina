@@ -13,6 +13,7 @@ import {
   type ControlDomain,
   type ControlTenant,
   type EmailAddress,
+  type MailFilterRule,
   type SecurityCheck,
   type EmailFull,
   type EmailHeaders,
@@ -857,5 +858,36 @@ export class JmapClient {
     if (!res.ok) throw new JmapError(`contacts ${res.status}`);
     const json = (await res.json()) as { contacts: EmailAddress[] };
     return json.contacts;
+  }
+
+  /** The user's server-side mail filter rules. */
+  async filters(): Promise<MailFilterRule[]> {
+    const res = await this.#fetch(`${window.location.origin}/filters`, { method: "GET" });
+    if (!res.ok) throw new JmapError(`filters ${res.status}`);
+    const json = (await res.json()) as { rules: MailFilterRule[] };
+    return json.rules;
+  }
+
+  /** Replace the user's mail filter rules; the server recompiles the delivery
+   * script. Returns the stored rules. */
+  async saveFilters(rules: MailFilterRule[]): Promise<MailFilterRule[]> {
+    const res = await this.#fetch(`${window.location.origin}/filters`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rules }),
+    });
+    if (!res.ok) throw new JmapError(`filters ${res.status}`);
+    const json = (await res.json()) as { rules: MailFilterRule[] };
+    return json.rules;
+  }
+
+  /** Block a sender: append a rule filing their mail into Junk (idempotent). */
+  async blockSender(email: string): Promise<void> {
+    const res = await this.#fetch(`${window.location.origin}/filters/block`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) throw new JmapError(`block ${res.status}`);
   }
 }
