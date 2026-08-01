@@ -678,6 +678,9 @@ export function MailModule() {
   // The name of the account whose folders have full management (the active one),
   // and every OTHER accessible mailbox mounted below as a navigation tree.
   const activeLabel = activeShared !== undefined ? activeShared.name : ownLabel;
+  // A read-only shared mailbox can be read but not organised — hide its
+  // create/rename/delete affordances (the server would refuse them anyway).
+  const canManage = activeShared === undefined || !activeShared.readOnly;
   const otherAccounts = [
     ...(activeAccount !== null && ownId !== null
       ? [{ id: ownId, name: ownLabel, boxes: treeMap[ownId] ?? [], readOnly: false }]
@@ -706,6 +709,7 @@ export function MailModule() {
         showAccountHeader={shared.length > 0}
         otherAccounts={otherAccounts}
         onSelectAccount={selectAccountFolder}
+        canManage={canManage}
         onCompose={() => {
           if (activeShared !== undefined && !activeShared.canSend) {
             setToast(strings.sharedNoSend);
@@ -726,6 +730,7 @@ export function MailModule() {
             onCreate={(name, color) => void createCategory(name, color)}
             onUpdate={(id, name, color) => void updateCategory(id, name, color)}
             onDelete={(cat) => void deleteCategory(cat)}
+            canManage={canManage}
           />
         }
       />

@@ -115,6 +115,9 @@ interface FolderSidebarProps {
   otherAccounts: OtherAccount[];
   /** Open a folder in one of the other mailboxes (switches the active account). */
   onSelectAccount: (accountId: string, mailboxId: string) => void;
+  /** Whether the active account may be managed — false for a read-only shared
+   * mailbox, which hides create/rename/delete/colour affordances. */
+  canManage: boolean;
   onSelect: (id: string) => void;
   onCompose: () => void;
   onDropMessage: (emailIds: string[], mailboxId: string) => void;
@@ -139,6 +142,7 @@ export function FolderSidebar({
   showAccountHeader,
   otherAccounts,
   onSelectAccount,
+  canManage,
   onSelect,
   onCompose,
   onDropMessage,
@@ -212,7 +216,7 @@ export function FolderSidebar({
         aria-current={active ? "true" : undefined}
         title={box.name}
         onContextMenu={
-          opts?.colorable
+          opts?.colorable && canManage
             ? (e) => {
                 e.preventDefault();
                 setMenu({ box, x: e.clientX, y: e.clientY });
@@ -349,20 +353,22 @@ export function FolderSidebar({
           <div className={styles.group}>
             <div className={styles.groupHead}>
               <h2 className={styles.heading}>{strings.mailFolders}</h2>
-              <button
-                type="button"
-                className={styles.newFolder}
-                onClick={() => setCreating({ parentId: null, value: "" })}
-                title={strings.folderNew}
-                aria-label={strings.folderNew}
-              >
-                <FolderPlus size={15} />
-              </button>
+              {canManage && (
+                <button
+                  type="button"
+                  className={styles.newFolder}
+                  onClick={() => setCreating({ parentId: null, value: "" })}
+                  title={strings.folderNew}
+                  aria-label={strings.folderNew}
+                >
+                  <FolderPlus size={15} />
+                </button>
+              )}
             </div>
             {custom.map(({ box, depth }) => (
               <div key={box.id} className={styles.rowWrap}>
                 {row(box, labelDot(box), { colorable: true, depth })}
-                {editing?.id !== box.id && (
+                {canManage && editing?.id !== box.id && (
                   <button
                     type="button"
                     className={styles.kebab}

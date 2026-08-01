@@ -24,6 +24,9 @@ interface CategorySectionProps {
   onCreate: (name: string, color: string | null) => void;
   onUpdate: (id: string, name: string, color: string | null) => void;
   onDelete: (category: Category) => void;
+  /** Whether the active account's labels may be managed — false for a read-only
+   * shared mailbox, which hides create/rename/delete affordances. */
+  canManage: boolean;
 }
 
 export function CategorySection({
@@ -33,6 +36,7 @@ export function CategorySection({
   onCreate,
   onUpdate,
   onDelete,
+  canManage,
 }: CategorySectionProps) {
   const [menu, setMenu] = useState<{ cat: Category; x: number; y: number } | null>(null);
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
@@ -62,15 +66,17 @@ export function CategorySection({
       <div className={styles.head}>
         <Tags size={14} className={styles.headIcon} />
         <h2 className={styles.heading}>{strings.categories}</h2>
-        <button
-          type="button"
-          className={styles.add}
-          onClick={() => setCreating("")}
-          title={strings.categoryNew}
-          aria-label={strings.categoryNew}
-        >
-          <Plus size={15} />
-        </button>
+        {canManage && (
+          <button
+            type="button"
+            className={styles.add}
+            onClick={() => setCreating("")}
+            title={strings.categoryNew}
+            aria-label={strings.categoryNew}
+          >
+            <Plus size={15} />
+          </button>
+        )}
       </div>
 
       {categories.map((c) =>
@@ -95,10 +101,14 @@ export function CategorySection({
               onClick={() => onSelect(selectedId === c.id ? null : c.id)}
               aria-pressed={selectedId === c.id}
               title={c.name}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setMenu({ cat: c, x: e.clientX, y: e.clientY });
-              }}
+              onContextMenu={
+                canManage
+                  ? (e) => {
+                      e.preventDefault();
+                      setMenu({ cat: c, x: e.clientX, y: e.clientY });
+                    }
+                  : undefined
+              }
             >
               <span
                 className={styles.dot}
@@ -107,19 +117,21 @@ export function CategorySection({
               />
               <span className={styles.name}>{c.name}</span>
             </button>
-            <button
-              type="button"
-              className={styles.kebab}
-              aria-label={strings.categoryActions(c.name)}
-              title={strings.categoryActions(c.name)}
-              onClick={(e) => {
-                e.stopPropagation();
-                const r = e.currentTarget.getBoundingClientRect();
-                setMenu({ cat: c, x: r.right, y: r.bottom });
-              }}
-            >
-              <MoreHorizontal size={15} />
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                className={styles.kebab}
+                aria-label={strings.categoryActions(c.name)}
+                title={strings.categoryActions(c.name)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setMenu({ cat: c, x: r.right, y: r.bottom });
+                }}
+              >
+                <MoreHorizontal size={15} />
+              </button>
+            )}
           </div>
         ),
       )}
