@@ -1,0 +1,124 @@
+# Shared mailboxes & delegation
+
+*User guide. For the design and security model, see
+[ADR 0017](../decisions/0017-send-as-and-mailbox-delegation.md).*
+
+A **shared mailbox** is one mailbox that several people open and work together —
+a team address like `info@aloworld.com` or `support@…`. **Delegation** is the
+same mechanism pointed at a person's own inbox (e.g. an assistant managing a
+manager's mail). Both are the same feature: a **grant** that lets one person
+(the *delegate*) access another account (the *owner*).
+
+alo matches how Outlook and Gmail work: one real mailbox, one copy of each
+message, shared read state, and the option to send **as** the address or **on
+behalf of** it.
+
+---
+
+## Key behaviour: read/unread is shared
+
+A shared mailbox holds **one copy** of each message. When any member opens a new
+email, it is marked **read for everyone**, and the mailbox's unread count drops
+for all of them. This is what stops two people from replying to the same
+message.
+
+> Example: `info@aloworld.com` has five people with access. A new email arrives.
+> One person opens it → the other four now see it as **read**.
+
+This is different from a **distribution list** (`team@…`), which delivers a
+**separate copy** into each member's own inbox — there, everyone has their own
+independent read state. Use a distribution list for "send one address, everyone
+gets their own copy"; use a shared mailbox for "one place we all work together".
+
+**Timing caveat (today):** the read state is *shared* but not yet *live*. Other
+members see the "now read" state the next time they **refresh** that folder, not
+the instant it changes. Real-time cross-member sync is a planned enhancement.
+
+---
+
+## Access levels
+
+Each grant has an **access level**:
+
+| Level | Can do | Cannot do |
+|-------|--------|-----------|
+| **Read-only** | Open, read, search the mailbox | Move, flag, delete, or send |
+| **Can manage** | Read **and** move / flag / delete / organise | Send (unless also given a send permission) |
+
+A read-only delegate that tries to change anything is refused by the server
+(`accountReadOnly`) — read-only really is read-only.
+
+## Send permissions
+
+On top of the access level, a grant may allow sending:
+
+| Send permission | Result | Recipients see |
+|-----------------|--------|----------------|
+| **Can't send** (default) | View/manage only | — |
+| **Send as** | The message goes out **as the shared address** | Just the shared address (e.g. `info@aloworld.com`) |
+| **Send on behalf** | Same `From:`, plus a `Sender:` of the person who sent | "*Delegate* on behalf of *info@aloworld.com*" |
+
+Choosing any send permission implies **manage** access (you can't send without
+being able to create a draft). A delegate without a send permission who tries to
+send is refused (`forbiddenToSend`).
+
+---
+
+## Setting it up
+
+### Share your own mailbox (self-service — no admin)
+
+1. Open **Settings → Sharing**.
+2. Type the colleague's **email** (they must be in your organisation).
+3. Pick an **access level** (Read-only / Can manage) and a **send permission**
+   (Can't send / Send as / Send on behalf).
+4. Click **Share**. Edit or remove access from the same list at any time.
+
+### Set up a team mailbox (admin)
+
+A team mailbox like `info@aloworld.com` is just a user account whose access is
+shared with the team:
+
+1. **Admin → Users** — create the mailbox as a user (`info@…`) if it doesn't
+   exist yet.
+2. On that user, click **Shared access**.
+3. Add each team member, with the access level and send permission they should
+   have. Any number of people can be added.
+
+An admin can manage the delegates of **any** mailbox; a regular user can manage
+only **their own**.
+
+---
+
+## Opening a shared mailbox
+
+Once you've been granted access, a **Mailbox** switcher appears at the top of
+the folder list in Mail. Pick the shared mailbox to open it — its folders and
+messages replace the view, and everything (open, reply, move, flag) acts on the
+shared mailbox. Read-only mailboxes are marked *(read-only)* and their Compose
+button is disabled. Switch back to **My mailbox** the same way.
+
+When you compose or reply from within a shared mailbox, the message is sent
+**as** (or **on behalf of**) that address, and the sent copy is filed in the
+**shared mailbox's** Sent folder — so the whole team can see what went out.
+
+---
+
+## Isolation & safety
+
+Delegation never weakens account isolation (the product's first rule):
+
+- A grant is **scoped to one tenant** — a delegate can never reach a mailbox in
+  another organisation.
+- Access you weren't granted is indistinguishable from a mailbox that doesn't
+  exist (no "it exists but you can't see it" hint).
+- A delegated session **never** gains admin rights.
+- Revoking access takes effect immediately.
+
+## Current limits
+
+- **Whole-mailbox** grants only — there are no per-folder permissions (Outlook
+  has these; Gmail does not).
+- The shared mailbox opens through the **switcher**, rather than being
+  permanently mounted in your folder tree.
+- Read-state sync between members is **on refresh**, not yet real-time.
