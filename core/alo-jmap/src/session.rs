@@ -75,14 +75,14 @@ pub async fn session(
         .delegations_for(&account.user)
         .await
     {
-        for (owner_id, owner_email, can_send) in delegations {
+        for (owner_id, owner_email, can_write, send_mode) in delegations {
             accounts.insert(
                 owner_id,
                 json!({
                     "name": owner_email,
                     "isPersonal": false,
-                    "isReadOnly": false,
-                    "alo:canSend": can_send,
+                    "isReadOnly": !can_write,
+                    "alo:canSend": send_mode != "none",
                     "accountCapabilities": {
                         CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}
                     }

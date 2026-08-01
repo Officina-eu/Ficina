@@ -17,7 +17,7 @@ use alo_smtp_client::client::{OutboundSession, RcptOutcome};
 use alo_store::{MAX_PAGE, MessageId, Page};
 use serde_json::{Map, Value, json};
 
-use crate::state::{Account, AppState};
+use crate::state::{Account, AppState, SendMode};
 
 /// Maximum recipients accepted in one submission (anti-abuse; a per-user send
 /// rate quota is a tracked follow-up — see docs/design/security-audit-followups.md).
@@ -101,10 +101,11 @@ pub(crate) async fn validate_and_prepare(
     props: &Value,
     state: &AppState,
 ) -> Result<Prepared, Value> {
-    // 0. Delegation (ADR 0017): sending as a delegated mailbox requires the
-    // send grant. A read-only delegate can read/manage the mailbox but not send
-    // from it. (The signed-in user's own account has `delegated == None`.)
-    if account.delegated == Some(false) {
+    // 0. Delegation (ADR 0017): sending from a delegated mailbox requires a send
+    // grant. (The signed-in user's own account has `delegated == None`.)
+    if let Some(d) = &account.delegated
+        && !d.send_mode.can_send()
+    {
         return Err(set_err(
             "forbiddenToSend",
             "you don't have permission to send from this mailbox",
@@ -202,12 +203,32 @@ pub(crate) async fn validate_and_prepare(
         ));
     }
 
+    // On-behalf sending (ADR 0017): prepend a `Sender:` header naming the acting
+    // delegate, so recipients see who actually sent from the shared mailbox
+    // (`From:` stays the shared address). Send-as adds no `Sender:`.
+    let bytes = match &account.delegated {
+        Some(d) if d.send_mode == SendMode::OnBehalf => match ts.email_of(&d.delegate).await {
+            Ok(Some(sender)) => prepend_sender_header(&bytes, &sender),
+            _ => bytes,
+        },
+        _ => bytes,
+    };
+
     Ok(Prepared {
         mid,
         bytes,
         mail_from,
         rcpts,
     })
+}
+
+/// Prepend a `Sender:` header to a raw message (header order is unconstrained,
+/// so inserting at the top is valid and keeps the rest of the message intact).
+fn prepend_sender_header(bytes: &[u8], sender: &str) -> bytes::Bytes {
+    let mut out = Vec::with_capacity(bytes.len() + sender.len() + 12);
+    out.extend_from_slice(format!("Sender: {sender}\r\n").as_bytes());
+    out.extend_from_slice(bytes);
+    bytes::Bytes::from(out)
 }
 
 /// One SMTP transaction to the internal listener via the shared client.

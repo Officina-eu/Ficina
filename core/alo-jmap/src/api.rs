@@ -86,6 +86,15 @@ pub async fn api(
             None => None,
         };
         let acct = target.as_ref().unwrap_or(&account);
+        // Read-only delegates may read (…/get, …/query, …/changes) but not
+        // mutate. A …/set on a read-only delegated mailbox is accountReadOnly.
+        if let Some(d) = &acct.delegated
+            && !d.can_write
+            && name.ends_with("/set")
+        {
+            responses.push(json!(["error", method_error("accountReadOnly"), call_id]));
+            continue;
+        }
         match dispatch(acct, &state, &name, &args).await {
             Ok(result) => responses.push(json!([name, result, call_id])),
             Err(err) => responses.push(json!(["error", err, call_id])),

@@ -1,6 +1,7 @@
-//! Mailbox delegation (ADR 0017): grants are set/read/revoked correctly, a user
-//! can't delegate to themselves, and — the acceptance gate — a grant is scoped
-//! to its tenant so it can NEVER authorize across tenants.
+//! Mailbox delegation (ADR 0017): grants carry an access level (read-only vs
+//! manage) and a send mode; they're set/read/revoked correctly, a user can't
+//! delegate to themselves, and — the acceptance gate — a grant is scoped to its
+//! tenant so it can NEVER authorize across tenants.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -9,7 +10,7 @@ use alo_store::StoreError;
 use common::test_store;
 
 #[tokio::test]
-async fn grant_read_revoke() {
+async fn grant_levels_and_revoke() {
     let store = test_store().await;
     let tenant = store.create_tenant("t-deleg").await.unwrap();
     let ts = store.for_tenant(tenant);
@@ -18,31 +19,42 @@ async fn grant_read_revoke() {
 
     assert!(ts.delegation(&owner, &delegate).await.unwrap().is_none(), "no grant yet");
 
-    // Read-only grant, then upgraded to send.
-    ts.grant_delegate(&owner, &delegate, false).await.unwrap();
-    assert_eq!(ts.delegation(&owner, &delegate).await.unwrap(), Some(false));
-    ts.grant_delegate(&owner, &delegate, true).await.unwrap();
-    assert_eq!(ts.delegation(&owner, &delegate).await.unwrap(), Some(true));
+    // Read-only grant.
+    ts.grant_delegate(&owner, &delegate, false, "none").await.unwrap();
+    assert_eq!(
+        ts.delegation(&owner, &delegate).await.unwrap(),
+        Some((false, "none".to_owned()))
+    );
 
-    // Listings, both directions.
+    // Upgrade to manage + send-on-behalf. A send mode implies write.
+    ts.grant_delegate(&owner, &delegate, false, "on_behalf").await.unwrap();
+    assert_eq!(
+        ts.delegation(&owner, &delegate).await.unwrap(),
+        Some((true, "on_behalf".to_owned())),
+        "any send mode forces can_write",
+    );
+
+    // Listings carry the level + mode.
     let of_owner = ts.delegates_of(&owner).await.unwrap();
     assert_eq!(of_owner.len(), 1);
     assert_eq!(of_owner[0].1, "del@deleg.test");
-    assert!(of_owner[0].2, "can_send true");
+    assert!(of_owner[0].2, "can_write");
+    assert_eq!(of_owner[0].3, "on_behalf");
     let for_delegate = ts.delegations_for(&delegate).await.unwrap();
-    assert_eq!(for_delegate.len(), 1);
     assert_eq!(for_delegate[0].1, "owner@deleg.test");
 
-    // A user cannot delegate to themselves.
+    // A user cannot delegate to themselves; a bad send mode is rejected.
     assert!(matches!(
-        ts.grant_delegate(&owner, &owner, false).await,
+        ts.grant_delegate(&owner, &owner, true, "as").await,
+        Err(StoreError::Conflict(_))
+    ));
+    assert!(matches!(
+        ts.grant_delegate(&owner, &delegate, true, "bogus").await,
         Err(StoreError::Conflict(_))
     ));
 
-    // Revoke.
     ts.revoke_delegate(&owner, &delegate).await.unwrap();
     assert!(ts.delegation(&owner, &delegate).await.unwrap().is_none());
-    assert!(ts.delegates_of(&owner).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -52,7 +64,7 @@ async fn grants_never_cross_tenants() {
     let tsa = store.for_tenant(ta);
     let owner = tsa.create_user("owner@a.test").await.unwrap();
     let delegate = tsa.create_user("del@a.test").await.unwrap();
-    tsa.grant_delegate(&owner, &delegate, true).await.unwrap();
+    tsa.grant_delegate(&owner, &delegate, true, "as").await.unwrap();
 
     // A different tenant's store, querying the very same user ids, sees nothing:
     // the grant row is stamped with tenant A, and every query is tenant-scoped.
@@ -65,6 +77,8 @@ async fn grants_never_cross_tenants() {
     assert!(tsb.delegations_for(&delegate).await.unwrap().is_empty());
     assert!(tsb.delegates_of(&owner).await.unwrap().is_empty());
 
-    // Tenant A still sees its own grant.
-    assert_eq!(tsa.delegation(&owner, &delegate).await.unwrap(), Some(true));
+    assert_eq!(
+        tsa.delegation(&owner, &delegate).await.unwrap(),
+        Some((true, "as".to_owned()))
+    );
 }

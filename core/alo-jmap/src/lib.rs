@@ -17,6 +17,7 @@ pub mod ai;
 pub mod api;
 pub mod blob;
 pub mod contacts;
+pub mod delegates;
 pub mod docs;
 pub mod error;
 pub mod filters;

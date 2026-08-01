@@ -33,4 +33,6 @@ export {
   type ControlDomain,
   type Session,
   type SharedMailbox,
+  type Delegate,
+  type SendMode,
 } from "./types";

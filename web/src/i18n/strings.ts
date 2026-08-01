@@ -242,7 +242,15 @@ export const strings = {
   sharedMailboxLabel: "Mailbox",
   sharedMyMailbox: "My mailbox",
   sharedReadOnly: "read-only",
-  sharedNoSend: "You have read-only access to this shared mailbox — you can't send from it.",
+  sharedNoSend: "You can't send from this shared mailbox — you weren't granted send access.",
+  // Self-service sharing (Settings)
+  settingsSharing: "Sharing",
+  settingsSharingHint:
+    "Let colleagues open and manage your mailbox. Grant send access to also let them send as you.",
+  sharingNone: "You haven't shared your mailbox with anyone.",
+  sharingEmailPlaceholder: "Colleague's email",
+  sharingAdd: "Share",
+  sharingAddError: "Couldn't share — check the email is a colleague in your organization.",
   // Admin — mailbox delegation
   userShareAccess: "Shared access",
   delegateTitle: (email: string) => `Who can access ${email}`,
@@ -251,10 +259,13 @@ export const strings = {
   delegatePeople: "People with access",
   delegateNone: "No one else has access yet.",
   delegateAdd: "Add person",
-  delegateAllowSend: "Can send",
-  delegateCanSend: "Can send",
   delegateReadOnly: "Read-only",
-  delegateSendToggle: "Toggle send permission",
+  delegateManage: "Can manage",
+  delegateAccessLabel: "Access level",
+  delegateSendLabel: "Send permission",
+  delegateSendNone: "Can't send",
+  delegateSendAs: "Send as",
+  delegateSendOnBehalf: "Send on behalf",
   delegateRemove: "Remove access",
   delegateError: "That access change didn't work — please try again.",
   // Categories (colored message labels)

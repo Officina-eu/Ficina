@@ -5,13 +5,14 @@
 // the footer button; Filters persist themselves.
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Building2, PenLine, SlidersHorizontal, X } from "lucide-react";
+import { Building2, PenLine, SlidersHorizontal, Users, X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Button, Spinner } from "../ds";
 import { useJmapClient } from "../jmap";
 import { RichTextEditor } from "../mail/components/RichTextEditor";
 import { FiltersSection } from "./FiltersSection";
+import { SharingSection } from "./SharingSection";
 import styles from "./SettingsModal.module.css";
 
 interface SettingsModalProps {
@@ -19,7 +20,7 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-type Tab = "general" | "filters" | "org";
+type Tab = "general" | "filters" | "sharing" | "org";
 
 export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
   const client = useJmapClient();
@@ -79,6 +80,7 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
   const nav: { key: Tab; label: string; icon: ReactNode }[] = [
     { key: "general", label: strings.settingsTabGeneral, icon: <PenLine size={16} /> },
     { key: "filters", label: strings.settingsFilters, icon: <SlidersHorizontal size={16} /> },
+    { key: "sharing", label: strings.settingsSharing, icon: <Users size={16} /> },
     ...(isAdmin
       ? [{ key: "org" as Tab, label: strings.settingsTabOrg, icon: <Building2 size={16} /> }]
       : []),
@@ -190,6 +192,14 @@ export function SettingsModal({ isAdmin, onClose }: SettingsModalProps) {
                   <h3 className={styles.sectionTitle}>{strings.settingsFilters}</h3>
                   <p className={styles.sectionDesc}>{strings.settingsFiltersHint}</p>
                   <FiltersSection />
+                </section>
+              )}
+
+              {tab === "sharing" && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>{strings.settingsSharing}</h3>
+                  <p className={styles.sectionDesc}>{strings.settingsSharingHint}</p>
+                  <SharingSection />
                 </section>
               )}
 

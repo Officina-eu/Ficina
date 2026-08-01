@@ -990,3 +990,48 @@
   color: var(--text-primary);
   background: var(--bg-raised);
 }
+
+/* Delegation (shared mailbox) rows — email + access/send selects + remove. */
+.delegateList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.delegateRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.delegateEmail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.accessControls {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.accessSelect {
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
+
+.accessSelect:disabled {
+  opacity: 0.55;
+}

@@ -1,6 +1,30 @@
 # ADR 0017 — Send-as identities and mailbox delegation
 
-Status: accepted (send-as shipped; shared-mailbox delegation designed, deferred)
+Status: accepted (send-as, shared mailboxes, and delegation all shipped)
+
+## Update — shared-mailbox delegation shipped
+
+The design below was subsequently built (migrations 0030–0031). What landed:
+
+- **Grant table** `account_delegates(tenant_id, owner_id, delegate_id,
+  can_write, send_mode)` — tenant-scoped, `owner_id <> delegate_id`,
+  `send_mode ∈ {none, as, on_behalf}`; a send mode implies write.
+- **Access door** — `resolve_target` in `alo-jmap` turns each request's
+  `accountId` into either the signed-in user's own account or a delegated
+  mailbox they hold a grant on **in the same tenant**; no grant reads as
+  `accountNotFound` (no oracle). A read-only delegate is refused every `…/set`
+  (`accountReadOnly`); a delegate without a send grant is refused submission
+  (`forbiddenToSend`).
+- **Send-as vs on-behalf** — `as` sends `From:` the owner; `on_behalf` also
+  prepends a `Sender:` of the acting delegate.
+- **Self-service** — a user can share their own mailbox (`/jmap/delegates`)
+  without an admin, Gmail-style; admins manage any mailbox's delegates.
+- **Acceptance gate met** — isolation tests first: cross-tenant grants
+  invisible, ungranted access is `accountNotFound`, read-only can't mutate,
+  no-send can't send, revocation immediate.
+
+The original design and rationale follow.
+
 
 ## Context
 

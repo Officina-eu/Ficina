@@ -43,6 +43,18 @@ export interface SharedMailbox {
   id: string;
   name: string;
   canSend: boolean;
+  readOnly: boolean;
+}
+
+/** How a delegate may send from a shared mailbox. */
+export type SendMode = "none" | "as" | "on_behalf";
+
+/** A person granted access to a mailbox (ADR 0017). */
+export interface Delegate {
+  id: string;
+  email: string;
+  canWrite: boolean;
+  sendMode: SendMode;
 }
 
 export interface EmailAddress {

@@ -264,7 +264,7 @@ export function FolderSidebar({
             {shared.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
-                {s.canSend ? "" : ` (${strings.sharedReadOnly})`}
+                {s.readOnly ? ` (${strings.sharedReadOnly})` : ""}
               </option>
             ))}
           </select>

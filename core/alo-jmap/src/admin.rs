@@ -636,7 +636,9 @@ pub async fn list_delegates(
         .map_err(store_admin_err)?;
     let delegates: Vec<Value> = list
         .into_iter()
-        .map(|(id, email, can_send)| json!({ "id": id, "email": email, "canSend": can_send }))
+        .map(|(id, email, can_write, send_mode)| {
+            json!({ "id": id, "email": email, "canWrite": can_write, "sendMode": send_mode })
+        })
         .collect();
     Ok(Json(json!({ "delegates": delegates })))
 }
@@ -654,11 +656,17 @@ pub async fn grant_delegate(
     let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
     let owner = str_field(&v, "ownerId").ok_or_else(|| bad("ownerId required"))?;
     let delegate = str_field(&v, "delegateId").ok_or_else(|| bad("delegateId required"))?;
-    let can_send = v.get("canSend").and_then(Value::as_bool).unwrap_or(false);
+    let can_write = v.get("canWrite").and_then(Value::as_bool).unwrap_or(true);
+    let send_mode = str_field(&v, "sendMode").unwrap_or_else(|| "none".to_owned());
     state
         .store
         .for_tenant(account.tenant.clone())
-        .grant_delegate(&UserId::new(owner.clone()), &UserId::new(delegate.clone()), can_send)
+        .grant_delegate(
+            &UserId::new(owner.clone()),
+            &UserId::new(delegate.clone()),
+            can_write,
+            &send_mode,
+        )
         .await
         .map_err(store_admin_err)?;
     audit(&state, &account, "delegate.grant", Some(&owner), Some(&delegate)).await;

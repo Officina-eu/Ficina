@@ -78,11 +78,53 @@ pub struct Account {
     /// Whether this user is a tenant admin (gates admin-only surfaces).
     pub is_admin: bool,
     /// Delegation status of THIS account handle (ADR 0017). `None` when it is
-    /// the signed-in user's own account (full rights). `Some(can_send)` when it
-    /// is another user's mailbox the signed-in user was granted access to — the
-    /// bool is whether they may also send as that address. A delegated handle
-    /// never confers admin, and `is_admin` is forced false for it.
-    pub delegated: Option<bool>,
+    /// the signed-in user's own account (full rights). `Some(..)` when it is
+    /// another user's mailbox the signed-in user was granted access to — the
+    /// grant carries the access level and send mode, and the acting delegate's
+    /// id (for the on-behalf `Sender:`). A delegated handle never confers admin.
+    pub delegated: Option<Delegation>,
+}
+
+/// How a delegate may send from a shared mailbox (ADR 0017).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SendMode {
+    /// No sending.
+    None,
+    /// Send *as* the owner — `From:` the shared address, no `Sender:`.
+    As,
+    /// Send *on behalf of* the owner — `From:` the shared address plus a
+    /// `Sender:` of the acting delegate (recipients see who actually sent).
+    OnBehalf,
+}
+
+impl SendMode {
+    /// Parse the stored `send_mode` value.
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "as" => Self::As,
+            "on_behalf" => Self::OnBehalf,
+            _ => Self::None,
+        }
+    }
+
+    /// Whether sending is permitted at all.
+    #[must_use]
+    pub fn can_send(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
+/// A resolved delegation grant carried on a delegated [`Account`] handle.
+#[derive(Clone)]
+pub struct Delegation {
+    /// Whether the delegate may manage the mailbox (move/flag/delete), else
+    /// read-only.
+    pub can_write: bool,
+    /// How the delegate may send from the mailbox.
+    pub send_mode: SendMode,
+    /// The acting delegate (the signed-in user) — the on-behalf `Sender:`.
+    pub delegate: UserId,
 }
 
 impl Account {
@@ -164,7 +206,7 @@ pub async fn resolve_target(
     // up only within the signed-in user's own tenant, so it can never authorize
     // across tenants.
     let owner = UserId::new(account_id);
-    let can_send = state
+    let (can_write, send_mode) = state
         .store
         .for_tenant(signed_in.tenant.clone())
         .delegation(&owner, &signed_in.user)
@@ -176,7 +218,11 @@ pub async fn resolve_target(
         acc: state.store.for_account(signed_in.tenant.clone(), owner.clone()),
         user: owner,
         is_admin: false,
-        delegated: Some(can_send),
+        delegated: Some(Delegation {
+            can_write,
+            send_mode: SendMode::parse(&send_mode),
+            delegate: signed_in.user.clone(),
+        }),
     })
 }
 

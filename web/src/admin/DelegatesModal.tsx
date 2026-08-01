@@ -1,22 +1,15 @@
-// Admin — manage who can access a user's mailbox (ADR 0017 delegation). Lists
-// the delegates granted access to `owner`'s mailbox, lets an admin add a user
-// (optionally with permission to send as the mailbox) or revoke access, and
-// toggle the send permission per delegate. All writes go through the
-// admin-gated /admin/delegates routes.
+// Admin — manage who can access a user's mailbox (ADR 0017 delegation). Each
+// delegate has an access level (read-only vs manage) and a send mode (none /
+// send-as / send-on-behalf), editable inline; an admin can add a user or revoke
+// access. All writes go through the admin-gated /admin/delegates routes.
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Spinner } from "../ds";
 import { useJmapClient } from "../jmap";
-import type { AdminUser } from "../jmap";
+import type { AdminUser, Delegate, SendMode } from "../jmap";
 import styles from "./admin.module.css";
-
-interface Delegate {
-  id: string;
-  email: string;
-  canSend: boolean;
-}
 
 interface DelegatesModalProps {
   owner: AdminUser;
@@ -28,7 +21,6 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
   const client = useJmapClient();
   const [delegates, setDelegates] = useState<Delegate[] | null>(null);
   const [pick, setPick] = useState("");
-  const [canSend, setCanSend] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,13 +37,12 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
     (u) => u.id !== owner.id && !(delegates ?? []).some((d) => d.id === u.id),
   );
 
-  async function grant(delegateId: string, send: boolean) {
+  async function grant(delegateId: string, canWrite: boolean, sendMode: SendMode) {
     setBusy(true);
     setError(null);
     try {
-      await client.grantDelegate(owner.id, delegateId, send);
+      await client.grantDelegate(owner.id, delegateId, canWrite, sendMode);
       setPick("");
-      setCanSend(false);
       load();
     } catch {
       setError(strings.delegateError);
@@ -62,7 +53,6 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
 
   async function revoke(delegateId: string) {
     setBusy(true);
-    setError(null);
     try {
       await client.revokeDelegate(owner.id, delegateId);
       load();
@@ -90,66 +80,59 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
         </div>
         <div className={styles.modalBody}>
           <p className={styles.hint}>{strings.delegateIntro}</p>
-          <div className={styles.field}>
-            <span className={styles.label}>{strings.delegatePeople}</span>
-            <div className={styles.chips}>
-              {delegates === null ? (
-                <Spinner size={16} />
-              ) : delegates.length === 0 ? (
-                <span className={styles.hint}>{strings.delegateNone}</span>
-              ) : (
-                delegates.map((d) => (
-                  <span key={d.id} className={styles.chip}>
-                    <span className={styles.chipLabel}>{d.email}</span>
-                    <button
-                      type="button"
-                      className={styles.ghost}
-                      onClick={() => void grant(d.id, !d.canSend)}
-                      disabled={busy}
-                      title={strings.delegateSendToggle}
-                    >
-                      {d.canSend ? strings.delegateCanSend : strings.delegateReadOnly}
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.chipX}
-                      onClick={() => void revoke(d.id)}
-                      aria-label={strings.delegateRemove}
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))
-              )}
-            </div>
-            <div className={styles.keyRow}>
-              <select
-                className={styles.input}
-                value={pick}
-                onChange={(e) => setPick(e.target.value)}
-                disabled={addable.length === 0}
-              >
-                <option value="">{`${strings.delegateAdd}…`}</option>
-                {addable.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.email}
-                  </option>
-                ))}
-              </select>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                <input type="checkbox" checked={canSend} onChange={(e) => setCanSend(e.target.checked)} />
-                {strings.delegateAllowSend}
-              </label>
-              <button
-                type="button"
-                className={styles.ghost}
-                onClick={() => void grant(pick, canSend)}
-                disabled={busy || pick.length === 0}
-              >
-                {strings.delegateAdd}
-              </button>
-            </div>
+
+          {delegates === null ? (
+            <Spinner size={18} />
+          ) : delegates.length === 0 ? (
+            <p className={styles.hint}>{strings.delegateNone}</p>
+          ) : (
+            <ul className={styles.delegateList}>
+              {delegates.map((d) => (
+                <li key={d.id} className={styles.delegateRow}>
+                  <span className={styles.delegateEmail}>{d.email}</span>
+                  <AccessControls
+                    canWrite={d.canWrite}
+                    sendMode={d.sendMode}
+                    disabled={busy}
+                    onChange={(w, s) => void grant(d.id, w, s)}
+                  />
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    onClick={() => void revoke(d.id)}
+                    aria-label={strings.delegateRemove}
+                  >
+                    <X size={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className={styles.keyRow}>
+            <select
+              className={styles.input}
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+              disabled={addable.length === 0}
+            >
+              <option value="">{`${strings.delegateAdd}…`}</option>
+              {addable.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.email}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={styles.ghost}
+              onClick={() => void grant(pick, true, "none")}
+              disabled={busy || pick.length === 0}
+            >
+              {strings.delegateAdd}
+            </button>
           </div>
+
           {error !== null && (
             <p className={styles.error} role="alert">
               {error}
@@ -164,5 +147,48 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** The access-level + send-mode selects for one delegate. Sending implies
+ * manage, so choosing a send mode also upgrades access. */
+export function AccessControls({
+  canWrite,
+  sendMode,
+  disabled,
+  onChange,
+}: {
+  canWrite: boolean;
+  sendMode: SendMode;
+  disabled: boolean;
+  onChange: (canWrite: boolean, sendMode: SendMode) => void;
+}) {
+  return (
+    <span className={styles.accessControls}>
+      <select
+        className={styles.accessSelect}
+        value={sendMode === "none" && !canWrite ? "read" : "manage"}
+        disabled={disabled || sendMode !== "none"}
+        onChange={(e) => onChange(e.target.value === "manage", sendMode)}
+        aria-label={strings.delegateAccessLabel}
+      >
+        <option value="read">{strings.delegateReadOnly}</option>
+        <option value="manage">{strings.delegateManage}</option>
+      </select>
+      <select
+        className={styles.accessSelect}
+        value={sendMode}
+        disabled={disabled}
+        onChange={(e) => {
+          const s = e.target.value as SendMode;
+          onChange(s === "none" ? canWrite : true, s);
+        }}
+        aria-label={strings.delegateSendLabel}
+      >
+        <option value="none">{strings.delegateSendNone}</option>
+        <option value="as">{strings.delegateSendAs}</option>
+        <option value="on_behalf">{strings.delegateSendOnBehalf}</option>
+      </select>
+    </span>
   );
 }

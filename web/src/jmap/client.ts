@@ -19,6 +19,8 @@ import {
   type MailFilterRule,
   type SecurityCheck,
   type SharedMailbox,
+  type Delegate,
+  type SendMode,
   type EmailFull,
   type EmailHeaders,
   type JmapRequest,
@@ -120,7 +122,12 @@ export class JmapClient {
     const own = session.primaryAccounts[MAIL_CAPABILITY];
     return Object.entries(session.accounts ?? {})
       .filter(([id, a]) => !a.isPersonal && id !== own)
-      .map(([id, a]) => ({ id, name: a.name, canSend: a["alo:canSend"] === true }));
+      .map(([id, a]) => ({
+        id,
+        name: a.name,
+        canSend: a["alo:canSend"] === true,
+        readOnly: a.isReadOnly === true,
+      }));
   }
 
   async #request(methodCalls: MethodCall[]): Promise<JmapResponse> {
@@ -546,26 +553,48 @@ export class JmapClient {
     await this.#adminPost("/admin/groups/name", { groupId: id, name });
   }
 
-  // ---- mailbox delegation / shared mailboxes (admin, ADR 0017) --------
+  // ---- mailbox delegation / shared mailboxes (ADR 0017) --------------
 
   /** Who can access `ownerId`'s mailbox (admin). */
-  async listDelegates(
-    ownerId: string,
-  ): Promise<{ id: string; email: string; canSend: boolean }[]> {
+  async listDelegates(ownerId: string): Promise<Delegate[]> {
     const res = (await this.#admin(`/admin/delegates/${encodeURIComponent(ownerId)}`, {
       method: "GET",
-    })) as { delegates: { id: string; email: string; canSend: boolean }[] };
+    })) as { delegates: Delegate[] };
     return res.delegates;
   }
 
-  /** Grant `delegateId` access to `ownerId`'s mailbox (admin). */
-  async grantDelegate(ownerId: string, delegateId: string, canSend: boolean): Promise<void> {
-    await this.#adminPost("/admin/delegates", { ownerId, delegateId, canSend });
+  /** Grant `delegateId` access to `ownerId`'s mailbox (admin). `sendMode` is
+   * "none" | "as" | "on_behalf". */
+  async grantDelegate(
+    ownerId: string,
+    delegateId: string,
+    canWrite: boolean,
+    sendMode: SendMode,
+  ): Promise<void> {
+    await this.#adminPost("/admin/delegates", { ownerId, delegateId, canWrite, sendMode });
   }
 
   /** Revoke `delegateId`'s access to `ownerId`'s mailbox (admin). */
   async revokeDelegate(ownerId: string, delegateId: string): Promise<void> {
     await this.#adminPost("/admin/delegates/remove", { ownerId, delegateId });
+  }
+
+  /** Self-service: who can access MY mailbox. */
+  async myDelegates(): Promise<Delegate[]> {
+    const res = (await this.#admin("/jmap/delegates", { method: "GET" })) as {
+      delegates: Delegate[];
+    };
+    return res.delegates;
+  }
+
+  /** Self-service: share my mailbox with a person (by email, same tenant). */
+  async shareMyMailbox(email: string, canWrite: boolean, sendMode: SendMode): Promise<void> {
+    await this.#adminPost("/jmap/delegates", { email, canWrite, sendMode });
+  }
+
+  /** Self-service: stop sharing my mailbox with a person. */
+  async unshareMyMailbox(delegateId: string): Promise<void> {
+    await this.#adminPost("/jmap/delegates/remove", { delegateId });
   }
 
   /** Set or clear a group's distribution-list address (admin). */

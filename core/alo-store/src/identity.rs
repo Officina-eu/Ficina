@@ -565,34 +565,43 @@ impl TenantStore {
 
     // ---- mailbox delegation (ADR 0017) --------------------------------
 
-    /// Grants `delegate` access to `owner`'s mailbox in this tenant (creating
-    /// or updating the grant). `can_send` additionally permits sending as the
-    /// owner's address. Both users must be in this tenant. Runtime query.
+    /// Grants `delegate` access to `owner`'s mailbox in this tenant (creating or
+    /// updating the grant). `can_write` allows managing the mailbox (move / flag
+    /// / delete), else read-only. `send_mode` is `none` / `as` (send as the
+    /// owner's address) / `on_behalf` (send with a `Sender:` of the delegate);
+    /// any send mode implies write. Both users must be in this tenant.
     ///
     /// # Errors
     /// [`StoreError::NotFound`] if either user is not in this tenant;
-    /// [`StoreError::Conflict`] if owner and delegate are the same user;
-    /// [`StoreError::Db`] on failure.
+    /// [`StoreError::Conflict`] if owner and delegate are the same user, or the
+    /// send mode is not one of the accepted values; [`StoreError::Db`] on failure.
     pub async fn grant_delegate(
         &self,
         owner: &UserId,
         delegate: &UserId,
-        can_send: bool,
+        can_write: bool,
+        send_mode: &str,
     ) -> Result<()> {
         if owner == delegate {
             return Err(StoreError::Conflict("a user cannot delegate to themselves".into()));
         }
+        if !matches!(send_mode, "none" | "as" | "on_behalf") {
+            return Err(StoreError::Conflict("invalid send mode".into()));
+        }
+        // Sending requires the ability to create drafts — a send grant implies write.
+        let can_write = can_write || send_mode != "none";
         self.assert_user(owner).await?;
         self.assert_user(delegate).await?;
         sqlx::query(
-            "INSERT INTO account_delegates (tenant_id, owner_id, delegate_id, can_send) \
-             VALUES ($1, $2, $3, $4) \
-             ON CONFLICT (owner_id, delegate_id) DO UPDATE SET can_send = $4",
+            "INSERT INTO account_delegates (tenant_id, owner_id, delegate_id, can_write, send_mode) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (owner_id, delegate_id) DO UPDATE SET can_write = $4, send_mode = $5",
         )
         .bind(self.tenant().as_str())
         .bind(owner.as_str())
         .bind(delegate.as_str())
-        .bind(can_send)
+        .bind(can_write)
+        .bind(send_mode)
         .execute(self.pool())
         .await?;
         Ok(())
@@ -615,15 +624,20 @@ impl TenantStore {
         Ok(())
     }
 
-    /// The delegate's grant on `owner`'s mailbox: `Some(can_send)` if granted,
-    /// `None` otherwise. The single authorization check on the request path —
-    /// scoped to this tenant, so it can never authorize across tenants.
+    /// The delegate's grant on `owner`'s mailbox: `Some((can_write, send_mode))`
+    /// if granted, `None` otherwise. The single authorization check on the
+    /// request path — scoped to this tenant, so it can never authorize across
+    /// tenants.
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
-    pub async fn delegation(&self, owner: &UserId, delegate: &UserId) -> Result<Option<bool>> {
-        let row: Option<bool> = sqlx::query_scalar(
-            "SELECT can_send FROM account_delegates \
+    pub async fn delegation(
+        &self,
+        owner: &UserId,
+        delegate: &UserId,
+    ) -> Result<Option<(bool, String)>> {
+        let row: Option<(bool, String)> = sqlx::query_as(
+            "SELECT can_write, send_mode FROM account_delegates \
              WHERE tenant_id = $1 AND owner_id = $2 AND delegate_id = $3",
         )
         .bind(self.tenant().as_str())
@@ -634,14 +648,17 @@ impl TenantStore {
         Ok(row)
     }
 
-    /// The users granted access to `owner`'s mailbox — `(delegate email,
-    /// can_send)` — for the management UI.
+    /// The users granted access to `owner`'s mailbox — `(delegate id, email,
+    /// can_write, send_mode)` — for the management UI.
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
-    pub async fn delegates_of(&self, owner: &UserId) -> Result<Vec<(String, String, bool)>> {
-        let rows = sqlx::query_as::<_, (String, String, bool)>(
-            "SELECT d.delegate_id, u.email, d.can_send \
+    pub async fn delegates_of(
+        &self,
+        owner: &UserId,
+    ) -> Result<Vec<(String, String, bool, String)>> {
+        let rows = sqlx::query_as::<_, (String, String, bool, String)>(
+            "SELECT d.delegate_id, u.email, d.can_write, d.send_mode \
              FROM account_delegates d JOIN users u ON u.id = d.delegate_id \
              WHERE d.tenant_id = $1 AND d.owner_id = $2 ORDER BY u.email",
         )
@@ -652,14 +669,17 @@ impl TenantStore {
         Ok(rows)
     }
 
-    /// The mailboxes `delegate` may access — `(owner id, owner email, can_send)`
-    /// — for the session's shared-account list.
+    /// The mailboxes `delegate` may access — `(owner id, owner email, can_write,
+    /// send_mode)` — for the session's shared-account list.
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
-    pub async fn delegations_for(&self, delegate: &UserId) -> Result<Vec<(String, String, bool)>> {
-        let rows = sqlx::query_as::<_, (String, String, bool)>(
-            "SELECT d.owner_id, u.email, d.can_send \
+    pub async fn delegations_for(
+        &self,
+        delegate: &UserId,
+    ) -> Result<Vec<(String, String, bool, String)>> {
+        let rows = sqlx::query_as::<_, (String, String, bool, String)>(
+            "SELECT d.owner_id, u.email, d.can_write, d.send_mode \
              FROM account_delegates d JOIN users u ON u.id = d.owner_id \
              WHERE d.tenant_id = $1 AND d.delegate_id = $2 ORDER BY u.email",
         )
