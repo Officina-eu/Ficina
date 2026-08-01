@@ -75,6 +75,9 @@ pub async fn grant(
             .await
             .map_err(|_| Problem::server_error())?;
     }
+    // The delegate's shared-mailbox set changed — notify their live stream so it
+    // mounts the mailbox and goes live without a refresh (ADR 0017).
+    crate::push::notify_delegation_change(&state, &account.tenant, delegate.as_str()).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -99,6 +102,7 @@ pub async fn revoke(
         .revoke_delegate(&account.user, &UserId::new(delegate))
         .await
         .map_err(|_| Problem::server_error())?;
+    crate::push::notify_delegation_change(&state, &account.tenant, delegate).await;
     Ok(Json(json!({ "ok": true })))
 }
 

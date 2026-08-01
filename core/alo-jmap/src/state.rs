@@ -1,9 +1,10 @@
 //! Shared service state, honest limits, and bearer authentication.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use alo_identity::Identity;
-use alo_store::{AccountStore, Store, TenantId, UserId};
+use alo_store::{AccountStore, Page, Store, TenantId, UserId};
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
 
@@ -239,16 +240,24 @@ pub async fn resolve_target(
         .await
         .ok()
         .flatten()?;
-    // Per-folder restriction (ADR 0017): an empty list means whole-mailbox.
-    let folders = tenant_store
+    let acc = state
+        .store
+        .for_account(signed_in.tenant.clone(), owner.clone());
+    // Per-folder restriction (ADR 0017): an empty grant means whole-mailbox.
+    // A granted folder implicitly includes its subfolders, so expand the raw
+    // grant to its descendant closure before enforcement.
+    let granted = tenant_store
         .delegate_folders(&owner, &signed_in.user)
         .await
-        .ok()
-        .filter(|f| !f.is_empty())
-        .map(|f| f.into_iter().collect());
+        .unwrap_or_default();
+    let folders = if granted.is_empty() {
+        None
+    } else {
+        Some(expand_folder_grant(&acc, granted).await)
+    };
     Some(Account {
         tenant: signed_in.tenant.clone(),
-        acc: state.store.for_account(signed_in.tenant.clone(), owner.clone()),
+        acc,
         user: owner,
         is_admin: false,
         delegated: Some(Delegation {
@@ -258,6 +267,38 @@ pub async fn resolve_target(
             folders,
         }),
     })
+}
+
+/// Expands a per-folder grant to include every descendant of each granted
+/// folder — granting a folder implicitly grants its subfolders (ADR 0017). On a
+/// store error the raw grant is used unchanged (fails closed to fewer folders).
+async fn expand_folder_grant(acc: &AccountStore, granted: Vec<String>) -> HashSet<String> {
+    let mut allowed: HashSet<String> = granted.into_iter().collect();
+    let boxes = match acc.mailboxes(Page::first(alo_store::MAX_PAGE)).await {
+        Ok(b) => b,
+        Err(_) => return allowed,
+    };
+    // parent id → child ids
+    let mut children: HashMap<String, Vec<String>> = HashMap::new();
+    for m in &boxes {
+        if let Some(parent) = m.parent_id.as_ref() {
+            children
+                .entry(parent.as_str().to_owned())
+                .or_default()
+                .push(m.id.as_str().to_owned());
+        }
+    }
+    let mut stack: Vec<String> = allowed.iter().cloned().collect();
+    while let Some(id) = stack.pop() {
+        if let Some(kids) = children.get(&id) {
+            for kid in kids {
+                if allowed.insert(kid.clone()) {
+                    stack.push(kid.clone());
+                }
+            }
+        }
+    }
+    allowed
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<String> {

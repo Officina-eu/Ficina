@@ -238,7 +238,16 @@ export function MailModule() {
     const controller = new AbortController();
     let stopped = false;
     let debounce: ReturnType<typeof setTimeout> | null = null;
-    const onChange = (ids: string[]) => {
+    const onChange = (ids: string[], delegationChanged: boolean) => {
+      if (delegationChanged) {
+        // A grant was added or revoked — re-list shared mailboxes so the sidebar
+        // mounts/unmounts it. The server has already updated this stream's
+        // subscription, so the mailbox's live updates start flowing at once.
+        void client
+          .sharedMailboxes()
+          .then(setShared)
+          .catch(() => undefined);
+      }
       const watch = watchIdRef.current;
       if (watch === null || !ids.includes(watch)) return;
       if (debounce !== null) clearTimeout(debounce);

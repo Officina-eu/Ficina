@@ -707,6 +707,7 @@ pub async fn grant_delegate(
             .await
             .map_err(store_admin_err)?;
     }
+    crate::push::notify_delegation_change(&state, &account.tenant, &delegate).await;
     audit(&state, &account, "delegate.grant", Some(&owner), Some(&delegate)).await;
     Ok(Json(json!({ "ok": true })))
 }
@@ -729,6 +730,7 @@ pub async fn revoke_delegate(
         .revoke_delegate(&UserId::new(owner.clone()), &UserId::new(delegate.clone()))
         .await
         .map_err(|_| Problem::server_error())?;
+    crate::push::notify_delegation_change(&state, &account.tenant, &delegate).await;
     audit(&state, &account, "delegate.revoke", Some(&owner), Some(&delegate)).await;
     Ok(Json(json!({ "ok": true })))
 }

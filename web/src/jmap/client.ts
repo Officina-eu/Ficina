@@ -117,11 +117,13 @@ export class JmapClient {
 
   /** Subscribe to the server's push stream (RFC 8620 EventSource) and invoke
    * `onChange` with the account ids whose Mail/Mailbox data changed — the
-   * user's own and any shared mailboxes they're delegated. Uses a streaming
-   * fetch (not the EventSource API) so the bearer token can be sent. Resolves
-   * when the stream ends (the caller reconnects); throws on a failed open. */
+   * user's own and any shared mailboxes they're delegated — and whether the
+   * user's *set* of shared mailboxes changed (a grant added/revoked), so the
+   * caller can re-list them. Uses a streaming fetch (not the EventSource API)
+   * so the bearer token can be sent. Resolves when the stream ends (the caller
+   * reconnects); throws on a failed open. */
   async subscribeChanges(
-    onChange: (accountIds: string[]) => void,
+    onChange: (accountIds: string[], delegationChanged: boolean) => void,
     signal: AbortSignal,
   ): Promise<void> {
     const session = await this.session();
@@ -147,10 +149,16 @@ export class JmapClient {
         if (dataLine === undefined) continue;
         try {
           const payload = JSON.parse(dataLine.slice(5).trim()) as {
-            changed?: Record<string, unknown>;
+            changed?: Record<string, Record<string, unknown>>;
           };
-          const ids = Object.keys(payload.changed ?? {});
-          if (ids.length > 0) onChange(ids);
+          const changed = payload.changed ?? {};
+          const ids = Object.keys(changed);
+          // A "Delegation" change type signals the user's shared-mailbox set
+          // changed (a grant added/revoked), not a data change.
+          const delegationChanged = Object.values(changed).some(
+            (types) => typeof types === "object" && types !== null && "Delegation" in types,
+          );
+          if (ids.length > 0) onChange(ids, delegationChanged);
         } catch {
           // ignore a malformed/keep-alive frame
         }

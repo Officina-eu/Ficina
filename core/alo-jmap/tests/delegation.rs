@@ -233,6 +233,44 @@ async fn folder_restricted_delegate_is_confined_to_granted_folders() {
     assert_eq!(body["methodResponses"][0][1]["list"].as_array().unwrap().len(), 1, "unrestricted again: {body}");
 }
 
+#[tokio::test]
+async fn folder_grant_includes_subfolders() {
+    let h = harness("deleg-subfolder").await;
+    let owner = h.ts.create_user("owner-sub@example.test").await.unwrap();
+    let owner_acc = h.store.for_account(h.tenant.clone(), owner.clone());
+    let owner_id = owner.to_string();
+
+    // A parent folder with a child, and a message living in the child.
+    let parent = owner_acc.create_mailbox(None, "Projects", None).await.unwrap();
+    let child = owner_acc.create_mailbox(Some(&parent), "Q1", None).await.unwrap();
+    let inbox_msg = owner_acc
+        .deliver(b"From: a@x\r\nSubject: m\r\n\r\nb\r\n")
+        .await
+        .unwrap();
+    let inbox_id = owner_acc.mailboxes_of_message(&inbox_msg).await.unwrap()[0].clone();
+    let child_msg = owner_acc
+        .deliver(b"From: a@x\r\nSubject: q1-msg\r\n\r\nb\r\n")
+        .await
+        .unwrap();
+    owner_acc.add_to_mailbox(&child_msg, &child).await.unwrap();
+    owner_acc.remove_from_mailbox(&child_msg, &inbox_id).await.unwrap();
+
+    // Grant only the PARENT folder.
+    h.ts.grant_delegate(&owner, &h.user, true, "none").await.unwrap();
+    h.ts.set_delegate_folders(&owner, &h.user, &[parent.to_string()]).await.unwrap();
+
+    // Both the parent AND the child are visible — the subfolder is inherited.
+    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Mailbox/get", json!({ "ids": null }))).await;
+    let ids: Vec<String> = body["methodResponses"][0][1]["list"]
+        .as_array().unwrap().iter().filter_map(|m| m["id"].as_str().map(str::to_owned)).collect();
+    assert!(ids.contains(&parent.to_string()), "parent visible: {body}");
+    assert!(ids.contains(&child.to_string()), "child (subfolder) inherited: {body}");
+
+    // The message in the child is visible via the inherited grant.
+    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/get", json!({ "ids": [child_msg.to_string()] }))).await;
+    assert_eq!(body["methodResponses"][0][1]["list"].as_array().unwrap().len(), 1, "child message visible: {body}");
+}
+
 async fn post(app: &axum::Router, token: &str, uri: &str, body: Value) -> (StatusCode, Value) {
     send_req(app, token, "POST", uri, Some(body)).await
 }
