@@ -210,6 +210,23 @@ export class JmapClient {
     return (this.#result(res, "m").list as Mailbox[]) ?? [];
   }
 
+  /** The signed-in user's own (personal) mail account id, ignoring any active
+   * shared-mailbox selection — stable for the session. */
+  async ownAccountId(): Promise<string> {
+    const session = await this.session();
+    const id = session.primaryAccounts[MAIL_CAPABILITY];
+    if (id === undefined) throw new JmapError("no mail account");
+    return id;
+  }
+
+  /** All mailboxes of a specific account (own or a delegated shared one),
+   * independent of the active-account selection — for the always-mounted
+   * sidebar which shows every accessible mailbox's folders at once. */
+  async mailboxesFor(accountId: string): Promise<Mailbox[]> {
+    const res = await this.#request([["Mailbox/get", { accountId, ids: null }, "m"]]);
+    return (this.#result(res, "m").list as Mailbox[]) ?? [];
+  }
+
   /** Set (or clear, with null) a mailbox/label's display color ("#rrggbb"). */
   async setMailboxColor(mailboxId: string, color: string | null): Promise<void> {
     const accountId = await this.accountId();

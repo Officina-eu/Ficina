@@ -7,10 +7,14 @@ import type { KeyboardEvent, ReactNode } from "react";
 import {
   Archive,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
   Clock,
   FolderPlus,
   Hash,
   Inbox,
+  Lock,
+  Mails,
   MoreHorizontal,
   PenLine,
   Pencil,
@@ -25,7 +29,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Spinner, cx } from "../../ds";
-import type { Mailbox, SharedMailbox } from "../../jmap";
+import type { Mailbox } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import { DRAG_EMAIL_MIME } from "../dnd";
 import styles from "./FolderSidebar.module.css";
@@ -89,17 +93,28 @@ const LABEL_COLORS = [
   "#c0603e", "#b03a4b", "#4c9a8f", "#8a8f3a",
 ];
 
+/** An accessible mailbox other than the active one — mounted below the active
+ * account's folders as a navigation tree (Outlook-style always-mounted). */
+export interface OtherAccount {
+  id: string;
+  name: string;
+  boxes: Mailbox[];
+  readOnly: boolean;
+}
+
 interface FolderSidebarProps {
   mailboxes: Async<Mailbox[]>;
   selectedId: string | null;
   collapsed: boolean;
-  /** Shared mailboxes the user was delegated (ADR 0017). */
-  shared: SharedMailbox[];
-  /** The open account: a shared mailbox id, or null for the user's own. */
-  activeAccount: string | null;
-  /** Label for the user's own mailbox in the switcher. */
-  ownLabel: string;
-  onSwitchAccount: (id: string | null) => void;
+  /** Name of the active account (own email or shared mailbox name), shown as a
+   * header above its folders when other mailboxes are mounted. */
+  activeLabel: string;
+  /** Whether to show the active-account header (true when shared mailboxes exist). */
+  showAccountHeader: boolean;
+  /** Other accessible mailboxes, each mounted as a navigation tree below. */
+  otherAccounts: OtherAccount[];
+  /** Open a folder in one of the other mailboxes (switches the active account). */
+  onSelectAccount: (accountId: string, mailboxId: string) => void;
   onSelect: (id: string) => void;
   onCompose: () => void;
   onDropMessage: (emailIds: string[], mailboxId: string) => void;
@@ -120,10 +135,10 @@ export function FolderSidebar({
   mailboxes,
   selectedId,
   collapsed,
-  shared,
-  activeAccount,
-  ownLabel,
-  onSwitchAccount,
+  activeLabel,
+  showAccountHeader,
+  otherAccounts,
+  onSelectAccount,
   onSelect,
   onCompose,
   onDropMessage,
@@ -140,6 +155,16 @@ export function FolderSidebar({
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
   // A pending new folder, with the parent it nests under (null = root).
   const [creating, setCreating] = useState<{ parentId: string | null; value: string } | null>(null);
+  // Which mounted "other mailbox" trees are collapsed (default expanded).
+  const [collapsedAccounts, setCollapsedAccounts] = useState<ReadonlySet<string>>(new Set());
+  function toggleAccount(id: string) {
+    setCollapsedAccounts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function commitRename() {
     if (editing !== null && editing.value.trim().length > 0) {
@@ -218,6 +243,30 @@ export function FolderSidebar({
     );
   }
 
+  function roleIcon(box: Mailbox): ReactNode {
+    const Icon = (box.role !== null ? ROLE_ICON[box.role] : undefined) ?? Hash;
+    return <Icon className={styles.icon} strokeWidth={1.75} />;
+  }
+
+  // A navigation-only folder row for a mounted "other" mailbox — selecting it
+  // switches the active account to that mailbox and opens the folder.
+  function otherRow(accountId: string, box: Mailbox, leading: ReactNode, depth = 0): ReactNode {
+    return (
+      <button
+        key={box.id}
+        type="button"
+        className={styles.item}
+        style={depth > 0 ? { paddingLeft: 12 + depth * 14 } : undefined}
+        onClick={() => onSelectAccount(accountId, box.id)}
+        title={box.name}
+      >
+        {leading}
+        <span className={styles.name}>{box.name}</span>
+        {box.unreadEmails > 0 && <span className={styles.count}>{box.unreadEmails}</span>}
+      </button>
+    );
+  }
+
   function labelDot(box: Mailbox): ReactNode {
     return (
       <span
@@ -251,25 +300,6 @@ export function FolderSidebar({
 
   return (
     <nav className={cx(styles.sidebar, collapsed && styles.collapsed)} aria-label={strings.mailFolders}>
-      {!collapsed && shared.length > 0 && (
-        <label className={styles.switcher}>
-          <span className={styles.switcherLabel}>{strings.sharedMailboxLabel}</span>
-          <select
-            className={styles.switcherSelect}
-            value={activeAccount ?? ""}
-            onChange={(e) => onSwitchAccount(e.target.value === "" ? null : e.target.value)}
-            aria-label={strings.sharedMailboxLabel}
-          >
-            <option value="">{ownLabel}</option>
-            {shared.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-                {s.readOnly ? ` (${strings.sharedReadOnly})` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       <button type="button" className={styles.compose} onClick={onCompose} title={strings.compose}>
         <PenLine size={17} strokeWidth={2} />
         <span className={styles.composeLabel}>{strings.compose}</span>
@@ -292,6 +322,12 @@ export function FolderSidebar({
 
       {mailboxes.status === "ready" && (
         <div className={styles.scroll}>
+          {!collapsed && showAccountHeader && (
+            <div className={styles.accountHead} title={activeLabel}>
+              <Mails size={14} className={styles.accountIcon} strokeWidth={1.75} />
+              <span className={styles.accountName}>{activeLabel}</span>
+            </div>
+          )}
           <div className={styles.group}>
             {system.map((box) => {
               const Icon = (box.role !== null ? ROLE_ICON[box.role] : undefined) ?? Hash;
@@ -347,6 +383,40 @@ export function FolderSidebar({
             {creating?.parentId === null && newFolderInput(null, 0)}
           </div>
           {!collapsed && extraSection}
+          {!collapsed && otherAccounts.length > 0 && (
+            <div className={styles.group}>
+              <h2 className={styles.heading}>{strings.sharedMailboxesHeading}</h2>
+              {otherAccounts.map((acct) => {
+                const acctCollapsed = collapsedAccounts.has(acct.id);
+                return (
+                  <div key={acct.id} className={styles.account}>
+                    <button
+                      type="button"
+                      className={styles.accountToggle}
+                      onClick={() => toggleAccount(acct.id)}
+                      aria-expanded={!acctCollapsed}
+                      title={acct.name}
+                    >
+                      {acctCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      <Mails size={14} className={styles.accountIcon} strokeWidth={1.75} />
+                      <span className={styles.accountName}>{acct.name}</span>
+                      {acct.readOnly && (
+                        <Lock size={11} className={styles.accountLock} aria-label={strings.sharedReadOnly} />
+                      )}
+                    </button>
+                    {!acctCollapsed && (
+                      <div className={styles.accountFolders}>
+                        {systemFolders(acct.boxes).map((box) => otherRow(acct.id, box, roleIcon(box)))}
+                        {nestCustom(acct.boxes).map(({ box, depth }) =>
+                          otherRow(acct.id, box, labelDot(box), depth),
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

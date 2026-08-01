@@ -11,7 +11,7 @@ import { ResizeHandle, cx, usePanelWidth } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
 import type { Category, EmailAddress, EmailFull, SharedMailbox } from "../jmap";
 import { useAuth } from "../auth";
-import { useCategories, useEmailHeaders, useFlagged, useMailboxes, useThread } from "./state/useMail";
+import { useCategories, useEmailHeaders, useFlagged, useMailboxTrees, useThread } from "./state/useMail";
 import { senderName } from "./format";
 import type { ThreadRow } from "./threads";
 import { FolderSidebar } from "./components/FolderSidebar";
@@ -47,7 +47,6 @@ function parseMailto(mailto: string): {
 export function MailModule() {
   const client = useJmapClient();
   const { identity } = useAuth();
-  const mailboxes = useMailboxes();
   const categories = useCategories();
   const categoryList = categories.status === "ready" ? (categories.data ?? []) : [];
 
@@ -86,6 +85,8 @@ export function MailModule() {
   // is currently open. null = the user's own mailbox.
   const [shared, setShared] = useState<SharedMailbox[]>([]);
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
+  // The user's own account id (loaded once) — the anchor for the "own" tree.
+  const [ownId, setOwnId] = useState<string | null>(null);
   const activeShared = shared.find((s) => s.id === activeAccount);
   // The signed-in user's own account id (captured once), the account currently
   // being viewed, and the reload action — held in refs so the long-lived push
@@ -118,6 +119,18 @@ export function MailModule() {
   const emails = flaggedView ? flaggedEmails : folderEmails;
   const thread = useThread(threadId);
 
+  // Every accessible account's folder tree at once — the user's own plus each
+  // delegated shared mailbox (ADR 0017) — so the sidebar can mount them all.
+  const accountIds = ownId === null ? [] : [ownId, ...shared.map((s) => s.id)];
+  const trees = useMailboxTrees(accountIds);
+  const treeMap = trees.status === "ready" ? (trees.data ?? {}) : {};
+  const activeId = activeAccount ?? ownId ?? "";
+  // The active account's folders drive the current view and folder actions. A
+  // shim keeps the old Async<Mailbox[]> shape (status/data/reload) the rest of
+  // the module used, so existing call sites are unchanged.
+  const boxes = treeMap[activeId] ?? [];
+  const mailboxes = { status: trees.status, data: boxes, error: trees.error, reload: trees.reload };
+
   // Keep the push refs current every render (the subscription reads them).
   watchIdRef.current = activeAccount ?? ownIdRef.current;
   reloadRef.current = () => {
@@ -125,8 +138,6 @@ export function MailModule() {
     mailboxes.reload();
     if (threadId !== null) thread.reload();
   };
-
-  const boxes = mailboxes.status === "ready" ? (mailboxes.data ?? []) : [];
   const folderName = flaggedView
     ? strings.flaggedView
     : (boxes.find((b) => b.id === mailboxId)?.name ?? strings.moduleMail);
@@ -207,17 +218,17 @@ export function MailModule() {
     };
   }, [client]);
 
-  // Capture the user's own account id once (accountId() returns the active
-  // account, which is the own account before any switch).
+  // Capture the user's own (personal) account id once — the anchor for the own
+  // folder tree and the push watch, stable regardless of shared-mailbox switches.
   useEffect(() => {
     void client
-      .accountId()
+      .ownAccountId()
       .then((id) => {
+        setOwnId(id);
         ownIdRef.current = id;
         if (watchIdRef.current === null) watchIdRef.current = id;
       })
       .catch(() => undefined);
-    // Capture the own id at mount, before any shared-mailbox switch.
   }, [client]);
 
   // Real-time updates: subscribe to the server's push stream and refetch when
@@ -421,17 +432,27 @@ export function MailModule() {
 
   // Switch the whole mail view to a shared mailbox (or back to own, id = null).
   // The client retargets every subsequent call; we reset the selection and let
-  // the default-inbox effect pick the new account's inbox.
-  function switchAccount(id: string | null) {
-    if (id === activeAccount) return;
+  // the default-inbox effect pick the new account's inbox (unless `folderId` is
+  // given, in which case that folder is opened directly).
+  function switchAccount(id: string | null, folderId?: string) {
+    if (id === activeAccount) {
+      if (folderId !== undefined) openMailbox(folderId);
+      return;
+    }
     client.setActiveAccountId(id);
     setActiveAccount(id);
-    setMailboxId(null);
+    setMailboxId(folderId ?? null);
     setThreadId(null);
     setCategoryFilter(null);
     setFlaggedView(false);
-    mailboxes.reload();
     categories.reload();
+  }
+
+  // Select a folder in a specific account (the always-mounted sidebar lists
+  // every accessible mailbox's folders); switches accounts first if needed.
+  function selectAccountFolder(accountId: string, folderId: string) {
+    const target = accountId === ownId ? null : accountId;
+    switchAccount(target, folderId);
   }
 
   // Open the cross-folder Flagged smart view.
@@ -653,6 +674,19 @@ export function MailModule() {
     });
   }
 
+  const ownLabel = identity?.email ?? strings.sharedMyMailbox;
+  // The name of the account whose folders have full management (the active one),
+  // and every OTHER accessible mailbox mounted below as a navigation tree.
+  const activeLabel = activeShared !== undefined ? activeShared.name : ownLabel;
+  const otherAccounts = [
+    ...(activeAccount !== null && ownId !== null
+      ? [{ id: ownId, name: ownLabel, boxes: treeMap[ownId] ?? [], readOnly: false }]
+      : []),
+    ...shared
+      .filter((s) => s.id !== activeAccount)
+      .map((s) => ({ id: s.id, name: s.name, boxes: treeMap[s.id] ?? [], readOnly: s.readOnly })),
+  ];
+
   const widthVars = {
     // Collapsed = a compact icon-only column (folders stay one-click reachable).
     "--sidebar-width": foldersCollapsed ? "56px" : `${folders.width}px`,
@@ -668,10 +702,10 @@ export function MailModule() {
         flaggedActive={flaggedView}
         onSelectFlagged={openFlagged}
         onSelect={openMailbox}
-        shared={shared}
-        activeAccount={activeAccount}
-        ownLabel={identity?.email ?? strings.sharedMyMailbox}
-        onSwitchAccount={switchAccount}
+        activeLabel={activeLabel}
+        showAccountHeader={shared.length > 0}
+        otherAccounts={otherAccounts}
+        onSelectAccount={selectAccountFolder}
         onCompose={() => {
           if (activeShared !== undefined && !activeShared.canSend) {
             setToast(strings.sharedNoSend);

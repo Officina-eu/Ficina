@@ -240,6 +240,7 @@ export const strings = {
   folderActions: (name: string) => `Options for the ${name} folder`,
   // Shared mailboxes / delegation
   sharedMailboxLabel: "Mailbox",
+  sharedMailboxesHeading: "Shared mailboxes",
   sharedMyMailbox: "My mailbox",
   sharedReadOnly: "read-only",
   sharedNoSend: "You can't send from this shared mailbox — you weren't granted send access.",

@@ -14,6 +14,23 @@ export function useMailboxes(): Async<Mailbox[]> {
   return useAsync(useCallback(() => client.mailboxes(), [client]));
 }
 
+/** Mailboxes for several accounts at once (the user's own plus any delegated
+ * shared mailboxes), keyed by account id — for the always-mounted sidebar that
+ * shows every accessible mailbox's folders simultaneously. */
+export function useMailboxTrees(accountIds: string[]): Async<Record<string, Mailbox[]>> {
+  const client = useJmapClient();
+  const key = accountIds.join(",");
+  return useAsync(
+    useCallback(async () => {
+      const ids = key === "" ? [] : key.split(",");
+      const entries = await Promise.all(
+        ids.map(async (id) => [id, await client.mailboxesFor(id)] as const),
+      );
+      return Object.fromEntries(entries);
+    }, [client, key]),
+  );
+}
+
 /** The account's categories (colored labels). */
 export function useCategories(): Async<Category[]> {
   const client = useJmapClient();
