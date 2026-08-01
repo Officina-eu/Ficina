@@ -624,14 +624,30 @@ export class JmapClient {
   }
 
   /** Grant `delegateId` access to `ownerId`'s mailbox (admin). `sendMode` is
-   * "none" | "as" | "on_behalf". */
+   * "none" | "as" | "on_behalf". `folders` confines access to those mailbox ids
+   * (empty = whole mailbox). */
   async grantDelegate(
     ownerId: string,
     delegateId: string,
     canWrite: boolean,
     sendMode: SendMode,
+    folders: string[],
   ): Promise<void> {
-    await this.#adminPost("/admin/delegates", { ownerId, delegateId, canWrite, sendMode });
+    await this.#adminPost("/admin/delegates", {
+      ownerId,
+      delegateId,
+      canWrite,
+      sendMode,
+      folders,
+    });
+  }
+
+  /** A user's folders (id + name), for the admin per-folder delegation picker. */
+  async adminUserMailboxes(userId: string): Promise<{ id: string; name: string }[]> {
+    const res = (await this.#admin(`/admin/users/${encodeURIComponent(userId)}/mailboxes`, {
+      method: "GET",
+    })) as { mailboxes: { id: string; name: string }[] };
+    return res.mailboxes;
   }
 
   /** Revoke `delegateId`'s access to `ownerId`'s mailbox (admin). */

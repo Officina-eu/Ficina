@@ -115,6 +115,7 @@ pub fn app(state: AppState) -> Router {
             "/admin/users/{id}",
             axum::routing::delete(admin::delete_user),
         )
+        .route("/admin/users/{id}/mailboxes", get(admin::user_mailboxes))
         // Admin console: groups & lists.
         .route(
             "/admin/groups",

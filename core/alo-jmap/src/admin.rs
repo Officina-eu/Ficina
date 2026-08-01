@@ -6,7 +6,7 @@
 //! Secrets never leave the server: a provider's API key is stored but only its
 //! presence (`hasKey`) is returned, and it is never logged.
 
-use alo_store::{AiProviderRow, GroupId, StoreError, UserId};
+use alo_store::{AiProviderRow, GroupId, Page, StoreError, UserId};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, body::Bytes};
@@ -643,6 +643,37 @@ pub async fn list_delegates(
         }));
     }
     Ok(Json(json!({ "delegates": delegates })))
+}
+
+/// `GET /admin/users/{id}/mailboxes` — a user's folders (id + name), for the
+/// admin per-folder delegation picker. Admin-only; tenant-scoped, so it can
+/// only ever list folders of a user in the admin's own tenant.
+pub async fn user_mailboxes(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let acc = state
+        .store
+        .for_account(account.tenant.clone(), UserId::new(user_id));
+    let boxes = acc
+        .mailboxes(Page::first(alo_store::MAX_PAGE))
+        .await
+        .map_err(store_admin_err)?;
+    let mailboxes: Vec<Value> = boxes
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id.as_str(),
+                "name": m.name,
+                "role": m.role,
+                "parentId": m.parent_id.as_ref().map(|p| p.as_str()),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "mailboxes": mailboxes })))
 }
 
 /// `POST /admin/delegates` — grant a delegate access to an owner's mailbox.

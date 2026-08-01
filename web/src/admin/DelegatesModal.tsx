@@ -3,7 +3,7 @@
 // send-as / send-on-behalf), editable inline; an admin can add a user or revoke
 // access. All writes go through the admin-gated /admin/delegates routes.
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { FolderCog, X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Spinner } from "../ds";
@@ -20,7 +20,10 @@ interface DelegatesModalProps {
 export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
   const client = useJmapClient();
   const [delegates, setDelegates] = useState<Delegate[] | null>(null);
+  const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
   const [pick, setPick] = useState("");
+  // Which delegate's folder scope is being edited inline.
+  const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,18 +33,28 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
       .listDelegates(owner.id)
       .then(setDelegates)
       .catch(() => setError(strings.delegateError));
+    void client
+      .adminUserMailboxes(owner.id)
+      .then(setFolders)
+      .catch(() => undefined);
   }, [client, owner.id]);
   useEffect(load, [load]);
 
   const addable = users.filter(
     (u) => u.id !== owner.id && !(delegates ?? []).some((d) => d.id === u.id),
   );
+  const folderName = (id: string) => folders.find((f) => f.id === id)?.name ?? id;
 
-  async function grant(delegateId: string, canWrite: boolean, sendMode: SendMode) {
+  async function grant(
+    delegateId: string,
+    canWrite: boolean,
+    sendMode: SendMode,
+    folderIds: string[],
+  ) {
     setBusy(true);
     setError(null);
     try {
-      await client.grantDelegate(owner.id, delegateId, canWrite, sendMode);
+      await client.grantDelegate(owner.id, delegateId, canWrite, sendMode, folderIds);
       setPick("");
       load();
     } catch {
@@ -89,21 +102,51 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
             <ul className={styles.delegateList}>
               {delegates.map((d) => (
                 <li key={d.id} className={styles.delegateRow}>
-                  <span className={styles.delegateEmail}>{d.email}</span>
-                  <AccessControls
-                    canWrite={d.canWrite}
-                    sendMode={d.sendMode}
-                    disabled={busy}
-                    onChange={(w, s) => void grant(d.id, w, s)}
-                  />
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    onClick={() => void revoke(d.id)}
-                    aria-label={strings.delegateRemove}
-                  >
-                    <X size={16} />
-                  </button>
+                  <div className={styles.delegateMain}>
+                    <span className={styles.delegateEmail}>{d.email}</span>
+                    <AccessControls
+                      canWrite={d.canWrite}
+                      sendMode={d.sendMode}
+                      disabled={busy}
+                      onChange={(w, s) => void grant(d.id, w, s, d.folders)}
+                    />
+                    {folders.length > 0 && (
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        onClick={() => setEditing(editing === d.id ? null : d.id)}
+                        aria-label={strings.delegateFoldersLabel}
+                        title={strings.delegateFoldersLabel}
+                      >
+                        <FolderCog size={15} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={() => void revoke(d.id)}
+                      aria-label={strings.delegateRemove}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <span className={styles.delegateScope}>
+                    {d.folders.length === 0
+                      ? strings.delegateWholeMailbox
+                      : d.folders.map(folderName).join(", ")}
+                  </span>
+                  {editing === d.id && (
+                    <FolderScope
+                      folders={folders}
+                      selected={new Set(d.folders)}
+                      disabled={busy}
+                      onSave={(ids) => {
+                        setEditing(null);
+                        void grant(d.id, d.canWrite, d.sendMode, ids);
+                      }}
+                      onCancel={() => setEditing(null)}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -126,7 +169,7 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
             <button
               type="button"
               className={styles.ghost}
-              onClick={() => void grant(pick, true, "none")}
+              onClick={() => void grant(pick, true, "none", [])}
               disabled={busy || pick.length === 0}
             >
               {strings.delegateAdd}
@@ -145,6 +188,51 @@ export function DelegatesModal({ owner, users, onClose }: DelegatesModalProps) {
             {strings.groupClose}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** An inline folder multi-select confining a grant to specific folders. Saving
+ * an empty selection clears the restriction back to whole-mailbox. */
+function FolderScope({
+  folders,
+  selected,
+  disabled,
+  onSave,
+  onCancel,
+}: {
+  folders: { id: string; name: string }[];
+  selected: ReadonlySet<string>;
+  disabled: boolean;
+  onSave: (ids: string[]) => void;
+  onCancel: () => void;
+}) {
+  const [set, setSet] = useState<ReadonlySet<string>>(selected);
+  const toggle = (id: string) =>
+    setSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  return (
+    <div className={styles.scopeEdit}>
+      <div className={styles.scopeChecklist}>
+        {folders.map((f) => (
+          <label key={f.id} className={styles.scopeCheck}>
+            <input type="checkbox" checked={set.has(f.id)} onChange={() => toggle(f.id)} />
+            {f.name}
+          </label>
+        ))}
+      </div>
+      <div className={styles.scopeActions}>
+        <button type="button" className={styles.ghost} disabled={disabled} onClick={() => onSave([...set])}>
+          {strings.delegateFoldersSave}
+        </button>
+        <button type="button" className={styles.iconTextBtn} onClick={onCancel}>
+          {strings.delegateFoldersCancel}
+        </button>
       </div>
     </div>
   );
