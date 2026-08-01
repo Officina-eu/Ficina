@@ -4,7 +4,7 @@
 
 use alo_store::{
     BlobId, CategoryId, EmailFilter, EmailQuery, MailboxId, MessageId, Page, SortDirection,
-    StoreError, ThreadId,
+    StoreError, ThreadId, UserId,
 };
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -64,6 +64,9 @@ pub async fn api(
 
     let state_before = account.acc.state().await.unwrap_or_default();
     let mut responses: Vec<Value> = Vec::new();
+    // Delegated mailboxes (owner account ids) this request mutated — their
+    // streams are notified after the loop so shared mailboxes update live.
+    let mut touched_owners: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for call in method_calls {
         let (name, mut args, call_id) = match parse_invocation(call) {
@@ -95,31 +98,57 @@ pub async fn api(
             responses.push(json!(["error", method_error("accountReadOnly"), call_id]));
             continue;
         }
+        // A successful mutation on a delegated mailbox must notify that owner's
+        // stream (the owner and every other delegate), not the signed-in user's.
+        let mutated = name.ends_with("/set");
         match dispatch(acct, &state, &name, &args).await {
-            Ok(result) => responses.push(json!([name, result, call_id])),
+            Ok(result) => {
+                if mutated && acct.delegated.is_some() {
+                    touched_owners.insert(acct.account_id().to_owned());
+                }
+                responses.push(json!([name, result, call_id]));
+            }
             Err(err) => responses.push(json!(["error", err, call_id])),
         }
     }
 
-    // Push: if anything changed, notify this account's stream.
+    // Push: notify this account's stream if its own state changed…
     let session_state = account
         .acc
         .state()
         .await
         .unwrap_or_else(|_| state_before.clone());
+    let change_types = vec![
+        alo_store::changes::TYPE_MAILBOX,
+        alo_store::changes::TYPE_EMAIL,
+        alo_store::changes::TYPE_THREAD,
+    ];
     if session_state != state_before {
         state.push.publish(
             account.tenant.as_str(),
             StateChangeMsg {
                 account_id: account.account_id().to_owned(),
-                types: vec![
-                    alo_store::changes::TYPE_MAILBOX,
-                    alo_store::changes::TYPE_EMAIL,
-                    alo_store::changes::TYPE_THREAD,
-                ],
+                types: change_types.clone(),
                 state: session_state.clone(),
             },
         );
+    }
+    // …and each shared mailbox this request mutated, so its owner and every
+    // connected delegate refresh in real time (ADR 0017).
+    for owner_id in touched_owners {
+        let owner_acc = state
+            .store
+            .for_account(account.tenant.clone(), UserId::new(owner_id.clone()));
+        if let Ok(owner_state) = owner_acc.state().await {
+            state.push.publish(
+                account.tenant.as_str(),
+                StateChangeMsg {
+                    account_id: owner_id,
+                    types: change_types.clone(),
+                    state: owner_state,
+                },
+            );
+        }
     }
 
     Ok(Json(

@@ -115,6 +115,49 @@ export class JmapClient {
     return id;
   }
 
+  /** Subscribe to the server's push stream (RFC 8620 EventSource) and invoke
+   * `onChange` with the account ids whose Mail/Mailbox data changed — the
+   * user's own and any shared mailboxes they're delegated. Uses a streaming
+   * fetch (not the EventSource API) so the bearer token can be sent. Resolves
+   * when the stream ends (the caller reconnects); throws on a failed open. */
+  async subscribeChanges(
+    onChange: (accountIds: string[]) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const session = await this.session();
+    const url = session.eventSourceUrl
+      .replace("{types}", "Email,Mailbox,Thread")
+      .replace("{closeafter}", "no")
+      .replace("{ping}", "30");
+    const res = await this.#fetch(url, { signal, headers: { accept: "text/event-stream" } });
+    if (!res.ok || res.body === null) throw new JmapError(`eventsource ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buf += decoder.decode(value, { stream: true });
+      let sep: number;
+      // SSE events are separated by a blank line.
+      while ((sep = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const dataLine = raw.split("\n").find((l) => l.startsWith("data:"));
+        if (dataLine === undefined) continue;
+        try {
+          const payload = JSON.parse(dataLine.slice(5).trim()) as {
+            changed?: Record<string, unknown>;
+          };
+          const ids = Object.keys(payload.changed ?? {});
+          if (ids.length > 0) onChange(ids);
+        } catch {
+          // ignore a malformed/keep-alive frame
+        }
+      }
+    }
+  }
+
   /** The shared mailboxes the user was delegated (session's non-personal
    * accounts) — for the mailbox switcher. */
   async sharedMailboxes(): Promise<SharedMailbox[]> {

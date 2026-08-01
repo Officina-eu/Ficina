@@ -87,6 +87,12 @@ export function MailModule() {
   const [shared, setShared] = useState<SharedMailbox[]>([]);
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
   const activeShared = shared.find((s) => s.id === activeAccount);
+  // The signed-in user's own account id (captured once), the account currently
+  // being viewed, and the reload action — held in refs so the long-lived push
+  // subscription always reads current values without re-subscribing.
+  const ownIdRef = useRef<string | null>(null);
+  const watchIdRef = useRef<string | null>(null);
+  const reloadRef = useRef<() => void>(() => {});
   const [foldersCollapsed, setFoldersCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem("alo.mail.foldersCollapsed") === "1";
@@ -111,6 +117,14 @@ export function MailModule() {
   const flaggedEmails = useFlagged(flaggedView);
   const emails = flaggedView ? flaggedEmails : folderEmails;
   const thread = useThread(threadId);
+
+  // Keep the push refs current every render (the subscription reads them).
+  watchIdRef.current = activeAccount ?? ownIdRef.current;
+  reloadRef.current = () => {
+    emails.reload();
+    mailboxes.reload();
+    if (threadId !== null) thread.reload();
+  };
 
   const boxes = mailboxes.status === "ready" ? (mailboxes.data ?? []) : [];
   const folderName = flaggedView
@@ -190,6 +204,51 @@ export function MailModule() {
       });
     return () => {
       live = false;
+    };
+  }, [client]);
+
+  // Capture the user's own account id once (accountId() returns the active
+  // account, which is the own account before any switch).
+  useEffect(() => {
+    void client
+      .accountId()
+      .then((id) => {
+        ownIdRef.current = id;
+        if (watchIdRef.current === null) watchIdRef.current = id;
+      })
+      .catch(() => undefined);
+    // Capture the own id at mount, before any shared-mailbox switch.
+  }, [client]);
+
+  // Real-time updates: subscribe to the server's push stream and refetch when
+  // the account being viewed changes — including changes made by another
+  // delegate in a shared mailbox (ADR 0017). Reconnects on drop.
+  useEffect(() => {
+    const controller = new AbortController();
+    let stopped = false;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const onChange = (ids: string[]) => {
+      const watch = watchIdRef.current;
+      if (watch === null || !ids.includes(watch)) return;
+      if (debounce !== null) clearTimeout(debounce);
+      debounce = setTimeout(() => reloadRef.current(), 400);
+    };
+    async function run() {
+      while (!stopped) {
+        try {
+          await client.subscribeChanges(onChange, controller.signal);
+        } catch {
+          // failed to open or dropped — fall through to the reconnect backoff
+        }
+        if (stopped) break;
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+    void run();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (debounce !== null) clearTimeout(debounce);
     };
   }, [client]);
 

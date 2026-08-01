@@ -70,20 +70,35 @@ pub async fn event_source(
     headers: HeaderMap,
 ) -> Result<Response, Problem> {
     let account = authenticate(&state, &headers).await?;
-    let account_id = account.account_id().to_owned();
+    // The accounts this connection listens for: the user's own, plus any shared
+    // mailboxes they were delegated (ADR 0017), so a change made by another
+    // delegate reaches this client live. Computed at connect time — a grant
+    // added mid-connection takes effect on the next reconnect.
+    let mut account_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::from([account.account_id().to_owned()]);
+    if let Ok(delegations) = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .delegations_for(&account.user)
+        .await
+    {
+        for (owner_id, _email, _can_write, _send_mode) in delegations {
+            account_ids.insert(owner_id);
+        }
+    }
     let mut rx = state.push.subscribe(account.tenant.as_str());
 
     let stream = futures::stream::unfold(
-        (rx.resubscribe(), account_id),
-        move |(mut rx, account_id)| async move {
+        (rx.resubscribe(), account_ids),
+        move |(mut rx, account_ids)| async move {
             loop {
                 match rx.recv().await {
-                    Ok(msg) if msg.account_id == account_id => {
+                    Ok(msg) if account_ids.contains(&msg.account_id) => {
                         let event = Event::default()
                             .event("state")
                             .id(msg.state.clone())
                             .data(state_change_json(&msg).to_string());
-                        return Some((Ok::<_, Infallible>(event), (rx, account_id)));
+                        return Some((Ok::<_, Infallible>(event), (rx, account_ids)));
                     }
                     // Another account in the same tenant, or a lag skip.
                     Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
