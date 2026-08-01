@@ -30,9 +30,10 @@ This is different from a **distribution list** (`team@…`), which delivers a
 independent read state. Use a distribution list for "send one address, everyone
 gets their own copy"; use a shared mailbox for "one place we all work together".
 
-**Timing caveat (today):** the read state is *shared* but not yet *live*. Other
-members see the "now read" state the next time they **refresh** that folder, not
-the instant it changes. Real-time cross-member sync is a planned enhancement.
+This is **live**: alo consumes the server's push stream, so when one member
+opens (or moves, flags, deletes) a message, the other connected members' views
+update within a moment — no manual refresh needed. If a client is briefly
+offline it catches up on reconnect.
 
 ---
 
@@ -121,4 +122,5 @@ Delegation never weakens account isolation (the product's first rule):
   has these; Gmail does not).
 - The shared mailbox opens through the **switcher**, rather than being
   permanently mounted in your folder tree.
-- Read-state sync between members is **on refresh**, not yet real-time.
+- Live sync applies to a mailbox you have **open**; a newly-granted mailbox
+  starts receiving live updates once the client reconnects the stream.
