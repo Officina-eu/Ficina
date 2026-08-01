@@ -22,6 +22,16 @@ The design below was subsequently built (migrations 0030–0031). What landed:
 - **Acceptance gate met** — isolation tests first: cross-tenant grants
   invisible, ungranted access is `accountNotFound`, read-only can't mutate,
   no-send can't send, revocation immediate.
+- **Per-folder delegation** (migration 0032, `delegate_folders`) — a grant may
+  optionally confine a delegate to specific folders. Enforced on `Mailbox/get`
+  (granted folders only; others `notFound`, no oracle), `Email/get`/`query`
+  (only messages in granted folders), `Email/set` (create/move only into granted
+  folders; flag/destroy only granted messages), and `Mailbox/set` (restructuring
+  refused). Isolation test is the gate; fails closed on a store error.
+- **Always-mounted + live** — every accessible mailbox is mounted in the sidebar
+  at once (not a switcher), and changes made by one delegate reach the others in
+  real time over the push stream (owner-account `StateChange`, delegate streams
+  subscribe to their granted owners).
 
 The original design and rationale follow.
 

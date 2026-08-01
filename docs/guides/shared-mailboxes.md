@@ -49,6 +49,17 @@ Each grant has an **access level**:
 A read-only delegate that tries to change anything is refused by the server
 (`accountReadOnly`) — read-only really is read-only.
 
+### Limiting access to specific folders
+
+By default a grant covers the **whole mailbox**. You can instead confine a
+person to **specific folders** (Outlook-style per-folder delegation): in
+**Settings → Sharing**, tick *Limit access to specific folders* when adding
+someone, or use the folder button on an existing grant. They then see and touch
+**only** those folders — every other folder is invisible to them (indistinguish­
+able from not existing), they can't move a message into or out of an off-limits
+folder, and they can't restructure the mailbox. Clearing the selection restores
+whole-mailbox access.
+
 ## Send permissions
 
 On top of the access level, a grant may allow sending:
@@ -93,11 +104,12 @@ only **their own**.
 
 ## Opening a shared mailbox
 
-Once you've been granted access, a **Mailbox** switcher appears at the top of
-the folder list in Mail. Pick the shared mailbox to open it — its folders and
-messages replace the view, and everything (open, reply, move, flag) acts on the
-shared mailbox. Read-only mailboxes are marked *(read-only)* and their Compose
-button is disabled. Switch back to **My mailbox** the same way.
+Every mailbox you can access is **mounted in the folder sidebar** at once
+(Outlook-style): your own folders at the top, and each shared mailbox below as
+its own collapsible tree, read-only ones marked with a lock. Click any folder —
+yours or a shared mailbox's — to open it; everything (open, reply, move, flag)
+then acts on whichever mailbox that folder belongs to, and folder management
+(create/rename/delete/colour) applies to the mailbox you're currently in.
 
 When you compose or reply from within a shared mailbox, the message is sent
 **as** (or **on behalf of**) that address, and the sent copy is filed in the
@@ -118,9 +130,7 @@ Delegation never weakens account isolation (the product's first rule):
 
 ## Current limits
 
-- **Whole-mailbox** grants only — there are no per-folder permissions (Outlook
-  has these; Gmail does not).
-- The shared mailbox opens through the **switcher**, rather than being
-  permanently mounted in your folder tree.
+- Per-folder grants apply to whole folders; there are no finer per-message or
+  per-sender rules.
 - Live sync applies to a mailbox you have **open**; a newly-granted mailbox
   starts receiving live updates once the client reconnects the stream.
