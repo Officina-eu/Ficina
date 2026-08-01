@@ -11,6 +11,7 @@ import {
   FolderPlus,
   Hash,
   Inbox,
+  MoreHorizontal,
   PenLine,
   Pencil,
   Plus,
@@ -293,8 +294,23 @@ export function FolderSidebar({
               </button>
             </div>
             {custom.map(({ box, depth }) => (
-              <div key={box.id}>
+              <div key={box.id} className={styles.rowWrap}>
                 {row(box, labelDot(box), { colorable: true, depth })}
+                {editing?.id !== box.id && (
+                  <button
+                    type="button"
+                    className={styles.kebab}
+                    aria-label={strings.folderActions(box.name)}
+                    title={strings.folderActions(box.name)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setMenu({ box, x: r.right, y: r.bottom });
+                    }}
+                  >
+                    <MoreHorizontal size={15} />
+                  </button>
+                )}
                 {creating?.parentId === box.id && newFolderInput(box.id, depth + 1)}
               </div>
             ))}

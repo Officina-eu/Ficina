@@ -57,6 +57,41 @@
   transition: background-color var(--transition-fast);
 }
 
+/* A category row + its hover "more" (⋮) button, Gmail/Outlook style. */
+.rowWrap {
+  position: relative;
+}
+
+.kebab {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-raised);
+  opacity: 0;
+  transition:
+    opacity var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.rowWrap:hover .kebab,
+.rowWrap:focus-within .kebab {
+  opacity: 1;
+}
+
+.kebab:hover {
+  background: var(--border-subtle);
+  color: var(--text-primary);
+}
+
 .item:hover {
   background: var(--bg-raised);
 }

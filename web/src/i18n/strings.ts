@@ -237,6 +237,7 @@ export const strings = {
   folderNamePlaceholder: "Folder name",
   folderDeleteConfirm: (name: string) => `Delete the folder "${name}"? Its messages are not deleted.`,
   folderActionFailed: "That folder change didn't work — please try again.",
+  folderActions: (name: string) => `Options for the ${name} folder`,
   // Categories (colored message labels)
   categories: "Categories",
   categorize: "Categorize",
@@ -248,6 +249,7 @@ export const strings = {
   categoryDeleteConfirm: (name: string) =>
     `Delete the category "${name}"? It is removed from every message that has it.`,
   categoryActionFailed: "That category change didn't work — please try again.",
+  categoryActions: (name: string) => `Options for the ${name} category`,
   categoryClearFilter: "Show all messages",
   // alo Transfer (large files as expiring links)
   transferLink: "link",

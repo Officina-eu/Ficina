@@ -4,7 +4,7 @@
 // folder list — categories are labels, not folders, so they live apart.
 import { useState } from "react";
 import type { KeyboardEvent } from "react";
-import { Pencil, Plus, Tag, Tags, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, Tag, Tags, Trash2 } from "lucide-react";
 
 import type { Category } from "../../jmap";
 import { cx } from "../../ds";
@@ -88,25 +88,39 @@ export function CategorySection({
             />
           </div>
         ) : (
-          <button
-            key={c.id}
-            type="button"
-            className={cx(styles.item, selectedId === c.id && styles.active)}
-            onClick={() => onSelect(selectedId === c.id ? null : c.id)}
-            aria-pressed={selectedId === c.id}
-            title={c.name}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenu({ cat: c, x: e.clientX, y: e.clientY });
-            }}
-          >
-            <span
-              className={styles.dot}
-              style={c.color !== null ? { background: c.color } : undefined}
-              aria-hidden
-            />
-            <span className={styles.name}>{c.name}</span>
-          </button>
+          <div key={c.id} className={styles.rowWrap}>
+            <button
+              type="button"
+              className={cx(styles.item, selectedId === c.id && styles.active)}
+              onClick={() => onSelect(selectedId === c.id ? null : c.id)}
+              aria-pressed={selectedId === c.id}
+              title={c.name}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ cat: c, x: e.clientX, y: e.clientY });
+              }}
+            >
+              <span
+                className={styles.dot}
+                style={c.color !== null ? { background: c.color } : undefined}
+                aria-hidden
+              />
+              <span className={styles.name}>{c.name}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.kebab}
+              aria-label={strings.categoryActions(c.name)}
+              title={strings.categoryActions(c.name)}
+              onClick={(e) => {
+                e.stopPropagation();
+                const r = e.currentTarget.getBoundingClientRect();
+                setMenu({ cat: c, x: r.right, y: r.bottom });
+              }}
+            >
+              <MoreHorizontal size={15} />
+            </button>
+          </div>
         ),
       )}
 
