@@ -27,11 +27,16 @@ The design below was subsequently built (migrations 0030–0031). What landed:
   (granted folders only; others `notFound`, no oracle), `Email/get`/`query`
   (only messages in granted folders), `Email/set` (create/move only into granted
   folders; flag/destroy only granted messages), and `Mailbox/set` (restructuring
-  refused). Isolation test is the gate; fails closed on a store error.
+  refused). Isolation test is the gate; fails closed on a store error. Granting
+  a folder implicitly grants its **subfolders** — `resolve_target` expands the
+  raw grant to its descendant closure before enforcement.
 - **Always-mounted + live** — every accessible mailbox is mounted in the sidebar
   at once (not a switcher), and changes made by one delegate reach the others in
   real time over the push stream (owner-account `StateChange`, delegate streams
-  subscribe to their granted owners).
+  subscribe to their granted owners). A grant added/revoked mid-session is
+  **instant**: grant/revoke publishes a `TYPE_DELEGATION` signal to the
+  delegate's own stream, which re-evaluates its subscription set in place (no
+  reconnect) and prompts the client to re-list shared mailboxes.
 
 The original design and rationale follow.
 

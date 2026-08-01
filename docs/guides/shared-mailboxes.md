@@ -33,7 +33,9 @@ gets their own copy"; use a shared mailbox for "one place we all work together".
 This is **live**: alo consumes the server's push stream, so when one member
 opens (or moves, flags, deletes) a message, the other connected members' views
 update within a moment — no manual refresh needed. If a client is briefly
-offline it catches up on reconnect.
+offline it catches up on reconnect. Newly **granting** someone is live too: the
+shared mailbox appears in their sidebar and starts receiving updates the moment
+access is given, without them reloading.
 
 ---
 
@@ -59,6 +61,10 @@ someone, or use the folder button on an existing grant. They then see and touch
 able from not existing), they can't move a message into or out of an off-limits
 folder, and they can't restructure the mailbox. Clearing the selection restores
 whole-mailbox access.
+
+Granting a folder **also grants its subfolders** — you don't have to tick each
+child. Grant `Projects` and the delegate can work in `Projects / Q1`,
+`Projects / Q2`, and anything nested below, automatically.
 
 ## Send permissions
 
@@ -130,7 +136,7 @@ Delegation never weakens account isolation (the product's first rule):
 
 ## Current limits
 
-- Per-folder grants apply to whole folders; there are no finer per-message or
-  per-sender rules.
-- Live sync applies to a mailbox you have **open**; a newly-granted mailbox
-  starts receiving live updates once the client reconnects the stream.
+- Per-folder grants apply to whole folders (and their subfolders); there are no
+  finer per-message or per-sender rules.
+- Live cross-member updates land within a moment on any connected client; a
+  client that was fully offline catches up when it reconnects.
