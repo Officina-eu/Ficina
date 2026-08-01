@@ -78,7 +78,15 @@ pub async fn api(
             ]));
             continue;
         }
-        match dispatch(&account, &state, &name, &args).await {
+        // Which account does this call target — the signed-in user's own, or a
+        // mailbox they were delegated (ADR 0017)? A foreign/ungranted accountId
+        // resolves to None, so `check_account` reports the usual accountNotFound.
+        let target = match args.get("accountId").and_then(Value::as_str) {
+            Some(id) => crate::state::resolve_target(&account, &state, id).await,
+            None => None,
+        };
+        let acct = target.as_ref().unwrap_or(&account);
+        match dispatch(acct, &state, &name, &args).await {
             Ok(result) => responses.push(json!([name, result, call_id])),
             Err(err) => responses.push(json!(["error", err, call_id])),
         }

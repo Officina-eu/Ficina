@@ -18,6 +18,7 @@ import {
   type EmailAddress,
   type MailFilterRule,
   type SecurityCheck,
+  type SharedMailbox,
   type EmailFull,
   type EmailHeaders,
   type JmapRequest,
@@ -71,9 +72,19 @@ export interface DocsDto extends DocsSummaryDto {
 export class JmapClient {
   #fetch: AuthorizedFetch;
   #session: Session | null = null;
+  /** When set to a shared mailbox's id, all mail calls target that account
+   * instead of the user's own (ADR 0017 delegation). */
+  #activeAccountId: string | null = null;
 
   constructor(authorizedFetch: AuthorizedFetch) {
     this.#fetch = authorizedFetch;
+  }
+
+  /** Switch the account all mail calls target: a shared mailbox id, or null to
+   * return to the user's own mailbox. Ignored if the id isn't an account the
+   * session grants. */
+  setActiveAccountId(id: string | null): void {
+    this.#activeAccountId = id;
   }
 
   /** Fetch (and cache) the JMAP session; yields the primary mail account id. */
@@ -93,9 +104,23 @@ export class JmapClient {
 
   async accountId(): Promise<string> {
     const session = await this.session();
+    // A selected shared mailbox wins — but only if the session actually grants
+    // it, so a stale selection can never target an unauthorized account.
+    const active = this.#activeAccountId;
+    if (active !== null && session.accounts?.[active] !== undefined) return active;
     const id = session.primaryAccounts[MAIL_CAPABILITY];
     if (id === undefined) throw new JmapError("no mail account");
     return id;
+  }
+
+  /** The shared mailboxes the user was delegated (session's non-personal
+   * accounts) — for the mailbox switcher. */
+  async sharedMailboxes(): Promise<SharedMailbox[]> {
+    const session = await this.session();
+    const own = session.primaryAccounts[MAIL_CAPABILITY];
+    return Object.entries(session.accounts ?? {})
+      .filter(([id, a]) => !a.isPersonal && id !== own)
+      .map(([id, a]) => ({ id, name: a.name, canSend: a["alo:canSend"] === true }));
   }
 
   async #request(methodCalls: MethodCall[]): Promise<JmapResponse> {
@@ -519,6 +544,28 @@ export class JmapClient {
   /** Rename a group / distribution list (admin). */
   async renameGroup(id: string, name: string): Promise<void> {
     await this.#adminPost("/admin/groups/name", { groupId: id, name });
+  }
+
+  // ---- mailbox delegation / shared mailboxes (admin, ADR 0017) --------
+
+  /** Who can access `ownerId`'s mailbox (admin). */
+  async listDelegates(
+    ownerId: string,
+  ): Promise<{ id: string; email: string; canSend: boolean }[]> {
+    const res = (await this.#admin(`/admin/delegates/${encodeURIComponent(ownerId)}`, {
+      method: "GET",
+    })) as { delegates: { id: string; email: string; canSend: boolean }[] };
+    return res.delegates;
+  }
+
+  /** Grant `delegateId` access to `ownerId`'s mailbox (admin). */
+  async grantDelegate(ownerId: string, delegateId: string, canSend: boolean): Promise<void> {
+    await this.#adminPost("/admin/delegates", { ownerId, delegateId, canSend });
+  }
+
+  /** Revoke `delegateId`'s access to `ownerId`'s mailbox (admin). */
+  async revokeDelegate(ownerId: string, delegateId: string): Promise<void> {
+    await this.#adminPost("/admin/delegates/remove", { ownerId, delegateId });
   }
 
   /** Set or clear a group's distribution-list address (admin). */

@@ -127,6 +127,10 @@ pub fn app(state: AppState) -> Router {
             "/admin/groups/{id}",
             axum::routing::delete(admin::delete_group),
         )
+        // Mailbox delegation / shared mailboxes (ADR 0017).
+        .route("/admin/delegates", post(admin::grant_delegate))
+        .route("/admin/delegates/remove", post(admin::revoke_delegate))
+        .route("/admin/delegates/{ownerId}", get(admin::list_delegates))
         // Admin console: this tenant's domains (register + DNS-verify).
         .route(
             "/admin/domains",

@@ -563,6 +563,113 @@ impl TenantStore {
         Ok(row.map(|r| r.email))
     }
 
+    // ---- mailbox delegation (ADR 0017) --------------------------------
+
+    /// Grants `delegate` access to `owner`'s mailbox in this tenant (creating
+    /// or updating the grant). `can_send` additionally permits sending as the
+    /// owner's address. Both users must be in this tenant. Runtime query.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] if either user is not in this tenant;
+    /// [`StoreError::Conflict`] if owner and delegate are the same user;
+    /// [`StoreError::Db`] on failure.
+    pub async fn grant_delegate(
+        &self,
+        owner: &UserId,
+        delegate: &UserId,
+        can_send: bool,
+    ) -> Result<()> {
+        if owner == delegate {
+            return Err(StoreError::Conflict("a user cannot delegate to themselves".into()));
+        }
+        self.assert_user(owner).await?;
+        self.assert_user(delegate).await?;
+        sqlx::query(
+            "INSERT INTO account_delegates (tenant_id, owner_id, delegate_id, can_send) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (owner_id, delegate_id) DO UPDATE SET can_send = $4",
+        )
+        .bind(self.tenant().as_str())
+        .bind(owner.as_str())
+        .bind(delegate.as_str())
+        .bind(can_send)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Revokes `delegate`'s access to `owner`'s mailbox. Silent if absent.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn revoke_delegate(&self, owner: &UserId, delegate: &UserId) -> Result<()> {
+        sqlx::query(
+            "DELETE FROM account_delegates \
+             WHERE tenant_id = $1 AND owner_id = $2 AND delegate_id = $3",
+        )
+        .bind(self.tenant().as_str())
+        .bind(owner.as_str())
+        .bind(delegate.as_str())
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// The delegate's grant on `owner`'s mailbox: `Some(can_send)` if granted,
+    /// `None` otherwise. The single authorization check on the request path —
+    /// scoped to this tenant, so it can never authorize across tenants.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn delegation(&self, owner: &UserId, delegate: &UserId) -> Result<Option<bool>> {
+        let row: Option<bool> = sqlx::query_scalar(
+            "SELECT can_send FROM account_delegates \
+             WHERE tenant_id = $1 AND owner_id = $2 AND delegate_id = $3",
+        )
+        .bind(self.tenant().as_str())
+        .bind(owner.as_str())
+        .bind(delegate.as_str())
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(row)
+    }
+
+    /// The users granted access to `owner`'s mailbox — `(delegate email,
+    /// can_send)` — for the management UI.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn delegates_of(&self, owner: &UserId) -> Result<Vec<(String, String, bool)>> {
+        let rows = sqlx::query_as::<_, (String, String, bool)>(
+            "SELECT d.delegate_id, u.email, d.can_send \
+             FROM account_delegates d JOIN users u ON u.id = d.delegate_id \
+             WHERE d.tenant_id = $1 AND d.owner_id = $2 ORDER BY u.email",
+        )
+        .bind(self.tenant().as_str())
+        .bind(owner.as_str())
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
+    }
+
+    /// The mailboxes `delegate` may access — `(owner id, owner email, can_send)`
+    /// — for the session's shared-account list.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn delegations_for(&self, delegate: &UserId) -> Result<Vec<(String, String, bool)>> {
+        let rows = sqlx::query_as::<_, (String, String, bool)>(
+            "SELECT d.owner_id, u.email, d.can_send \
+             FROM account_delegates d JOIN users u ON u.id = d.owner_id \
+             WHERE d.tenant_id = $1 AND d.delegate_id = $2 ORDER BY u.email",
+        )
+        .bind(self.tenant().as_str())
+        .bind(delegate.as_str())
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
+    }
+
     // ---- aliases ------------------------------------------------------
 
     /// Adds an inbound alias address (lowercased) that routes to `user`.

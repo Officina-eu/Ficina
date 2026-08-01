@@ -25,7 +25,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { strings } from "../../i18n";
 import { Spinner, cx } from "../../ds";
-import type { Mailbox } from "../../jmap";
+import type { Mailbox, SharedMailbox } from "../../jmap";
 import type { Async } from "../state/useAsync";
 import { DRAG_EMAIL_MIME } from "../dnd";
 import styles from "./FolderSidebar.module.css";
@@ -93,6 +93,13 @@ interface FolderSidebarProps {
   mailboxes: Async<Mailbox[]>;
   selectedId: string | null;
   collapsed: boolean;
+  /** Shared mailboxes the user was delegated (ADR 0017). */
+  shared: SharedMailbox[];
+  /** The open account: a shared mailbox id, or null for the user's own. */
+  activeAccount: string | null;
+  /** Label for the user's own mailbox in the switcher. */
+  ownLabel: string;
+  onSwitchAccount: (id: string | null) => void;
   onSelect: (id: string) => void;
   onCompose: () => void;
   onDropMessage: (emailIds: string[], mailboxId: string) => void;
@@ -113,6 +120,10 @@ export function FolderSidebar({
   mailboxes,
   selectedId,
   collapsed,
+  shared,
+  activeAccount,
+  ownLabel,
+  onSwitchAccount,
   onSelect,
   onCompose,
   onDropMessage,
@@ -240,6 +251,25 @@ export function FolderSidebar({
 
   return (
     <nav className={cx(styles.sidebar, collapsed && styles.collapsed)} aria-label={strings.mailFolders}>
+      {!collapsed && shared.length > 0 && (
+        <label className={styles.switcher}>
+          <span className={styles.switcherLabel}>{strings.sharedMailboxLabel}</span>
+          <select
+            className={styles.switcherSelect}
+            value={activeAccount ?? ""}
+            onChange={(e) => onSwitchAccount(e.target.value === "" ? null : e.target.value)}
+            aria-label={strings.sharedMailboxLabel}
+          >
+            <option value="">{ownLabel}</option>
+            {shared.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {s.canSend ? "" : ` (${strings.sharedReadOnly})`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <button type="button" className={styles.compose} onClick={onCompose} title={strings.compose}>
         <PenLine size={17} strokeWidth={2} />
         <span className={styles.composeLabel}>{strings.compose}</span>

@@ -22,6 +22,27 @@ export interface Session {
   "alo:isAdmin"?: boolean;
   /** alo extension: addresses this user may send from (canonical + aliases). */
   "alo:sendAs"?: string[];
+  /** RFC 8620 accounts map: the user's own account plus any shared mailboxes
+   * they were delegated (ADR 0017). Keyed by accountId. */
+  accounts?: Record<string, SessionAccount>;
+}
+
+/** An account in the session's `accounts` map. */
+export interface SessionAccount {
+  /** Display name (the owner's email for a shared mailbox). */
+  name: string;
+  /** False for a shared mailbox delegated to this user. */
+  isPersonal: boolean;
+  isReadOnly: boolean;
+  /** alo extension: whether the delegate may send as this mailbox. */
+  "alo:canSend"?: boolean;
+}
+
+/** A shared mailbox the signed-in user was delegated access to. */
+export interface SharedMailbox {
+  id: string;
+  name: string;
+  canSend: boolean;
 }
 
 export interface EmailAddress {

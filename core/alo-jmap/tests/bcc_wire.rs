@@ -179,6 +179,7 @@ async fn bcc_stripped_on_wire_delivered_by_envelope_kept_in_sent() {
         user: user.clone(),
         acc: acc.clone(),
         is_admin: false,
+        delegated: None,
     };
 
     let args = json!({

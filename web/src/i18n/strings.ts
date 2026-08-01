@@ -238,6 +238,25 @@ export const strings = {
   folderDeleteConfirm: (name: string) => `Delete the folder "${name}"? Its messages are not deleted.`,
   folderActionFailed: "That folder change didn't work — please try again.",
   folderActions: (name: string) => `Options for the ${name} folder`,
+  // Shared mailboxes / delegation
+  sharedMailboxLabel: "Mailbox",
+  sharedMyMailbox: "My mailbox",
+  sharedReadOnly: "read-only",
+  sharedNoSend: "You have read-only access to this shared mailbox — you can't send from it.",
+  // Admin — mailbox delegation
+  userShareAccess: "Shared access",
+  delegateTitle: (email: string) => `Who can access ${email}`,
+  delegateIntro:
+    "People you add can open and manage this mailbox. Allow sending to also let them send as this address.",
+  delegatePeople: "People with access",
+  delegateNone: "No one else has access yet.",
+  delegateAdd: "Add person",
+  delegateAllowSend: "Can send",
+  delegateCanSend: "Can send",
+  delegateReadOnly: "Read-only",
+  delegateSendToggle: "Toggle send permission",
+  delegateRemove: "Remove access",
+  delegateError: "That access change didn't work — please try again.",
   // Categories (colored message labels)
   categories: "Categories",
   categorize: "Categorize",

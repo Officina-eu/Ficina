@@ -32,4 +32,5 @@ export {
   type ControlTenant,
   type ControlDomain,
   type Session,
+  type SharedMailbox,
 } from "./types";

@@ -101,6 +101,16 @@ pub(crate) async fn validate_and_prepare(
     props: &Value,
     state: &AppState,
 ) -> Result<Prepared, Value> {
+    // 0. Delegation (ADR 0017): sending as a delegated mailbox requires the
+    // send grant. A read-only delegate can read/manage the mailbox but not send
+    // from it. (The signed-in user's own account has `delegated == None`.)
+    if account.delegated == Some(false) {
+        return Err(set_err(
+            "forbiddenToSend",
+            "you don't have permission to send from this mailbox",
+        ));
+    }
+
     // 1. The draft to send.
     let Some(email_id) = props.get("emailId").and_then(Value::as_str) else {
         return Err(set_err("invalidProperties", "emailId is required"));

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use alo_identity::{Identity, IdentityConfig};
-use alo_store::{AccountStore, BlobStore, Store, TenantStore, UserId};
+use alo_store::{AccountStore, BlobStore, Store, TenantId, TenantStore, UserId};
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -34,6 +34,7 @@ pub struct Harness {
     pub ts: TenantStore,
     pub acc: AccountStore,
     pub user: UserId,
+    pub tenant: TenantId,
 }
 
 /// A fresh tenant + logged-in user over the shared Postgres, with the
@@ -57,7 +58,7 @@ pub async fn harness(tag: &str) -> Harness {
         .set_password(&tenant, &user, &email, "s3cret-pw")
         .await
         .unwrap();
-    let acc = store.for_account(tenant, user.clone());
+    let acc = store.for_account(tenant.clone(), user.clone());
     let token = identity
         .password_login(&email, "s3cret-pw", None)
         .await
@@ -81,6 +82,7 @@ pub async fn harness(tag: &str) -> Harness {
         ts,
         acc,
         user,
+        tenant,
     }
 }
 

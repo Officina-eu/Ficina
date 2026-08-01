@@ -617,6 +617,76 @@ pub async fn remove_group_member(
     Ok(Json(json!({ "ok": true })))
 }
 
+// ---- mailbox delegation (ADR 0017) --------------------------------------
+
+/// `GET /admin/delegates/{ownerId}` — the users granted access to that user's
+/// mailbox: `{ delegates: [{ id, email, canSend }] }`.
+pub async fn list_delegates(
+    State(state): State<AppState>,
+    Path(owner_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let list = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .delegates_of(&UserId::new(owner_id))
+        .await
+        .map_err(store_admin_err)?;
+    let delegates: Vec<Value> = list
+        .into_iter()
+        .map(|(id, email, can_send)| json!({ "id": id, "email": email, "canSend": can_send }))
+        .collect();
+    Ok(Json(json!({ "delegates": delegates })))
+}
+
+/// `POST /admin/delegates` — grant a delegate access to an owner's mailbox.
+/// Body `{ ownerId, delegateId, canSend? }`. Idempotent (re-grant updates the
+/// send flag).
+pub async fn grant_delegate(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let owner = str_field(&v, "ownerId").ok_or_else(|| bad("ownerId required"))?;
+    let delegate = str_field(&v, "delegateId").ok_or_else(|| bad("delegateId required"))?;
+    let can_send = v.get("canSend").and_then(Value::as_bool).unwrap_or(false);
+    state
+        .store
+        .for_tenant(account.tenant.clone())
+        .grant_delegate(&UserId::new(owner.clone()), &UserId::new(delegate.clone()), can_send)
+        .await
+        .map_err(store_admin_err)?;
+    audit(&state, &account, "delegate.grant", Some(&owner), Some(&delegate)).await;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /admin/delegates/remove` — revoke a delegate's access. Body
+/// `{ ownerId, delegateId }`.
+pub async fn revoke_delegate(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    account.require_admin()?;
+    let v: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let owner = str_field(&v, "ownerId").ok_or_else(|| bad("ownerId required"))?;
+    let delegate = str_field(&v, "delegateId").ok_or_else(|| bad("delegateId required"))?;
+    state
+        .store
+        .for_tenant(account.tenant.clone())
+        .revoke_delegate(&UserId::new(owner.clone()), &UserId::new(delegate.clone()))
+        .await
+        .map_err(|_| Problem::server_error())?;
+    audit(&state, &account, "delegate.revoke", Some(&owner), Some(&delegate)).await;
+    Ok(Json(json!({ "ok": true })))
+}
+
 // ---- domains (tenant-admin; ADR 0012) ----------------------------------
 
 /// The DNS label under a domain where the ownership token is published.

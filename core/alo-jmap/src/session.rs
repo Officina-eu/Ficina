@@ -65,6 +65,31 @@ pub async fn session(
             }
         }),
     );
+    // Shared mailboxes: accounts this user was delegated access to (ADR 0017),
+    // advertised as non-personal accounts so the client offers them as shared
+    // mailboxes. They stay writable (move/flag/delete); `alo:canSend` says
+    // whether the delegate may also send as that address (submission enforces).
+    if let Ok(delegations) = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .delegations_for(&account.user)
+        .await
+    {
+        for (owner_id, owner_email, can_send) in delegations {
+            accounts.insert(
+                owner_id,
+                json!({
+                    "name": owner_email,
+                    "isPersonal": false,
+                    "isReadOnly": false,
+                    "alo:canSend": can_send,
+                    "accountCapabilities": {
+                        CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}
+                    }
+                }),
+            );
+        }
+    }
     let mut primary = Map::new();
     primary.insert(CAP_MAIL.to_owned(), json!(account_id));
     primary.insert(CAP_SUBMISSION.to_owned(), json!(account_id));

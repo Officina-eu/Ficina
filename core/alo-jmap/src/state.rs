@@ -77,6 +77,12 @@ pub struct Account {
     pub acc: AccountStore,
     /// Whether this user is a tenant admin (gates admin-only surfaces).
     pub is_admin: bool,
+    /// Delegation status of THIS account handle (ADR 0017). `None` when it is
+    /// the signed-in user's own account (full rights). `Some(can_send)` when it
+    /// is another user's mailbox the signed-in user was granted access to — the
+    /// bool is whether they may also send as that address. A delegated handle
+    /// never confers admin, and `is_admin` is forced false for it.
+    pub delegated: Option<bool>,
 }
 
 impl Account {
@@ -125,6 +131,52 @@ pub async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Accou
         user: principal.user,
         acc,
         is_admin,
+        delegated: None,
+    })
+}
+
+/// Resolves the account a request targets (its `accountId`) into an [`Account`]
+/// handle the signed-in user is authorized to operate on, or `None` when they
+/// are not — which the caller renders as the same `accountNotFound` as any
+/// unknown id (no oracle for "exists but you can't touch it").
+///
+/// - the signed-in user's own id → their own account (full rights);
+/// - another user's id they hold a delegation grant on (same tenant) → that
+///   user's mailbox as a delegated handle (`is_admin` forced false);
+/// - anything else → `None`.
+pub async fn resolve_target(
+    signed_in: &Account,
+    state: &AppState,
+    account_id: &str,
+) -> Option<Account> {
+    if account_id == signed_in.user.as_str() {
+        return Some(Account {
+            tenant: signed_in.tenant.clone(),
+            user: signed_in.user.clone(),
+            acc: state
+                .store
+                .for_account(signed_in.tenant.clone(), signed_in.user.clone()),
+            is_admin: signed_in.is_admin,
+            delegated: None,
+        });
+    }
+    // A mailbox the signed-in user was delegated access to. The grant is looked
+    // up only within the signed-in user's own tenant, so it can never authorize
+    // across tenants.
+    let owner = UserId::new(account_id);
+    let can_send = state
+        .store
+        .for_tenant(signed_in.tenant.clone())
+        .delegation(&owner, &signed_in.user)
+        .await
+        .ok()
+        .flatten()?;
+    Some(Account {
+        tenant: signed_in.tenant.clone(),
+        acc: state.store.for_account(signed_in.tenant.clone(), owner.clone()),
+        user: owner,
+        is_admin: false,
+        delegated: Some(can_send),
     })
 }
 

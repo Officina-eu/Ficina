@@ -9,7 +9,7 @@ import type { CSSProperties } from "react";
 import { strings } from "../i18n";
 import { ResizeHandle, cx, usePanelWidth } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
-import type { Category, EmailAddress, EmailFull } from "../jmap";
+import type { Category, EmailAddress, EmailFull, SharedMailbox } from "../jmap";
 import { useAuth } from "../auth";
 import { useCategories, useEmailHeaders, useFlagged, useMailboxes, useThread } from "./state/useMail";
 import { senderName } from "./format";
@@ -82,6 +82,11 @@ export function MailModule() {
   });
   // Addresses the user may send from (canonical + aliases), for the From picker.
   const [sendAs, setSendAs] = useState<string[]>([]);
+  // Shared mailboxes the user was delegated (ADR 0017), and which one (if any)
+  // is currently open. null = the user's own mailbox.
+  const [shared, setShared] = useState<SharedMailbox[]>([]);
+  const [activeAccount, setActiveAccount] = useState<string | null>(null);
+  const activeShared = shared.find((s) => s.id === activeAccount);
   const [foldersCollapsed, setFoldersCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem("alo.mail.foldersCollapsed") === "1";
@@ -166,6 +171,22 @@ export function MailModule() {
       })
       .catch(() => {
         // best-effort — compose falls back to the signed-in address
+      });
+    return () => {
+      live = false;
+    };
+  }, [client]);
+
+  // Load the shared mailboxes the user was delegated (ADR 0017).
+  useEffect(() => {
+    let live = true;
+    void client
+      .sharedMailboxes()
+      .then((list) => {
+        if (live) setShared(list);
+      })
+      .catch(() => {
+        // best-effort — no switcher shown if this fails
       });
     return () => {
       live = false;
@@ -337,6 +358,21 @@ export function MailModule() {
     setCategoryFilter(null);
     setFlaggedView(false);
     setThreadId(null);
+  }
+
+  // Switch the whole mail view to a shared mailbox (or back to own, id = null).
+  // The client retargets every subsequent call; we reset the selection and let
+  // the default-inbox effect pick the new account's inbox.
+  function switchAccount(id: string | null) {
+    if (id === activeAccount) return;
+    client.setActiveAccountId(id);
+    setActiveAccount(id);
+    setMailboxId(null);
+    setThreadId(null);
+    setCategoryFilter(null);
+    setFlaggedView(false);
+    mailboxes.reload();
+    categories.reload();
   }
 
   // Open the cross-folder Flagged smart view.
@@ -573,7 +609,17 @@ export function MailModule() {
         flaggedActive={flaggedView}
         onSelectFlagged={openFlagged}
         onSelect={openMailbox}
-        onCompose={() => setCompose({ mode: "new" })}
+        shared={shared}
+        activeAccount={activeAccount}
+        ownLabel={identity?.email ?? strings.sharedMyMailbox}
+        onSwitchAccount={switchAccount}
+        onCompose={() => {
+          if (activeShared !== undefined && !activeShared.canSend) {
+            setToast(strings.sharedNoSend);
+            return;
+          }
+          setCompose({ mode: "new" });
+        }}
         onDropMessage={moveIds}
         onSetColor={(id, color) => void setLabelColor(id, color)}
         onCreateFolder={(name, parentId) => void createFolder(name, parentId)}
@@ -655,9 +701,9 @@ export function MailModule() {
       {compose !== null && (
         <ComposeModal
           context={compose}
-          fromEmail={identity?.email ?? ""}
-          fromName={identity?.name ?? ""}
-          fromOptions={sendAs}
+          fromEmail={activeShared !== undefined ? activeShared.name : (identity?.email ?? "")}
+          fromName={activeShared !== undefined ? "" : (identity?.name ?? "")}
+          fromOptions={activeShared !== undefined ? [activeShared.name] : sendAs}
           draftsMailboxId={draftsMailboxId}
           signature={mailSettings.signature}
           orgFooter={mailSettings.orgFooter}

@@ -11,6 +11,7 @@ import { useJmapClient } from "../jmap";
 import type { AdminUser } from "../jmap";
 import { formatBytes } from "../mail/format";
 import { UserModal } from "./UserModal";
+import { DelegatesModal } from "./DelegatesModal";
 import styles from "./admin.module.css";
 
 type Editing = { user?: AdminUser } | null;
@@ -21,6 +22,7 @@ export function UsersPage() {
   const [selfId, setSelfId] = useState("");
   const [error, setError] = useState(false);
   const [editing, setEditing] = useState<Editing>(null);
+  const [sharing, setSharing] = useState<AdminUser | null>(null);
 
   const load = useCallback(() => {
     setError(false);
@@ -104,6 +106,9 @@ export function UsersPage() {
                 <button type="button" className={styles.ghost} onClick={() => setEditing({ user: u })}>
                   {strings.userManage}
                 </button>
+                <button type="button" className={styles.ghost} onClick={() => setSharing(u)}>
+                  {strings.userShareAccess}
+                </button>
                 <label className={styles.toggle} title={strings.userAdminRole}>
                   <input
                     type="checkbox"
@@ -137,6 +142,14 @@ export function UsersPage() {
             setEditing(null);
             load();
           }}
+        />
+      )}
+
+      {sharing !== null && (
+        <DelegatesModal
+          owner={sharing}
+          users={users ?? []}
+          onClose={() => setSharing(null)}
         />
       )}
     </div>
