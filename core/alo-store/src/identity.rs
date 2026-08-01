@@ -690,6 +690,67 @@ impl TenantStore {
         Ok(rows)
     }
 
+    /// Restricts `delegate`'s access to `owner`'s mailbox to exactly the given
+    /// folders (ADR 0017, Outlook parity). An empty list clears the restriction
+    /// — the grant reverts to whole-mailbox. The grant must already exist (the
+    /// rows hang off it via a cascading foreign key).
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn set_delegate_folders(
+        &self,
+        owner: &UserId,
+        delegate: &UserId,
+        mailboxes: &[String],
+    ) -> Result<()> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query(
+            "DELETE FROM delegate_folders \
+             WHERE tenant_id = $1 AND owner_id = $2 AND delegate_id = $3",
+        )
+        .bind(self.tenant().as_str())
+        .bind(owner.as_str())
+        .bind(delegate.as_str())
+        .execute(&mut *tx)
+        .await?;
+        for mb in mailboxes {
+            sqlx::query(
+                "INSERT INTO delegate_folders (tenant_id, owner_id, delegate_id, mailbox_id) \
+                 VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+            )
+            .bind(self.tenant().as_str())
+            .bind(owner.as_str())
+            .bind(delegate.as_str())
+            .bind(mb)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The folders `delegate` is restricted to on `owner`'s mailbox. An empty
+    /// vec means **no restriction** — whole-mailbox access (the default).
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn delegate_folders(
+        &self,
+        owner: &UserId,
+        delegate: &UserId,
+    ) -> Result<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT mailbox_id FROM delegate_folders \
+             WHERE tenant_id = $1 AND owner_id = $2 AND delegate_id = $3",
+        )
+        .bind(self.tenant().as_str())
+        .bind(owner.as_str())
+        .bind(delegate.as_str())
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows.into_iter().map(|(m,)| m).collect())
+    }
+
     // ---- aliases ------------------------------------------------------
 
     /// Adds an inbound alias address (lowercased) that routes to `user`.

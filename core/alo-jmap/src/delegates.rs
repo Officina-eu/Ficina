@@ -16,18 +16,23 @@ use crate::state::{AppState, authenticate};
 /// `{ delegates: [{ id, email, canWrite, sendMode }] }`.
 pub async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<Value>, Problem> {
     let account = authenticate(&state, &headers).await?;
-    let list = state
-        .store
-        .for_tenant(account.tenant.clone())
+    let ts = state.store.for_tenant(account.tenant.clone());
+    let list = ts
         .delegates_of(&account.user)
         .await
         .map_err(|_| Problem::server_error())?;
-    let delegates: Vec<Value> = list
-        .into_iter()
-        .map(|(id, email, can_write, send_mode)| {
-            json!({ "id": id, "email": email, "canWrite": can_write, "sendMode": send_mode })
-        })
-        .collect();
+    let mut delegates = Vec::with_capacity(list.len());
+    for (id, email, can_write, send_mode) in list {
+        // Per-folder restriction (ADR 0017): empty = whole mailbox.
+        let folders = ts
+            .delegate_folders(&account.user, &UserId::new(&id))
+            .await
+            .unwrap_or_default();
+        delegates.push(json!({
+            "id": id, "email": email, "canWrite": can_write,
+            "sendMode": send_mode, "folders": folders,
+        }));
+    }
     Ok(Json(json!({ "delegates": delegates })))
 }
 
@@ -62,6 +67,14 @@ pub async fn grant(
     ts.grant_delegate(&account.user, &delegate, can_write, &send_mode)
         .await
         .map_err(delegate_err)?;
+    // Optional per-folder restriction (ADR 0017): present → set it (empty array
+    // clears back to whole-mailbox); absent → leave any existing one unchanged.
+    if let Some(arr) = v.get("folders").and_then(Value::as_array) {
+        let folders: Vec<String> = arr.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        ts.set_delegate_folders(&account.user, &delegate, &folders)
+            .await
+            .map_err(|_| Problem::server_error())?;
+    }
     Ok(Json(json!({ "ok": true })))
 }
 

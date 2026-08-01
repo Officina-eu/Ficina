@@ -628,18 +628,20 @@ pub async fn list_delegates(
 ) -> Result<Json<Value>, Problem> {
     let account = authenticate(&state, &headers).await?;
     account.require_admin()?;
-    let list = state
-        .store
-        .for_tenant(account.tenant.clone())
-        .delegates_of(&UserId::new(owner_id))
-        .await
-        .map_err(store_admin_err)?;
-    let delegates: Vec<Value> = list
-        .into_iter()
-        .map(|(id, email, can_write, send_mode)| {
-            json!({ "id": id, "email": email, "canWrite": can_write, "sendMode": send_mode })
-        })
-        .collect();
+    let owner = UserId::new(owner_id);
+    let ts = state.store.for_tenant(account.tenant.clone());
+    let list = ts.delegates_of(&owner).await.map_err(store_admin_err)?;
+    let mut delegates = Vec::with_capacity(list.len());
+    for (id, email, can_write, send_mode) in list {
+        let folders = ts
+            .delegate_folders(&owner, &UserId::new(&id))
+            .await
+            .unwrap_or_default();
+        delegates.push(json!({
+            "id": id, "email": email, "canWrite": can_write,
+            "sendMode": send_mode, "folders": folders,
+        }));
+    }
     Ok(Json(json!({ "delegates": delegates })))
 }
 
@@ -658,17 +660,22 @@ pub async fn grant_delegate(
     let delegate = str_field(&v, "delegateId").ok_or_else(|| bad("delegateId required"))?;
     let can_write = v.get("canWrite").and_then(Value::as_bool).unwrap_or(true);
     let send_mode = str_field(&v, "sendMode").unwrap_or_else(|| "none".to_owned());
-    state
-        .store
-        .for_tenant(account.tenant.clone())
-        .grant_delegate(
-            &UserId::new(owner.clone()),
-            &UserId::new(delegate.clone()),
-            can_write,
-            &send_mode,
-        )
-        .await
-        .map_err(store_admin_err)?;
+    let ts = state.store.for_tenant(account.tenant.clone());
+    ts.grant_delegate(
+        &UserId::new(owner.clone()),
+        &UserId::new(delegate.clone()),
+        can_write,
+        &send_mode,
+    )
+    .await
+    .map_err(store_admin_err)?;
+    // Optional per-folder restriction (ADR 0017): present → set (empty clears).
+    if let Some(arr) = v.get("folders").and_then(Value::as_array) {
+        let folders: Vec<String> = arr.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        ts.set_delegate_folders(&UserId::new(owner.clone()), &UserId::new(delegate.clone()), &folders)
+            .await
+            .map_err(store_admin_err)?;
+    }
     audit(&state, &account, "delegate.grant", Some(&owner), Some(&delegate)).await;
     Ok(Json(json!({ "ok": true })))
 }

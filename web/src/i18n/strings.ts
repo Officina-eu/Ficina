@@ -269,6 +269,12 @@ export const strings = {
   delegateSendOnBehalf: "Send on behalf",
   delegateRemove: "Remove access",
   delegateError: "That access change didn't work — please try again.",
+  // Per-folder access (ADR 0017)
+  delegateFoldersLabel: "Limit to folders",
+  delegateWholeMailbox: "Whole mailbox",
+  delegateLimitFolders: "Limit access to specific folders",
+  delegateFoldersSave: "Save folders",
+  delegateFoldersCancel: "Cancel",
   // Categories (colored message labels)
   categories: "Categories",
   categorize: "Categorize",

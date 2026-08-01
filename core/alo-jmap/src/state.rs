@@ -125,6 +125,33 @@ pub struct Delegation {
     pub send_mode: SendMode,
     /// The acting delegate (the signed-in user) — the on-behalf `Sender:`.
     pub delegate: UserId,
+    /// Per-folder restriction (ADR 0017): `None` = whole mailbox; `Some(set)` =
+    /// only these folders are visible/touchable, every other folder invisible.
+    pub folders: Option<std::collections::HashSet<String>>,
+}
+
+impl Delegation {
+    /// Whether the delegate may touch folder `mailbox_id`. Always true when
+    /// unrestricted (whole-mailbox); otherwise only the granted folders.
+    pub fn folder_allowed(&self, mailbox_id: &str) -> bool {
+        match &self.folders {
+            None => true,
+            Some(set) => set.contains(mailbox_id),
+        }
+    }
+
+    /// Whether at least one of a message's folders is accessible — a message is
+    /// visible to a restricted delegate iff it lives in a granted folder.
+    pub fn any_folder_allowed<I, S>(&self, mailbox_ids: I) -> bool
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        match &self.folders {
+            None => true,
+            Some(set) => mailbox_ids.into_iter().any(|m| set.contains(m.as_ref())),
+        }
+    }
 }
 
 impl Account {
@@ -206,13 +233,19 @@ pub async fn resolve_target(
     // up only within the signed-in user's own tenant, so it can never authorize
     // across tenants.
     let owner = UserId::new(account_id);
-    let (can_write, send_mode) = state
-        .store
-        .for_tenant(signed_in.tenant.clone())
+    let tenant_store = state.store.for_tenant(signed_in.tenant.clone());
+    let (can_write, send_mode) = tenant_store
         .delegation(&owner, &signed_in.user)
         .await
         .ok()
         .flatten()?;
+    // Per-folder restriction (ADR 0017): an empty list means whole-mailbox.
+    let folders = tenant_store
+        .delegate_folders(&owner, &signed_in.user)
+        .await
+        .ok()
+        .filter(|f| !f.is_empty())
+        .map(|f| f.into_iter().collect());
     Some(Account {
         tenant: signed_in.tenant.clone(),
         acc: state.store.for_account(signed_in.tenant.clone(), owner.clone()),
@@ -222,6 +255,7 @@ pub async fn resolve_target(
             can_write,
             send_mode: SendMode::parse(&send_mode),
             delegate: signed_in.user.clone(),
+            folders,
         }),
     })
 }

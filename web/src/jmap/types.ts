@@ -55,6 +55,9 @@ export interface Delegate {
   email: string;
   canWrite: boolean;
   sendMode: SendMode;
+  /** Per-folder restriction: the mailbox ids they're confined to. Empty = the
+   * whole mailbox (no restriction). */
+  folders: string[];
 }
 
 export interface EmailAddress {

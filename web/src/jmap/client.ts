@@ -647,9 +647,15 @@ export class JmapClient {
     return res.delegates;
   }
 
-  /** Self-service: share my mailbox with a person (by email, same tenant). */
-  async shareMyMailbox(email: string, canWrite: boolean, sendMode: SendMode): Promise<void> {
-    await this.#adminPost("/jmap/delegates", { email, canWrite, sendMode });
+  /** Self-service: share my mailbox with a person (by email, same tenant).
+   * `folders` restricts access to those mailbox ids (empty = whole mailbox). */
+  async shareMyMailbox(
+    email: string,
+    canWrite: boolean,
+    sendMode: SendMode,
+    folders: string[],
+  ): Promise<void> {
+    await this.#adminPost("/jmap/delegates", { email, canWrite, sendMode, folders });
   }
 
   /** Self-service: stop sharing my mailbox with a person. */

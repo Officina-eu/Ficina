@@ -280,6 +280,45 @@ fn parse_color(v: Option<&Value>) -> Result<Option<String>, Value> {
     }
 }
 
+// ---- per-folder delegation enforcement (ADR 0017) ---------------------
+
+/// Whether the account may see/act on message `mid`. Owners and whole-mailbox
+/// delegates always pass; a folder-restricted delegate passes only when the
+/// message lives in a granted folder. Fails closed on a store error.
+async fn message_folder_allowed(account: &Account, mid: &MessageId) -> bool {
+    let Some(d) = &account.delegated else { return true };
+    if d.folders.is_none() {
+        return true;
+    }
+    match account.acc.mailboxes_of_message(mid).await {
+        Ok(boxes) => d.any_folder_allowed(boxes.iter().map(|b| b.to_string())),
+        Err(_) => false,
+    }
+}
+
+/// Whether every folder an Email/set patch would move a message **into** is
+/// granted — covers both the full `mailboxIds` object and `mailboxIds/<id>`
+/// patch keys. True for unrestricted grants.
+fn patch_dest_allowed(d: &crate::state::Delegation, patch: &Value) -> bool {
+    let Some(obj) = patch.as_object() else { return true };
+    if let Some(dest) = obj.get("mailboxIds").and_then(Value::as_object) {
+        for (mb, on) in dest {
+            if on.as_bool().unwrap_or(false) && !d.folder_allowed(mb) {
+                return false;
+            }
+        }
+    }
+    for (key, value) in obj {
+        if let Some(mb) = key.strip_prefix("mailboxIds/") {
+            let on = value.as_bool().unwrap_or(!value.is_null());
+            if on && !d.folder_allowed(mb) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 // ---- Mailbox ----------------------------------------------------------
 
 async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
@@ -297,6 +336,13 @@ async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
             .await
             .map_err(store_err)?;
         for m in &boxes {
+            // A folder-restricted delegate (ADR 0017) sees only granted folders;
+            // every other folder is omitted, exactly as if it did not exist.
+            if let Some(d) = &account.delegated
+                && !d.folder_allowed(m.id.as_str())
+            {
+                continue;
+            }
             list.push(jtypes::mailbox_json(m));
         }
     } else {
@@ -305,6 +351,15 @@ async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
             let mid = MailboxId::new(id);
             // The account door is the scope: a foreign mailbox is NotFound.
             match account.acc.mailbox(&mid).await {
+                // A folder outside a restricted grant is NotFound too — no oracle.
+                Ok(m)
+                    if account
+                        .delegated
+                        .as_ref()
+                        .is_some_and(|d| !d.folder_allowed(m.id.as_str())) =>
+                {
+                    not_found.push(json!(id));
+                }
                 Ok(m) => list.push(jtypes::mailbox_json(&m)),
                 Err(StoreError::NotFound) => not_found.push(json!(id)),
                 Err(e) => return Err(store_err(e)),
@@ -318,6 +373,15 @@ async fn mailbox_get(account: &Account, args: &Value) -> Result<Value, Value> {
 
 async fn mailbox_set(account: &Account, args: &Value) -> Result<Value, Value> {
     check_account(args, account)?;
+    // A folder-restricted delegate (ADR 0017) may work within its granted
+    // folders but not restructure the owner's mailbox (create/rename/delete).
+    if account
+        .delegated
+        .as_ref()
+        .is_some_and(|d| d.folders.is_some())
+    {
+        return Err(method_error("accountReadOnly"));
+    }
     let old_state = account.acc.state().await.map_err(store_err)?;
     if let Some(expected) = args.get("ifInState").and_then(Value::as_str)
         && expected != old_state
@@ -616,6 +680,12 @@ async fn email_get(account: &Account, args: &Value, state: &AppState) -> Result<
         // NotFound from message() itself — no separate ownership guard.
         match account.acc.message(&mid).await {
             Ok(m) => {
+                // A folder-restricted delegate can only read messages in granted
+                // folders; anything else is NotFound (no oracle).
+                if !message_folder_allowed(account, &mid).await {
+                    not_found.push(json!(id));
+                    continue;
+                }
                 let mailbox_ids: Vec<String> = account
                     .acc
                     .mailboxes_of_message(&mid)
@@ -665,7 +735,15 @@ async fn email_query(account: &Account, args: &Value) -> Result<Value, Value> {
 
     let query = EmailQuery { filter, sort, page };
     let results = account.acc.query_emails(&query).await.map_err(store_err)?;
-    let ids: Vec<String> = results.iter().map(|m| m.id.to_string()).collect();
+    // A folder-restricted delegate (ADR 0017) never sees messages outside its
+    // granted folders — filter the page to visible messages. (This can shorten
+    // a page below `limit`; correctness over exact paging for restricted views.)
+    let mut ids: Vec<String> = Vec::with_capacity(results.len());
+    for m in &results {
+        if message_folder_allowed(account, &m.id).await {
+            ids.push(m.id.to_string());
+        }
+    }
 
     Ok(json!({
         "accountId": account.account_id(),
@@ -710,6 +788,21 @@ async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
                 not_updated.insert(id.clone(), set_error(&e));
                 continue;
             }
+            // Per-folder (ADR 0017): the message must live in a granted folder,
+            // and any folder it is moved into must be granted too.
+            if let Some(d) = &account.delegated
+                && d.folders.is_some()
+            {
+                let mid = MessageId::new(id.as_str());
+                if !message_folder_allowed(account, &mid).await {
+                    not_updated.insert(id.clone(), method_error("notFound"));
+                    continue;
+                }
+                if !patch_dest_allowed(d, patch) {
+                    not_updated.insert(id.clone(), method_error("forbidden"));
+                    continue;
+                }
+            }
             match email_update(account, id, patch).await {
                 Ok(()) => {
                     updated.insert(id.clone(), Value::Null);
@@ -725,6 +818,17 @@ async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
         for id in ids {
             let Some(id) = id.as_str() else { continue };
             let mid = MessageId::new(id);
+            // Per-folder (ADR 0017): a restricted delegate can only destroy
+            // messages in granted folders; invisible ones are NotFound.
+            if account
+                .delegated
+                .as_ref()
+                .is_some_and(|d| d.folders.is_some())
+                && !message_folder_allowed(account, &mid).await
+            {
+                not_destroyed.insert(id.to_owned(), method_error("notFound"));
+                continue;
+            }
             // destroy_message is account-scoped: a foreign message is
             // NotFound → notDestroyed, no separate guard to forget.
             match account.acc.destroy_message(&mid).await {
@@ -756,6 +860,12 @@ async fn email_create(account: &Account, props: &Value) -> Result<Value, Value> 
             "mailboxIds required",
         ));
     };
+    // A folder-restricted delegate (ADR 0017) may only create in granted folders.
+    if let Some(d) = &account.delegated
+        && mailbox_ids.is_some_and(|m| m.keys().any(|mb| !d.folder_allowed(mb)))
+    {
+        return Err(method_error("forbidden"));
+    }
     let mailbox = MailboxId::new(first_mailbox.as_str());
     // The account door scopes ingest: a foreign target mailbox is
     // NotFound from ingest itself — no separate ownership guard here.
