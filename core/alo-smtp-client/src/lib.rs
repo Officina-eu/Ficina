@@ -13,3 +13,4 @@
 pub mod client;
 pub mod client_reply;
 pub mod line;
+pub mod tls;

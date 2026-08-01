@@ -175,8 +175,12 @@ dependencies = [
 name = "alo-smtp-client"
 version = "0.0.1"
 dependencies = [
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tracing",
 ]
 

@@ -39,6 +39,17 @@ impl ServerReply {
     pub fn first_line(&self) -> &str {
         self.text.lines().next().unwrap_or("")
     }
+
+    /// Whether this (EHLO) reply advertises an ESMTP capability keyword, e.g.
+    /// `STARTTLS` — the keyword is the first token of a line, case-insensitive
+    /// (RFC 5321 §4.1.1.1).
+    pub fn advertises(&self, keyword: &str) -> bool {
+        self.text.lines().any(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|word| word.eq_ignore_ascii_case(keyword))
+        })
+    }
 }
 
 /// Why reading a reply failed.

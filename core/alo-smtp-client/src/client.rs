@@ -6,11 +6,12 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+use rustls::pki_types::ServerName;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::client_reply::{ReplyError, ServerReply, read_reply};
+use crate::tls::{MaybeTls, connector};
 
 /// Client-side timeouts, RFC 5321 §4.5.3.2 (the sender values).
 const GREETING_TIMEOUT: Duration = Duration::from_secs(300); // §4.5.3.2.1
@@ -67,11 +68,13 @@ pub enum DeliveryError {
     Io(#[from] std::io::Error),
 }
 
-/// One live outbound connection, greeted and EHLO'd.
+/// One live outbound connection, greeted and EHLO'd (and STARTTLS-upgraded
+/// when the peer offers it).
 pub struct OutboundSession {
-    reader: BufReader<OwnedReadHalf>,
-    writer: OwnedWriteHalf,
+    stream: BufReader<MaybeTls>,
     peer: SocketAddr,
+    /// Whether the channel was upgraded to TLS (RFC 3207).
+    tls: bool,
 }
 
 impl OutboundSession {
@@ -128,33 +131,85 @@ impl OutboundSession {
         host: &str,
         our_hostname: &str,
     ) -> Result<Self, DeliveryError> {
-        let (read_half, writer) = stream.into_split();
         let mut session = Self {
-            reader: BufReader::new(read_half),
-            writer,
+            stream: BufReader::new(MaybeTls::Plain(stream)),
             peer,
+            tls: false,
         };
         let greeting = session.read_timed(GREETING_TIMEOUT, "greeting").await?;
         if !greeting.is_success() {
             return Err(reject("greeting", greeting));
         }
-        let ehlo = session
+        let ehlo = session.ehlo(our_hostname).await?;
+        // Opportunistic STARTTLS (RFC 3207): if the peer offers it, upgrade
+        // before sending anything. A server that offers TLS but fails the
+        // handshake is a transient failure — we never silently fall back to
+        // cleartext once TLS was on the table (downgrade protection).
+        if ehlo.advertises("STARTTLS") {
+            session.starttls(host, our_hostname).await?;
+        }
+        tracing::debug!(peer = %peer, %host, tls = session.tls, "outbound session established");
+        Ok(session)
+    }
+
+    /// EHLO, falling back to HELO on a 5xx (pre-ESMTP servers, §2.2.1). Returns
+    /// the successful reply — its capability lines drive STARTTLS negotiation.
+    async fn ehlo(&mut self, our_hostname: &str) -> Result<ServerReply, DeliveryError> {
+        let ehlo = self
             .command(&format!("EHLO {our_hostname}"), MAIL_TIMEOUT, "EHLO")
             .await?;
-        if !ehlo.is_success() {
-            if ehlo.is_transient() {
-                return Err(reject("EHLO", ehlo));
-            }
-            // §2.2.1: a 5xx to EHLO may just mean a pre-ESMTP server.
-            let helo = session
-                .command(&format!("HELO {our_hostname}"), MAIL_TIMEOUT, "HELO")
-                .await?;
-            if !helo.is_success() {
-                return Err(reject("HELO", helo));
-            }
+        if ehlo.is_success() {
+            return Ok(ehlo);
         }
-        tracing::debug!(peer = %peer, %host, "outbound session established");
-        Ok(session)
+        if ehlo.is_transient() {
+            return Err(reject("EHLO", ehlo));
+        }
+        let helo = self
+            .command(&format!("HELO {our_hostname}"), MAIL_TIMEOUT, "HELO")
+            .await?;
+        if !helo.is_success() {
+            return Err(reject("HELO", helo));
+        }
+        Ok(helo)
+    }
+
+    /// Upgrades the channel with STARTTLS (RFC 3207) and re-issues EHLO over the
+    /// encrypted link. Any failure is returned (transient to the queue).
+    async fn starttls(&mut self, host: &str, our_hostname: &str) -> Result<(), DeliveryError> {
+        let reply = self.command("STARTTLS", MAIL_TIMEOUT, "STARTTLS").await?;
+        if reply.code != 220 {
+            return Err(reject("STARTTLS", reply));
+        }
+        // STARTTLS-injection guard (CVE-2011-0411 class): a server must send
+        // nothing after the 220 before the TLS handshake. Buffered plaintext
+        // here is a smuggled command — abort rather than trust it.
+        if !self.stream.buffer().is_empty() {
+            return Err(DeliveryError::Session(ReplyError::Malformed {
+                reason: "server pipelined data before the TLS handshake".to_owned(),
+            }));
+        }
+        let tls = connector()
+            .ok_or_else(|| DeliveryError::Io(std::io::Error::other("TLS provider unavailable")))?;
+        // Swap the plaintext socket out (buffer verified empty above) and wrap
+        // it — the buffered reader is discarded only after that check.
+        let plain = std::mem::replace(&mut self.stream, BufReader::new(MaybeTls::Taken));
+        let MaybeTls::Plain(tcp) = plain.into_inner() else {
+            return Err(DeliveryError::Io(std::io::Error::other(
+                "STARTTLS attempted on a non-plaintext stream",
+            )));
+        };
+        let sni = server_name(host, self.peer.ip());
+        let upgraded = tokio::time::timeout(CONNECT_TIMEOUT, tls.connect(sni, tcp))
+            .await
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out")
+            })?
+            .map_err(DeliveryError::Io)?;
+        self.stream = BufReader::new(MaybeTls::Tls(Box::new(upgraded)));
+        self.tls = true;
+        // §4.2: discard the prior EHLO state and re-issue it over TLS.
+        self.ehlo(our_hostname).await?;
+        Ok(())
     }
 
     /// Delivers one message on this session. Returns the outcome per
@@ -235,6 +290,12 @@ impl OutboundSession {
         Ok(outcomes)
     }
 
+    /// Whether this session's channel was upgraded to TLS (RFC 3207) — for
+    /// delivery logging and the `Received:`/reporting story.
+    pub fn is_tls(&self) -> bool {
+        self.tls
+    }
+
     /// Politely ends the session.
     pub async fn quit(mut self) {
         // Best effort — the messages are already accepted or not.
@@ -276,7 +337,7 @@ impl OutboundSession {
         timeout: Duration,
         stage: &'static str,
     ) -> Result<ServerReply, DeliveryError> {
-        match tokio::time::timeout(timeout, read_reply(&mut self.reader)).await {
+        match tokio::time::timeout(timeout, read_reply(&mut self.stream)).await {
             Ok(result) => Ok(result?),
             Err(_elapsed) => Err(DeliveryError::Session(ReplyError::Malformed {
                 reason: format!("timeout awaiting {stage} reply from {}", self.peer),
@@ -286,8 +347,8 @@ impl OutboundSession {
 
     async fn write_timed(&mut self, bytes: &[u8]) -> Result<(), DeliveryError> {
         tokio::time::timeout(WRITE_TIMEOUT, async {
-            self.writer.write_all(bytes).await?;
-            self.writer.flush().await
+            self.stream.write_all(bytes).await?;
+            self.stream.flush().await
         })
         .await
         .map_err(|_elapsed| {
@@ -306,4 +367,12 @@ fn reject(stage: &'static str, reply: ServerReply) -> DeliveryError {
         reply_code: reply.code,
         reply,
     }
+}
+
+/// The SNI name for the TLS handshake: the peer hostname (minus any `:port`)
+/// when it parses as a DNS name, else the peer IP. Advisory only — the
+/// certificate is not verified for opportunistic delivery TLS.
+fn server_name(host: &str, ip: IpAddr) -> ServerName<'static> {
+    let name = host.split(':').next().unwrap_or(host);
+    ServerName::try_from(name.to_owned()).unwrap_or_else(|_| ServerName::IpAddress(ip.into()))
 }

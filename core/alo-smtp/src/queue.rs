@@ -419,6 +419,7 @@ impl Queue {
             }
         };
 
+        tracing::info!(tls = session.is_tls(), rcpts = rcpts.len(), "delivering outbound");
         let result = session
             .deliver(envelope.mail_from.as_deref(), rcpts, message)
             .await;

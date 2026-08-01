@@ -10,6 +10,15 @@ publish.workspace = true
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+# Opportunistic STARTTLS on delivery (RFC 3207). rustls + ring, matching the
+# rest of the TLS stack; no OpenSSL.
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+rcgen = { workspace = true }
 
 [lints]
 workspace = true
