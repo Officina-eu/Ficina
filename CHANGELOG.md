@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **alo now speaks French — and can speak more.** A full,
+  native-quality French translation of the whole app, switchable from a
+  new **Language** control in your account menu; your choice is
+  remembered, and new visitors get their browser's language
+  automatically. The translation framework underneath makes adding more
+  European languages a matter of dropping in a catalog — Dutch and
+  German are next.
 - New: **Abuse controls for inbound and outbound mail.** A single
   source IP can no longer monopolise the server — each is capped to a
   fair number of simultaneous connections (excess get a polite "try

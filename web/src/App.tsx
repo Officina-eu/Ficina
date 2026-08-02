@@ -2,9 +2,10 @@
 // behind RequireAuth and rendered inside the shell frame; the module set comes
 // from the registry, so adding a module is a registry entry, not a router
 // change. Only Mail has a real surface this pass; the rest show "coming soon".
-import { Suspense, lazy } from "react";
+import { Fragment, Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
+import { useLocale } from "./i18n";
 import { AuthProvider, LoginPage, RequireAuth } from "./auth";
 import { AppShell, ComingSoon, defaultModulePath, modules } from "./shell";
 import { Spinner } from "./ds";
@@ -42,9 +43,16 @@ function moduleElement(id: string, label: string, Icon: (typeof modules)[number]
 }
 
 export function App() {
+  // Subscribe to the active language. Keying the route tree on the
+  // locale remounts it on a switch, so every component re-reads
+  // `strings.*` in the new language (a rare, deliberate action — the
+  // remount cost is invisible and avoids threading a context through
+  // ~50 call sites).
+  const locale = useLocale();
   return (
     <BrowserRouter>
       <AuthProvider>
+        <Fragment key={locale}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           {/* The OIDC redirect target; the login flow reads the code inline, so
@@ -71,6 +79,7 @@ export function App() {
             </Route>
           </Route>
         </Routes>
+        </Fragment>
       </AuthProvider>
     </BrowserRouter>
   );

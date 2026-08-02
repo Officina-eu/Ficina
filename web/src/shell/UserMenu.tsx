@@ -2,9 +2,9 @@
 // small popover with who they're signed in as and a sign-out action.
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Building2, LogOut, Settings, Shield } from "lucide-react";
+import { Building2, Globe, LogOut, Settings, Shield } from "lucide-react";
 
-import { strings } from "../i18n";
+import { strings, LOCALES, getLocale, setLocale, type Locale } from "../i18n";
 import { Avatar } from "../ds";
 import { useAuth } from "../auth";
 import { useJmapClient } from "../jmap";
@@ -116,6 +116,24 @@ export function UserMenu() {
             <Settings size={16} />
             <span>{strings.settingsOpen}</span>
           </button>
+          <div className={styles.menuDivider} />
+          <div className={styles.languageRow}>
+            <Globe size={16} />
+            <span>{strings.language}</span>
+            <select
+              className={styles.languageSelect}
+              aria-label={strings.language}
+              value={getLocale()}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+            >
+              {LOCALES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.menuDivider} />
           <button
             type="button"
             className={styles.item}
