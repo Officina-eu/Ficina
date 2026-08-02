@@ -25,6 +25,7 @@ pub mod password;
 pub mod provision;
 pub mod ratelimit;
 pub mod secret;
+pub mod signup;
 pub mod token;
 pub mod totp;
 
