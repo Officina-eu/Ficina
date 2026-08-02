@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use alo_store::{OutboundAction, Store};
 
+use crate::authmail::AuthMail;
 use crate::envelope::Envelope;
 use crate::error::SmtpError;
 use crate::spool::Spool;
@@ -29,6 +30,10 @@ pub struct LocalDelivery {
     /// (redirect/vacation) for the existing outbound queue runner.
     spool: Arc<Spool>,
     hostname: String,
+    /// ARC sealer (RFC 8617) for Sieve redirects: the trust-stack
+    /// context holding the signing keys. `None` disables sealing
+    /// (forwards then break downstream DMARC — dev/test only).
+    sealer: Option<Arc<AuthMail>>,
 }
 
 impl LocalDelivery {
@@ -69,7 +74,16 @@ impl LocalDelivery {
             store,
             spool,
             hostname,
+            sealer: None,
         }
+    }
+
+    /// Installs the trust-stack context whose keys ARC-seal Sieve
+    /// redirects (RFC 8617). Without it, forwards go out unsealed.
+    #[must_use]
+    pub fn with_arc_sealer(mut self, sealer: Arc<AuthMail>) -> Self {
+        self.sealer = Some(sealer);
+        self
     }
 
     /// The shared store handle, so the submission role can build a
@@ -210,7 +224,26 @@ impl LocalDelivery {
                     rcpt_to: vec![strip_crlf(&address)],
                     received_at: jiff::Timestamp::now().to_string(),
                 };
-                (envelope, message.to_vec())
+                // ARC-seal the forward (RFC 8617): SPF breaks at the
+                // next hop, so attest the verdicts we computed at
+                // ingress. Sealed with the forwarding account's domain
+                // key; any failure forwards unsealed (mail flows).
+                let body = match &self.sealer {
+                    Some(auth) => {
+                        let domain = owner.rsplit_once('@').map(|(_, d)| d).unwrap_or_default();
+                        match auth.seal_arc(message, domain).await {
+                            Some(set) => {
+                                let mut sealed = Vec::with_capacity(set.len() + message.len());
+                                sealed.extend_from_slice(set.as_bytes());
+                                sealed.extend_from_slice(message);
+                                sealed
+                            }
+                            None => message.to_vec(),
+                        }
+                    }
+                    None => message.to_vec(),
+                };
+                (envelope, body)
             }
             OutboundAction::Vacation {
                 to,

@@ -67,6 +67,10 @@ pub const ENV_DKIM_KEY: &str = "ALO_SMTP_DKIM_KEY";
 /// Environment variable selecting the DKIM algorithm (`ed25519` or the
 /// default `rsa`).
 pub const ENV_DKIM_ALGORITHM: &str = "ALO_SMTP_DKIM_ALGORITHM";
+/// Environment flag for ARC sealing of Sieve-redirect forwards
+/// (RFC 8617). **Default on**; set to `false`/`off` to disable (the
+/// rollback switch — forwards then break downstream DMARC again).
+pub const ENV_ARC_SEALING: &str = "ALO_SMTP_ARC_SEALING";
 /// Environment variable naming the Rspamd controller URL
 /// (`http://host:port`); unset disables spam scanning.
 pub const ENV_RSPAMD_URL: &str = "ALO_SMTP_RSPAMD_URL";
@@ -169,6 +173,9 @@ pub struct SmtpConfig {
     /// delivered into the store (with Sieve at the boundary) instead of the
     /// spool. `None` keeps the receive-only spool behaviour.
     pub database_url: Option<String>,
+    /// ARC sealing (RFC 8617) of Sieve-redirect forwards. On by
+    /// default; [`ENV_ARC_SEALING`]`=off` is the operational off-switch.
+    pub arc_sealing: bool,
 }
 
 /// Rspamd integration settings (M4b).
@@ -365,6 +372,10 @@ impl SmtpConfig {
             });
         }
 
+        // ARC sealing defaults ON (an unsealed forward fails downstream
+        // DMARC); the env var is the explicit off-switch.
+        let arc_sealing = std::env::var(ENV_ARC_SEALING).is_err() || env_bool(ENV_ARC_SEALING)?;
+
         Ok(Self {
             bind_addr,
             hostname,
@@ -384,6 +395,7 @@ impl SmtpConfig {
             rspamd,
             mta_sts,
             database_url,
+            arc_sealing,
         })
     }
 

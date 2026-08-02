@@ -12,6 +12,7 @@
 //! in zeroizing buffers; malformed input yields a *fail verdict*,
 //! never a panic.
 
+pub mod arc;
 pub mod authres;
 pub mod dkim;
 pub mod dmarc;

@@ -65,7 +65,8 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [x] DKIM: verification and signing, key management with rotation support (M4: verify multi-sig + relaxed/simple canon + `l=`/`x=`; sign RSA-2048 + Ed25519; `KeyStore` trait addressed by (domain, selector), file impl with perm checks + zeroize; verified by an independent tool (dkimpy))
 - [x] DMARC evaluation + report generation (M4: PSL org-domain, relaxed/strict alignment, disposition→550 on `p=reject`, aggregate-report XML per Appendix C)
   - Deferred: DMARC report *delivery* (gzip + email via the M2 queue) — the XML is generated; sending is a follow-up job
-- [ ] ARC sealing (needed for lists later)
+- [x] ARC sealing (RFC 8617 first hop `i=1; cv=none` on Sieve-redirect forwards, sealed with the forwarding tenant's DKIM key; chain validator cross-checked against dkimpy both directions; `ALO_SMTP_ARC_SEALING=off` kill switch)
+  - Deferred: inbound `arc=` stamping in Authentication-Results + sealing onto an existing chain (`i>1`) — the validator exists; wiring it at ingress is a follow-up
   - Deferred from M4 (sanctioned cut seam): chain validation + AAR/AMS/AS sealing; needed for mailing-list forwarding, not first-hop receive/submit
 - [x] MTA-STS published for our domains (M4b: RFC 8461 policy rendered from config — mode/mx/max_age, content-derived `id` — and served at `GET /.well-known/mta-sts.txt` behind the deploy TLS proxy; DNS records documented)
   - Deferred (sanctioned cut seam): TLS-RPT report JSON (`_smtp._tls` reporting)

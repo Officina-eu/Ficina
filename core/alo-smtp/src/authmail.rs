@@ -9,6 +9,7 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use alo_auth_mail::arc;
 use alo_auth_mail::authres::AuthenticationResults;
 use alo_auth_mail::dkim::keystore::{
     KeyFuture, KeyStore, KeyStoreError, ed25519_signing_key_from_seed,
@@ -349,6 +350,71 @@ impl AuthMail {
                 // Signing failure must not lose the message; log and
                 // send it unsigned (deliverability degrades, mail flows).
                 tracing::error!(%error, "DKIM signing failed; sending unsigned");
+                None
+            }
+        }
+    }
+
+    /// ARC-seals a message about to be forwarded (Sieve `redirect`,
+    /// RFC 8617 first hop), returning the three `ARC-*` header lines to
+    /// prepend, or `None` when sealing is not possible — no
+    /// `Authentication-Results` of ours on the message, no signing key,
+    /// an existing ARC chain, or a signing failure. The caller always
+    /// forwards regardless; an unsealed forward is degraded
+    /// deliverability, never lost mail.
+    ///
+    /// `seal_domain` is the forwarding account's domain: the seal is
+    /// made with that tenant's stored DKIM key (ADR 0014), falling back
+    /// to the configured deployment key.
+    pub async fn seal_arc(&self, raw_message: &[u8], seal_domain: &str) -> Option<String> {
+        let message = Message::parse(raw_message);
+
+        // The AAR must carry the verdicts WE computed at ingress: the
+        // Authentication-Results whose authserv-id is our hostname
+        // (forged ones were already stripped at DATA, RFC 8601 §5).
+        let authres = message.headers.iter().find_map(|(name, value)| {
+            if !name.eq_ignore_ascii_case("Authentication-Results") {
+                return None;
+            }
+            let v = value.trim_start();
+            let id_end = v.find([' ', '\t', ';', '\r']).unwrap_or(v.len());
+            v[..id_end]
+                .eq_ignore_ascii_case(&self.hostname)
+                .then(|| (*value).to_owned())
+        })?;
+
+        // Per-tenant key for the forwarding domain (ADR 0014), then the
+        // configured deployment key — the same order as `sign_outbound`.
+        if let Some(store) = &self.dkim_store
+            && let Ok(Some(material)) = store.active_dkim_material(seal_domain).await
+        {
+            let single = SingleKeyStore {
+                domain: seal_domain.to_owned(),
+                selector: material.selector.clone(),
+                seed: zeroize::Zeroizing::new(material.seed),
+            };
+            let params = arc::SealParams::new(seal_domain, &material.selector, &authres);
+            match arc::seal(&single, &message, &params).await {
+                Ok(set) => return Some(set),
+                Err(arc::SealError::ExistingChain) => {
+                    tracing::debug!("message already carries an ARC chain; forwarding unsealed");
+                    return None;
+                }
+                Err(error) => {
+                    tracing::error!(%error, "per-tenant ARC sealing failed; trying the configured key");
+                }
+            }
+        }
+        let signing = self.signing.as_ref()?;
+        let params = arc::SealParams::new(&signing.domain, &signing.selector, &authres);
+        match arc::seal(signing.keys.as_ref(), &message, &params).await {
+            Ok(set) => Some(set),
+            Err(arc::SealError::ExistingChain) => {
+                tracing::debug!("message already carries an ARC chain; forwarding unsealed");
+                None
+            }
+            Err(error) => {
+                tracing::error!(%error, "ARC sealing failed; forwarding unsealed");
                 None
             }
         }

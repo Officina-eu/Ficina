@@ -226,23 +226,19 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         })?,
     );
 
-    // Local delivery into the store (MX only). Connect and run the one-shot
-    // spool → store migration BEFORE the outbound queue runner starts, so
-    // there is no concurrent claim on the spool.
+    // Local delivery into the store (MX only). The ARC sealer (built
+    // below, once the trust stack exists) is attached and the one-shot
+    // spool → store migration is run BEFORE the outbound queue runner
+    // starts, so there is no concurrent claim on the spool.
     let local_delivery = match &config.database_url {
         Some(url) => {
-            let ld = Arc::new(
-                crate::local_delivery::LocalDelivery::connect(
-                    url,
-                    &config.blob_dir,
-                    Arc::clone(&spool),
-                    config.hostname.clone(),
-                )
-                .await?,
-            );
-            if let Err(error) = ld.migrate_spool().await {
-                tracing::error!(%error, "spool → store migration failed; continuing");
-            }
+            let ld = crate::local_delivery::LocalDelivery::connect(
+                url,
+                &config.blob_dir,
+                Arc::clone(&spool),
+                config.hostname.clone(),
+            )
+            .await?;
             tracing::info!("local delivery into the store is enabled");
             Some(ld)
         }
@@ -284,12 +280,6 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         });
     }
 
-    if let Some(outbound) = config.outbound.clone() {
-        crate::queue_runner::spawn(Arc::clone(&spool), config.hostname.clone(), outbound);
-    } else {
-        tracing::warn!("outbound delivery disabled; received mail accumulates in the spool");
-    }
-
     // Trust stack (M4): one shared DNS resolver for SPF/DKIM/DMARC. If
     // it cannot be built, verification is disabled (mail still flows —
     // an absent resolver must not stop receiving).
@@ -304,6 +294,36 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
     let mx_auth = Arc::new(build_mx_auth(&config, auth_resolver.clone()));
     let dkim_store = local_delivery.as_ref().map(|ld| ld.store().clone());
     let submission_auth = Arc::new(build_submission_auth(&config, auth_resolver, dkim_store)?);
+
+    // ARC sealing for Sieve redirects (RFC 8617): the submission
+    // trust-stack context holds the signing keys (per-tenant store +
+    // configured fallback). Then run the spool → store migration —
+    // still before the queue runner spawns below.
+    let local_delivery = match local_delivery {
+        Some(ld) => {
+            let ld = if config.arc_sealing {
+                tracing::info!("ARC sealing of Sieve redirects enabled");
+                Arc::new(ld.with_arc_sealer(Arc::clone(&submission_auth)))
+            } else {
+                tracing::warn!(
+                    "ARC sealing disabled ({}) — forwards will fail downstream DMARC",
+                    crate::config::ENV_ARC_SEALING
+                );
+                Arc::new(ld)
+            };
+            if let Err(error) = ld.migrate_spool().await {
+                tracing::error!(%error, "spool → store migration failed; continuing");
+            }
+            Some(ld)
+        }
+        None => None,
+    };
+
+    if let Some(outbound) = config.outbound.clone() {
+        crate::queue_runner::spawn(Arc::clone(&spool), config.hostname.clone(), outbound);
+    } else {
+        tracing::warn!("outbound delivery disabled; received mail accumulates in the spool");
+    }
 
     // Optional submission listeners bind first and run as spawned
     // tasks; the MX listener runs on this task (and never returns).

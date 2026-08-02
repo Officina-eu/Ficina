@@ -312,13 +312,14 @@ fn build_header_hash_input(message: &Message<'_>, sig: &Signature, sig_index: us
 
 /// Removes the value of the `b=` tag from a DKIM-Signature value,
 /// leaving `b=` present but empty (§3.7 — the signature covers the
-/// header with its own `b=` value removed).
+/// header with its own `b=` value removed). Shared with [`crate::arc`]
+/// (AMS/AS use the same self-exclusion rule, RFC 8617 §4.1.2/§4.1.3).
 ///
 /// A single linear pass over the `;`-separated tag list: each tag is
 /// examined exactly once, so an attacker cannot force super-linear work
 /// with a large folding-whitespace run inside a multi-megabyte
 /// signature value (the header block can be up to `max_message_size`).
-fn strip_b_tag(value: &str) -> String {
+pub(crate) fn strip_b_tag(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut first = true;
     for segment in value.split(';') {
@@ -403,7 +404,7 @@ impl Signature {
     }
 }
 
-fn parse_canon(c: &str) -> Option<(Canon, Canon)> {
+pub(crate) fn parse_canon(c: &str) -> Option<(Canon, Canon)> {
     match c.split_once('/') {
         Some((h, b)) => Some((Canon::parse(h)?, Canon::parse(b)?)),
         // A bare `c=relaxed` means relaxed header, simple body (§3.5).
@@ -412,8 +413,9 @@ fn parse_canon(c: &str) -> Option<(Canon, Canon)> {
 }
 
 /// Parses a `tag=value; tag=value` list (RFC 6376 §3.2). Whitespace
-/// (including folding) around tags and values is stripped.
-fn parse_tag_list(value: &str) -> Vec<(String, String)> {
+/// (including folding) around tags and values is stripped. Shared with
+/// [`crate::arc`] (ARC headers use the same tag-list syntax).
+pub(crate) fn parse_tag_list(value: &str) -> Vec<(String, String)> {
     let mut tags = Vec::new();
     for part in value.split(';') {
         let part = part.trim();
@@ -428,20 +430,21 @@ fn parse_tag_list(value: &str) -> Vec<(String, String)> {
 }
 
 /// Base64-decodes after stripping all whitespace (b=/bh= may fold).
-fn decode_b64_ws(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_b64_ws(s: &str) -> Option<Vec<u8>> {
     let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
     BASE64.decode(clean).ok()
 }
 
 /// A DKIM public-key record fetched from DNS (§3.6.1).
-struct KeyRecord {
-    algorithm: KeyAlgorithm,
-    public_key: Vec<u8>,
+pub(crate) struct KeyRecord {
+    pub(crate) algorithm: KeyAlgorithm,
+    pub(crate) public_key: Vec<u8>,
 }
 
 /// Fetches and parses the public-key TXT at `selector._domainkey.domain`.
-/// `Ok(None)` means an empty `p=` (revoked key).
-async fn fetch_key<R: Resolver + ?Sized>(
+/// `Ok(None)` means an empty `p=` (revoked key). Shared with
+/// [`crate::arc`] (ARC keys are ordinary DKIM keys, RFC 8617 §4.1.2).
+pub(crate) async fn fetch_key<R: Resolver + ?Sized>(
     resolver: &R,
     selector: &str,
     domain: &str,
@@ -477,7 +480,7 @@ async fn fetch_key<R: Resolver + ?Sized>(
 /// canonicalized headers — ring computes the hash). `spki_der` is the
 /// DKIM `p=` key (SubjectPublicKeyInfo); ring wants the inner PKCS#1
 /// `RSAPublicKey`, so we unwrap the SPKI first (defensively).
-fn verify_rsa(spki_der: &[u8], data: &[u8], sig: &[u8]) -> bool {
+pub(crate) fn verify_rsa(spki_der: &[u8], data: &[u8], sig: &[u8]) -> bool {
     use ring::signature::{RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey};
     let Some(pkcs1) = spki_to_pkcs1_rsa(spki_der) else {
         return false;
@@ -538,7 +541,7 @@ fn der_skip(input: &[u8], tag: u8) -> Option<&[u8]> {
     input.get(consumed..)
 }
 
-fn verify_ed25519(raw_key: &[u8], hash: &[u8], sig: &[u8]) -> bool {
+pub(crate) fn verify_ed25519(raw_key: &[u8], hash: &[u8], sig: &[u8]) -> bool {
     use ed25519_dalek::{Signature as EdSig, Verifier, VerifyingKey};
     let Ok(key_bytes): Result<[u8; 32], _> = raw_key.try_into() else {
         return false;
@@ -694,7 +697,7 @@ fn canon_tag(c: Canon) -> &'static str {
 
 /// Signs `data` (the raw canonicalized headers) with RSASSA-PKCS1-v1_5
 /// SHA-256 via ring (constant-time; ring hashes the data internally).
-fn sign_rsa(key: &SigningKey, data: &[u8]) -> Result<Vec<u8>, SignError> {
+pub(crate) fn sign_rsa(key: &SigningKey, data: &[u8]) -> Result<Vec<u8>, SignError> {
     use ring::rand::SystemRandom;
     use ring::signature::{RSA_PKCS1_SHA256, RsaKeyPair};
     let pair = RsaKeyPair::from_pkcs8(&key.pkcs8_der).map_err(|_| SignError::BadKey)?;
@@ -711,7 +714,7 @@ fn sign_rsa(key: &SigningKey, data: &[u8]) -> Result<Vec<u8>, SignError> {
 
 /// Signs the 32-byte SHA-256 `hash` of the headers with Ed25519
 /// (RFC 8463).
-fn sign_ed25519(key: &SigningKey, hash: &[u8]) -> Result<Vec<u8>, SignError> {
+pub(crate) fn sign_ed25519(key: &SigningKey, hash: &[u8]) -> Result<Vec<u8>, SignError> {
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey as EdSigningKey;
     use ed25519_dalek::pkcs8::DecodePrivateKey;

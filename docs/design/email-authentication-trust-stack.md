@@ -97,8 +97,15 @@ M4 is large. Built to full depth in priority order: SPF, DKIM
 sanctioned cut seams, left as unchecked ROADMAP sub-items if the
 session runs long:
 
-- **ARC sealing** (d) — needed for mailing-list forwarding, not for
-  first-hop receive/submit; deferred with its own follow-up.
+- **ARC sealing** (d) — ~~deferred~~ **built**: `alo-auth-mail::arc`
+  seals Sieve-redirect forwards as the first hop (`i=1; cv=none`) with
+  the forwarding tenant's DKIM key (configured key as fallback), wired
+  in at redirect enqueue (`LocalDelivery`). The chain validator
+  (`arc::verify`, RFC 8617 §5.2) backs the round-trip tests and is
+  cross-checked against dkimpy in both directions; inbound `arc=`
+  stamping and sealing onto an existing chain (`i>1`, needs that
+  validation at ingress) remain follow-ups. Off-switch:
+  `ALO_SMTP_ARC_SEALING=off`.
 - **TLS-RPT report generation** (e) — the MTA-STS policy is served;
   the TLS-RPT *reporting* side is deferred.
 

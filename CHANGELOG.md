@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **Forwarded mail keeps its proof of authenticity (ARC).** Mail
+  forwarded by a filter rule ("redirect") is now ARC-sealed (RFC 8617):
+  the receiving server can verify the SPF/DKIM/DMARC results we saw at
+  ingress even though forwarding breaks SPF, so forwards stop failing
+  DMARC downstream. Sealed with the forwarding domain's own DKIM key;
+  operators can disable with `ALO_SMTP_ARC_SEALING=off`.
 - New: **alo Transfer — large files as links.** A file too big to attach
   (over 25 MB) uploads once and rides the message as a private, expiring download
   link instead of an inline attachment, so it sidesteps recipient
