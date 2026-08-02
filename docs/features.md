@@ -303,6 +303,7 @@ Cross-cutting Sheets principles:
 - [L] Backup status visibility ("last verified restore: date")
 - [2] ★ White-label/reseller mode: MSP branding, multi-tenant management console — the channel play productized
 - [2] Per-tenant feature flags and AI on/off switches
+- [2] Personal email (self-service): individuals self-register an address (e.g. `johnsmith@alomails.com`) on a platform-operated domain — one tenant per person, verification-gated signup, consumer sending reputation isolated from B2B. A distinct product line beside the B2B offering; same sovereign stack, same isolation, same no-tracking/no-ads rule — ADR 0018
 - [3] DLP-lite: outbound rules ("warn on external send with attachment X")
 - [3] Compliance packs: NIS2 evidence exports, processing-record templates
 

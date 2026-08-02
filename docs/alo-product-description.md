@@ -187,7 +187,9 @@ The AI layer is model-agnostic by design — an internal inference API (`alo-ai`
 
 ## 14. Non-goals
 
-Written down because scope creep killed most of our predecessors. alo will **not** build: office editors, a video/WebRTC stack, a Matrix homeserver, an object store, device management (MDM), a CRM/ERP (that is Odoo's territory — integrate, don't compete), a public federated social layer, or consumer/free-tier email. Entries here are revisited only with revenue on the table and a written case — the default answer stays no.
+Written down because scope creep killed most of our predecessors. alo will **not** build: office editors, a video/WebRTC stack, a Matrix homeserver, an object store, device management (MDM), a CRM/ERP (that is Odoo's territory — integrate, don't compete), or a public federated social layer. Entries here are revisited only with revenue on the table and a written case — the default answer stays no.
+
+**Revised (ADR 0018):** *consumer/personal email* is no longer a Non-goal. alo now also offers self-service **personal** addresses (e.g. `johnsmith@alomails.com`) on platform-operated domains, as a distinct product line alongside the B2B offering. It is built on the same sovereign stack and the same per-tenant isolation (one tenant per person), verification-gated, with consumer sending reputation isolated from B2B customers. This is a deliberate scope expansion, not a free-tier growth-hacking play: the sovereignty promise and the "no tracking, no ads, no dark patterns" rule apply to personal users too.
 
 ## 15. Open decisions
 
