@@ -39,11 +39,20 @@ async fn mozilla_config_is_public_and_well_formed() {
     assert!(ctype.contains("xml"), "content-type is XML: {ctype}");
     assert!(body.contains("<clientConfig version=\"1.1\">"));
     // The queried domain names the provider; the server host is base_url's host.
-    assert!(body.contains("<domain>acme.eu</domain>"), "queried domain used");
-    assert!(body.contains("<hostname>test</hostname>"), "server host advertised");
+    assert!(
+        body.contains("<domain>acme.eu</domain>"),
+        "queried domain used"
+    );
+    assert!(
+        body.contains("<hostname>test</hostname>"),
+        "server host advertised"
+    );
     assert!(body.contains("<port>993</port>"), "IMAPS port");
     assert!(body.contains("<port>465</port>"), "SMTPS port");
-    assert!(body.contains("<username>%EMAILADDRESS%</username>"), "placeholder username");
+    assert!(
+        body.contains("<username>%EMAILADDRESS%</username>"),
+        "placeholder username"
+    );
 }
 
 #[tokio::test]
@@ -60,8 +69,14 @@ async fn mozilla_config_rejects_markup_in_query() {
     let (status, _ctype, body) = text(&h, req).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert!(!body.contains("<script>"), "no injected markup in the config");
-    assert!(body.contains("<domain>test</domain>"), "fell back to configured domain");
+    assert!(
+        !body.contains("<script>"),
+        "no injected markup in the config"
+    );
+    assert!(
+        body.contains("<domain>test</domain>"),
+        "fell back to configured domain"
+    );
 }
 
 #[tokio::test]
@@ -84,7 +99,10 @@ async fn outlook_autodiscover_echoes_escaped_login() {
     assert!(body.contains("<Port>993</Port>"));
     assert!(body.contains("<Type>SMTP</Type>"));
     assert!(body.contains("<Port>465</Port>"));
-    assert!(body.contains("<LoginName>someone@acme.eu</LoginName>"), "login echoed");
+    assert!(
+        body.contains("<LoginName>someone@acme.eu</LoginName>"),
+        "login echoed"
+    );
 }
 
 #[tokio::test]
@@ -102,6 +120,9 @@ async fn outlook_autodiscover_omits_login_for_junk_body() {
     let (status, _ctype, body) = text(&h, req).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert!(!body.contains("<LoginName>"), "no login element for a junk address");
+    assert!(
+        !body.contains("<LoginName>"),
+        "no login element for a junk address"
+    );
     assert!(!body.contains("<x>"), "no injected markup");
 }
