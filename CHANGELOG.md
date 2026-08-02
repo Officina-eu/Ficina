@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **Contacts sync to your phone and computer (CardDAV).** Add your
+  alo account to iPhone/iPad, macOS Contacts, Android (via a CardDAV
+  app), or Thunderbird, and your address book syncs both ways
+  automatically — add a contact on your phone and it's on the web, and
+  vice versa. Point the client at your alo server and sign in with your
+  normal email and password.
 - New: **Address book (contacts).** A new **Contacts** panel in your
   account menu lets you keep an address book — names, multiple emails
   and phone numbers, organization, job title, notes — with search,

@@ -378,3 +378,29 @@ is not a contact (`from_vcard` returns `None`). Deliberate deviation: we do
 not preserve unknown properties across an import→export round-trip (a strict
 CardDAV server would); acceptable until the CardDAV sync layer, which will
 need to store the raw card to be fully lossless.
+
+## CardDAV (alo-jmap::carddav, RFC 6352)
+
+Contacts sync natively to phones and desktops over CardDAV, one addressbook
+collection per account at `/dav/addressbooks/<user>/default/` (objects are
+`<contactId>.vcf`). Auth is HTTP Basic via the same `authenticate_legacy`
+path as IMAP/SMTP (a 2FA account is refused there). The RFC 6578 sync-token
+IS the account modseq (`urn:alo:contacts:<modseq>`), so `sync-collection`
+maps onto `AccountStore::changes`; per-object ETags are a content hash of
+the serialized vCard (a no-op PUT does not churn the client). The href is
+authoritative: a `PUT` stores under the path id whatever `UID` the card
+carries.
+
+Implemented methods: `OPTIONS`, `PROPFIND` (principal / home / addressbook
+/ object), `REPORT` (`addressbook-multiget`, `sync-collection`), `GET`,
+`PUT` (with `If-Match`/`If-None-Match`), `DELETE`. Deliberate scope cuts:
+- `addressbook-query` filters are **not** evaluated — such a REPORT returns
+  the whole collection (a valid, unfiltered result the client narrows).
+  Clients sync fine via multiget + sync-collection, so this is cosmetic.
+- No `PROPPATCH`, `MKCOL`, or `MOVE`: the single addressbook is fixed, not
+  client-created.
+- `contacts.id` is a global column, so a client-chosen href that collides
+  with another account's id is refused (`409`) rather than silently
+  cross-writing — astronomically rare with UUID hrefs, and safe by design.
+The eventual clean home is a dedicated `alo-dav` crate (per ROADMAP);
+today it is a module in alo-jmap, reusing its auth + store wiring.

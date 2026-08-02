@@ -7,7 +7,7 @@ use std::sync::Arc;
 use alo_identity::Identity;
 use alo_store::Store;
 use axum::extract::{DefaultBodyLimit, State};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
@@ -15,8 +15,8 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, blob, contacts, delegates, docs, filters, flagdue, push, schedule, security,
-    session, settings, share, snooze, unsubscribe,
+    admin, ai, api, blob, carddav, contacts, delegates, docs, filters, flagdue, push, schedule,
+    security, session, settings, share, snooze, unsubscribe,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -65,6 +65,13 @@ pub fn app(state: AppState) -> Router {
         // Address-book import (a .vcf upload) and export (whole book as .vcf).
         .route("/contacts/import", post(contacts::import))
         .route("/contacts/export", get(contacts::export))
+        // CardDAV (RFC 6352): native contact sync for phones and desktops.
+        // Any WebDAV method routes to the one handler, which dispatches by
+        // method + path; well-known bootstraps discovery.
+        .route("/.well-known/carddav", any(carddav::well_known))
+        .route("/dav", any(carddav::handle))
+        .route("/dav/", any(carddav::handle))
+        .route("/dav/{*rest}", any(carddav::handle))
         // alo Transfer: upload a large file (authenticated) for an expiring
         // link, and the PUBLIC download route the recipient's link points at.
         // The upload streams straight to storage, so its body limit is disabled

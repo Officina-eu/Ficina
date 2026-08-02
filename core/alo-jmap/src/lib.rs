@@ -16,6 +16,7 @@ pub mod admin;
 pub mod ai;
 pub mod api;
 pub mod blob;
+pub mod carddav;
 pub mod contacts;
 pub mod delegates;
 pub mod docs;
