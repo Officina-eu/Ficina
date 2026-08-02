@@ -537,7 +537,14 @@ pub async fn rename_group(
         .rename_group(&GroupId::new(group_id.clone()), &name)
         .await
         .map_err(store_admin_err)?;
-    audit(&state, &account, "group.rename", Some(&group_id), Some(&name)).await;
+    audit(
+        &state,
+        &account,
+        "group.rename",
+        Some(&group_id),
+        Some(&name),
+    )
+    .await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -702,13 +709,28 @@ pub async fn grant_delegate(
     .map_err(store_admin_err)?;
     // Optional per-folder restriction (ADR 0017): present → set (empty clears).
     if let Some(arr) = v.get("folders").and_then(Value::as_array) {
-        let folders: Vec<String> = arr.iter().filter_map(Value::as_str).map(str::to_owned).collect();
-        ts.set_delegate_folders(&UserId::new(owner.clone()), &UserId::new(delegate.clone()), &folders)
-            .await
-            .map_err(store_admin_err)?;
+        let folders: Vec<String> = arr
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        ts.set_delegate_folders(
+            &UserId::new(owner.clone()),
+            &UserId::new(delegate.clone()),
+            &folders,
+        )
+        .await
+        .map_err(store_admin_err)?;
     }
     crate::push::notify_delegation_change(&state, &account.tenant, &delegate).await;
-    audit(&state, &account, "delegate.grant", Some(&owner), Some(&delegate)).await;
+    audit(
+        &state,
+        &account,
+        "delegate.grant",
+        Some(&owner),
+        Some(&delegate),
+    )
+    .await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -731,7 +753,14 @@ pub async fn revoke_delegate(
         .await
         .map_err(|_| Problem::server_error())?;
     crate::push::notify_delegation_change(&state, &account.tenant, &delegate).await;
-    audit(&state, &account, "delegate.revoke", Some(&owner), Some(&delegate)).await;
+    audit(
+        &state,
+        &account,
+        "delegate.revoke",
+        Some(&owner),
+        Some(&delegate),
+    )
+    .await;
     Ok(Json(json!({ "ok": true })))
 }
 

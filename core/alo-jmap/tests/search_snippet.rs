@@ -25,20 +25,43 @@ async fn search_snippet_highlights_matches() {
         .unwrap();
 
     // Find the delivered message.
-    let (_s, body) = api(&h.app, &h.token, call(&acc, "Email/query", json!({ "filter": { "text": "falcon" } }))).await;
-    let id = body["methodResponses"][0][1]["ids"][0].as_str().unwrap().to_owned();
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &acc,
+            "Email/query",
+            json!({ "filter": { "text": "falcon" } }),
+        ),
+    )
+    .await;
+    let id = body["methodResponses"][0][1]["ids"][0]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
     // Snippet it with the same query.
     let (_s, body) = api(
         &h.app,
         &h.token,
-        call(&acc, "SearchSnippet/get", json!({ "filter": { "text": "falcon" }, "emailIds": [id] })),
+        call(
+            &acc,
+            "SearchSnippet/get",
+            json!({ "filter": { "text": "falcon" }, "emailIds": [id] }),
+        ),
     )
     .await;
     let snip = &body["methodResponses"][0][1]["list"][0];
-    assert_eq!(snip["subject"], json!("Project <mark>Falcon</mark>"), "{body}");
+    assert_eq!(
+        snip["subject"],
+        json!("Project <mark>Falcon</mark>"),
+        "{body}"
+    );
     assert!(
-        snip["preview"].as_str().unwrap().contains("<mark>falcon</mark>"),
+        snip["preview"]
+            .as_str()
+            .unwrap()
+            .contains("<mark>falcon</mark>"),
         "preview highlights the match: {body}",
     );
 }

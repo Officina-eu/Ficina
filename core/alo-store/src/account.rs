@@ -451,15 +451,14 @@ impl AccountStore {
         let keyword = category_keyword(id);
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
 
-        let done = sqlx::query(
-            "DELETE FROM categories WHERE tenant_id = $1 AND user_id = $2 AND id = $3",
-        )
-        .bind(self.tenant.as_str())
-        .bind(self.user.as_str())
-        .bind(id.as_str())
-        .execute(&mut *tx)
-        .await
-        .map_err(StoreError::Db)?;
+        let done =
+            sqlx::query("DELETE FROM categories WHERE tenant_id = $1 AND user_id = $2 AND id = $3")
+                .bind(self.tenant.as_str())
+                .bind(self.user.as_str())
+                .bind(id.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(StoreError::Db)?;
         if done.rows_affected() == 0 {
             return Err(StoreError::NotFound);
         }

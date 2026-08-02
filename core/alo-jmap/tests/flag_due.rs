@@ -59,7 +59,11 @@ async fn set_surface_and_clear_flag_due() {
 
     let email = get_email(&h, &mid).await;
     assert_eq!(email["alo:flagDue"], json!("2027-01-01T00:00:00Z"));
-    assert_eq!(email["keywords"]["$flagged"], json!(true), "a due-date flags the message");
+    assert_eq!(
+        email["keywords"]["$flagged"],
+        json!(true),
+        "a due-date flags the message"
+    );
 
     // Clear it → null; the flag itself stays (clearing the flag is separate).
     let (status, _b) = post_json(

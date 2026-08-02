@@ -22,10 +22,16 @@ fn call(account_id: &str, method: &str, mut args: Value) -> Value {
 }
 
 fn resp_name(body: &Value) -> String {
-    body["methodResponses"][0][0].as_str().unwrap_or("").to_owned()
+    body["methodResponses"][0][0]
+        .as_str()
+        .unwrap_or("")
+        .to_owned()
 }
 fn err_type(body: &Value) -> String {
-    body["methodResponses"][0][1]["type"].as_str().unwrap_or("").to_owned()
+    body["methodResponses"][0][1]["type"]
+        .as_str()
+        .unwrap_or("")
+        .to_owned()
 }
 
 #[tokio::test]
@@ -40,20 +46,41 @@ async fn read_only_delegate_can_read_not_write() {
     let owner_id = owner.to_string();
 
     // No grant → accountNotFound.
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Mailbox/get", json!({ "ids": null }))).await;
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Mailbox/get", json!({ "ids": null })),
+    )
+    .await;
     assert_eq!(err_type(&body), "accountNotFound");
 
     // Read-only grant.
-    h.ts.grant_delegate(&owner, &h.user, false, "none").await.unwrap();
+    h.ts.grant_delegate(&owner, &h.user, false, "none")
+        .await
+        .unwrap();
 
     // Can read the owner's mail...
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Mailbox/get", json!({ "ids": null }))).await;
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Mailbox/get", json!({ "ids": null })),
+    )
+    .await;
     assert_eq!(resp_name(&body), "Mailbox/get");
 
     // ...but any /set is refused as read-only.
     let update = json!({ mid.to_string(): { "keywords/$flagged": true } });
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/set", json!({ "update": update }))).await;
-    assert_eq!(err_type(&body), "accountReadOnly", "read-only delegate can't mutate: {body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Email/set", json!({ "update": update })),
+    )
+    .await;
+    assert_eq!(
+        err_type(&body),
+        "accountReadOnly",
+        "read-only delegate can't mutate: {body}"
+    );
 }
 
 #[tokio::test]
@@ -68,13 +95,22 @@ async fn manage_delegate_writes_but_cannot_send_without_grant() {
     let owner_id = owner.to_string();
 
     // Manage access, but no send.
-    h.ts.grant_delegate(&owner, &h.user, true, "none").await.unwrap();
+    h.ts.grant_delegate(&owner, &h.user, true, "none")
+        .await
+        .unwrap();
 
     // Can flag a message in the owner's mailbox.
     let update = json!({ mid.to_string(): { "keywords/$flagged": true } });
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/set", json!({ "update": update }))).await;
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Email/set", json!({ "update": update })),
+    )
+    .await;
     assert!(
-        body["methodResponses"][0][1]["updated"].get(mid.to_string()).is_some(),
+        body["methodResponses"][0][1]["updated"]
+            .get(mid.to_string())
+            .is_some(),
         "manage delegate can write: {body}",
     );
 
@@ -82,7 +118,11 @@ async fn manage_delegate_writes_but_cannot_send_without_grant() {
     let (_s, body) = api(
         &h.app,
         &h.token,
-        call(&owner_id, "EmailSubmission/set", json!({ "create": { "s": { "emailId": "x" } } })),
+        call(
+            &owner_id,
+            "EmailSubmission/set",
+            json!({ "create": { "s": { "emailId": "x" } } }),
+        ),
     )
     .await;
     assert_eq!(
@@ -96,8 +136,12 @@ async fn session_reflects_access_level() {
     let h = harness("deleg-sess").await;
     let send_owner = h.ts.create_user("send-owner@example.test").await.unwrap();
     let ro_owner = h.ts.create_user("ro-owner@example.test").await.unwrap();
-    h.ts.grant_delegate(&send_owner, &h.user, true, "on_behalf").await.unwrap();
-    h.ts.grant_delegate(&ro_owner, &h.user, false, "none").await.unwrap();
+    h.ts.grant_delegate(&send_owner, &h.user, true, "on_behalf")
+        .await
+        .unwrap();
+    h.ts.grant_delegate(&ro_owner, &h.user, false, "none")
+        .await
+        .unwrap();
 
     let req = Request::builder()
         .method("GET")
@@ -127,8 +171,13 @@ async fn self_service_share_and_revoke() {
     h.ts.create_user(&colleague_email).await.unwrap();
 
     // The signed-in user shares THEIR OWN mailbox with the colleague (no admin).
-    let (status, _b) = post(&h.app, &h.token, "/jmap/delegates",
-        json!({ "email": colleague_email, "canWrite": true, "sendMode": "as" })).await;
+    let (status, _b) = post(
+        &h.app,
+        &h.token,
+        "/jmap/delegates",
+        json!({ "email": colleague_email, "canWrite": true, "sendMode": "as" }),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "self-service grant");
 
     // It shows up in the owner's delegate list.
@@ -141,13 +190,23 @@ async fn self_service_share_and_revoke() {
     let colleague_id = ds[0]["id"].as_str().unwrap().to_owned();
 
     // Sharing with a stranger (not in the tenant) is a not-found.
-    let (status, _b) = post(&h.app, &h.token, "/jmap/delegates",
-        json!({ "email": "nobody@example.test" })).await;
+    let (status, _b) = post(
+        &h.app,
+        &h.token,
+        "/jmap/delegates",
+        json!({ "email": "nobody@example.test" }),
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     // Revoke.
-    let (status, _b) = post(&h.app, &h.token, "/jmap/delegates/remove",
-        json!({ "delegateId": colleague_id })).await;
+    let (status, _b) = post(
+        &h.app,
+        &h.token,
+        "/jmap/delegates/remove",
+        json!({ "delegateId": colleague_id }),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     let (_s, body) = get(&h.app, &h.token, "/jmap/delegates").await;
     assert!(body["delegates"].as_array().unwrap().is_empty());
@@ -167,70 +226,228 @@ async fn folder_restricted_delegate_is_confined_to_granted_folders() {
         .await
         .unwrap();
     let inbox_id = owner_acc.mailboxes_of_message(&inbox_msg).await.unwrap()[0].clone();
-    let private = owner_acc.create_mailbox(None, "Private", None).await.unwrap();
+    let private = owner_acc
+        .create_mailbox(None, "Private", None)
+        .await
+        .unwrap();
     let secret = owner_acc
         .deliver(b"From: a@x\r\nSubject: secret\r\n\r\nb\r\n")
         .await
         .unwrap();
     owner_acc.add_to_mailbox(&secret, &private).await.unwrap();
-    owner_acc.remove_from_mailbox(&secret, &inbox_id).await.unwrap();
+    owner_acc
+        .remove_from_mailbox(&secret, &inbox_id)
+        .await
+        .unwrap();
 
     // Manage grant, then restricted to only the inbox folder.
-    h.ts.grant_delegate(&owner, &h.user, true, "none").await.unwrap();
-    h.ts.set_delegate_folders(&owner, &h.user, &[inbox_id.to_string()]).await.unwrap();
+    h.ts.grant_delegate(&owner, &h.user, true, "none")
+        .await
+        .unwrap();
+    h.ts.set_delegate_folders(&owner, &h.user, &[inbox_id.to_string()])
+        .await
+        .unwrap();
 
     // Mailbox/get returns ONLY the granted folder — Private is invisible.
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Mailbox/get", json!({ "ids": null }))).await;
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Mailbox/get", json!({ "ids": null })),
+    )
+    .await;
     let list = body["methodResponses"][0][1]["list"].as_array().unwrap();
     let ids: Vec<&str> = list.iter().filter_map(|m| m["id"].as_str()).collect();
-    assert!(ids.contains(&inbox_id.to_string().as_str()), "granted folder visible: {body}");
-    assert!(!ids.contains(&private.to_string().as_str()), "private folder hidden: {body}");
+    assert!(
+        ids.contains(&inbox_id.to_string().as_str()),
+        "granted folder visible: {body}"
+    );
+    assert!(
+        !ids.contains(&private.to_string().as_str()),
+        "private folder hidden: {body}"
+    );
 
     // Fetching Private by id is NotFound (no oracle for "exists but forbidden").
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Mailbox/get", json!({ "ids": [private.to_string()] }))).await;
-    assert!(body["methodResponses"][0][1]["list"].as_array().unwrap().is_empty());
-    assert_eq!(body["methodResponses"][0][1]["notFound"][0], json!(private.to_string()));
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &owner_id,
+            "Mailbox/get",
+            json!({ "ids": [private.to_string()] }),
+        ),
+    )
+    .await;
+    assert!(
+        body["methodResponses"][0][1]["list"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        body["methodResponses"][0][1]["notFound"][0],
+        json!(private.to_string())
+    );
 
     // Email/get on the private message → NotFound; on the inbox message → returned.
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/get", json!({ "ids": [secret.to_string()] }))).await;
-    assert!(body["methodResponses"][0][1]["list"].as_array().unwrap().is_empty(), "secret not returned: {body}");
-    assert_eq!(body["methodResponses"][0][1]["notFound"][0], json!(secret.to_string()));
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/get", json!({ "ids": [inbox_msg.to_string()] }))).await;
-    assert_eq!(body["methodResponses"][0][1]["list"].as_array().unwrap().len(), 1, "inbox msg visible: {body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &owner_id,
+            "Email/get",
+            json!({ "ids": [secret.to_string()] }),
+        ),
+    )
+    .await;
+    assert!(
+        body["methodResponses"][0][1]["list"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "secret not returned: {body}"
+    );
+    assert_eq!(
+        body["methodResponses"][0][1]["notFound"][0],
+        json!(secret.to_string())
+    );
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &owner_id,
+            "Email/get",
+            json!({ "ids": [inbox_msg.to_string()] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        body["methodResponses"][0][1]["list"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "inbox msg visible: {body}"
+    );
 
     // Email/query (whole account) returns only the visible message.
     let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/query", json!({}))).await;
     let qids: Vec<String> = body["methodResponses"][0][1]["ids"]
-        .as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_owned)).collect();
-    assert!(qids.contains(&inbox_msg.to_string()), "inbox in query: {body}");
-    assert!(!qids.contains(&secret.to_string()), "secret excluded from query: {body}");
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
+    assert!(
+        qids.contains(&inbox_msg.to_string()),
+        "inbox in query: {body}"
+    );
+    assert!(
+        !qids.contains(&secret.to_string()),
+        "secret excluded from query: {body}"
+    );
 
     // Flagging the private message is refused (NotFound); the inbox one succeeds.
     let up = json!({ secret.to_string(): { "keywords/$flagged": true } });
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/set", json!({ "update": up }))).await;
-    assert!(body["methodResponses"][0][1]["updated"].get(secret.to_string()).is_none());
-    assert_eq!(body["methodResponses"][0][1]["notUpdated"][secret.to_string()]["type"], json!("notFound"), "{body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Email/set", json!({ "update": up })),
+    )
+    .await;
+    assert!(
+        body["methodResponses"][0][1]["updated"]
+            .get(secret.to_string())
+            .is_none()
+    );
+    assert_eq!(
+        body["methodResponses"][0][1]["notUpdated"][secret.to_string()]["type"],
+        json!("notFound"),
+        "{body}"
+    );
     let up = json!({ inbox_msg.to_string(): { "keywords/$flagged": true } });
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/set", json!({ "update": up }))).await;
-    assert!(body["methodResponses"][0][1]["updated"].get(inbox_msg.to_string()).is_some(), "inbox flaggable: {body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Email/set", json!({ "update": up })),
+    )
+    .await;
+    assert!(
+        body["methodResponses"][0][1]["updated"]
+            .get(inbox_msg.to_string())
+            .is_some(),
+        "inbox flaggable: {body}"
+    );
 
     // Moving the inbox message INTO the ungranted folder is forbidden.
     let mv = json!({ inbox_msg.to_string(): { "mailboxIds": { private.to_string(): true } } });
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/set", json!({ "update": mv }))).await;
-    assert_eq!(body["methodResponses"][0][1]["notUpdated"][inbox_msg.to_string()]["type"], json!("forbidden"), "{body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Email/set", json!({ "update": mv })),
+    )
+    .await;
+    assert_eq!(
+        body["methodResponses"][0][1]["notUpdated"][inbox_msg.to_string()]["type"],
+        json!("forbidden"),
+        "{body}"
+    );
 
     // Destroying the private message is refused (NotFound).
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/set", json!({ "destroy": [secret.to_string()] }))).await;
-    assert_eq!(body["methodResponses"][0][1]["notDestroyed"][secret.to_string()]["type"], json!("notFound"), "{body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &owner_id,
+            "Email/set",
+            json!({ "destroy": [secret.to_string()] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        body["methodResponses"][0][1]["notDestroyed"][secret.to_string()]["type"],
+        json!("notFound"),
+        "{body}"
+    );
 
     // Restructuring the mailbox (Mailbox/set) is refused for a restricted delegate.
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Mailbox/set", json!({ "create": { "x": { "name": "New" } } }))).await;
-    assert_eq!(err_type(&body), "accountReadOnly", "restricted delegate can't restructure: {body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &owner_id,
+            "Mailbox/set",
+            json!({ "create": { "x": { "name": "New" } } }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        err_type(&body),
+        "accountReadOnly",
+        "restricted delegate can't restructure: {body}"
+    );
 
     // Clearing the restriction restores whole-mailbox access.
-    h.ts.set_delegate_folders(&owner, &h.user, &[]).await.unwrap();
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/get", json!({ "ids": [secret.to_string()] }))).await;
-    assert_eq!(body["methodResponses"][0][1]["list"].as_array().unwrap().len(), 1, "unrestricted again: {body}");
+    h.ts.set_delegate_folders(&owner, &h.user, &[])
+        .await
+        .unwrap();
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &owner_id,
+            "Email/get",
+            json!({ "ids": [secret.to_string()] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        body["methodResponses"][0][1]["list"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "unrestricted again: {body}"
+    );
 }
 
 #[tokio::test]
@@ -241,8 +458,14 @@ async fn folder_grant_includes_subfolders() {
     let owner_id = owner.to_string();
 
     // A parent folder with a child, and a message living in the child.
-    let parent = owner_acc.create_mailbox(None, "Projects", None).await.unwrap();
-    let child = owner_acc.create_mailbox(Some(&parent), "Q1", None).await.unwrap();
+    let parent = owner_acc
+        .create_mailbox(None, "Projects", None)
+        .await
+        .unwrap();
+    let child = owner_acc
+        .create_mailbox(Some(&parent), "Q1", None)
+        .await
+        .unwrap();
     let inbox_msg = owner_acc
         .deliver(b"From: a@x\r\nSubject: m\r\n\r\nb\r\n")
         .await
@@ -253,22 +476,57 @@ async fn folder_grant_includes_subfolders() {
         .await
         .unwrap();
     owner_acc.add_to_mailbox(&child_msg, &child).await.unwrap();
-    owner_acc.remove_from_mailbox(&child_msg, &inbox_id).await.unwrap();
+    owner_acc
+        .remove_from_mailbox(&child_msg, &inbox_id)
+        .await
+        .unwrap();
 
     // Grant only the PARENT folder.
-    h.ts.grant_delegate(&owner, &h.user, true, "none").await.unwrap();
-    h.ts.set_delegate_folders(&owner, &h.user, &[parent.to_string()]).await.unwrap();
+    h.ts.grant_delegate(&owner, &h.user, true, "none")
+        .await
+        .unwrap();
+    h.ts.set_delegate_folders(&owner, &h.user, &[parent.to_string()])
+        .await
+        .unwrap();
 
     // Both the parent AND the child are visible — the subfolder is inherited.
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Mailbox/get", json!({ "ids": null }))).await;
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&owner_id, "Mailbox/get", json!({ "ids": null })),
+    )
+    .await;
     let ids: Vec<String> = body["methodResponses"][0][1]["list"]
-        .as_array().unwrap().iter().filter_map(|m| m["id"].as_str().map(str::to_owned)).collect();
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(str::to_owned))
+        .collect();
     assert!(ids.contains(&parent.to_string()), "parent visible: {body}");
-    assert!(ids.contains(&child.to_string()), "child (subfolder) inherited: {body}");
+    assert!(
+        ids.contains(&child.to_string()),
+        "child (subfolder) inherited: {body}"
+    );
 
     // The message in the child is visible via the inherited grant.
-    let (_s, body) = api(&h.app, &h.token, call(&owner_id, "Email/get", json!({ "ids": [child_msg.to_string()] }))).await;
-    assert_eq!(body["methodResponses"][0][1]["list"].as_array().unwrap().len(), 1, "child message visible: {body}");
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(
+            &owner_id,
+            "Email/get",
+            json!({ "ids": [child_msg.to_string()] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        body["methodResponses"][0][1]["list"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "child message visible: {body}"
+    );
 }
 
 async fn post(app: &axum::Router, token: &str, uri: &str, body: Value) -> (StatusCode, Value) {
@@ -284,7 +542,9 @@ async fn send_req(
     uri: &str,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
-    let b = body.map(|v| Body::from(v.to_string())).unwrap_or(Body::empty());
+    let b = body
+        .map(|v| Body::from(v.to_string()))
+        .unwrap_or(Body::empty());
     let req = Request::builder()
         .method(method)
         .uri(uri)

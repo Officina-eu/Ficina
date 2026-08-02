@@ -81,7 +81,11 @@ async fn header_only_fetch_omits_unsubscribe() {
         }),
     )
     .await;
-    assert!(body["methodResponses"][0][1]["list"][0].get("alo:listUnsubscribe").is_none());
+    assert!(
+        body["methodResponses"][0][1]["list"][0]
+            .get("alo:listUnsubscribe")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -101,7 +105,11 @@ async fn route_refuses_messages_without_one_click() {
         json!({ "emailId": mailto_only.to_string() }),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "mailto-only is not one-click");
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "mailto-only is not one-click"
+    );
 
     // A message with no List-Unsubscribe at all → 400.
     let plain = h

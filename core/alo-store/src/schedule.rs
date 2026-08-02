@@ -25,7 +25,12 @@ pub struct DueSend {
 
 impl AccountStore {
     /// This account's mailbox id for `role`, or `None` if it has none yet.
-    async fn mailbox_by_role(&self, role: &str) -> Result<Option<MailboxId>> {
+    /// Public: callers beyond scheduling resolve special-use folders too
+    /// (e.g. junk-training detects moves into/out of the `junk` role).
+    ///
+    /// # Errors
+    /// [`StoreError::Db`](crate::error::StoreError::Db) on failure.
+    pub async fn mailbox_by_role(&self, role: &str) -> Result<Option<MailboxId>> {
         let id: Option<String> = sqlx::query_scalar(
             "SELECT id FROM mailboxes WHERE tenant_id = $1 AND user_id = $2 AND role = $3",
         )

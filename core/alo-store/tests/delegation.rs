@@ -17,17 +17,24 @@ async fn grant_levels_and_revoke() {
     let owner = ts.create_user("owner@deleg.test").await.unwrap();
     let delegate = ts.create_user("del@deleg.test").await.unwrap();
 
-    assert!(ts.delegation(&owner, &delegate).await.unwrap().is_none(), "no grant yet");
+    assert!(
+        ts.delegation(&owner, &delegate).await.unwrap().is_none(),
+        "no grant yet"
+    );
 
     // Read-only grant.
-    ts.grant_delegate(&owner, &delegate, false, "none").await.unwrap();
+    ts.grant_delegate(&owner, &delegate, false, "none")
+        .await
+        .unwrap();
     assert_eq!(
         ts.delegation(&owner, &delegate).await.unwrap(),
         Some((false, "none".to_owned()))
     );
 
     // Upgrade to manage + send-on-behalf. A send mode implies write.
-    ts.grant_delegate(&owner, &delegate, false, "on_behalf").await.unwrap();
+    ts.grant_delegate(&owner, &delegate, false, "on_behalf")
+        .await
+        .unwrap();
     assert_eq!(
         ts.delegation(&owner, &delegate).await.unwrap(),
         Some((true, "on_behalf".to_owned())),
@@ -64,7 +71,9 @@ async fn grants_never_cross_tenants() {
     let tsa = store.for_tenant(ta);
     let owner = tsa.create_user("owner@a.test").await.unwrap();
     let delegate = tsa.create_user("del@a.test").await.unwrap();
-    tsa.grant_delegate(&owner, &delegate, true, "as").await.unwrap();
+    tsa.grant_delegate(&owner, &delegate, true, "as")
+        .await
+        .unwrap();
 
     // A different tenant's store, querying the very same user ids, sees nothing:
     // the grant row is stamped with tenant A, and every query is tenant-scoped.

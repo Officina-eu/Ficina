@@ -23,6 +23,7 @@ pub mod error;
 pub mod filters;
 pub mod flagdue;
 pub mod jtypes;
+pub mod junk_learn;
 pub mod mime;
 pub mod mime_read;
 pub mod push;

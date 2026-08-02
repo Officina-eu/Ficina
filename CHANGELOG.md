@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **Marking mail as junk now trains the spam filter.** Moving a
+  message into Junk reports it as spam; moving it back out reports it
+  as ham — the filter (Rspamd Bayes) learns from your real mail and
+  gets sharper over time. Deployments gain a small redis service for
+  the learning store; this also fixes Bayes being silently inactive at
+  scan time (it had no token backend). Training is best-effort and
+  never delays or blocks moving mail.
 - New: **Outgoing mail to DANE-protected servers is now
   tamper-proof-encrypted** (RFC 7672). When a destination publishes
   DNSSEC-signed TLSA records, alo validates the DNSSEC chain itself,

@@ -42,6 +42,8 @@ volumes:
     name: ficina_certs
   caddy_data:
     name: ficina_caddy_data
+  # Post-rebrand volume (new with junk training) — no legacy name.
+  redis_data:
 
 services:
   postgres:
@@ -61,9 +63,31 @@ services:
       retries: 5
       start_period: 10s
 
+  # Rspamd's statistics backend: Bayes tokens (spam/ham learning) live in
+  # redis and survive restarts via AOF on the volume. Never published.
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks: [alo]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   rspamd:
     image: rspamd/rspamd:4.1.2
     restart: unless-stopped
+    depends_on:
+      redis: { condition: service_healthy }
+    volumes:
+      # Engine configured, never patched: redis backend for Bayes, and
+      # controller access for the junk-training learn calls (alo-jmap).
+      - ./rspamd/redis.conf:/etc/rspamd/local.d/redis.conf:ro
+      - ./rspamd/worker-controller.inc:/etc/rspamd/local.d/worker-controller.inc:ro
     networks: [alo]
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/11334'"]
@@ -212,6 +236,9 @@ services:
       # Where EmailSubmission/set sends: the SMTP trusted internal listener,
       # reached over the private docker network (not the internet).
       ALO_JMAP_SUBMISSION_ADDR: alo-smtp:2526
+      # Junk training: moving mail into/out of Junk teaches the spam
+      # filter (rspamd controller learnspam/learnham, private network).
+      ALO_JMAP_RSPAMD_URL: http://rspamd:11334
       # For the admin Security & trust page's live DNS checks: the hosted mail
       # domain(s) — the same value alo-smtp treats as local, so SPF/DMARC/MX
       # are checked at the email domain (e.g. example.com), not the server FQDN

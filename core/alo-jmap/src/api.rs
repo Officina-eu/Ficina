@@ -228,7 +228,7 @@ async fn dispatch(
         "Category/set" => category_set(account, args).await,
         "Email/get" => email_get(account, args, state).await,
         "Email/query" => email_query(account, args).await,
-        "Email/set" => email_set(account, args).await,
+        "Email/set" => email_set(account, args, state).await,
         "Email/changes" => changes(account, args, alo_store::changes::TYPE_EMAIL, state).await,
         "SearchSnippet/get" => search_snippet_get(account, args, state).await,
         "Thread/get" => thread_get(account, args).await,
@@ -293,7 +293,9 @@ fn parse_color(v: Option<&Value>) -> Result<Option<String>, Value> {
 /// delegates always pass; a folder-restricted delegate passes only when the
 /// message lives in a granted folder. Fails closed on a store error.
 async fn message_folder_allowed(account: &Account, mid: &MessageId) -> bool {
-    let Some(d) = &account.delegated else { return true };
+    let Some(d) = &account.delegated else {
+        return true;
+    };
     if d.folders.is_none() {
         return true;
     }
@@ -307,7 +309,9 @@ async fn message_folder_allowed(account: &Account, mid: &MessageId) -> bool {
 /// granted — covers both the full `mailboxIds` object and `mailboxIds/<id>`
 /// patch keys. True for unrestricted grants.
 fn patch_dest_allowed(d: &crate::state::Delegation, patch: &Value) -> bool {
-    let Some(obj) = patch.as_object() else { return true };
+    let Some(obj) = patch.as_object() else {
+        return true;
+    };
     if let Some(dest) = obj.get("mailboxIds").and_then(Value::as_object) {
         for (mb, on) in dest {
             if on.as_bool().unwrap_or(false) && !d.folder_allowed(mb) {
@@ -563,7 +567,11 @@ async fn category_set(account: &Account, args: &Value) -> Result<Value, Value> {
     // create
     if let Some(creates) = args.get("create").and_then(Value::as_object) {
         for (cid, props) in creates {
-            let name = props.get("name").and_then(Value::as_str).unwrap_or("").trim();
+            let name = props
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
             if name.is_empty() {
                 not_created.insert(
                     cid.clone(),
@@ -606,8 +614,10 @@ async fn category_set(account: &Account, args: &Value) -> Result<Value, Value> {
                 None => existing.name.clone(),
                 Some(Value::String(s)) if !s.trim().is_empty() => s.trim().to_owned(),
                 Some(_) => {
-                    not_updated
-                        .insert(id.clone(), method_error_desc("invalidProperties", "invalid name"));
+                    not_updated.insert(
+                        id.clone(),
+                        method_error_desc("invalidProperties", "invalid name"),
+                    );
                     continue;
                 }
             };
@@ -622,7 +632,11 @@ async fn category_set(account: &Account, args: &Value) -> Result<Value, Value> {
                 },
             };
             let cat = CategoryId::new(id.as_str());
-            match account.acc.update_category(&cat, &name, color.as_deref()).await {
+            match account
+                .acc
+                .update_category(&cat, &name, color.as_deref())
+                .await
+            {
                 Ok(()) => {
                     updated.insert(id.clone(), Value::Null);
                 }
@@ -761,7 +775,7 @@ async fn email_query(account: &Account, args: &Value) -> Result<Value, Value> {
     }))
 }
 
-async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
+async fn email_set(account: &Account, args: &Value, state: &AppState) -> Result<Value, Value> {
     check_account(args, account)?;
     let old_state = account.acc.state().await.map_err(store_err)?;
     if let Some(expected) = args.get("ifInState").and_then(Value::as_str)
@@ -810,9 +824,17 @@ async fn email_set(account: &Account, args: &Value) -> Result<Value, Value> {
                     continue;
                 }
             }
+            // Junk training: snapshot Junk membership before a patch
+            // that touches mailboxes, compare after — a move into Junk
+            // is a spam report, out of Junk a ham report (best-effort,
+            // spawned; never affects the Email/set outcome).
+            let junk_before = junk_membership_before(account, state, id, patch).await;
             match email_update(account, id, patch).await {
                 Ok(()) => {
                     updated.insert(id.clone(), Value::Null);
+                    if let Some((junk, was_in)) = junk_before {
+                        learn_junk_transition(account, state, id, &junk, was_in).await;
+                    }
                 }
                 Err(e) => {
                     not_updated.insert(id.clone(), e);
@@ -1068,6 +1090,70 @@ fn new_message_token() -> String {
     format!("{nanos:x}")
 }
 
+/// Whether `patch` touches mailbox membership at all (full replacement
+/// or `mailboxIds/<id>` patch keys) — the junk-training precondition.
+fn patch_touches_mailboxes(patch: &Value) -> bool {
+    patch.as_object().is_some_and(|obj| {
+        obj.keys()
+            .any(|k| k == "mailboxIds" || k.starts_with("mailboxIds/"))
+    })
+}
+
+/// When junk training is on and `patch` moves mailboxes: the account's
+/// Junk mailbox id plus whether the message is in it **before** the
+/// patch. `None` disables the post-update comparison (training off, no
+/// Junk folder yet, patch doesn't move anything, or a lookup failed —
+/// training is strictly best-effort).
+async fn junk_membership_before(
+    account: &Account,
+    state: &AppState,
+    id: &str,
+    patch: &Value,
+) -> Option<(MailboxId, bool)> {
+    state.junk_learner.as_ref()?;
+    if !patch_touches_mailboxes(patch) {
+        return None;
+    }
+    let junk = account.acc.mailbox_by_role("junk").await.ok().flatten()?;
+    let mailboxes = account
+        .acc
+        .mailboxes_of_message(&MessageId::new(id))
+        .await
+        .ok()?;
+    let was_in = mailboxes.contains(&junk);
+    Some((junk, was_in))
+}
+
+/// After a successful update: if Junk membership flipped, report the
+/// message to the learner (spawned — the JMAP response never waits on
+/// the scanner).
+async fn learn_junk_transition(
+    account: &Account,
+    state: &AppState,
+    id: &str,
+    junk: &MailboxId,
+    was_in_junk: bool,
+) {
+    let Some(learner) = &state.junk_learner else {
+        return;
+    };
+    let mid = MessageId::new(id);
+    let Ok(now) = account.acc.mailboxes_of_message(&mid).await else {
+        return;
+    };
+    let is_in_junk = now.contains(junk);
+    if is_in_junk == was_in_junk {
+        return;
+    }
+    let Ok(raw) = account.acc.message_bytes(&mid).await else {
+        return;
+    };
+    let learner = std::sync::Arc::clone(learner);
+    tokio::spawn(async move {
+        learner.learn(is_in_junk, raw.to_vec()).await;
+    });
+}
+
 /// Applies an Email/set update patch: full or patched `keywords` and
 /// `mailboxIds`.
 async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), Value> {
@@ -1169,10 +1255,19 @@ fn collect_search_terms(filter: Option<&Value>) -> Vec<String> {
     };
     for key in ["text", "subject", "body", "from", "to"] {
         if let Some(s) = obj.get(key).and_then(Value::as_str) {
-            terms.extend(s.split_whitespace().filter(|w| w.len() >= 2).map(str::to_owned));
+            terms.extend(
+                s.split_whitespace()
+                    .filter(|w| w.len() >= 2)
+                    .map(str::to_owned),
+            );
         }
     }
-    for cond in obj.get("conditions").and_then(Value::as_array).into_iter().flatten() {
+    for cond in obj
+        .get("conditions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         terms.extend(collect_search_terms(Some(cond)));
     }
     terms
@@ -1309,10 +1404,13 @@ async fn identity_get(account: &Account, args: &Value, state: &AppState) -> Resu
     }
     let signature = account.acc.signature().await.unwrap_or_default();
 
-    let wanted: Option<std::collections::HashSet<String>> = args
-        .get("ids")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+    let wanted: Option<std::collections::HashSet<String>> =
+        args.get("ids").and_then(Value::as_array).map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        });
 
     let mut list = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -1463,7 +1561,10 @@ async fn vacation_set(account: &Account, args: &Value) -> Result<Value, Value> {
             if enabled && message.trim().is_empty() {
                 not_updated.insert(
                     id.clone(),
-                    method_error_desc("invalidProperties", "a message is required to enable vacation"),
+                    method_error_desc(
+                        "invalidProperties",
+                        "a message is required to enable vacation",
+                    ),
                 );
                 continue;
             }
@@ -1472,7 +1573,9 @@ async fn vacation_set(account: &Account, args: &Value) -> Result<Value, Value> {
                 .set_out_of_office_state(enabled, subject.trim(), message.trim())
                 .await
                 .is_err()
-                || crate::filters::rebuild_managed_script(account).await.is_err()
+                || crate::filters::rebuild_managed_script(account)
+                    .await
+                    .is_err()
             {
                 not_updated.insert(id.clone(), method_error("serverFail"));
                 continue;
@@ -1492,7 +1595,12 @@ async fn vacation_set(account: &Account, args: &Value) -> Result<Value, Value> {
         }
     }
     let mut not_destroyed = Map::new();
-    for id in args.get("destroy").and_then(Value::as_array).into_iter().flatten() {
+    for id in args
+        .get("destroy")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         if let Some(s) = id.as_str() {
             not_destroyed.insert(
                 s.to_owned(),
@@ -1701,7 +1809,10 @@ mod snippet_tests {
     #[test]
     fn highlight_leaves_multibyte_text_intact() {
         // An ASCII term never falls inside a multibyte char; accented text is kept.
-        assert_eq!(highlight("café crème", &["cr".to_owned()]), "café <mark>cr</mark>ème");
+        assert_eq!(
+            highlight("café crème", &["cr".to_owned()]),
+            "café <mark>cr</mark>ème"
+        );
     }
 
     #[test]

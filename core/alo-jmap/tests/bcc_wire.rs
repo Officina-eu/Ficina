@@ -173,6 +173,7 @@ async fn bcc_stripped_on_wire_delivered_by_envelope_kept_in_sent() {
         limits: Limits::default(),
         base_url: "http://test".into(),
         submission_addr: Some(sink_addr),
+        junk_learner: None,
     };
     let account = Account {
         tenant: tenant.clone(),

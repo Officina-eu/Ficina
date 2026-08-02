@@ -583,7 +583,9 @@ impl TenantStore {
         send_mode: &str,
     ) -> Result<()> {
         if owner == delegate {
-            return Err(StoreError::Conflict("a user cannot delegate to themselves".into()));
+            return Err(StoreError::Conflict(
+                "a user cannot delegate to themselves".into(),
+            ));
         }
         if !matches!(send_mode, "none" | "as" | "on_behalf") {
             return Err(StoreError::Conflict("invalid send mode".into()));
@@ -734,11 +736,7 @@ impl TenantStore {
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
-    pub async fn delegate_folders(
-        &self,
-        owner: &UserId,
-        delegate: &UserId,
-    ) -> Result<Vec<String>> {
+    pub async fn delegate_folders(&self, owner: &UserId, delegate: &UserId) -> Result<Vec<String>> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT mailbox_id FROM delegate_folders \
              WHERE tenant_id = $1 AND owner_id = $2 AND delegate_id = $3",

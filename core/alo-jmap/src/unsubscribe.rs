@@ -45,7 +45,9 @@ pub async fn unsubscribe(
     // NotFound) and re-parse its List-Unsubscribe — never trust a client URL.
     let raw = match account.acc.message_bytes(&MessageId::new(email_id)).await {
         Ok(bytes) => bytes,
-        Err(StoreError::NotFound) => return Err(Problem::with(StatusCode::NOT_FOUND, "no such message")),
+        Err(StoreError::NotFound) => {
+            return Err(Problem::with(StatusCode::NOT_FOUND, "no such message"));
+        }
         Err(_) => return Err(Problem::server_error()),
     };
     let unsub = crate::mime_read::parse(&raw).unsubscribe;
@@ -87,5 +89,8 @@ pub async fn unsubscribe(
 /// Map an egress refusal to a bad-gateway (both variants read the same to the
 /// caller — no signal about internal reachability).
 fn egress_problem(_e: EgressError) -> Problem {
-    Problem::with(StatusCode::BAD_GATEWAY, "the unsubscribe target is unreachable")
+    Problem::with(
+        StatusCode::BAD_GATEWAY,
+        "the unsubscribe target is unreachable",
+    )
 }

@@ -28,6 +28,9 @@ pub struct AppState {
     /// `EmailSubmission/set` to send. `None` disables sending (the capability
     /// is still advertised but a submit returns `forbiddenToSend`).
     pub submission_addr: Option<String>,
+    /// Junk training: Rspamd learn calls on moves into/out of Junk.
+    /// `None` disables training (mail management is unaffected).
+    pub junk_learner: Option<std::sync::Arc<crate::junk_learn::JunkLearner>>,
 }
 
 /// The limits advertised in the Session resource and enforced on every

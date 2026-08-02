@@ -18,7 +18,9 @@ async fn rename_sticks_and_scopes_to_tenant() {
     ts.rename_group(&g, "Squad").await.unwrap();
     let groups = ts.list_groups().await.unwrap();
     assert!(
-        groups.iter().any(|x| x.id == g.as_str() && x.name == "Squad"),
+        groups
+            .iter()
+            .any(|x| x.id == g.as_str() && x.name == "Squad"),
         "the rename is reflected in the list",
     );
 
@@ -35,5 +37,9 @@ async fn rename_sticks_and_scopes_to_tenant() {
         ots.rename_group(&g, "Hijack").await,
         Err(StoreError::NotFound)
     ));
-    assert_eq!(ts.list_groups().await.unwrap()[0].name, "Squad", "unchanged");
+    assert_eq!(
+        ts.list_groups().await.unwrap()[0].name,
+        "Squad",
+        "unchanged"
+    );
 }

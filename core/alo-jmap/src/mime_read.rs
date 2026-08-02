@@ -93,7 +93,12 @@ fn content_type_of(part: &mail_parser::MessagePart) -> String {
 /// stripped — the token an HTML `cid:` URL references.
 fn content_id_of(part: &mail_parser::MessagePart) -> Option<String> {
     part.content_id()
-        .map(|c| c.trim().trim_start_matches('<').trim_end_matches('>').to_owned())
+        .map(|c| {
+            c.trim()
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_owned()
+        })
         .filter(|c| !c.is_empty())
 }
 
@@ -237,7 +242,11 @@ mod tests {
         assert!(parsed.html.expect("html body").contains("cid:logo@shop"));
         assert_eq!(parsed.attachments.len(), 1, "the inline image is a part");
         let img = &parsed.attachments[0];
-        assert_eq!(img.content_id.as_deref(), Some("logo@shop"), "cid without <>");
+        assert_eq!(
+            img.content_id.as_deref(),
+            Some("logo@shop"),
+            "cid without <>"
+        );
         assert!(img.inline, "Content-Disposition: inline");
         assert_eq!(img.content_type, "image/png");
     }
@@ -272,7 +281,10 @@ mod tests {
     fn mailto_only_is_not_one_click() {
         let raw = msg_with("List-Unsubscribe: <mailto:unsub@shop.example?subject=stop>\r\n");
         let u = parse(&raw).unsubscribe.expect("unsubscribe present");
-        assert_eq!(u.mailto.as_deref(), Some("mailto:unsub@shop.example?subject=stop"));
+        assert_eq!(
+            u.mailto.as_deref(),
+            Some("mailto:unsub@shop.example?subject=stop")
+        );
         assert!(u.http.is_none());
         assert!(!u.one_click, "no https URL ⇒ never one-click");
     }

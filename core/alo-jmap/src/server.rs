@@ -78,7 +78,10 @@ pub fn app(state: AppState) -> Router {
         .route("/jmap/unsubscribe", post(unsubscribe::unsubscribe))
         // Self-service mailbox sharing (ADR 0017): manage who can access YOUR
         // mailbox, no admin needed.
-        .route("/jmap/delegates", get(delegates::list).post(delegates::grant))
+        .route(
+            "/jmap/delegates",
+            get(delegates::list).post(delegates::grant),
+        )
         .route("/jmap/delegates/remove", post(delegates::revoke))
         // Flag follow-up due-date (set/clear a flagged message's due date).
         .route("/jmap/flag-due", post(flagdue::set_flag_due))
@@ -167,6 +170,7 @@ pub fn app_state(store: Arc<Store>, identity: Identity, base_url: impl Into<Stri
         limits: Limits::default(),
         base_url: base_url.into(),
         submission_addr: std::env::var("ALO_JMAP_SUBMISSION_ADDR").ok(),
+        junk_learner: crate::junk_learn::JunkLearner::from_env(),
     }
 }
 

@@ -74,6 +74,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [x] MTA-STS published for our domains (M4b: RFC 8461 policy rendered from config — mode/mx/max_age, content-derived `id` — and served at `GET /.well-known/mta-sts.txt` behind the deploy TLS proxy; DNS records documented)
   - Deferred (sanctioned cut seam): TLS-RPT report JSON (`_smtp._tls` reporting)
 - [x] Rspamd integrated at SMTP time; verdict wired to reply codes and headers (M4b: HTTP `/checkv2` consult at DATA → reject=550, soft-reject/greylist=451, else accept with `x-spam` merged into Authentication-Results; **fail-closed 451** when the scanner is unreachable; verified end-to-end with real Rspamd 4.1.2 — GTUBE → 550)
+  - [x] Junk training: `Email/set` moves into/out of the Junk role call the Rspamd controller's learnspam/learnham (best-effort spawned, never gates the move; `ALO_JMAP_RSPAMD_URL` env, off when unset). Deploy gains a pinned redis (Bayes token store — previously Bayes was silently dead: no backend) + `secure_ip` controller access on the private network
 
 ### Store & APIs
 

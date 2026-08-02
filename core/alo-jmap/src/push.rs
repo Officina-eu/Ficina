@@ -46,9 +46,19 @@ pub async fn notify_delegation_change(state: &AppState, tenant: &TenantId, deleg
 
 /// The delegated-mailbox account ids a `delegate` currently listens for on their
 /// stream: their own account plus every mailbox they hold a grant on.
-async fn listen_set(state: &AppState, tenant: &TenantId, own_id: &str, delegate: &UserId) -> HashSet<String> {
+async fn listen_set(
+    state: &AppState,
+    tenant: &TenantId,
+    own_id: &str,
+    delegate: &UserId,
+) -> HashSet<String> {
     let mut ids: HashSet<String> = HashSet::from([own_id.to_owned()]);
-    if let Ok(dels) = state.store.for_tenant(tenant.clone()).delegations_for(delegate).await {
+    if let Ok(dels) = state
+        .store
+        .for_tenant(tenant.clone())
+        .delegations_for(delegate)
+        .await
+    {
         for (owner_id, _email, _can_write, _send_mode) in dels {
             ids.insert(owner_id);
         }

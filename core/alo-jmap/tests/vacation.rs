@@ -22,7 +22,12 @@ async fn vacation_response_round_trips() {
     let acct = h.user.to_string();
 
     // Initially the singleton exists and is disabled.
-    let (_s, body) = api(&h.app, &h.token, call(&acct, "VacationResponse/get", json!({ "ids": null }))).await;
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&acct, "VacationResponse/get", json!({ "ids": null })),
+    )
+    .await;
     let obj = &body["methodResponses"][0][1]["list"][0];
     assert_eq!(obj["id"], json!("singleton"), "{body}");
     assert_eq!(obj["isEnabled"], json!(false), "{body}");
@@ -41,12 +46,19 @@ async fn vacation_response_round_trips() {
     )
     .await;
     assert!(
-        body["methodResponses"][0][1]["updated"].get("singleton").is_some(),
+        body["methodResponses"][0][1]["updated"]
+            .get("singleton")
+            .is_some(),
         "singleton updated: {body}",
     );
 
     // Read it back.
-    let (_s, body) = api(&h.app, &h.token, call(&acct, "VacationResponse/get", json!({ "ids": null }))).await;
+    let (_s, body) = api(
+        &h.app,
+        &h.token,
+        call(&acct, "VacationResponse/get", json!({ "ids": null })),
+    )
+    .await;
     let obj = &body["methodResponses"][0][1]["list"][0];
     assert_eq!(obj["isEnabled"], json!(true), "{body}");
     assert_eq!(obj["subject"], json!("Away"), "{body}");
@@ -56,7 +68,11 @@ async fn vacation_response_round_trips() {
     let (_s, body) = api(
         &h.app,
         &h.token,
-        call(&acct, "VacationResponse/set", json!({ "update": { "singleton": { "isEnabled": true, "textBody": "" }}})),
+        call(
+            &acct,
+            "VacationResponse/set",
+            json!({ "update": { "singleton": { "isEnabled": true, "textBody": "" }}}),
+        ),
     )
     .await;
     assert_eq!(
@@ -69,7 +85,11 @@ async fn vacation_response_round_trips() {
     let (_s, body) = api(
         &h.app,
         &h.token,
-        call(&acct, "VacationResponse/set", json!({ "create": { "x": { "isEnabled": false } }})),
+        call(
+            &acct,
+            "VacationResponse/set",
+            json!({ "create": { "x": { "isEnabled": false } }}),
+        ),
     )
     .await;
     assert_eq!(
@@ -82,8 +102,17 @@ async fn vacation_response_round_trips() {
     let (_s, body) = api(
         &h.app,
         &h.token,
-        call(&acct, "VacationResponse/set", json!({ "update": { "singleton": { "isEnabled": false }}})),
+        call(
+            &acct,
+            "VacationResponse/set",
+            json!({ "update": { "singleton": { "isEnabled": false }}}),
+        ),
     )
     .await;
-    assert!(body["methodResponses"][0][1]["updated"].get("singleton").is_some(), "{body}");
+    assert!(
+        body["methodResponses"][0][1]["updated"]
+            .get("singleton")
+            .is_some(),
+        "{body}"
+    );
 }

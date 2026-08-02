@@ -37,7 +37,9 @@ async fn update_name_and_color() {
     let (acc, _u, _inbox) = fresh_account(&store, "cat-update").await;
 
     let id = acc.create_category("Draft", None).await.unwrap();
-    acc.update_category(&id, "Final", Some("#5b8a72")).await.unwrap();
+    acc.update_category(&id, "Final", Some("#5b8a72"))
+        .await
+        .unwrap();
 
     let list = acc.categories().await.unwrap();
     assert_eq!(list[0].name, "Final");
@@ -53,7 +55,11 @@ async fn delete_strips_the_keyword_from_tagged_messages() {
     let store = test_store().await;
     let fx = tenant_fixture(&store, "cat-strip").await;
 
-    let id = fx.acc.create_category("Receipts", Some("#c07a3e")).await.unwrap();
+    let id = fx
+        .acc
+        .create_category("Receipts", Some("#c07a3e"))
+        .await
+        .unwrap();
     let kw = category_keyword(&id);
 
     // Tag the message, as the client would via Email/set keywords/<kw>.
@@ -96,9 +102,5 @@ async fn categories_are_per_account() {
 
 /// True if `id` is absent from the account's catalog.
 async fn acc_has_no_category(acc: &alo_store::AccountStore, id: &alo_store::CategoryId) -> bool {
-    acc.categories()
-        .await
-        .unwrap()
-        .iter()
-        .all(|c| &c.id != id)
+    acc.categories().await.unwrap().iter().all(|c| &c.id != id)
 }

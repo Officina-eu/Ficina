@@ -108,10 +108,7 @@ async fn full_category_lifecycle_over_the_wire() {
         one(acc, "Category/set", json!({ "destroy": [cat_id] })),
     )
     .await;
-    assert_eq!(
-        body["methodResponses"][0][1]["destroyed"],
-        json!([cat_id]),
-    );
+    assert_eq!(body["methodResponses"][0][1]["destroyed"], json!([cat_id]),);
 
     let (_s, body) = api(
         &h.app,
@@ -140,7 +137,10 @@ async fn full_category_lifecycle_over_the_wire() {
     )
     .await;
     assert_eq!(
-        body["methodResponses"][0][1]["ids"].as_array().unwrap().len(),
+        body["methodResponses"][0][1]["ids"]
+            .as_array()
+            .unwrap()
+            .len(),
         0,
     );
 }
