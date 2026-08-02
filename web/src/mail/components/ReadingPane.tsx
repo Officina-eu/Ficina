@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import {
   Archive,
+  ArrowLeft,
   Ban,
   CalendarClock,
   Code2,
@@ -84,6 +85,9 @@ interface ReadingPaneProps {
   /** The folder currently being viewed (excluded from "Move to"). */
   currentMailboxId: string | null;
   flagOverrides: ReadonlyMap<string, boolean>;
+  /** On the single-pane (mobile) layout, returns to the message list.
+   * `undefined` on desktop, where the list is always visible. */
+  onBack?: () => void;
   onReply: () => void;
   onReplyAll: () => void;
   onForward: () => void;
@@ -126,6 +130,7 @@ export function ReadingPane({
   mailboxes,
   currentMailboxId,
   flagOverrides,
+  onBack,
   onReply,
   onReplyAll,
   onForward,
@@ -392,6 +397,15 @@ export function ReadingPane({
   return (
     <article className={styles.pane}>
       <div className={styles.toolbar}>
+        {onBack !== undefined && (
+          <IconButton
+            size="sm"
+            className={styles.backBtn}
+            label={strings.composeBack}
+            icon={<ArrowLeft />}
+            onClick={onBack}
+          />
+        )}
         <button type="button" className={styles.replyBtn} onClick={onReply}>
           <Reply size={16} />
           <span>{strings.reply}</span>

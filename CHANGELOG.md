@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- Improved: **Mail works on a phone.** On a small screen the mailbox now
+  shows one pane at a time — your message list, then the conversation
+  when you tap it, with a back button to return — and folders slide in
+  from a menu button instead of squeezing the layout. The desktop
+  three-pane view is unchanged.
 - New: **Contacts sync to your phone and computer (CardDAV).** Add your
   alo account to iPhone/iPad, macOS Contacts, Android (via a CardDAV
   app), or Thunderbird, and your address book syncs both ways

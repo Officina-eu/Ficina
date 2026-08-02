@@ -106,6 +106,8 @@ interface FolderSidebarProps {
   mailboxes: Async<Mailbox[]>;
   selectedId: string | null;
   collapsed: boolean;
+  /** Extra class on the root (the mail module uses it for the mobile drawer). */
+  className?: string;
   /** Name of the active account (own email or shared mailbox name), shown as a
    * header above its folders when other mailboxes are mounted. */
   activeLabel: string;
@@ -138,6 +140,7 @@ export function FolderSidebar({
   mailboxes,
   selectedId,
   collapsed,
+  className,
   activeLabel,
   showAccountHeader,
   otherAccounts,
@@ -303,7 +306,10 @@ export function FolderSidebar({
   const custom = nestCustom(mailboxes.data ?? []);
 
   return (
-    <nav className={cx(styles.sidebar, collapsed && styles.collapsed)} aria-label={strings.mailFolders}>
+    <nav
+      className={cx(styles.sidebar, collapsed && styles.collapsed, className)}
+      aria-label={strings.mailFolders}
+    >
       <button type="button" className={styles.compose} onClick={onCompose} title={strings.compose}>
         <PenLine size={17} strokeWidth={2} />
         <span className={styles.composeLabel}>{strings.compose}</span>

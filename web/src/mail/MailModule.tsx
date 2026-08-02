@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { strings } from "../i18n";
-import { ResizeHandle, cx, usePanelWidth } from "../ds";
+import { ResizeHandle, cx, usePanelWidth, useIsMobile } from "../ds";
 import { KEYWORD_FLAGGED, useJmapClient } from "../jmap";
 import type { Category, EmailAddress, EmailFull, SharedMailbox } from "../jmap";
 import { useAuth } from "../auth";
@@ -102,7 +102,18 @@ export function MailModule() {
     }
   });
 
+  // Phone layout: one pane at a time. Folders are an off-canvas drawer;
+  // the list and the reading pane swap on selection.
+  const isMobile = useIsMobile();
+  const [foldersOpen, setFoldersOpen] = useState(false);
+
   function toggleFolders() {
+    // On mobile the same control opens/closes the folders drawer; on
+    // desktop it collapses the folders column.
+    if (isMobile) {
+      setFoldersOpen((open) => !open);
+      return;
+    }
     setFoldersCollapsed((collapsed) => {
       const next = !collapsed;
       try {
@@ -328,6 +339,12 @@ export function MailModule() {
   const flushRef = useRef(flushSend);
   flushRef.current = flushSend;
   useEffect(() => () => void flushRef.current(), []);
+
+  // Close the mobile folders drawer once a folder/category/flagged view is
+  // chosen (the choice is the reason it was opened).
+  useEffect(() => {
+    setFoldersOpen(false);
+  }, [mailboxId, flaggedView, categoryFilter, activeAccount]);
 
   // Send later: the draft is created; schedule it server-side (it moves to the
   // Scheduled mailbox and a sweeper sends it when due). No Undo window — the
@@ -705,12 +722,31 @@ export function MailModule() {
     "--list-width": `${list.width}px`,
   } as CSSProperties;
 
+  // On mobile: folders live in a drawer, one content pane shows at a
+  // time (list until a conversation is opened, then the reading pane).
+  const showList = !isMobile || threadId === null;
+  const showReading = !isMobile || threadId !== null;
+
   return (
-    <div className={styles.mail} style={widthVars}>
+    <div
+      className={styles.mail}
+      style={widthVars}
+      data-mobile={isMobile ? "true" : undefined}
+      data-view={threadId !== null ? "detail" : "list"}
+    >
+      {isMobile && foldersOpen && (
+        <div
+          className={styles.drawerOverlay}
+          onClick={() => setFoldersOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {(!isMobile || foldersOpen) && (
       <FolderSidebar
+        {...(isMobile ? { className: styles.drawer } : {})}
         mailboxes={mailboxes}
         selectedId={flaggedView ? null : mailboxId}
-        collapsed={foldersCollapsed}
+        collapsed={isMobile ? false : foldersCollapsed}
         flaggedActive={flaggedView}
         onSelectFlagged={openFlagged}
         onSelect={openMailbox}
@@ -743,7 +779,8 @@ export function MailModule() {
           />
         }
       />
-      {!foldersCollapsed && (
+      )}
+      {!isMobile && !foldersCollapsed && (
         <ResizeHandle
           ariaLabel={strings.resizeFolders}
           onResize={folders.applyDelta}
@@ -751,13 +788,14 @@ export function MailModule() {
           onReset={folders.reset}
         />
       )}
+      {showList && (
       <MessageList
         folderName={folderName}
         emails={emails}
         selectedThreadId={threadId}
         readIds={readIds}
         flagOverrides={flags}
-        foldersCollapsed={foldersCollapsed}
+        foldersCollapsed={isMobile ? false : foldersCollapsed}
         onToggleFolders={toggleFolders}
         flat={flatView}
         onToggleView={toggleView}
@@ -770,17 +808,22 @@ export function MailModule() {
         onSnooze={(ts, until) => snoozeIds(ts.flatMap((t) => t.memberIds), until)}
         onToggleFlag={(t) => toggleFlag(t.latest)}
       />
+      )}
+      {!isMobile && (
       <ResizeHandle
         ariaLabel={strings.resizeMessages}
         onResize={list.applyDelta}
         onCommit={list.commit}
         onReset={list.reset}
       />
+      )}
+      {showReading && (
       <ReadingPane
         thread={thread}
         mailboxes={boxes}
         currentMailboxId={mailboxId}
         flagOverrides={flags}
+        {...(isMobile ? { onBack: () => setThreadId(null) } : {})}
         onReply={() => latest !== undefined && setCompose({ mode: "reply", replyTo: latest })}
         onReplyAll={() => latest !== undefined && setCompose({ mode: "replyAll", replyTo: latest })}
         onForward={() => latest !== undefined && setCompose({ mode: "forward", replyTo: latest })}
@@ -805,6 +848,7 @@ export function MailModule() {
         canSnooze={!flaggedView}
         onSetFlagDue={setFlagDue}
       />
+      )}
       {compose !== null && (
         <ComposeModal
           context={compose}

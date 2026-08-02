@@ -113,6 +113,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [ ] Visual Sieve rule builder
 - [ ] Signatures (per identity + org footer), out-of-office with scheduling
 - [ ] Search UI over the store index — fast enough to feel local
+- [x] Responsive / phone layout for Mail: below 768px the three-pane view becomes single-pane list↔detail (a `useIsMobile` matchMedia hook drives it) — folders slide in as an off-canvas drawer (toggled from the list header, closes on selection), the reading pane gets a back-to-list control, resize handles are hidden, and the reading toolbar wraps. Desktop unchanged
 - [ ] PWA installable: offline shell, push notifications
 - [~] Localization (i18n): runtime locale mechanism built — `strings` is a proxy over the active catalog so all ~50 call sites switch language with zero changes, English fallback per key (a partial catalog never blanks), browser detection + localStorage persistence + `<html lang>`, language switcher in the account menu, full-tree remount on switch. **French catalog complete** (the whole ~600-key surface, native quality). Follow-on: NL + DE catalogs (data only, mechanism ready); server-synced per-user preference (currently client-side)
 

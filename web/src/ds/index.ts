@@ -12,3 +12,4 @@ export type { ButtonVariant, ButtonSize } from "./Button";
 export { IconButton } from "./IconButton";
 export { Avatar } from "./Avatar";
 export { Spinner } from "./Spinner";
+export { useMediaQuery, useIsMobile, MOBILE_MAX_WIDTH } from "./useMediaQuery";

@@ -15,6 +15,21 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* The mobile back-to-list control (rendered only when onBack is provided,
+   i.e. on the single-pane layout). A hair more separation from Reply. */
+.backBtn {
+  margin-right: var(--space-1);
+}
+
+/* On a phone the toolbar can overflow; let it wrap and scroll rather than
+   clip the actions. */
+@media (max-width: 768px) {
+  .toolbar {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+}
+
 .replyBtn {
   display: inline-flex;
   align-items: center;
