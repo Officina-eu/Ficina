@@ -92,6 +92,13 @@ pub const ENV_DANE: &str = "ALO_SMTP_DANE";
 pub const ENV_RSPAMD_URL: &str = "ALO_SMTP_RSPAMD_URL";
 /// Environment variable for the Rspamd call timeout in seconds.
 pub const ENV_RSPAMD_TIMEOUT_SECS: &str = "ALO_SMTP_RSPAMD_TIMEOUT_SECS";
+/// Environment variable naming the clamd address (`host:port`); unset
+/// disables malware scanning. When set, a scanner outage fails closed
+/// (451) exactly like Rspamd.
+pub const ENV_CLAMAV_ADDR: &str = "ALO_SMTP_CLAMAV_ADDR";
+/// Environment variable for the clamd scan timeout in seconds
+/// (default 20 — large multi-attachment messages take a moment).
+pub const ENV_CLAMAV_TIMEOUT_SECS: &str = "ALO_SMTP_CLAMAV_TIMEOUT_SECS";
 /// Environment variable for the MTA-STS policy listener address; unset
 /// disables serving the policy.
 pub const ENV_MTA_STS_ADDR: &str = "ALO_SMTP_MTA_STS_ADDR";
@@ -126,6 +133,9 @@ const DEFAULT_QUEUE_INTERVAL_SECS: u64 = 30;
 /// Default Rspamd call timeout (a local scanner should answer quickly;
 /// on timeout the message is fail-closed deferred).
 const DEFAULT_RSPAMD_TIMEOUT_SECS: u64 = 10;
+/// Default clamd scan timeout — signature matching over a large
+/// multi-attachment message takes longer than an Rspamd consult.
+const DEFAULT_CLAMAV_TIMEOUT_SECS: u64 = 20;
 /// Default MTA-STS `max_age`: one week (RFC 8461 recommends a long TTL
 /// once a policy is stable).
 const DEFAULT_MTA_STS_MAX_AGE: u32 = 604_800;
@@ -182,6 +192,9 @@ pub struct SmtpConfig {
     /// Rspamd spam-scoring endpoint; `None` disables scanning (mail
     /// flows unscanned). When set, a scanner outage fails closed.
     pub rspamd: Option<RspamdSettings>,
+    /// ClamAV malware scanning; `None` disables (mail flows unscanned).
+    /// When set, a scanner outage fails closed.
+    pub clamav: Option<ClamavSettings>,
     /// MTA-STS policy endpoint; `None` disables serving the policy.
     pub mta_sts: Option<MtaStsSettings>,
     /// PostgreSQL URL for the message store. When set (and the MX has a
@@ -210,6 +223,16 @@ pub struct RspamdSettings {
     pub url: String,
     /// The validated client (built once at config load).
     pub client: std::sync::Arc<crate::rspamd::RspamdClient>,
+}
+
+/// ClamAV integration settings: the validated client, built at config
+/// load so a typo fails at startup.
+#[derive(Debug, Clone)]
+pub struct ClamavSettings {
+    /// clamd `host:port`, kept for logging.
+    pub addr: String,
+    /// The validated client.
+    pub client: std::sync::Arc<crate::clamav::ClamavClient>,
 }
 
 /// MTA-STS serving settings (M4b): where to serve the policy and the
@@ -387,6 +410,7 @@ impl SmtpConfig {
 
         let dkim = Self::dkim_from_env()?;
         let rspamd = Self::rspamd_from_env()?;
+        let clamav = Self::clamav_from_env()?;
         let mta_sts = Self::mta_sts_from_env(&hostname)?;
         let database_url = std::env::var("DATABASE_URL").ok().filter(|s| !s.is_empty());
         // Local delivery into the store needs a hosted-domains list, so a
@@ -434,6 +458,7 @@ impl SmtpConfig {
             allow_self_signed,
             dkim,
             rspamd,
+            clamav,
             mta_sts,
             database_url,
             arc_sealing,
@@ -460,6 +485,27 @@ impl SmtpConfig {
         })?;
         Ok(Some(RspamdSettings {
             url,
+            client: std::sync::Arc::new(client),
+        }))
+    }
+
+    /// Reads the clamd endpoint; validates the address shape now so a
+    /// typo fails at startup, naming the variable.
+    fn clamav_from_env() -> Result<Option<ClamavSettings>, SmtpError> {
+        let addr = match std::env::var(ENV_CLAMAV_ADDR) {
+            Ok(addr) if !addr.is_empty() => addr,
+            _ => return Ok(None),
+        };
+        let timeout = Duration::from_secs(
+            env_u64(ENV_CLAMAV_TIMEOUT_SECS, DEFAULT_CLAMAV_TIMEOUT_SECS)?.max(1),
+        );
+        let client = crate::clamav::ClamavClient::from_addr(&addr, timeout).map_err(|message| {
+            SmtpError::Config {
+                message: format!("{ENV_CLAMAV_ADDR}: {message}"),
+            }
+        })?;
+        Ok(Some(ClamavSettings {
+            addr,
             client: std::sync::Arc::new(client),
         }))
     }

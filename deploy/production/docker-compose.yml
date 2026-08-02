@@ -42,8 +42,9 @@ volumes:
     name: ficina_certs
   caddy_data:
     name: ficina_caddy_data
-  # Post-rebrand volume (new with junk training) — no legacy name.
+  # Post-rebrand volumes (new since the rename) — no legacy names.
   redis_data:
+  clamav_db:
 
 services:
   postgres:
@@ -62,6 +63,32 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # Malware scanning at SMTP DATA time (fail-closed, like rspamd). The
+  # official image serves clamd on TCP 3310 (private network only) and
+  # runs freshclam alongside; signatures live on the volume so the
+  # ~300 MB download happens once. Memory: clamd holds the signature DB
+  # resident (~1.2 GiB); the limit below caps the daily reload spike —
+  # if it trips, the container restarts and the MX defers (451) until
+  # healthy again, which is the fail-closed behavior we want anyway.
+  clamav:
+    image: clamav/clamav:1.4.5
+    restart: unless-stopped
+    networks: [alo]
+    volumes:
+      - clamav_db:/var/lib/clamav
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    # The image ships its own healthcheck (clamdcheck.sh); give the
+    # first boot time to download signatures before it must pass.
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 600s
 
   # Rspamd's statistics backend: Bayes tokens (spam/ham learning) live in
   # redis and survive restarts via AOF on the volume. Never published.
@@ -164,6 +191,9 @@ services:
       ALO_SMTP_DKIM_ALGORITHM: ${ALO_SMTP_DKIM_ALGORITHM:-rsa}
       # Spam scoring (fail-closed if unreachable).
       ALO_SMTP_RSPAMD_URL: http://rspamd:11333
+      # Malware scanning at DATA (fail-closed 451 when the scanner is
+      # down — a scanner outage never means unscanned mail gets in).
+      ALO_SMTP_CLAMAV_ADDR: clamav:3310
       # MTA-STS policy served internally; Caddy fronts mta-sts.<domain>.
       ALO_SMTP_MTA_STS_ADDR: 0.0.0.0:8461
       ALO_SMTP_MTA_STS_MODE: ${ALO_SMTP_MTA_STS_MODE:-enforce}

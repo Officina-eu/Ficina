@@ -163,6 +163,16 @@ impl Reply {
         Self::line(550, "5.7.1 Message rejected as spam")
     }
 
+    /// 550: rejected by the malware scanner (a ClamAV signature
+    /// matched). The signature name is pre-sanitized by the scan
+    /// client before it can reach this reply.
+    pub fn virus_reject(signature: &str) -> Self {
+        Self::line(
+            550,
+            format!("5.7.1 Message rejected: malware detected ({signature})"),
+        )
+    }
+
     /// 451: temporarily deferred by the spam filter — Rspamd asked to
     /// soft-reject/greylist, or the scanner was unreachable and policy
     /// is fail-closed. Transient so a legitimate sender retries.

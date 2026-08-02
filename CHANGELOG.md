@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **Incoming mail is scanned for malware** (ClamAV, ~3.6 M
+  signatures, auto-updating). A message carrying a known threat is
+  refused at the door with a clear reason — it never reaches a
+  mailbox — and if the scanner is ever down, mail is politely deferred
+  rather than let through unscanned. Operators disable by unsetting
+  `ALO_SMTP_CLAMAV_ADDR`.
 - New: **Marking mail as junk now trains the spam filter.** Moving a
   message into Junk reports it as spam; moving it back out reports it
   as ham — the filter (Rspamd Bayes) learns from your real mail and

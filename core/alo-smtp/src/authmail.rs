@@ -20,6 +20,7 @@ use alo_auth_mail::resolver::Resolver;
 use alo_auth_mail::spf::{self, Mailbox, SpfQuery};
 use alo_store::Store;
 
+use crate::clamav::{ClamVerdict, ClamavClient};
 use crate::rspamd::{RspamdAction, RspamdClient, RspamdMeta};
 
 /// A one-key keystore over an already-resolved per-domain DKIM key (ADR 0014),
@@ -72,6 +73,7 @@ pub struct AuthMail {
     /// configured file key) when the domain has no stored key.
     dkim_store: Option<Arc<Store>>,
     rspamd: Option<Arc<RspamdClient>>,
+    clamav: Option<Arc<ClamavClient>>,
 }
 
 /// What the inbound gauntlet decided the transaction should do.
@@ -83,8 +85,11 @@ pub enum InboundOutcome {
     RejectDmarc,
     /// Refuse: Rspamd `reject` action (550).
     RejectSpam,
-    /// Defer: Rspamd soft-reject/greylist, or the scanner was
-    /// unreachable and policy is fail-closed (451).
+    /// Refuse: a ClamAV signature matched (550). The signature name
+    /// travels in [`InboundResult::virus`].
+    RejectVirus,
+    /// Defer: Rspamd soft-reject/greylist, or either scanner
+    /// (Rspamd/ClamAV) was unreachable and policy is fail-closed (451).
     DeferSpam,
 }
 
@@ -107,6 +112,9 @@ pub struct InboundResult {
     /// when the sender publishes no DMARC record (nothing to report to)
     /// or discovery hit a transient DNS error.
     pub dmarc_event: Option<DmarcEvent>,
+    /// The matched malware signature name (sanitized) when the outcome
+    /// is [`InboundOutcome::RejectVirus`]; `None` otherwise.
+    pub virus: Option<String>,
 }
 
 /// One DMARC evaluation, in aggregate-report terms (RFC 7489 §7.2):
@@ -134,6 +142,7 @@ impl AuthMail {
             signing: None,
             dkim_store: None,
             rspamd: None,
+            clamav: None,
         }
     }
 
@@ -148,6 +157,13 @@ impl AuthMail {
     #[must_use]
     pub fn with_rspamd(mut self, rspamd: Arc<RspamdClient>) -> Self {
         self.rspamd = Some(rspamd);
+        self
+    }
+
+    /// Installs the ClamAV malware scanner (MX only, fail-closed).
+    #[must_use]
+    pub fn with_clamav(mut self, clamav: Arc<ClamavClient>) -> Self {
+        self.clamav = Some(clamav);
         self
     }
 
@@ -171,7 +187,7 @@ impl AuthMail {
     /// the resolver) or Rspamd scanning. The caller only runs `inbound`
     /// when this is true.
     pub fn is_active(&self) -> bool {
-        self.resolver.is_some() || self.rspamd.is_some()
+        self.resolver.is_some() || self.rspamd.is_some() || self.clamav.is_some()
     }
 
     /// Runs the inbound gauntlet — SPF/DKIM/DMARC when a resolver is
@@ -188,12 +204,13 @@ impl AuthMail {
         raw_message: &[u8],
     ) -> InboundResult {
         // Nothing configured → accept unchanged.
-        if self.resolver.is_none() && self.rspamd.is_none() {
+        if self.resolver.is_none() && self.rspamd.is_none() && self.clamav.is_none() {
             return InboundResult {
                 headers: String::new(),
                 outcome: InboundOutcome::Accept,
                 stripped_body: None,
                 dmarc_event: None,
+                virus: None,
             };
         }
 
@@ -282,6 +299,40 @@ impl AuthMail {
             };
         }
 
+        // Malware scan (ClamAV) — a FOUND rejects outright; a scanner
+        // error/timeout fails closed (451 defer), never spooling an
+        // unscanned message while scanning is configured.
+        let mut virus: Option<String> = None;
+        if let Some(clamav) = &self.clamav {
+            match clamav.scan(raw_message).await {
+                Ok(ClamVerdict::Clean) => {}
+                Ok(ClamVerdict::Infected(signature)) => {
+                    tracing::info!(%signature, "clamav match; refusing message");
+                    virus = Some(signature);
+                }
+                Err(error) => {
+                    tracing::error!(%error, "clamav unreachable; deferring message (fail-closed)");
+                    return InboundResult {
+                        headers: String::new(),
+                        outcome: InboundOutcome::DeferSpam,
+                        stripped_body: None,
+                        dmarc_event: None,
+                        virus: None,
+                    };
+                }
+            }
+        }
+        if let Some(signature) = virus {
+            // A 550 is final — the DMARC evaluation stays reportable.
+            return InboundResult {
+                headers: String::new(),
+                outcome: InboundOutcome::RejectVirus,
+                stripped_body: None,
+                dmarc_event,
+                virus: Some(signature),
+            };
+        }
+
         // Rspamd spam scoring (M4b) — runs whenever configured, whether or
         // not the resolver is present. A scanner error/timeout fails
         // closed (defer), never spooling an unscanned message.
@@ -305,6 +356,7 @@ impl AuthMail {
                         outcome: InboundOutcome::DeferSpam,
                         stripped_body: None,
                         dmarc_event: None,
+                        virus: None,
                     };
                 }
             }
@@ -348,6 +400,7 @@ impl AuthMail {
                 } else {
                     dmarc_event
                 },
+                virus: None,
             };
         }
 
@@ -362,6 +415,7 @@ impl AuthMail {
             outcome,
             stripped_body,
             dmarc_event,
+            virus: None,
         }
     }
 
@@ -699,6 +753,103 @@ mod tests {
         assert!(result.headers.is_empty());
         assert_eq!(result.outcome, InboundOutcome::Accept);
         assert!(auth.sign_outbound(b"msg").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn clamav_configured_but_unreachable_fails_closed() {
+        // A configured malware scanner that is down must defer (451),
+        // never accept an unscanned message.
+        let clam = crate::clamav::ClamavClient::from_addr(
+            "127.0.0.1:1",
+            std::time::Duration::from_millis(300),
+        )
+        .unwrap();
+        let auth = AuthMail::disabled("mx.alo.test").with_clamav(Arc::new(clam));
+        assert!(auth.is_active());
+        let result = auth
+            .inbound(
+                "192.0.2.1".parse().unwrap(),
+                "helo",
+                Some("a@b.test"),
+                &["c@d.test".to_owned()],
+                b"From: a@b.test
+
+x",
+            )
+            .await;
+        assert_eq!(result.outcome, InboundOutcome::DeferSpam);
+        assert!(result.headers.is_empty());
+        assert!(result.virus.is_none());
+    }
+
+    /// A mock clamd answering `verdict` to one INSTREAM exchange.
+    async fn mock_clamd(verdict: &'static [u8]) -> std::net::SocketAddr {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 65536];
+            // Drain the command+chunks (the trailing zero-length chunk
+            // ends the client's writes), then reply.
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                if n == 0 || buf[..n].ends_with(&0u32.to_be_bytes()) {
+                    break;
+                }
+            }
+            sock.write_all(verdict).await.unwrap();
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn clamav_found_rejects_with_the_signature() {
+        let addr = mock_clamd(b"stream: Eicar-Signature FOUND\0").await;
+        let clam = crate::clamav::ClamavClient::from_addr(
+            &addr.to_string(),
+            std::time::Duration::from_secs(5),
+        )
+        .unwrap();
+        let auth = AuthMail::disabled("mx.alo.test").with_clamav(Arc::new(clam));
+        let result = auth
+            .inbound(
+                "192.0.2.1".parse().unwrap(),
+                "helo",
+                Some("a@b.test"),
+                &["c@d.test".to_owned()],
+                b"From: a@b.test
+
+payload",
+            )
+            .await;
+        assert_eq!(result.outcome, InboundOutcome::RejectVirus);
+        assert_eq!(result.virus.as_deref(), Some("Eicar-Signature"));
+        assert!(result.headers.is_empty(), "rejects stamp nothing");
+    }
+
+    #[tokio::test]
+    async fn clamav_clean_accepts() {
+        let addr = mock_clamd(b"stream: OK\0").await;
+        let clam = crate::clamav::ClamavClient::from_addr(
+            &addr.to_string(),
+            std::time::Duration::from_secs(5),
+        )
+        .unwrap();
+        let auth = AuthMail::disabled("mx.alo.test").with_clamav(Arc::new(clam));
+        let result = auth
+            .inbound(
+                "192.0.2.1".parse().unwrap(),
+                "helo",
+                Some("a@b.test"),
+                &["c@d.test".to_owned()],
+                b"From: a@b.test
+
+hello",
+            )
+            .await;
+        assert_eq!(result.outcome, InboundOutcome::Accept);
+        assert!(result.virus.is_none());
     }
 
     #[tokio::test]

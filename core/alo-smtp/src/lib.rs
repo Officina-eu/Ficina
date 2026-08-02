@@ -23,6 +23,7 @@ pub mod backoff;
 // `alo-smtp-client` crate (also used by alo-jmap's submission path).
 // Re-exported here so `crate::client` / `crate::client_reply` keep resolving.
 pub use alo_smtp_client::{client, client_reply};
+pub mod clamav;
 pub mod command;
 pub mod config;
 pub mod data;

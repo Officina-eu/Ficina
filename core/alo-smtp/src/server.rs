@@ -495,6 +495,10 @@ fn build_mx_auth(config: &SmtpConfig, resolver: Option<Arc<dyn AuthResolver>>) -
         auth = auth.with_rspamd(Arc::clone(&rspamd.client));
         tracing::info!(url = %rspamd.url, "Rspamd spam scoring enabled (fail-closed)");
     }
+    if let Some(clamav) = &config.clamav {
+        auth = auth.with_clamav(Arc::clone(&clamav.client));
+        tracing::info!(addr = %clamav.addr, "ClamAV malware scanning enabled (fail-closed)");
+    }
     auth
 }
 
@@ -1009,6 +1013,9 @@ async fn handle_data_phase(
                     InboundOutcome::Accept => None,
                     InboundOutcome::RejectDmarc => Some(Reply::dmarc_reject()),
                     InboundOutcome::RejectSpam => Some(Reply::spam_reject()),
+                    InboundOutcome::RejectVirus => Some(Reply::virus_reject(
+                        result.virus.as_deref().unwrap_or("malware"),
+                    )),
                     InboundOutcome::DeferSpam => Some(Reply::spam_tempfail()),
                 };
                 if let Some(reply) = refusal {
