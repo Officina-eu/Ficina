@@ -129,6 +129,11 @@ opaque_id!(
     /// the message's `$category_<id>` keyword to record membership.
     CategoryId
 );
+opaque_id!(
+    /// An address-book contact. Also serves as the vCard `UID`, so a contact
+    /// keeps its identity across a CardDAV/JMAP round-trip.
+    ContactId
+);
 
 #[cfg(test)]
 mod tests {

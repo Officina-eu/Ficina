@@ -31,6 +31,7 @@ pub mod share;
 pub mod snooze;
 pub mod store;
 pub mod thread;
+pub mod vcard;
 
 pub use account::AccountStore;
 pub use account_imap::{ImapEntry, ImapMailbox, ImapSearchRow};
@@ -45,15 +46,17 @@ pub use dkim::DkimSigningMaterial;
 pub use dmarc_reports::{DmarcAggregateRow, DmarcEventRecord};
 pub use document::{Document, DocumentSummary};
 pub use error::{Result, StoreError};
-pub use id::{BlobId, CategoryId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId};
+pub use id::{
+    BlobId, CategoryId, ContactId, GroupId, MailboxId, MessageId, TenantId, ThreadId, UserId,
+};
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
     RefreshTokenRow, SigningKeyRow, TotpRow,
 };
 pub use model::{
-    AiConfigRow, AiProviderRow, AuditEntry, Blob, Category, DkimKeyRow, DomainRow, EmailFilter,
-    EmailQuery, GroupRow, MAX_PAGE, Mailbox, Message, MessageSummary, Page, SortDirection,
-    TenantSummary, UserRow,
+    AiConfigRow, AiProviderRow, AuditEntry, Blob, Category, Contact, ContactField, DkimKeyRow,
+    DomainRow, EmailFilter, EmailQuery, GroupRow, MAX_PAGE, Mailbox, Message, MessageSummary, Page,
+    SortDirection, TenantSummary, UserRow,
 };
 pub use schedule::DueSend;
 pub use share::{ShareCreated, ShareTarget};

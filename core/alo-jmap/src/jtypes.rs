@@ -1,7 +1,7 @@
 //! JMAP JSON representations of store entities (RFC 8621). Keeps the
 //! wire shapes — the public contract — in one place.
 
-use alo_store::{Category, Mailbox, Message};
+use alo_store::{Category, Contact, ContactField, Mailbox, Message};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 
@@ -30,6 +30,27 @@ pub fn category_json(c: &Category) -> Value {
         "sortOrder": c.sort_order,
         "keyword": alo_store::category_keyword(&c.id),
     })
+}
+
+/// A `Contact` (alo address book; RFC 9610-shaped). Multi-valued
+/// `emails`/`phones` are arrays of `{kind?, value}`. `firstName`/
+/// `lastName` are the `N` components; `name` is the formatted `FN`.
+pub fn contact_json(c: &Contact) -> Value {
+    json!({
+        "id": c.id.as_str(),
+        "name": c.display_name,
+        "firstName": c.first_name,
+        "lastName": c.last_name,
+        "emails": c.emails.iter().map(contact_field_json).collect::<Vec<_>>(),
+        "phones": c.phones.iter().map(contact_field_json).collect::<Vec<_>>(),
+        "organization": c.organization,
+        "jobTitle": c.job_title,
+        "notes": c.notes,
+    })
+}
+
+fn contact_field_json(f: &ContactField) -> Value {
+    json!({ "kind": f.kind, "value": f.value })
 }
 
 /// A JMAP `Mailbox` (RFC 8621 §2). Counters come straight from the

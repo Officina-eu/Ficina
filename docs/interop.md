@@ -360,3 +360,21 @@ so addresses are untouched; the raw message bytes are unchanged (fidelity
 preserved). Applies to newly-ingested mail (received + our own filed copies); a
 backfill of rows stored before this landed is a separate, optional migration
 (none in production but the test data).
+
+## Contacts / vCard 4.0 (alo-store::vcard)
+
+Our vCard support (RFC 6350) is scoped to the fields the address book
+models: `FN` (required), `N` (Family/Given), `EMAIL`, `TEL` (both with
+`TYPE=` labels), `ORG`, `TITLE`, `NOTE`, and `UID`. On **read** we unfold
+per §3.2, unescape per §3.4, honor the first `TYPE=` label, take the first
+component of structured `N`/`ORG`, and silently skip every other property
+(`ADR`, `GEO`, `KEY`, embedded `PHOTO`, `X-*`, …) — a foreign card imports
+cleanly, it just loses the fields we don't model. On **write** we emit only
+that profile, VERSION:4.0, CRLF line endings, 75-octet folding, and drop any
+`TYPE=` label that isn't `[A-Za-z0-9-]{1,32}` so a stored label can never
+inject structure into a line. A card with no `FN` falls back to `N` or the
+first `EMAIL` for the display name; a card with neither a name nor an email
+is not a contact (`from_vcard` returns `None`). Deliberate deviation: we do
+not preserve unknown properties across an import→export round-trip (a strict
+CardDAV server would); acceptable until the CardDAV sync layer, which will
+need to store the raw card to be fully lossless.

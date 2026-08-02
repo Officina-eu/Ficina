@@ -109,6 +109,18 @@ pub async fn api(app: &Router, token: &str, body: Value) -> (StatusCode, Value) 
     send(app, req).await
 }
 
+/// GETs `path` with the given bearer token (for the small REST endpoints
+/// alongside the JMAP API, e.g. `/contacts`).
+pub async fn get(app: &Router, token: &str, path: &str) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("GET")
+        .uri(path)
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    send(app, req).await
+}
+
 /// A single method call wrapped in a Request envelope.
 pub fn call(method: &str, args: Value) -> Value {
     serde_json::json!({

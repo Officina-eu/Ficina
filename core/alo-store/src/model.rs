@@ -2,7 +2,7 @@
 
 use time::OffsetDateTime;
 
-use crate::id::{BlobId, CategoryId, MailboxId, MessageId, ThreadId};
+use crate::id::{BlobId, CategoryId, ContactId, MailboxId, MessageId, ThreadId};
 
 /// The resolved AI backend a tenant's default provider points at (ADR 0011),
 /// mapped for the inference client. `api_key` is a secret, never returned to
@@ -188,6 +188,42 @@ pub struct Category {
     pub color: Option<String>,
     /// Order among the user's categories (ascending).
     pub sort_order: i32,
+}
+
+/// One typed value on a contact — an email address or phone number with
+/// an optional label (vCard `TYPE`, e.g. `work`, `home`, `mobile`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContactField {
+    /// The label (`work`/`home`/`mobile`/…), or `None` for unlabelled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// The address or number itself.
+    pub value: String,
+}
+
+/// An address-book contact (the JMAP Contacts / CardDAV unit). Multi-valued
+/// fields (`emails`, `phones`) round-trip to vCard `EMAIL`/`TEL` properties;
+/// `id` is the vCard `UID`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Contact {
+    /// Opaque id (also the vCard `UID`).
+    pub id: ContactId,
+    /// Formatted name shown everywhere (vCard `FN`; never empty).
+    pub display_name: String,
+    /// Given name (vCard `N` component), if known.
+    pub first_name: Option<String>,
+    /// Family name (vCard `N` component), if known.
+    pub last_name: Option<String>,
+    /// Email addresses, in display order.
+    pub emails: Vec<ContactField>,
+    /// Phone numbers, in display order.
+    pub phones: Vec<ContactField>,
+    /// Organization (vCard `ORG`).
+    pub organization: Option<String>,
+    /// Job title (vCard `TITLE`).
+    pub job_title: Option<String>,
+    /// Free-form note (vCard `NOTE`).
+    pub notes: Option<String>,
 }
 
 /// A compact message row for mailbox listings (no body).

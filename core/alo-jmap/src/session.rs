@@ -15,6 +15,8 @@ const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
 const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
 /// alo extension: user-defined colored message categories (Category/get+set).
 const CAP_CATEGORIES: &str = "urn:alo:params:jmap:categories";
+/// The JMAP Contacts capability (RFC 9610): Contact/get+set.
+const CAP_CONTACTS: &str = "urn:ietf:params:jmap:contacts";
 const CAP_VACATION: &str = "urn:ietf:params:jmap:vacationresponse";
 const CAP_QUOTA: &str = "urn:ietf:params:jmap:quota";
 
@@ -63,7 +65,7 @@ pub async fn session(
             "isPersonal": true,
             "isReadOnly": false,
             "accountCapabilities": {
-                CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_VACATION: {}, CAP_QUOTA: {}
+                CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_CONTACTS: {}, CAP_VACATION: {}, CAP_QUOTA: {}
             }
         }),
     );
@@ -86,7 +88,7 @@ pub async fn session(
                     "isReadOnly": !can_write,
                     "alo:canSend": send_mode != "none",
                     "accountCapabilities": {
-                        CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_VACATION: {}, CAP_QUOTA: {}
+                        CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_CONTACTS: {}, CAP_VACATION: {}, CAP_QUOTA: {}
                     }
                 }),
             );
@@ -133,6 +135,7 @@ pub async fn session(
                 "submissionExtensions": {}
             },
             CAP_CATEGORIES: {},
+            CAP_CONTACTS: {},
             CAP_VACATION: {},
             CAP_QUOTA: {}
         },

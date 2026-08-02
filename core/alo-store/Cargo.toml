@@ -13,6 +13,9 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 sqlx = { workspace = true }
+# Contact multi-value fields (emails/phones) serialize to the JSONB columns
+# and to the JMAP/vCard surfaces.
+serde = { workspace = true }
 time = { workspace = true }
 object_store = { workspace = true }
 futures = { workspace = true }

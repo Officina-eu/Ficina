@@ -3,8 +3,8 @@
 //! Thread methods mapped onto the tenant-scoped store.
 
 use alo_store::{
-    BlobId, CategoryId, EmailFilter, EmailQuery, MailboxId, MessageId, Page, SortDirection,
-    StoreError, ThreadId, UserId,
+    BlobId, CategoryId, Contact, ContactField, ContactId, EmailFilter, EmailQuery, MailboxId,
+    MessageId, Page, SortDirection, StoreError, ThreadId, UserId,
 };
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -24,6 +24,8 @@ const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
 const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
 /// alo extension: user-defined colored message categories (Category/get+set).
 const CAP_CATEGORIES: &str = "urn:alo:params:jmap:categories";
+/// The JMAP Contacts capability (RFC 9610): Contact/get+set.
+const CAP_CONTACTS: &str = "urn:ietf:params:jmap:contacts";
 const CAP_VACATION: &str = "urn:ietf:params:jmap:vacationresponse";
 const CAP_QUOTA: &str = "urn:ietf:params:jmap:quota";
 
@@ -49,7 +51,7 @@ pub async fn api(
     for cap in using {
         match cap.as_str() {
             Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) | Some(CAP_SUBMISSION)
-            | Some(CAP_CATEGORIES) | Some(CAP_VACATION) | Some(CAP_QUOTA) => {}
+            | Some(CAP_CATEGORIES) | Some(CAP_CONTACTS) | Some(CAP_VACATION) | Some(CAP_QUOTA) => {}
             other => {
                 return Err(Problem::unknown_capability().detail(other.unwrap_or("").to_owned()));
             }
@@ -226,6 +228,8 @@ async fn dispatch(
         "Mailbox/changes" => changes(account, args, alo_store::changes::TYPE_MAILBOX, state).await,
         "Category/get" => category_get(account, args).await,
         "Category/set" => category_set(account, args).await,
+        "Contact/get" => contact_get(account, args).await,
+        "Contact/set" => contact_set(account, args).await,
         "Email/get" => email_get(account, args, state).await,
         "Email/query" => email_query(account, args).await,
         "Email/set" => email_set(account, args, state).await,
@@ -666,6 +670,238 @@ async fn category_set(account: &Account, args: &Value) -> Result<Value, Value> {
         "created": created, "updated": updated, "destroyed": destroyed,
         "notCreated": not_created, "notUpdated": not_updated, "notDestroyed": not_destroyed
     }))
+}
+
+// ---- Contact (address book) -------------------------------------------
+
+/// `Contact/get`: the account's saved contacts (all, or by `ids`).
+async fn contact_get(account: &Account, args: &Value) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let state = account.acc.state().await.map_err(store_err)?;
+    let all = account.acc.contacts().await.map_err(store_err)?;
+
+    let ids = args.get("ids");
+    let mut list = Vec::new();
+    let mut not_found = Vec::new();
+    if ids.is_none() || ids == Some(&Value::Null) {
+        list.extend(all.iter().map(jtypes::contact_json));
+    } else {
+        for id in ids.and_then(Value::as_array).into_iter().flatten() {
+            let Some(id) = id.as_str() else { continue };
+            match all.iter().find(|c| c.id.as_str() == id) {
+                Some(c) => list.push(jtypes::contact_json(c)),
+                None => not_found.push(json!(id)),
+            }
+        }
+    }
+    Ok(
+        json!({ "accountId": account.account_id(), "state": state, "list": list, "notFound": not_found }),
+    )
+}
+
+/// `Contact/set`: create / update / destroy address-book contacts.
+async fn contact_set(account: &Account, args: &Value) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let old_state = account.acc.state().await.map_err(store_err)?;
+    if let Some(expected) = args.get("ifInState").and_then(Value::as_str)
+        && expected != old_state
+    {
+        return Err(method_error("stateMismatch"));
+    }
+
+    let (mut created, mut not_created) = (Map::new(), Map::new());
+    let (mut updated, mut not_updated) = (Map::new(), Map::new());
+    let (mut destroyed, mut not_destroyed) = (Vec::new(), Map::new());
+
+    if let Some(creates) = args.get("create").and_then(Value::as_object) {
+        for (cid, props) in creates {
+            let contact = match parse_contact(props, None) {
+                Ok(c) => c,
+                Err(e) => {
+                    not_created.insert(cid.clone(), e);
+                    continue;
+                }
+            };
+            match account.acc.create_contact(&contact).await {
+                Ok(id) => {
+                    created.insert(cid.clone(), json!({ "id": id.as_str() }));
+                }
+                Err(e) => {
+                    not_created.insert(cid.clone(), set_error(&e));
+                }
+            }
+        }
+    }
+
+    if let Some(updates) = args.get("update").and_then(Value::as_object) {
+        // Snapshot so a partial patch merges over the stored value and a
+        // foreign id is rejected as notFound (never touches another account).
+        let current = account.acc.contacts().await.map_err(store_err)?;
+        for (id, patch) in updates {
+            let Some(existing) = current.iter().find(|c| c.id.as_str() == id.as_str()) else {
+                not_updated.insert(id.clone(), method_error("notFound"));
+                continue;
+            };
+            let contact = match parse_contact(patch, Some(existing)) {
+                Ok(c) => c,
+                Err(e) => {
+                    not_updated.insert(id.clone(), e);
+                    continue;
+                }
+            };
+            match account
+                .acc
+                .update_contact(&ContactId::new(id.as_str()), &contact)
+                .await
+            {
+                Ok(()) => {
+                    updated.insert(id.clone(), Value::Null);
+                }
+                Err(e) => {
+                    not_updated.insert(id.clone(), set_error(&e));
+                }
+            }
+        }
+    }
+
+    if let Some(ids) = args.get("destroy").and_then(Value::as_array) {
+        for id in ids {
+            let Some(id) = id.as_str() else { continue };
+            match account.acc.delete_contact(&ContactId::new(id)).await {
+                Ok(()) => destroyed.push(json!(id)),
+                Err(e) => {
+                    not_destroyed.insert(id.to_owned(), set_error(&e));
+                }
+            }
+        }
+    }
+
+    let new_state = account.acc.state().await.map_err(store_err)?;
+    Ok(json!({
+        "accountId": account.account_id(), "oldState": old_state, "newState": new_state,
+        "created": created, "updated": updated, "destroyed": destroyed,
+        "notCreated": not_created, "notUpdated": not_updated, "notDestroyed": not_destroyed
+    }))
+}
+
+/// Builds a [`Contact`] from a create/update patch. On update, `base`
+/// supplies any field the patch omits (partial patches merge). Validates
+/// the display name (derivable and non-empty) and every address/number.
+fn parse_contact(props: &Value, base: Option<&Contact>) -> Result<Contact, Value> {
+    let get_str = |key: &str| -> Option<Option<String>> {
+        // Some(Some(v)) = set to v; Some(None) = explicitly cleared/absent-in-base;
+        // None = not in this patch (keep base).
+        match props.get(key) {
+            None => None,
+            Some(Value::Null) => Some(None),
+            Some(Value::String(s)) if !s.trim().is_empty() => Some(Some(s.trim().to_owned())),
+            Some(Value::String(_)) => Some(None),
+            Some(_) => Some(None),
+        }
+    };
+    let field = |key: &str| -> Option<String> {
+        get_str(key).map_or_else(|| base.and_then(|b| pick(b, key)), |v| v)
+    };
+
+    let first_name = field("firstName");
+    let last_name = field("lastName");
+    let organization = field("organization");
+    let job_title = field("jobTitle");
+    let notes = field("notes");
+
+    let emails = match props.get("emails") {
+        Some(v) => parse_contact_fields(v, "emails")?,
+        None => base.map(|b| b.emails.clone()).unwrap_or_default(),
+    };
+    let phones = match props.get("phones") {
+        Some(v) => parse_contact_fields(v, "phones")?,
+        None => base.map(|b| b.phones.clone()).unwrap_or_default(),
+    };
+
+    // Display name: an explicit `name`, else derive from N or the first
+    // email, else keep the base's. Never empty (vCard FN is required).
+    let display_name = match get_str("name") {
+        Some(Some(name)) => name,
+        _ => derive_display_name(&first_name, &last_name, &emails)
+            .or_else(|| base.map(|b| b.display_name.clone()))
+            .ok_or_else(|| {
+                method_error_desc("invalidProperties", "a contact needs a name, or an email")
+            })?,
+    };
+
+    Ok(Contact {
+        id: ContactId::new(base.map(|b| b.id.as_str().to_owned()).unwrap_or_default()),
+        display_name,
+        first_name,
+        last_name,
+        emails,
+        phones,
+        organization,
+        job_title,
+        notes,
+    })
+}
+
+/// The stored value of a scalar contact field, for merge-on-update.
+fn pick(c: &Contact, key: &str) -> Option<String> {
+    match key {
+        "firstName" => c.first_name.clone(),
+        "lastName" => c.last_name.clone(),
+        "organization" => c.organization.clone(),
+        "jobTitle" => c.job_title.clone(),
+        "notes" => c.notes.clone(),
+        _ => None,
+    }
+}
+
+/// A display name from the structured parts, or `None` if nothing usable.
+fn derive_display_name(
+    first: &Option<String>,
+    last: &Option<String>,
+    emails: &[ContactField],
+) -> Option<String> {
+    match (first, last) {
+        (Some(f), Some(l)) => Some(format!("{f} {l}")),
+        (Some(f), None) => Some(f.clone()),
+        (None, Some(l)) => Some(l.clone()),
+        (None, None) => emails.first().map(|e| e.value.clone()),
+    }
+}
+
+/// Parses an `emails`/`phones` array of `{kind?, value}` objects,
+/// validating each value is present and control-character-free.
+fn parse_contact_fields(value: &Value, field: &str) -> Result<Vec<ContactField>, Value> {
+    let Some(array) = value.as_array() else {
+        return Err(method_error_desc("invalidProperties", "expected an array"));
+    };
+    let mut out = Vec::new();
+    for item in array {
+        let val = item
+            .get("value")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(val) = val else {
+            return Err(method_error_desc(
+                "invalidProperties",
+                &format!("each {field} entry needs a non-empty value"),
+            ));
+        };
+        if val.len() > 320 || val.chars().any(|c| c.is_control()) {
+            return Err(method_error_desc("invalidProperties", "invalid value"));
+        }
+        let kind = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        out.push(ContactField {
+            kind,
+            value: val.to_owned(),
+        });
+    }
+    Ok(out)
 }
 
 // ---- Email ------------------------------------------------------------

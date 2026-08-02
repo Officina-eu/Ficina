@@ -5,7 +5,7 @@
 //! types. The account's own addresses are excluded (you don't autocomplete
 //! yourself). Tenant/user-scoped through the account door; no address is logged.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use alo_store::AddressHeaders;
 use axum::Json;
@@ -40,8 +40,45 @@ pub async fn list(
         .await
         .map_err(|_| Problem::server_error())?;
     let own = own_addresses(&account, &state).await;
-    let contacts = rank(&rows, &own);
+    let mut contacts = rank(&rows, &own);
+    // Saved address-book contacts are surfaced first (a deliberate save
+    // outranks a mined correspondent), then mined ones fill in — deduped
+    // by address so a saved contact never appears twice. Best-effort: a
+    // read failure just falls back to mined correspondents.
+    if let Ok(saved) = account.acc.contacts().await {
+        contacts = merge_saved(saved, contacts, &own);
+    }
     Ok(Json(json!({ "contacts": contacts })))
+}
+
+/// Prepends saved contacts (each of their addresses, name-carried) to the
+/// mined list, dropping the account's own addresses and any mined entry a
+/// saved contact already covers. Order: saved first (in name order from
+/// the store), then the remaining mined correspondents.
+fn merge_saved(saved: Vec<alo_store::Contact>, mined: Vec<Value>, own: &[String]) -> Vec<Value> {
+    let mut seen: std::collections::HashSet<String> = HashSet::new();
+    let mut out: Vec<Value> = Vec::new();
+    for contact in &saved {
+        for email in &contact.emails {
+            let key = email.value.to_lowercase();
+            if own.iter().any(|o| o == &key) || !seen.insert(key) {
+                continue;
+            }
+            out.push(json!({ "name": contact.display_name, "email": email.value }));
+        }
+    }
+    for entry in mined {
+        let key = entry
+            .get("email")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_lowercase();
+        if seen.insert(key) {
+            out.push(entry);
+        }
+    }
+    out.truncate(MAX_CONTACTS);
+    out
 }
 
 /// The account's own addresses (canonical + aliases), lowercased — excluded from
