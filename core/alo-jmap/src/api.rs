@@ -229,6 +229,7 @@ async fn dispatch(
         "Email/set" => email_set(account, args).await,
         "Email/changes" => changes(account, args, alo_store::changes::TYPE_EMAIL, state).await,
         "Thread/get" => thread_get(account, args).await,
+        "Identity/get" => identity_get(account, args, state).await,
         "SieveScript/get" => crate::sieve::get(account, args).await,
         "SieveScript/set" => crate::sieve::set(account, args).await,
         "SieveScript/validate" => crate::sieve::validate(account, args).await,
@@ -1152,6 +1153,81 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
 }
 
 // ---- Thread -----------------------------------------------------------
+
+/// A stable, JMAP-id-safe (`A-Za-z0-9_-`) id for a send identity, derived from
+/// its address via FNV-1a-64 → 16 hex chars.
+fn identity_id(address: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in address.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// `Identity/get` (RFC 8621 §6.1): the addresses the signed-in user may send
+/// from — canonical + aliases, the same set the submission path authorizes —
+/// as one JMAP Identity each. Standard clients (Thunderbird, Apple Mail) need
+/// this before they can submit. Read-only: identities are provisioned, so
+/// `mayDelete` is false and there is no `Identity/set`.
+async fn identity_get(account: &Account, args: &Value, state: &AppState) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let acct_state = account.acc.state().await.map_err(store_err)?;
+    let ts = state.store.for_tenant(account.tenant.clone());
+
+    let mut addresses: Vec<String> = Vec::new();
+    if let Ok(Some(canonical)) = ts.email_of(&account.user).await {
+        addresses.push(canonical);
+    }
+    if let Ok(aliases) = ts.aliases_of(&account.user).await {
+        addresses.extend(aliases);
+    }
+    let signature = account.acc.signature().await.unwrap_or_default();
+
+    let wanted: Option<std::collections::HashSet<String>> = args
+        .get("ids")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+
+    let mut list = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for addr in addresses {
+        if !seen.insert(addr.clone()) {
+            continue;
+        }
+        let id = identity_id(&addr);
+        if wanted.as_ref().is_some_and(|w| !w.contains(&id)) {
+            continue;
+        }
+        list.push(json!({
+            "id": id,
+            "name": "",
+            "email": addr,
+            "replyTo": Value::Null,
+            "bcc": Value::Null,
+            "textSignature": "",
+            "htmlSignature": signature,
+            "mayDelete": false,
+        }));
+    }
+    let not_found: Vec<Value> = match &wanted {
+        Some(w) => {
+            let have: std::collections::HashSet<&str> =
+                list.iter().filter_map(|i| i["id"].as_str()).collect();
+            w.iter()
+                .filter(|id| !have.contains(id.as_str()))
+                .map(|id| json!(id))
+                .collect()
+        }
+        None => Vec::new(),
+    };
+    Ok(json!({
+        "accountId": account.account_id(),
+        "state": acct_state,
+        "list": list,
+        "notFound": not_found,
+    }))
+}
 
 async fn thread_get(account: &Account, args: &Value) -> Result<Value, Value> {
     check_account(args, account)?;
