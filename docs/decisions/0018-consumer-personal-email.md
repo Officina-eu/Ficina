@@ -107,12 +107,15 @@ model**, changing no isolation invariant.
 ## Build slices (each: built → tested → deployed → verified)
 
 1. This decision record (ADR + product-doc + `features.md`). ✅
-2. Provisioning primitive + reserved-name/charset validation + tenant-
-   isolation and uniqueness tests.
-3. Signup HTTP surface (availability / begin / verify) + verification
-   codes + rate limiting.
-4. Public web signup page (i18n EN + FR).
-5. Isolated consumer sending identity (IP/DKIM `d=`) + operator docs.
+2. Provisioning primitive (`Identity::provision_personal`) + reserved-name/
+   charset validation + tenant-isolation and uniqueness tests. ✅
+3. Signup HTTP surface (`/signup/available`·`begin`·`verify`) + `pending_signups`
+   (migration 0035) + salted-hash codes + attempt cap + IP/recovery rate
+   limiting. ✅ Deployed **dormant** (disabled until `ALO_PERSONAL_DOMAINS` is
+   set) and wire-verified safely refusing all input.
+4. Public web signup page (i18n EN + FR). ⏳
+5. Isolated consumer sending identity (IP/DKIM `d=`) + `ALO_PERSONAL_DOMAINS`
+   + `alomails.com` DNS/MX/DKIM + operator docs — the **go-live** step. ⏳
 
 ## Alternatives rejected
 
