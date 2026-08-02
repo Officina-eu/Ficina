@@ -2,13 +2,14 @@
 // small popover with who they're signed in as and a sign-out action.
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { BookUser, Building2, Globe, LogOut, Settings, Shield } from "lucide-react";
+import { BookUser, Building2, Download, Globe, LogOut, Settings, Shield } from "lucide-react";
 
 import { strings, LOCALES, getLocale, setLocale, type Locale } from "../i18n";
 import { Avatar } from "../ds";
 import { useAuth } from "../auth";
 import { useJmapClient } from "../jmap";
 import { ContactsModal } from "../contacts";
+import { ImportModal } from "../importer";
 import { SettingsModal } from "./SettingsModal";
 import styles from "./UserMenu.module.css";
 
@@ -18,6 +19,7 @@ export function UserMenu() {
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isOperator, setIsOperator] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -124,6 +126,18 @@ export function UserMenu() {
             role="menuitem"
             onClick={() => {
               setOpen(false);
+              setImportOpen(true);
+            }}
+          >
+            <Download size={16} />
+            <span>{strings.importOpen}</span>
+          </button>
+          <button
+            type="button"
+            className={styles.item}
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
               setSettingsOpen(true);
             }}
           >
@@ -166,6 +180,7 @@ export function UserMenu() {
         <SettingsModal isAdmin={isAdmin} onClose={() => setSettingsOpen(false)} />
       )}
       {contactsOpen && <ContactsModal onClose={() => setContactsOpen(false)} />}
+      {importOpen && <ImportModal onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

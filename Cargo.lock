@@ -129,15 +129,19 @@ dependencies = [
  "hickory-resolver",
  "mail-parser",
  "reqwest",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "sqlx",
  "thiserror",
  "time",
  "tokio",
+ "tokio-rustls",
  "tower",
  "tracing",
  "tracing-subscriber",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]

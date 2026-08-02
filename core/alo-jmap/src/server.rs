@@ -15,8 +15,8 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, blob, carddav, contacts, delegates, docs, filters, flagdue, push, schedule,
-    security, session, settings, share, snooze, unsubscribe,
+    admin, ai, api, blob, carddav, contacts, delegates, docs, filters, flagdue, imap_import_route,
+    push, schedule, security, session, settings, share, snooze, unsubscribe,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -65,6 +65,9 @@ pub fn app(state: AppState) -> Router {
         // Address-book import (a .vcf upload) and export (whole book as .vcf).
         .route("/contacts/import", post(contacts::import))
         .route("/contacts/export", get(contacts::export))
+        // Import wizard: pull recent mail from a remote IMAP host (Gmail/
+        // Outlook/…) into the user's Inbox.
+        .route("/import/imap", post(imap_import_route::import))
         // CardDAV (RFC 6352): native contact sync for phones and desktops.
         // Any WebDAV method routes to the one handler, which dispatches by
         // method + path; well-known bootstraps discovery.

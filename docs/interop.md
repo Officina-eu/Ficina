@@ -404,3 +404,33 @@ Implemented methods: `OPTIONS`, `PROPFIND` (principal / home / addressbook
   cross-writing — astronomically rare with UUID hrefs, and safe by design.
 The eventual clean home is a dedicated `alo-dav` crate (per ROADMAP);
 today it is a module in alo-jmap, reusing its auth + store wiring.
+
+## IMAP import (client role, RFC 3501)
+
+The **Import mail** wizard makes alo an IMAP *client* (distinct from the
+alo-imap *server*): it logs into a remote mailbox and copies recent mail
+into the user's Inbox. `POST /import/imap` → `imap_import`. Deliberate,
+recorded scope and quirks:
+
+- **INBOX only, newest ≤500 messages.** We `SELECT INBOX` and fetch the
+  tail of the mailbox (`FETCH BODY.PEEK[]`, which does not set `\Seen` on
+  the source). Other folders, flags, and folder structure are out of scope
+  for this first cut (the broad "mailbox import" roadmap item covers them).
+- **Implicit-TLS only (port 993), certificate verified.** The user's
+  password crosses the wire, so the TLS server certificate is verified
+  against the Mozilla root set (webpki-roots) — an unverified/accept-any
+  connection is refused, not downgraded. Cleartext-then-STARTTLS (143) is
+  not offered.
+- **Dedup is by `Message-ID`, stored with angle brackets.** A re-import
+  skips any message whose `Message-ID` already exists for that user, so the
+  wizard is idempotent for well-formed mail. **A message with no
+  `Message-ID` header cannot be deduped** and is imported on every run —
+  importing it is the safe choice (dropping it would silently lose mail);
+  such messages are rare in practice (most MTAs stamp one).
+- **Gmail/Outlook require an app password.** Both refuse a normal account
+  password over IMAP `LOGIN`; the wizard's provider hint says so, and an
+  auth refusal maps to `401` with that guidance rather than a raw error.
+- **SSRF-guarded.** The target host is resolved and refused if it maps to a
+  loopback/private/link-local address (shared `alo_ai::egress` guard), and
+  the connection is pinned to the vetted IP — a hostname cannot be used to
+  reach an internal service.

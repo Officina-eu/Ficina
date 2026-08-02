@@ -34,6 +34,13 @@ time = { workspace = true }
 bytes = { workspace = true }
 # RFC 2047 encoded-words + base64 message bodies for outgoing mail.
 base64 = { workspace = true }
+# Outbound IMAP client for the Gmail/Outlook import wizard: implicit-TLS
+# (rustls + ring, no OpenSSL) with real cert verification against the
+# Mozilla roots — the user's credentials go over this wire.
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = "0.26"
 # MIME parsing for inbound bodies + attachments (Email/get, download).
 mail-parser = { workspace = true }
 

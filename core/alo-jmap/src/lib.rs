@@ -23,6 +23,8 @@ pub mod docs;
 pub mod error;
 pub mod filters;
 pub mod flagdue;
+pub mod imap_import;
+pub mod imap_import_route;
 pub mod jtypes;
 pub mod junk_learn;
 pub mod mime;

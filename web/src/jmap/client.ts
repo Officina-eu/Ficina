@@ -390,6 +390,27 @@ export class JmapClient {
     return await res.text();
   }
 
+  /** Imports recent mail from a remote IMAP server (Gmail/Outlook/…) into
+   * the Inbox. Returns the counts, or throws with the server's message
+   * (e.g. bad credentials) so the wizard can show it. */
+  async importImap(input: {
+    host: string;
+    port?: number;
+    username: string;
+    password: string;
+  }): Promise<{ imported: number; skipped: number; failed: number }> {
+    const res = await this.#fetch(`${window.location.origin}/import/imap`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))) as { detail?: string };
+      throw new JmapError(detail.detail ?? `import ${res.status}`);
+    }
+    return (await res.json()) as { imported: number; skipped: number; failed: number };
+  }
+
   /** Tags (or untags) a message with a category. */
   async setCategory(emailId: string, categoryId: string, on: boolean): Promise<void> {
     await this.#setKeyword(emailId, categoryKeyword(categoryId), on);

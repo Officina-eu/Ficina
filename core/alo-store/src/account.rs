@@ -705,6 +705,33 @@ impl AccountStore {
         self.ingest_at(mailbox, raw, None).await
     }
 
+    /// The subset of `message_ids` (RFC 5322 `Message-ID` header values)
+    /// that this account already stores — the IMAP-import dedup check, so
+    /// re-running an import does not create duplicates. Empty input →
+    /// empty set (no query).
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn existing_message_ids(
+        &self,
+        message_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>> {
+        if message_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT message_id_hdr FROM messages \
+             WHERE tenant_id = $1 AND user_id = $2 \
+               AND message_id_hdr = ANY($3::text[])",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(message_ids)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Like [`Self::ingest`] but with an explicit `received_at` (IMAP
     /// `APPEND`'s optional INTERNALDATE); `None` means now.
     ///

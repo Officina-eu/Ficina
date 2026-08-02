@@ -98,6 +98,30 @@ export const en = {
   contactsImportError: "Couldn't import that file. Is it a .vcf export?",
   contactsExportError: "Couldn't export your contacts.",
   contactsExportEmpty: "You have no contacts to export yet.",
+
+  // import mail (IMAP wizard)
+  importOpen: "Import mail",
+  importTitle: "Import mail from another account",
+  importIntro:
+    "Bring your recent mail from Gmail, Outlook, or any IMAP account into your inbox.",
+  importProvider: "Where is your mail?",
+  importProviderGmail: "Gmail",
+  importProviderOutlook: "Outlook",
+  importProviderOther: "Other (IMAP)",
+  importServer: "Mail server",
+  importPort: "Port",
+  importEmail: "Email address",
+  importPassword: "Password",
+  importAppPasswordHint:
+    "For Gmail and Outlook you'll need an app password, not your normal password.",
+  importStart: "Start import",
+  importRunning: "Importing your mail — this can take a minute…",
+  importDone: (imported: number, skipped: number) =>
+    skipped > 0
+      ? `Imported ${imported} message${imported === 1 ? "" : "s"} (${skipped} already here).`
+      : `Imported ${imported} message${imported === 1 ? "" : "s"}.`,
+  importNeedsFields: "Enter the server, your email, and your password.",
+  importClose: "Close",
   signedInAs: "Signed in as",
   comingSoonTitle: "Coming soon",
   comingSoonBody: "This part of your workspace is on the way. Mail is ready now.",

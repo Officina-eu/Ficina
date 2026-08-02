@@ -203,7 +203,14 @@ document or a formula.
 
 - [ ] Tenant audit tool: Graph API scan → usage report, blocker flags (macros, Power Automate), readiness score, savings figure
 - [ ] Identity import from Entra ID; alo as IdP for the customer's other SaaS
-- [ ] Mailbox import: mail, folders, rules, signatures, OOF, aliases; PST import
+- [~] Mailbox import: mail, folders, rules, signatures, OOF, aliases; PST import.
+  **IMAP mail import built** — an account-menu wizard (Gmail/Outlook presets +
+  any IMAP server) and `POST /import/imap` (`imap_import`): SSRF-guarded connect,
+  verified-TLS (webpki-roots) implicit-TLS client, LOGIN/SELECT INBOX/`FETCH
+  BODY.PEEK[]` of the newest ≤500 messages, idempotent `Message-ID` dedup against
+  the store, honest imported/skipped/failed count; auth refusal → 401 with an
+  app-password hint. EN + FR. Wire-verified on prod (dedup, SSRF-block, auth-fail).
+  Remaining: other folders, flags/structure, rules/signatures/OOF/aliases, PST
 - [ ] Shared mailboxes + delegation permissions mapped
 - [ ] Calendar import: recurrences with exceptions, rooms/resources; Teams links in future events rewritten to alo Meet
 - [x] Contacts import/export: `.vcf` (vCard 4.0) bulk import (`POST /contacts/import`, multi-card split + per-card cap, honest imported/skipped count) and whole-address-book export (`GET /contacts/export`, a `text/vcard` attachment), wired into the address-book UI (Import/Export buttons, EN + FR). Migrates a Gmail/Outlook/Apple contacts export straight in

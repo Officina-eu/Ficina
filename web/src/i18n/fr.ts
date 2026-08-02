@@ -99,6 +99,30 @@ export const fr: Partial<Catalog> = {
   contactsImportError: "Impossible d’importer ce fichier. S’agit-il d’un export .vcf ?",
   contactsExportError: "Impossible d’exporter vos contacts.",
   contactsExportEmpty: "Vous n’avez pas encore de contacts à exporter.",
+
+  // import mail (IMAP wizard)
+  importOpen: "Importer du courrier",
+  importTitle: "Importer le courrier d’un autre compte",
+  importIntro:
+    "Récupérez votre courrier récent de Gmail, Outlook ou tout compte IMAP dans votre boîte de réception.",
+  importProvider: "Où se trouve votre courrier ?",
+  importProviderGmail: "Gmail",
+  importProviderOutlook: "Outlook",
+  importProviderOther: "Autre (IMAP)",
+  importServer: "Serveur de messagerie",
+  importPort: "Port",
+  importEmail: "Adresse e-mail",
+  importPassword: "Mot de passe",
+  importAppPasswordHint:
+    "Pour Gmail et Outlook, un mot de passe d’application est requis, pas votre mot de passe habituel.",
+  importStart: "Démarrer l’import",
+  importRunning: "Import de votre courrier — cela peut prendre une minute…",
+  importDone: (imported: number, skipped: number) =>
+    skipped > 0
+      ? `${imported} message${imported === 1 ? "" : "s"} importé${imported === 1 ? "" : "s"} (${skipped} déjà présent${skipped === 1 ? "" : "s"}).`
+      : `${imported} message${imported === 1 ? "" : "s"} importé${imported === 1 ? "" : "s"}.`,
+  importNeedsFields: "Saisissez le serveur, votre e-mail et votre mot de passe.",
+  importClose: "Fermer",
   signedInAs: "Connecté en tant que",
   comingSoonTitle: "Bientôt disponible",
   comingSoonBody: "Cette partie de votre espace de travail arrive bientôt. Le Courrier est déjà prêt.",
