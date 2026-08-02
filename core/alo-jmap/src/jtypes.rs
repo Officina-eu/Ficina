@@ -90,6 +90,11 @@ pub struct AttachmentJson {
     pub content_type: String,
     pub name: String,
     pub size: usize,
+    /// `Content-ID` (no angle brackets) — an HTML `cid:` reference resolves to
+    /// the part with this id, so the client can render inline images.
+    pub content_id: Option<String>,
+    /// `Content-Disposition: inline` (embedded), else a downloadable attachment.
+    pub inline: bool,
 }
 
 /// The parsed reading view passed to [`email_json`] when the client asked for
@@ -188,7 +193,8 @@ pub fn email_json(
                         "type": a.content_type,
                         "name": a.name,
                         "size": a.size,
-                        "disposition": "attachment"
+                        "cid": a.content_id,
+                        "disposition": if a.inline { "inline" } else { "attachment" }
                     })
                 })
                 .collect()

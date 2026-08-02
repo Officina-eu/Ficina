@@ -15,6 +15,12 @@ pub struct Attachment {
     pub name: String,
     pub content_type: String,
     pub size: usize,
+    /// The part's `Content-ID` without angle brackets, if any — an HTML body's
+    /// `cid:` reference resolves to the inline part with the matching id.
+    pub content_id: Option<String>,
+    /// Whether the part is `Content-Disposition: inline` (an embedded image),
+    /// as opposed to a downloadable attachment.
+    pub inline: bool,
 }
 
 /// The reading view of a parsed message.
@@ -83,6 +89,21 @@ fn content_type_of(part: &mail_parser::MessagePart) -> String {
     }
 }
 
+/// The part's `Content-ID` with surrounding angle brackets and whitespace
+/// stripped — the token an HTML `cid:` URL references.
+fn content_id_of(part: &mail_parser::MessagePart) -> Option<String> {
+    part.content_id()
+        .map(|c| c.trim().trim_start_matches('<').trim_end_matches('>').to_owned())
+        .filter(|c| !c.is_empty())
+}
+
+/// Whether the part is `Content-Disposition: inline` (an embedded image), not a
+/// downloadable file.
+fn is_inline(part: &mail_parser::MessagePart) -> bool {
+    part.content_disposition()
+        .is_some_and(|d| d.ctype().eq_ignore_ascii_case("inline"))
+}
+
 fn name_of(part: &mail_parser::MessagePart, index: usize) -> String {
     part.attachment_name()
         .map(str::to_owned)
@@ -112,6 +133,8 @@ pub fn parse(raw: &[u8]) -> Parsed {
             name: name_of(part, index),
             content_type: content_type_of(part),
             size: part.contents().len(),
+            content_id: content_id_of(part),
+            inline: is_inline(part),
         })
         .collect();
     let unsubscribe = parse_unsubscribe(&message);
@@ -184,6 +207,39 @@ mod tests {
         assert_eq!(a.name, "report.zip");
         assert_eq!(a.content_type, "application/zip");
         assert_eq!(a.index, 0);
+        assert_eq!(a.content_id, None, "a file attachment has no Content-ID");
+        assert!(!a.inline, "Content-Disposition: attachment ⇒ not inline");
+    }
+
+    #[test]
+    fn inline_image_exposes_cid_and_disposition() {
+        let raw = concat!(
+            "From: a@example.com\r\n",
+            "Subject: Newsletter\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/related; boundary=\"r\"\r\n",
+            "\r\n",
+            "--r\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n",
+            "\r\n",
+            "<p>Logo: <img src=\"cid:logo@shop\"></p>\r\n",
+            "--r\r\n",
+            "Content-Type: image/png\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "Content-ID: <logo@shop>\r\n",
+            "Content-Disposition: inline\r\n",
+            "\r\n",
+            "iVBORw0KGgo=\r\n",
+            "--r--\r\n",
+        )
+        .as_bytes();
+        let parsed = parse(raw);
+        assert!(parsed.html.expect("html body").contains("cid:logo@shop"));
+        assert_eq!(parsed.attachments.len(), 1, "the inline image is a part");
+        let img = &parsed.attachments[0];
+        assert_eq!(img.content_id.as_deref(), Some("logo@shop"), "cid without <>");
+        assert!(img.inline, "Content-Disposition: inline");
+        assert_eq!(img.content_type, "image/png");
     }
 
     #[test]

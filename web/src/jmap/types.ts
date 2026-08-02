@@ -183,6 +183,11 @@ export interface EmailAttachment {
   type: string;
   name: string;
   size: number;
+  /** Content-ID (no angle brackets) — an HTML `cid:` reference resolves to the
+   * inline part with this id, so it renders as an embedded image. */
+  cid: string | null;
+  /** "inline" (embedded image) or "attachment" (downloadable file). */
+  disposition: string;
 }
 
 /** One configured AI provider (admin console). The API key is never returned —

@@ -1,7 +1,7 @@
 // One message within a conversation. Collapsed: a clickable summary row
 // (avatar, sender, snippet, date). Expanded: the sender block plus the body —
 // plain text in Garamond, HTML isolated in a sandboxed, CSP-locked iframe.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronDown,
   Download,
@@ -22,6 +22,55 @@ import type { EmailAddress, EmailAttachment, EmailFull } from "../../jmap";
 import { formatBytes, formatDate, senderName, subjectOr } from "../format";
 import { htmlContent, sandboxedHtml, splitQuotedHtml, splitQuotedText, textContent } from "../body";
 import styles from "./ThreadMessage.module.css";
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Rewrites `cid:` image references in an HTML body to the resolved data-URIs,
+ * so inline images render inside the sandboxed iframe (whose CSP already allows
+ * `img-src data:`) without any remote fetch. */
+function applyInlineImages(html: string, images: ReadonlyMap<string, string>): string {
+  if (images.size === 0) return html;
+  return html.replace(/cid:([^"'\s)>]+)/gi, (whole, id: string) => {
+    return images.get(id.toLowerCase()) ?? whole;
+  });
+}
+
+/** Fetches the message's inline parts (those carrying a Content-ID) and returns
+ * a cid → data-URI map, so [`applyInlineImages`] can embed them. */
+function useInlineImages(email: EmailFull, expanded: boolean): ReadonlyMap<string, string> {
+  const client = useJmapClient();
+  const [images, setImages] = useState<ReadonlyMap<string, string>>(new Map());
+  useEffect(() => {
+    if (!expanded) return;
+    const inline = (email.attachments ?? []).filter((a) => a.cid !== null);
+    if (inline.length === 0) return;
+    let live = true;
+    void (async () => {
+      const entries: [string, string][] = [];
+      for (const att of inline) {
+        if (att.cid === null) continue;
+        try {
+          const blob = await client.downloadAttachment(att.blobId, att.name);
+          entries.push([att.cid.toLowerCase(), await blobToDataUrl(blob)]);
+        } catch {
+          // A missing inline part just renders as a broken image — never fatal.
+        }
+      }
+      if (live && entries.length > 0) setImages(new Map(entries));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [client, email.id, expanded]);
+  return images;
+}
 
 /** Save a fetched Blob to the user's downloads with the given filename. */
 function saveBlob(blob: Blob, name: string) {
@@ -152,7 +201,11 @@ export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessagePr
   const rawHtml = expanded && rawText === null ? htmlContent(email) : null;
   const textSplit = rawText !== null ? splitQuotedText(rawText) : null;
   const htmlSplit = rawHtml !== null ? splitQuotedHtml(rawHtml) : null;
-  const attachments = expanded ? (email.attachments ?? []) : [];
+  const inlineImages = useInlineImages(email, expanded);
+  // Inline (cid-referenced) parts render embedded in the HTML, not as file chips.
+  const attachments = expanded
+    ? (email.attachments ?? []).filter((a) => a.cid === null)
+    : [];
   const verified = expanded && isVerified(email);
 
   const headTop = (
@@ -229,7 +282,7 @@ export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessagePr
               className={styles.html}
               title={subjectOr(email)}
               sandbox=""
-              srcDoc={sandboxedHtml(htmlSplit.main)}
+              srcDoc={sandboxedHtml(applyInlineImages(htmlSplit.main, inlineImages))}
             />
           )}
 
@@ -253,7 +306,7 @@ export function ThreadMessage({ email, expanded, me, onToggle }: ThreadMessagePr
                   className={styles.html}
                   title={strings.showQuoted}
                   sandbox=""
-                  srcDoc={sandboxedHtml(htmlSplit.quoted)}
+                  srcDoc={sandboxedHtml(applyInlineImages(htmlSplit.quoted, inlineImages))}
                 />
               )}
             </div>

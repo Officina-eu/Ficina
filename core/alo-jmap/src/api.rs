@@ -1494,6 +1494,8 @@ fn read_body(raw: &[u8], blob_id: &str, max: usize) -> jtypes::ReadBody {
             content_type: a.content_type,
             name: a.name,
             size: a.size,
+            content_id: a.content_id,
+            inline: a.inline,
         })
         .collect();
     jtypes::ReadBody {
