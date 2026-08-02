@@ -6,7 +6,10 @@
 
 mod common;
 
-use alo_jmap::imap_import::{ImportOutcome, import_messages};
+use alo_jmap::imap_import::{
+    FetchedFlags, FetchedMessage, FolderTarget, ImportOutcome, RawFolder, import_folders,
+    import_messages,
+};
 use alo_store::Page;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -65,6 +68,129 @@ async fn import_ingests_then_dedupes_on_reimport() {
             .len(),
         before + 2,
         "no duplicates on re-import"
+    );
+}
+
+fn fmsg(id: &str, subject: &str, flags: FetchedFlags) -> FetchedMessage {
+    FetchedMessage {
+        raw: msg(id, subject),
+        flags,
+    }
+}
+
+#[tokio::test]
+async fn import_folders_maps_structure_and_flags() {
+    let h = harness("imap-folders").await;
+    let seen = FetchedFlags {
+        seen: true,
+        ..Default::default()
+    };
+    let flagged = FetchedFlags {
+        flagged: true,
+        ..Default::default()
+    };
+    let folders = vec![
+        RawFolder {
+            target: FolderTarget::Role {
+                role: "inbox",
+                name: "Inbox",
+            },
+            messages: vec![fmsg("i1@imp", "in-seen", seen)],
+        },
+        RawFolder {
+            target: FolderTarget::Role {
+                role: "sent",
+                name: "Sent",
+            },
+            messages: vec![fmsg("s1@imp", "sent-msg", FetchedFlags::default())],
+        },
+        RawFolder {
+            target: FolderTarget::Named("Work".into()),
+            messages: vec![fmsg("w1@imp", "work-msg", flagged)],
+        },
+    ];
+    let out = import_folders(&h.acc, folders).await.unwrap();
+    assert_eq!(
+        out,
+        ImportOutcome {
+            imported: 3,
+            skipped: 0,
+            failed: 0
+        }
+    );
+
+    // The Sent *role* mailbox was get-or-created and holds the sent message.
+    let sent = h
+        .acc
+        .mailbox_by_role("sent")
+        .await
+        .unwrap()
+        .expect("sent mailbox created");
+    let sent_list = h.acc.list_mailbox(&sent, Page::default()).await.unwrap();
+    assert!(sent_list.iter().any(|m| m.subject == "sent-msg"));
+
+    // A user folder "Work" was created by name and holds its message, with the
+    // remote \Flagged carried over as the $flagged keyword.
+    let boxes = h.acc.mailboxes(Page::default()).await.unwrap();
+    let work = boxes
+        .iter()
+        .find(|m| m.name == "Work")
+        .expect("Work folder created");
+    let work_list = h.acc.list_mailbox(&work.id, Page::default()).await.unwrap();
+    let work_msg = work_list.iter().find(|m| m.subject == "work-msg").unwrap();
+    let kws = h.acc.keywords(&work_msg.id).await.unwrap();
+    assert!(kws.iter().any(|k| k == "$flagged"), "flag preserved: {kws:?}");
+
+    // The INBOX message's \Seen carried over as $seen.
+    let inbox = h.acc.inbox().await.unwrap();
+    let in_list = h.acc.list_mailbox(&inbox, Page::default()).await.unwrap();
+    let in_msg = in_list.iter().find(|m| m.subject == "in-seen").unwrap();
+    let in_kws = h.acc.keywords(&in_msg.id).await.unwrap();
+    assert!(in_kws.iter().any(|k| k == "$seen"), "seen preserved: {in_kws:?}");
+
+    // Re-import → already present, skipped, no duplicate.
+    let again = import_folders(
+        &h.acc,
+        vec![RawFolder {
+            target: FolderTarget::Role {
+                role: "inbox",
+                name: "Inbox",
+            },
+            messages: vec![fmsg("i1@imp", "in-seen", seen)],
+        }],
+    )
+    .await
+    .unwrap();
+    assert_eq!(again.imported, 0);
+    assert_eq!(again.skipped, 1);
+}
+
+#[tokio::test]
+async fn import_folders_dedupes_across_folders_in_one_run() {
+    let h = harness("imap-xfolder").await;
+    // The same Message-ID present in two remote folders is stored once (the
+    // first folder in priority order wins), not duplicated.
+    let folders = vec![
+        RawFolder {
+            target: FolderTarget::Role {
+                role: "inbox",
+                name: "Inbox",
+            },
+            messages: vec![fmsg("dup@imp", "dup", FetchedFlags::default())],
+        },
+        RawFolder {
+            target: FolderTarget::Named("Work".into()),
+            messages: vec![fmsg("dup@imp", "dup", FetchedFlags::default())],
+        },
+    ];
+    let out = import_folders(&h.acc, folders).await.unwrap();
+    assert_eq!(
+        out,
+        ImportOutcome {
+            imported: 1,
+            skipped: 1,
+            failed: 0
+        }
     );
 }
 

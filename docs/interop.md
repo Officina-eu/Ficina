@@ -409,13 +409,28 @@ today it is a module in alo-jmap, reusing its auth + store wiring.
 
 The **Import mail** wizard makes alo an IMAP *client* (distinct from the
 alo-imap *server*): it logs into a remote mailbox and copies recent mail
-into the user's Inbox. `POST /import/imap` → `imap_import`. Deliberate,
-recorded scope and quirks:
+into the user's alo mailboxes. `POST /import/imap` → `imap_import`.
+Deliberate, recorded scope and quirks:
 
-- **INBOX only, newest ≤500 messages.** We `SELECT INBOX` and fetch the
-  tail of the mailbox (`FETCH BODY.PEEK[]`, which does not set `\Seen` on
-  the source). Other folders, flags, and folder structure are out of scope
-  for this first cut (the broad "mailbox import" roadmap item covers them).
+- **All selectable folders, newest ≤500 messages total.** We `LIST "" "*"`,
+  then for each folder (INBOX first, then Sent/Drafts/Junk/Trash/Archive,
+  then user folders) `SELECT` + `FETCH (FLAGS BODY.PEEK[])` the tail, until
+  the shared 500-message budget is spent. `BODY.PEEK[]` does not set `\Seen`
+  on the source. Folder mapping: **special-use** (RFC 6154 `\Sent`/`\Drafts`/
+  `\Junk`/`\Trash`/`\Archive`) → the alo mailbox of that role (get-or-
+  created); otherwise a top-level mailbox created by the folder's **leaf**
+  name (`[Gmail]/Work` → `Work`). **Flags carried over:** `\Seen`→`$seen`,
+  `\Flagged`→`$flagged`, `\Answered`→`$answered`, `\Draft`→`$draft`.
+- **Gmail's virtual folders are skipped.** `\All` (All Mail), `\Flagged`
+  (Starred), and `\Important` overlap the real folders; importing them would
+  store every message a second time, so they are excluded. Non-selectable
+  (`\Noselect`/`\NonExistent`) folders are skipped too. A message that still
+  appears in two imported folders is stored **once** (dedup is per run, not
+  just against the store).
+- **Folder names are taken verbatim.** Modified-UTF-7 (RFC 3501 §5.1.3)
+  mailbox names are not decoded, so a non-ASCII remote folder keeps its
+  wire-encoded name; ASCII names (the overwhelming majority) are unaffected.
+  Decoding is a follow-up.
 - **Implicit-TLS only (port 993), certificate verified.** The user's
   password crosses the wire, so the TLS server certificate is verified
   against the Mozilla root set (webpki-roots) — an unverified/accept-any

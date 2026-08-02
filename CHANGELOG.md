@@ -13,10 +13,13 @@ contracts.
 - New: **Bring your old mail in (IMAP import).** A new **Import mail** item
   in your account menu pulls recent messages from another mailbox — pick
   **Gmail** or **Outlook** (the server address is filled in for you) or
-  enter any IMAP server, sign in, and your Inbox is copied into alo over a
-  verified TLS connection. Re-running is safe: messages already imported are
-  skipped, not duplicated. For Gmail and Outlook, use an app password (their
-  normal password won't work for mail apps).
+  enter any IMAP server, sign in, and your mail is copied into alo over a
+  verified TLS connection. **All your folders come across** — Sent, Drafts,
+  Junk, Trash, Archive and your own folders are recreated, and each
+  message keeps its read / starred / answered state. Re-running is safe:
+  messages already imported are skipped, not duplicated. For Gmail and
+  Outlook, use an app password (their normal password won't work for mail
+  apps).
 - Improved: **Mail works on a phone.** On a small screen the mailbox now
   shows one pane at a time — your message list, then the conversation
   when you tap it, with a back button to return — and folders slide in

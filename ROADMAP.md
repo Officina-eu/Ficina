@@ -212,13 +212,17 @@ document or a formula.
 - [ ] Tenant audit tool: Graph API scan → usage report, blocker flags (macros, Power Automate), readiness score, savings figure
 - [ ] Identity import from Entra ID; alo as IdP for the customer's other SaaS
 - [~] Mailbox import: mail, folders, rules, signatures, OOF, aliases; PST import.
-  **IMAP mail import built** — an account-menu wizard (Gmail/Outlook presets +
-  any IMAP server) and `POST /import/imap` (`imap_import`): SSRF-guarded connect,
-  verified-TLS (webpki-roots) implicit-TLS client, LOGIN/SELECT INBOX/`FETCH
-  BODY.PEEK[]` of the newest ≤500 messages, idempotent `Message-ID` dedup against
-  the store, honest imported/skipped/failed count; auth refusal → 401 with an
-  app-password hint. EN + FR. Wire-verified on prod (dedup, SSRF-block, auth-fail).
-  Remaining: other folders, flags/structure, rules/signatures/OOF/aliases, PST
+  **IMAP mail import built, all folders + flags** — an account-menu wizard
+  (Gmail/Outlook presets + any IMAP server) and `POST /import/imap`
+  (`imap_import`): SSRF-guarded connect, verified-TLS (webpki-roots) implicit-TLS
+  client, `LIST` + per-folder `SELECT`/`FETCH (FLAGS BODY.PEEK[])` of the newest
+  ≤500 messages across all selectable folders. Folder structure preserved
+  (special-use → role mailbox, others created by leaf name; Gmail virtual
+  `\All`/`\Flagged`/`\Important` skipped to avoid double-import); flags carried
+  over (`\Seen`/`\Flagged`/`\Answered`/`\Draft` → JMAP keywords); idempotent
+  `Message-ID` dedup (per-run + against the store); honest imported/skipped/failed;
+  auth refusal → 401 app-password hint. EN + FR. Wire-verified on prod.
+  Remaining: modified-UTF-7 folder-name decoding, rules/signatures/OOF/aliases, PST
 - [ ] Shared mailboxes + delegation permissions mapped
 - [ ] Calendar import: recurrences with exceptions, rooms/resources; Teams links in future events rewritten to alo Meet
 - [x] Contacts import/export: `.vcf` (vCard 4.0) bulk import (`POST /contacts/import`, multi-card split + per-card cap, honest imported/skipped count) and whole-address-book export (`GET /contacts/export`, a `text/vcard` attachment), wired into the address-book UI (Import/Export buttons, EN + FR). Migrates a Gmail/Outlook/Apple contacts export straight in
