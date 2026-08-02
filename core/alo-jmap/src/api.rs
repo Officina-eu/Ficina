@@ -24,6 +24,7 @@ const CAP_SIEVE: &str = "urn:ietf:params:jmap:sieve";
 const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
 /// alo extension: user-defined colored message categories (Category/get+set).
 const CAP_CATEGORIES: &str = "urn:alo:params:jmap:categories";
+const CAP_VACATION: &str = "urn:ietf:params:jmap:vacationresponse";
 
 /// `POST /jmap/api` — process a JMAP Request, return the Response.
 pub async fn api(
@@ -47,7 +48,7 @@ pub async fn api(
     for cap in using {
         match cap.as_str() {
             Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) | Some(CAP_SUBMISSION)
-            | Some(CAP_CATEGORIES) => {}
+            | Some(CAP_CATEGORIES) | Some(CAP_VACATION) => {}
             other => {
                 return Err(Problem::unknown_capability().detail(other.unwrap_or("").to_owned()));
             }
@@ -230,6 +231,8 @@ async fn dispatch(
         "Email/changes" => changes(account, args, alo_store::changes::TYPE_EMAIL, state).await,
         "Thread/get" => thread_get(account, args).await,
         "Identity/get" => identity_get(account, args, state).await,
+        "VacationResponse/get" => vacation_get(account, args).await,
+        "VacationResponse/set" => vacation_set(account, args).await,
         "SieveScript/get" => crate::sieve::get(account, args).await,
         "SieveScript/set" => crate::sieve::set(account, args).await,
         "SieveScript/validate" => crate::sieve::validate(account, args).await,
@@ -1226,6 +1229,125 @@ async fn identity_get(account: &Account, args: &Value, state: &AppState) -> Resu
         "state": acct_state,
         "list": list,
         "notFound": not_found,
+    }))
+}
+
+/// `VacationResponse/get` (RFC 8621 §8): the singleton auto-reply, mapped from
+/// the account's stored out-of-office (enabled + subject + message). We store no
+/// date range, so `fromDate`/`toDate` are null.
+async fn vacation_get(account: &Account, args: &Value) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let acct_state = account.acc.state().await.map_err(store_err)?;
+    let (enabled, subject, message) = account.acc.out_of_office().await.map_err(store_err)?;
+    let obj = json!({
+        "id": "singleton",
+        "isEnabled": enabled,
+        "fromDate": Value::Null,
+        "toDate": Value::Null,
+        "subject": if subject.is_empty() { Value::Null } else { json!(subject) },
+        "textBody": if message.is_empty() { Value::Null } else { json!(message) },
+        "htmlBody": Value::Null,
+    });
+    // The only id is "singleton"; a request for other ids yields notFound.
+    let (list, not_found) = match args.get("ids").and_then(Value::as_array) {
+        None => (vec![obj], Vec::new()),
+        Some(ids) => {
+            let mut list = Vec::new();
+            let mut not_found = Vec::new();
+            for id in ids {
+                if id.as_str() == Some("singleton") {
+                    list.push(obj.clone());
+                } else {
+                    not_found.push(id.clone());
+                }
+            }
+            (list, not_found)
+        }
+    };
+    Ok(json!({
+        "accountId": account.account_id(), "state": acct_state, "list": list, "notFound": not_found,
+    }))
+}
+
+/// `VacationResponse/set` (RFC 8621 §8): update the singleton auto-reply. Only
+/// `update` on `"singleton"` is meaningful (create/destroy are refused). Writes
+/// through the same path as the settings route (state + managed Sieve rebuild),
+/// so vacation coexists with the account's mail filters.
+async fn vacation_set(account: &Account, args: &Value) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let old_state = account.acc.state().await.map_err(store_err)?;
+    let mut updated = Map::new();
+    let mut not_updated = Map::new();
+
+    if let Some(update) = args.get("update").and_then(Value::as_object) {
+        for (id, patch) in update {
+            if id != "singleton" {
+                not_updated.insert(id.clone(), method_error("notFound"));
+                continue;
+            }
+            let (mut enabled, mut subject, mut message) =
+                account.acc.out_of_office().await.map_err(store_err)?;
+            if let Some(v) = patch.get("isEnabled").and_then(Value::as_bool) {
+                enabled = v;
+            }
+            if let Some(v) = patch.get("subject") {
+                subject = v.as_str().unwrap_or("").to_owned();
+            }
+            // We store one message body; prefer textBody, fall back to htmlBody.
+            if let Some(v) = patch.get("textBody") {
+                message = v.as_str().unwrap_or("").to_owned();
+            } else if let Some(v) = patch.get("htmlBody").and_then(Value::as_str) {
+                message = v.to_owned();
+            }
+            if enabled && message.trim().is_empty() {
+                not_updated.insert(
+                    id.clone(),
+                    method_error_desc("invalidProperties", "a message is required to enable vacation"),
+                );
+                continue;
+            }
+            if account
+                .acc
+                .set_out_of_office_state(enabled, subject.trim(), message.trim())
+                .await
+                .is_err()
+                || crate::filters::rebuild_managed_script(account).await.is_err()
+            {
+                not_updated.insert(id.clone(), method_error("serverFail"));
+                continue;
+            }
+            updated.insert(id.clone(), Value::Null);
+        }
+    }
+
+    // A singleton cannot be created or destroyed.
+    let mut not_created = Map::new();
+    if let Some(creates) = args.get("create").and_then(Value::as_object) {
+        for cid in creates.keys() {
+            not_created.insert(
+                cid.clone(),
+                method_error_desc("forbidden", "VacationResponse is a singleton"),
+            );
+        }
+    }
+    let mut not_destroyed = Map::new();
+    for id in args.get("destroy").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(s) = id.as_str() {
+            not_destroyed.insert(
+                s.to_owned(),
+                method_error_desc("forbidden", "VacationResponse is a singleton"),
+            );
+        }
+    }
+
+    let new_state = account.acc.state().await.map_err(store_err)?;
+    Ok(json!({
+        "accountId": account.account_id(),
+        "oldState": old_state,
+        "newState": new_state,
+        "updated": updated, "notUpdated": not_updated,
+        "created": Value::Null, "notCreated": not_created,
+        "destroyed": Vec::<Value>::new(), "notDestroyed": not_destroyed,
     }))
 }
 
