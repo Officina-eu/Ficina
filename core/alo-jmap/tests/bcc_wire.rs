@@ -174,6 +174,8 @@ async fn bcc_stripped_on_wire_delivered_by_envelope_kept_in_sent() {
         base_url: "http://test".into(),
         submission_addr: Some(sink_addr),
         junk_learner: None,
+        personal_domains: Vec::new(),
+        signup_limiter: alo_identity::ratelimit::RateLimiter::new(),
     };
     let account = Account {
         tenant: tenant.clone(),

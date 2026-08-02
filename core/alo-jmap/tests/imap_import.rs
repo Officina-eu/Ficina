@@ -139,14 +139,20 @@ async fn import_folders_maps_structure_and_flags() {
     let work_list = h.acc.list_mailbox(&work.id, Page::default()).await.unwrap();
     let work_msg = work_list.iter().find(|m| m.subject == "work-msg").unwrap();
     let kws = h.acc.keywords(&work_msg.id).await.unwrap();
-    assert!(kws.iter().any(|k| k == "$flagged"), "flag preserved: {kws:?}");
+    assert!(
+        kws.iter().any(|k| k == "$flagged"),
+        "flag preserved: {kws:?}"
+    );
 
     // The INBOX message's \Seen carried over as $seen.
     let inbox = h.acc.inbox().await.unwrap();
     let in_list = h.acc.list_mailbox(&inbox, Page::default()).await.unwrap();
     let in_msg = in_list.iter().find(|m| m.subject == "in-seen").unwrap();
     let in_kws = h.acc.keywords(&in_msg.id).await.unwrap();
-    assert!(in_kws.iter().any(|k| k == "$seen"), "seen preserved: {in_kws:?}");
+    assert!(
+        in_kws.iter().any(|k| k == "$seen"),
+        "seen preserved: {in_kws:?}"
+    );
 
     // Re-import → already present, skipped, no duplicate.
     let again = import_folders(

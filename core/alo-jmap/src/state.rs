@@ -31,6 +31,11 @@ pub struct AppState {
     /// Junk training: Rspamd learn calls on moves into/out of Junk.
     /// `None` disables training (mail management is unaffected).
     pub junk_learner: Option<std::sync::Arc<crate::junk_learn::JunkLearner>>,
+    /// Domains open to self-service personal signup (ADR 0018), lowercased.
+    /// Empty disables the signup surface.
+    pub personal_domains: Vec<String>,
+    /// In-process throttle for the public signup endpoints.
+    pub signup_limiter: alo_identity::ratelimit::RateLimiter,
 }
 
 /// The limits advertised in the Session resource and enforced on every

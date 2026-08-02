@@ -16,7 +16,8 @@ use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
     admin, ai, api, autoconfig, blob, carddav, contacts, delegates, docs, filters, flagdue,
-    imap_import_route, push, schedule, security, session, settings, share, snooze, unsubscribe,
+    imap_import_route, push, schedule, security, session, settings, share, signup_route, snooze,
+    unsubscribe,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -80,6 +81,12 @@ pub fn app(state: AppState) -> Router {
         .route("/mail/config-v1.1.xml", get(autoconfig::mozilla))
         // Outlook varies the casing of this path; register both forms since
         // axum routing is case-sensitive.
+        // Self-service personal signup (ADR 0018): unauthenticated, rate-
+        // limited; provisions an account only after the recovery-email code
+        // is verified.
+        .route("/signup/available", post(signup_route::available))
+        .route("/signup/begin", post(signup_route::begin))
+        .route("/signup/verify", post(signup_route::verify))
         .route(
             "/autodiscover/autodiscover.xml",
             get(autoconfig::outlook).post(autoconfig::outlook),
@@ -204,6 +211,16 @@ pub fn app_state(store: Arc<Store>, identity: Identity, base_url: impl Into<Stri
         base_url: base_url.into(),
         submission_addr: std::env::var("ALO_JMAP_SUBMISSION_ADDR").ok(),
         junk_learner: crate::junk_learn::JunkLearner::from_env(),
+        personal_domains: std::env::var("ALO_PERSONAL_DOMAINS")
+            .ok()
+            .map(|v| {
+                v.split(',')
+                    .map(|s| s.trim().to_ascii_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        signup_limiter: alo_identity::ratelimit::RateLimiter::new(),
     }
 }
 

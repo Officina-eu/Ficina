@@ -28,6 +28,7 @@ pub mod rfc2047;
 pub mod schedule;
 pub mod settings;
 pub mod share;
+pub mod signup;
 pub mod snooze;
 pub mod store;
 pub mod thread;
@@ -60,4 +61,5 @@ pub use model::{
 };
 pub use schedule::DueSend;
 pub use share::{ShareCreated, ShareTarget};
+pub use signup::PendingSignup;
 pub use store::{CATEGORY_KEYWORD_PREFIX, SEEN, Store, TenantStore, category_keyword};

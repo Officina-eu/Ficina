@@ -232,7 +232,11 @@ fn prepend_sender_header(bytes: &[u8], sender: &str) -> bytes::Bytes {
 }
 
 /// One SMTP transaction to the internal listener via the shared client.
-async fn submit(
+/// Relays a message through the trusted internal submission listener (which
+/// DKIM-signs and queues it). Shared by interactive/scheduled `EmailSubmission`
+/// and the system-originated signup verification mail. Addresses are never
+/// logged (Law 1) — only the outcome class.
+pub(crate) async fn submit(
     addr: &str,
     mail_from: &str,
     rcpts: &[String],
