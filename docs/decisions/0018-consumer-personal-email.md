@@ -113,7 +113,11 @@ model**, changing no isolation invariant.
    (migration 0035) + salted-hash codes + attempt cap + IP/recovery rate
    limiting. ✅ Deployed **dormant** (disabled until `ALO_PERSONAL_DOMAINS` is
    set) and wire-verified safely refusing all input.
-4. Public web signup page (i18n EN + FR). ⏳
+4. Public web signup page (`/signup`, i18n EN + FR): a three-step flow
+   (address + availability → code → password) over the `/signup/*` API, plus
+   `GET /signup/domains` so the page and the sign-in link hide themselves when
+   signup is off. ✅ Deployed **dormant** and wire-verified (page serves, the
+   domains list is empty, no signup link).
 5. Isolated consumer sending identity (IP/DKIM `d=`) + `ALO_PERSONAL_DOMAINS`
    + `alomails.com` DNS/MX/DKIM + operator docs — the **go-live** step. ⏳
 
