@@ -14,6 +14,50 @@
 use crate::id::ContactId;
 use crate::model::{Contact, ContactField};
 
+/// Splits a `.vcf` document (which may hold many cards) into its
+/// individual `BEGIN:VCARD`…`END:VCARD` blocks and parses each — the
+/// import path (Gmail/Outlook/Apple export one file with every
+/// contact). Malformed or nameless cards are skipped, never fatal.
+/// The number of blocks is bounded so a hostile upload cannot fan out
+/// unboundedly.
+pub fn from_vcards(input: &str) -> Vec<Contact> {
+    const MAX_CARDS: usize = 50_000;
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut inside = false;
+    for line in input.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.eq_ignore_ascii_case("BEGIN:VCARD") {
+            inside = true;
+            current.clear();
+        }
+        if inside {
+            current.push_str(line);
+            current.push('\n');
+        }
+        if trimmed.eq_ignore_ascii_case("END:VCARD") {
+            inside = false;
+            if let Some(contact) = from_vcard(&current) {
+                out.push(contact);
+                if out.len() >= MAX_CARDS {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Serializes many contacts into one `.vcf` document (each a full
+/// card) — the export path.
+pub fn to_vcards(contacts: &[Contact]) -> String {
+    let mut out = String::new();
+    for contact in contacts {
+        out.push_str(&to_vcard(contact));
+    }
+    out
+}
+
 /// Serializes a contact as a vCard 4.0 document (CRLF line endings).
 pub fn to_vcard(contact: &Contact) -> String {
     let mut out = String::new();
@@ -383,6 +427,34 @@ mod tests {
         assert_eq!(c.phones[0].kind.as_deref(), Some("work"));
         assert_eq!(c.organization.as_deref(), Some("Dupont & Fils"));
         assert_eq!(c.notes.as_deref(), Some("First line continued here"));
+    }
+
+    #[test]
+    fn splits_and_parses_a_multi_card_file() {
+        // Two cards plus a nameless one (skipped) and CRLF endings, as a
+        // real exporter emits.
+        let vcf = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ada Lovelace\r\nEMAIL:ada@eng.uk\r\nEND:VCARD\r\n\
+                   BEGIN:VCARD\r\nVERSION:4.0\r\nEND:VCARD\r\n\
+                   BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Bob Dupont\r\nTEL:+33\r\nEND:VCARD\r\n";
+        let contacts = from_vcards(vcf);
+        assert_eq!(contacts.len(), 2, "the nameless card is skipped");
+        assert_eq!(contacts[0].display_name, "Ada Lovelace");
+        assert_eq!(contacts[1].display_name, "Bob Dupont");
+    }
+
+    #[test]
+    fn export_then_import_round_trips_a_set() {
+        let set = vec![sample(), {
+            let mut c = sample();
+            c.id = ContactId::new("def456");
+            c.display_name = "Bob Second".to_owned();
+            c.first_name = Some("Bob".to_owned());
+            c.last_name = Some("Second".to_owned());
+            c
+        }];
+        let vcf = to_vcards(&set);
+        let back = from_vcards(&vcf);
+        assert_eq!(back, set, "export→import is lossless for a whole set");
     }
 
     #[test]

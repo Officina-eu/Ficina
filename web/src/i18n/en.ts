@@ -88,6 +88,16 @@ export const en = {
   contactSaveError: "Couldn't save this contact.",
   contactDeleteError: "Couldn't delete this contact.",
   contactNoEmail: "No email",
+  contactsImport: "Import",
+  contactsExport: "Export",
+  contactsImporting: "Importing…",
+  contactsImported: (n: number, skipped: number) =>
+    skipped > 0
+      ? `Imported ${n} contact${n === 1 ? "" : "s"} (${skipped} skipped).`
+      : `Imported ${n} contact${n === 1 ? "" : "s"}.`,
+  contactsImportError: "Couldn't import that file. Is it a .vcf export?",
+  contactsExportError: "Couldn't export your contacts.",
+  contactsExportEmpty: "You have no contacts to export yet.",
   signedInAs: "Signed in as",
   comingSoonTitle: "Coming soon",
   comingSoonBody: "This part of your workspace is on the way. Mail is ready now.",

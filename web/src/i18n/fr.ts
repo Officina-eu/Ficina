@@ -89,6 +89,16 @@ export const fr: Partial<Catalog> = {
   contactSaveError: "Impossible d’enregistrer ce contact.",
   contactDeleteError: "Impossible de supprimer ce contact.",
   contactNoEmail: "Aucun e-mail",
+  contactsImport: "Importer",
+  contactsExport: "Exporter",
+  contactsImporting: "Importation…",
+  contactsImported: (n: number, skipped: number) =>
+    skipped > 0
+      ? `${n} contact${n === 1 ? "" : "s"} importé${n === 1 ? "" : "s"} (${skipped} ignoré${skipped === 1 ? "" : "s"}).`
+      : `${n} contact${n === 1 ? "" : "s"} importé${n === 1 ? "" : "s"}.`,
+  contactsImportError: "Impossible d’importer ce fichier. S’agit-il d’un export .vcf ?",
+  contactsExportError: "Impossible d’exporter vos contacts.",
+  contactsExportEmpty: "Vous n’avez pas encore de contacts à exporter.",
   signedInAs: "Connecté en tant que",
   comingSoonTitle: "Bientôt disponible",
   comingSoonBody: "Cette partie de votre espace de travail arrive bientôt. Le Courrier est déjà prêt.",

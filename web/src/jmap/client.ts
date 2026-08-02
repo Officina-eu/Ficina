@@ -371,6 +371,25 @@ export class JmapClient {
     if (bad !== undefined) throw new JmapError("could not delete the contact");
   }
 
+  /** Imports a `.vcf` document (one or many cards); returns how many were
+   * imported and how many skipped. */
+  async importContacts(vcf: string): Promise<{ imported: number; skipped: number }> {
+    const res = await this.#fetch(`${window.location.origin}/contacts/import`, {
+      method: "POST",
+      headers: { "content-type": "text/vcard" },
+      body: vcf,
+    });
+    if (!res.ok) throw new JmapError(`import ${res.status}`);
+    return (await res.json()) as { imported: number; skipped: number };
+  }
+
+  /** The whole address book as a `.vcf` document (for download). */
+  async exportContacts(): Promise<string> {
+    const res = await this.#fetch(`${window.location.origin}/contacts/export`, { method: "GET" });
+    if (!res.ok) throw new JmapError(`export ${res.status}`);
+    return await res.text();
+  }
+
   /** Tags (or untags) a message with a category. */
   async setCategory(emailId: string, categoryId: string, on: boolean): Promise<void> {
     await this.#setKeyword(emailId, categoryKeyword(categoryId), on);

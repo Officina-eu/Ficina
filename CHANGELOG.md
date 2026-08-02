@@ -10,9 +10,10 @@ contracts.
   account menu lets you keep an address book — names, multiple emails
   and phone numbers, organization, job title, notes — with search,
   create, edit, and delete. Saved contacts show up first when you're
-  picking recipients in compose. Contacts speak the standard vCard
-  format under the hood, so they're ready to sync to phones and other
-  apps as that lands. (Device sync and import/export follow.)
+  picking recipients in compose. **Import and Export** move your whole
+  address book in and out as a standard `.vcf` file, so you can bring
+  your Gmail/Outlook/Apple contacts straight in (and back them up).
+  (Automatic device sync follows.)
 - New: **alo now speaks French — and can speak more.** A full,
   native-quality French translation of the whole app, switchable from a
   new **Language** control in your account menu; your choice is

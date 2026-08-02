@@ -7,14 +7,21 @@
 
 use std::collections::{HashMap, HashSet};
 
-use alo_store::AddressHeaders;
+use alo_store::{AddressHeaders, vcard};
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 
 use crate::error::Problem;
 use crate::state::{Account, AppState, authenticate};
+
+/// The largest `.vcf` upload accepted for import (a generous whole-address-
+/// book export; the per-card cap in `vcard::from_vcards` bounds the rest).
+const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 
 /// How many recent messages to mine, and how many contacts to return.
 const SCAN_MESSAGES: i64 = 2000;
@@ -79,6 +86,64 @@ fn merge_saved(saved: Vec<alo_store::Contact>, mined: Vec<Value>, own: &[String]
     }
     out.truncate(MAX_CONTACTS);
     out
+}
+
+/// `POST /contacts/import` — a `.vcf` body (one or many vCards, e.g. a
+/// Gmail/Outlook/Apple export). Each parseable card becomes a saved
+/// contact; unparseable or nameless cards are skipped. Returns
+/// `{"imported": n, "skipped": m}`. Contacts are created through the
+/// account door, so the import is tenant/user-scoped by construction.
+pub async fn import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    if body.len() > MAX_IMPORT_BYTES {
+        return Err(Problem::too_large());
+    }
+    let text = String::from_utf8_lossy(&body);
+    let parsed = vcard::from_vcards(&text);
+    let total_blocks = text.match_indices("BEGIN:VCARD").count();
+    let mut imported = 0u32;
+    for contact in &parsed {
+        match account.acc.create_contact(contact).await {
+            Ok(_) => imported += 1,
+            Err(error) => {
+                tracing::warn!(%error, "contact import: one card failed to store");
+            }
+        }
+    }
+    // Skipped = cards we couldn't parse into a contact, plus any that
+    // failed to store — reported honestly so the UI can surface it.
+    let skipped = total_blocks.saturating_sub(imported as usize);
+    Ok(Json(json!({ "imported": imported, "skipped": skipped })))
+}
+
+/// `GET /contacts/export` — the account's whole address book as a
+/// single `.vcf` (vCard 4.0) attachment, for backup or migration.
+pub async fn export(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let account = match authenticate(&state, &headers).await {
+        Ok(account) => account,
+        Err(problem) => return problem.into_response(),
+    };
+    let contacts = match account.acc.contacts().await {
+        Ok(contacts) => contacts,
+        Err(_) => return Problem::server_error().into_response(),
+    };
+    let body = vcard::to_vcards(&contacts);
+    let mut resp = (StatusCode::OK, body).into_response();
+    let h = resp.headers_mut();
+    h.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/vcard; charset=utf-8"),
+    );
+    h.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    h.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"contacts.vcf\""),
+    );
+    resp
 }
 
 /// The account's own addresses (canonical + aliases), lowercased — excluded from

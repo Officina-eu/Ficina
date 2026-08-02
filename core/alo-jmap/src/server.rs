@@ -62,6 +62,9 @@ pub fn app(state: AppState) -> Router {
         .route("/send-later/cancel", post(schedule::cancel_send))
         // Recent correspondents for compose recipient autocomplete.
         .route("/contacts", get(contacts::list))
+        // Address-book import (a .vcf upload) and export (whole book as .vcf).
+        .route("/contacts/import", post(contacts::import))
+        .route("/contacts/export", get(contacts::export))
         // alo Transfer: upload a large file (authenticated) for an expiring
         // link, and the PUBLIC download route the recipient's link points at.
         // The upload streams straight to storage, so its body limit is disabled

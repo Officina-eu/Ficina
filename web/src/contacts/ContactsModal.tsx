@@ -3,8 +3,8 @@
 // the right. Create, edit, and delete are wired straight to the JMAP
 // Contact API (Contact/get + Contact/set). Kept as a modal (like Settings)
 // so it needs no route — no Caddy prefix to collide with the API.
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Mail, Phone, Plus, Search, Trash2, UserPlus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Mail, Phone, Plus, Search, Trash2, Upload, UserPlus, X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Button, Spinner, cx } from "../ds";
@@ -87,6 +87,8 @@ export function ContactsModal({ onClose }: ContactsModalProps) {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     setLoadError(false);
@@ -164,6 +166,44 @@ export function ContactsModal({ onClose }: ContactsModalProps) {
     }
   }
 
+  async function onImportFile(file: File) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const vcf = await file.text();
+      const { imported, skipped } = await client.importContacts(vcf);
+      setContacts(await client.contacts());
+      setNotice(strings.contactsImported(imported, skipped));
+    } catch {
+      setNotice(strings.contactsImportError);
+    } finally {
+      setBusy(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  async function onExport() {
+    if ((contacts?.length ?? 0) === 0) {
+      setNotice(strings.contactsExportEmpty);
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const vcf = await client.exportContacts();
+      const url = URL.createObjectURL(new Blob([vcf], { type: "text/vcard" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "contacts.vcf";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setNotice(strings.contactsExportError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function remove() {
     if (selected === null || selected === "new") return;
     const contact = (contacts ?? []).find((c) => c.id === selected);
@@ -192,15 +232,46 @@ export function ContactsModal({ onClose }: ContactsModalProps) {
       >
         <div className={styles.head}>
           <h2 className={styles.title}>{strings.contactsTitle}</h2>
-          <button
-            type="button"
-            className={styles.close}
-            onClick={onClose}
-            aria-label={strings.contactCancel}
-          >
-            <X size={18} />
-          </button>
+          <div className={styles.headActions}>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".vcf,text/vcard"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void onImportFile(file);
+              }}
+            />
+            <button
+              type="button"
+              className={styles.headBtn}
+              onClick={() => fileInput.current?.click()}
+              disabled={busy}
+            >
+              <Upload size={15} />
+              {busy ? strings.contactsImporting : strings.contactsImport}
+            </button>
+            <button
+              type="button"
+              className={styles.headBtn}
+              onClick={onExport}
+              disabled={busy}
+            >
+              <Download size={15} />
+              {strings.contactsExport}
+            </button>
+            <button
+              type="button"
+              className={styles.close}
+              onClick={onClose}
+              aria-label={strings.contactCancel}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
+        {notice !== null && <p className={styles.notice}>{notice}</p>}
 
         <div className={styles.body}>
           <div className={styles.list}>

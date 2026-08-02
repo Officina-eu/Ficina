@@ -118,7 +118,7 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Agenda
 
-- [~] Contacts (address book): backend built — a tenant/user-scoped `contacts` store (migration 0034, multi-valued emails/phones as JSONB), full vCard 4.0 round-trip (`alo-store::vcard`: FN/N/EMAIL/TEL/ORG/TITLE/NOTE/UID, folding + escaping, lenient parse), and a JMAP Contacts API (`Contact/get`/`Contact/set`, `urn:ietf:params:jmap:contacts`) with tenant isolation tested at both the store and API layers. Saved contacts now surface first in compose recipient autocomplete. **Web address-book UI built** — a two-pane modal (searchable list + editable detail) opened from the account menu, with create/edit/delete, dynamic multi-value emails/phones with type labels, server-derived display name, fully localized (EN + FR). Follow-on: `alo-dav` CardDAV for device sync, and vCard import/export UI
+- [~] Contacts (address book): backend built — a tenant/user-scoped `contacts` store (migration 0034, multi-valued emails/phones as JSONB), full vCard 4.0 round-trip (`alo-store::vcard`: FN/N/EMAIL/TEL/ORG/TITLE/NOTE/UID, folding + escaping, lenient parse), and a JMAP Contacts API (`Contact/get`/`Contact/set`, `urn:ietf:params:jmap:contacts`) with tenant isolation tested at both the store and API layers. Saved contacts now surface first in compose recipient autocomplete. **Web address-book UI built** — a two-pane modal (searchable list + editable detail) opened from the account menu, with create/edit/delete, dynamic multi-value emails/phones with type labels, server-derived display name, fully localized (EN + FR). vCard import/export is built (see "Contacts import/export"). Follow-on: `alo-dav` CardDAV for device sync
 - [ ] `alo-dav`: CalDAV/CardDAV over the store (contacts store + vCard now exist; CardDAV protocol layer is the remaining piece for device sync)
 - [ ] Events, invitations (iTIP/iMIP), free/busy, recurring events with exceptions (the interop minefield — its own test corpus)
 - [ ] Shared calendars, room/resource booking
@@ -205,7 +205,7 @@ document or a formula.
 - [ ] Mailbox import: mail, folders, rules, signatures, OOF, aliases; PST import
 - [ ] Shared mailboxes + delegation permissions mapped
 - [ ] Calendar import: recurrences with exceptions, rooms/resources; Teams links in future events rewritten to alo Meet
-- [ ] Contacts import
+- [x] Contacts import/export: `.vcf` (vCard 4.0) bulk import (`POST /contacts/import`, multi-card split + per-card cap, honest imported/skipped count) and whole-address-book export (`GET /contacts/export`, a `text/vcard` attachment), wired into the address-book UI (Import/Export buttons, EN + FR). Migrates a Gmail/Outlook/Apple contacts export straight in
 - [ ] OneDrive/SharePoint import with permission mapping + unmappable-items report
 - [ ] Autodiscover/autoconfig endpoints: clients self-configure from an email address
 - [ ] Cutover safety: dual delivery during DNS propagation, read-only archive of old tenant, per-user rollback

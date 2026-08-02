@@ -121,6 +121,35 @@ pub async fn get(app: &Router, token: &str, path: &str) -> (StatusCode, Value) {
     send(app, req).await
 }
 
+/// GETs `path` and returns the raw response body as text (for non-JSON
+/// endpoints, e.g. the `.vcf` export).
+pub async fn get_text(app: &Router, token: &str, path: &str) -> (StatusCode, String) {
+    let req = Request::builder()
+        .method("GET")
+        .uri(path)
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024 * 1024)
+        .await
+        .unwrap();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// POSTs a raw text/bytes body to `path` (e.g. a `.vcf` import).
+pub async fn post_raw(app: &Router, token: &str, path: &str, body: &str) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "text/vcard")
+        .body(Body::from(body.to_owned()))
+        .unwrap();
+    send(app, req).await
+}
+
 /// A single method call wrapped in a Request envelope.
 pub fn call(method: &str, args: Value) -> Value {
     serde_json::json!({
