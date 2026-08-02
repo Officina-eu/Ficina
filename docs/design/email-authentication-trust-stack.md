@@ -106,6 +106,18 @@ session runs long:
   stamping and sealing onto an existing chain (`i>1`, needs that
   validation at ingress) remain follow-ups. Off-switch:
   `ALO_SMTP_ARC_SEALING=off`.
+- **DANE (RFC 7672)** — **built** for outbound: `alo-smtp`'s resolver
+  fetches `_25._tcp.<mx>` TLSA over a DNSSEC-validating hickory
+  resolver (we validate the chain ourselves; the public upstreams are
+  untrusted transport), and `alo-smtp-client::dane` enforces —
+  secure usable set → mandatory DANE-EE-verified TLS (name/expiry
+  ignored per §3.1.1, handshake signatures still verified), secure
+  unusable set (e.g. DANE-TA only) → mandatory unauthenticated TLS,
+  lookup failure → the MX host is skipped, never downgraded.
+  Deviation, recorded in `resolver.rs`: we enforce on any secure TLSA
+  regardless of MX-RRset security (§2.2.1) — strictly stronger.
+  Off-switch: `ALO_SMTP_DANE=off`. Deferred: DANE-TA(2) chain
+  building.
 - **TLS-RPT report generation** (e) — the MTA-STS policy is served;
   the TLS-RPT *reporting* side is deferred (needs per-policy TLS
   outcome tracking in `alo-smtp-client`). DMARC aggregate-report

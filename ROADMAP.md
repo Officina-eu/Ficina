@@ -68,6 +68,8 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
   - Deferred: TLS-RPT (`_smtp._tls` JSON) report delivery — needs per-policy TLS session outcome tracking in the outbound client first
 - [x] ARC sealing (RFC 8617 first hop `i=1; cv=none` on Sieve-redirect forwards, sealed with the forwarding tenant's DKIM key; chain validator cross-checked against dkimpy both directions; `ALO_SMTP_ARC_SEALING=off` kill switch)
   - Deferred: inbound `arc=` stamping in Authentication-Results + sealing onto an existing chain (`i>1`) — the validator exists; wiring it at ingress is a follow-up
+- [x] DANE for outbound (RFC 7672: per-MX `_25._tcp` TLSA over a DNSSEC-validating resolver — hickory validates the chain itself; secure usable set → mandatory DANE-EE-verified TLS, secure unusable set → mandatory unauthenticated TLS, TLSA lookup failure → host skipped, never downgraded; `ALO_SMTP_DANE=off` kill switch)
+  - Deferred: DANE-TA(2) chain building (such records count as unusable → TLS still mandatory); secure-MX gating per §2.2.1 (we enforce on any secure TLSA — strictly stronger, recorded in `resolver.rs`)
   - Deferred from M4 (sanctioned cut seam): chain validation + AAR/AMS/AS sealing; needed for mailing-list forwarding, not first-hop receive/submit
 - [x] MTA-STS published for our domains (M4b: RFC 8461 policy rendered from config — mode/mx/max_age, content-derived `id` — and served at `GET /.well-known/mta-sts.txt` behind the deploy TLS proxy; DNS records documented)
   - Deferred (sanctioned cut seam): TLS-RPT report JSON (`_smtp._tls` reporting)

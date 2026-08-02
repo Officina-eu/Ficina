@@ -66,6 +66,35 @@ pub enum DeliveryError {
     /// Write-side transport failure.
     #[error("I/O writing to server: {0}")]
     Io(#[from] std::io::Error),
+    /// The destination's TLS policy (DANE, RFC 7672) could not be
+    /// satisfied: STARTTLS was required but not offered, or the
+    /// certificate matched no TLSA record. Always transient — once TLS
+    /// is required, delivery never falls back to cleartext.
+    #[error("TLS policy failure for {host}: {reason}")]
+    TlsPolicy {
+        /// Destination host.
+        host: String,
+        /// What was violated.
+        reason: String,
+    },
+}
+
+/// How strongly TLS is required for one outbound connection
+/// (RFC 7672 §2.2). The queue derives this per MX host from its
+/// DNSSEC-validated TLSA lookup.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum TlsRequirement {
+    /// Encrypt when offered, deliver in cleartext otherwise — the
+    /// default for hosts without (secure) TLSA records.
+    #[default]
+    Opportunistic,
+    /// TLS is mandatory but unauthenticated: a secure TLSA set exists
+    /// yet none of its records are usable by this client (§2.2 —
+    /// "unusable" still forbids cleartext).
+    Required,
+    /// TLS is mandatory and the end-entity certificate must match one
+    /// of these (DNSSEC-secured) TLSA records (DANE-EE, §3.1.1).
+    DaneEe(Vec<crate::dane::TlsaRecord>),
 }
 
 /// One live outbound connection, greeted and EHLO'd (and STARTTLS-upgraded
@@ -89,13 +118,14 @@ impl OutboundSession {
         ips: &[IpAddr],
         port: u16,
         our_hostname: &str,
+        tls: TlsRequirement,
     ) -> Result<Self, DeliveryError> {
         let mut last_reason = "no addresses to try".to_owned();
         for ip in ips {
             let addr = SocketAddr::new(*ip, port);
             match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
                 Ok(Ok(stream)) => {
-                    return Self::handshake(stream, addr, host, our_hostname).await;
+                    return Self::handshake(stream, addr, host, our_hostname, tls).await;
                 }
                 Ok(Err(error)) => last_reason = format!("{addr}: {error}"),
                 Err(_elapsed) => last_reason = format!("{addr}: connect timed out"),
@@ -113,7 +143,16 @@ impl OutboundSession {
     /// [`DeliveryError`] — connect failures and pre-MAIL rejections.
     pub async fn connect_addr(addr: SocketAddr, our_hostname: &str) -> Result<Self, DeliveryError> {
         match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
-            Ok(Ok(stream)) => Self::handshake(stream, addr, &addr.to_string(), our_hostname).await,
+            Ok(Ok(stream)) => {
+                Self::handshake(
+                    stream,
+                    addr,
+                    &addr.to_string(),
+                    our_hostname,
+                    TlsRequirement::Opportunistic,
+                )
+                .await
+            }
             Ok(Err(error)) => Err(DeliveryError::Connect {
                 host: addr.to_string(),
                 reason: error.to_string(),
@@ -130,6 +169,7 @@ impl OutboundSession {
         peer: SocketAddr,
         host: &str,
         our_hostname: &str,
+        tls: TlsRequirement,
     ) -> Result<Self, DeliveryError> {
         let mut session = Self {
             stream: BufReader::new(MaybeTls::Plain(stream)),
@@ -141,12 +181,21 @@ impl OutboundSession {
             return Err(reject("greeting", greeting));
         }
         let ehlo = session.ehlo(our_hostname).await?;
-        // Opportunistic STARTTLS (RFC 3207): if the peer offers it, upgrade
-        // before sending anything. A server that offers TLS but fails the
-        // handshake is a transient failure — we never silently fall back to
-        // cleartext once TLS was on the table (downgrade protection).
+        // STARTTLS (RFC 3207): if the peer offers it, upgrade before
+        // sending anything. A server that offers TLS but fails the
+        // handshake is a transient failure — we never silently fall back
+        // to cleartext once TLS was on the table (downgrade protection).
+        // Under a DANE policy (RFC 7672 §2.2) the offer itself is
+        // mandatory: a peer not advertising STARTTLS is a policy
+        // violation, not a cleartext fallback.
         if ehlo.advertises("STARTTLS") {
-            session.starttls(host, our_hostname).await?;
+            session.starttls(host, our_hostname, &tls).await?;
+        } else if tls != TlsRequirement::Opportunistic {
+            return Err(DeliveryError::TlsPolicy {
+                host: host.to_owned(),
+                reason: "TLSA records require TLS, but the server does not offer STARTTLS"
+                    .to_owned(),
+            });
         }
         tracing::debug!(peer = %peer, %host, tls = session.tls, "outbound session established");
         Ok(session)
@@ -175,9 +224,24 @@ impl OutboundSession {
 
     /// Upgrades the channel with STARTTLS (RFC 3207) and re-issues EHLO over the
     /// encrypted link. Any failure is returned (transient to the queue).
-    async fn starttls(&mut self, host: &str, our_hostname: &str) -> Result<(), DeliveryError> {
+    /// Under [`TlsRequirement::DaneEe`] the handshake authenticates the
+    /// peer against the TLSA records instead of accepting any cert.
+    async fn starttls(
+        &mut self,
+        host: &str,
+        our_hostname: &str,
+        requirement: &TlsRequirement,
+    ) -> Result<(), DeliveryError> {
         let reply = self.command("STARTTLS", MAIL_TIMEOUT, "STARTTLS").await?;
         if reply.code != 220 {
+            // A refused STARTTLS under a DANE policy is a policy
+            // violation (no cleartext fallback), not a mere rejection.
+            if *requirement != TlsRequirement::Opportunistic {
+                return Err(DeliveryError::TlsPolicy {
+                    host: host.to_owned(),
+                    reason: format!("STARTTLS refused with {}", reply.code),
+                });
+            }
             return Err(reject("STARTTLS", reply));
         }
         // STARTTLS-injection guard (CVE-2011-0411 class): a server must send
@@ -188,8 +252,13 @@ impl OutboundSession {
                 reason: "server pipelined data before the TLS handshake".to_owned(),
             }));
         }
-        let tls = connector()
-            .ok_or_else(|| DeliveryError::Io(std::io::Error::other("TLS provider unavailable")))?;
+        // The connector embodies the policy: DANE-EE installs the TLSA
+        // verifier; Opportunistic/Required (encrypt-only) accept any cert.
+        let tls = match requirement {
+            TlsRequirement::DaneEe(records) => crate::dane::dane_connector(records.clone()),
+            TlsRequirement::Opportunistic | TlsRequirement::Required => connector(),
+        }
+        .ok_or_else(|| DeliveryError::Io(std::io::Error::other("TLS provider unavailable")))?;
         // Swap the plaintext socket out (buffer verified empty above) and wrap
         // it — the buffered reader is discarded only after that check.
         let plain = std::mem::replace(&mut self.stream, BufReader::new(MaybeTls::Taken));
@@ -204,7 +273,18 @@ impl OutboundSession {
             .map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out")
             })?
-            .map_err(DeliveryError::Io)?;
+            .map_err(|error| {
+                // Under DANE, a failed handshake is a policy violation
+                // (typically the TLSA mismatch raised by our verifier).
+                if matches!(requirement, TlsRequirement::DaneEe(_)) {
+                    DeliveryError::TlsPolicy {
+                        host: host.to_owned(),
+                        reason: format!("TLS handshake failed under DANE: {error}"),
+                    }
+                } else {
+                    DeliveryError::Io(error)
+                }
+            })?;
         self.stream = BufReader::new(MaybeTls::Tls(Box::new(upgraded)));
         self.tls = true;
         // §4.2: discard the prior EHLO state and re-issue it over TLS.

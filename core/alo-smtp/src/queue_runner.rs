@@ -15,7 +15,20 @@ use crate::spool::Spool;
 /// server — inbound mail must keep flowing.
 pub fn spawn(spool: Arc<Spool>, hostname: String, outbound: OutboundConfig) {
     let resolver = match DnsResolver::from_system() {
-        Ok(resolver) => Arc::new(resolver),
+        Ok(resolver) => {
+            // DANE (RFC 7672): TLSA over a DNSSEC-validating resolver;
+            // hosts publishing secure TLSA get mandatory verified TLS.
+            if outbound.dane {
+                tracing::info!("DANE (TLSA) enforcement enabled for outbound delivery");
+                Arc::new(resolver.with_dane())
+            } else {
+                tracing::warn!(
+                    "DANE disabled ({}) — outbound TLS stays opportunistic everywhere",
+                    crate::config::ENV_DANE
+                );
+                Arc::new(resolver)
+            }
+        }
         Err(error) => {
             tracing::error!(%error, "could not build DNS resolver; outbound disabled");
             return;

@@ -15,6 +15,9 @@ tracing = { workspace = true }
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
+# TLSA certificate matching for DANE (RFC 7672/6698): SHA-256/SHA-512
+# digests of the presented certificate or its SPKI.
+sha2 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

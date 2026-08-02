@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- New: **Outgoing mail to DANE-protected servers is now
+  tamper-proof-encrypted** (RFC 7672). When a destination publishes
+  DNSSEC-signed TLSA records, alo validates the DNSSEC chain itself,
+  makes TLS mandatory (no downgrade-to-cleartext, ever), and verifies
+  the server's certificate against the published records — closing the
+  classic STARTTLS-stripping attack for those destinations. Servers
+  without TLSA keep today's opportunistic encryption. Operators can
+  disable with `ALO_SMTP_DANE=off`.
 - New: **DMARC aggregate reports are now sent** (RFC 7489 §7.2). The MX
   records every inbound DMARC evaluation and a daily job mails each
   sender domain's published `rua=` address a gzipped XML report of what

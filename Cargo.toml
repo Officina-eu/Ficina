@@ -21,7 +21,7 @@ jiff = "0.2"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # Async MX/A/AAAA resolution for outbound delivery (RFC 5321 §5.1).
 # Pinned ≥0.26.1: earlier hickory-proto carries RUSTSEC-2026-0119.
-hickory-resolver = "0.26"
+hickory-resolver = { version = "0.26", features = ["dnssec-ring"] }
 # TLS via rustls with the ring provider (pure Rust, no OpenSSL/C — see
 # ADR/doctrine "Rust below the waterline"). tls12 for broad client
 # compatibility; STARTTLS (RFC 3207) and implicit TLS.

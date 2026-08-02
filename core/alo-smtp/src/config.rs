@@ -83,6 +83,10 @@ pub const ENV_DMARC_REPORT_MIN_AGE_SECS: &str = "ALO_SMTP_DMARC_REPORT_MIN_AGE_S
 /// Environment variable for the reporter tick interval in seconds
 /// (default 3600 — hourly sweeps, daily windows).
 pub const ENV_DMARC_REPORT_TICK_SECS: &str = "ALO_SMTP_DMARC_REPORT_TICK_SECS";
+/// Environment flag for DANE (RFC 7672) on outbound delivery.
+/// **Default on**; set to `false`/`off` to disable — outbound TLS then
+/// falls back to opportunistic everywhere (the rollback switch).
+pub const ENV_DANE: &str = "ALO_SMTP_DANE";
 /// Environment variable naming the Rspamd controller URL
 /// (`http://host:port`); unset disables spam scanning.
 pub const ENV_RSPAMD_URL: &str = "ALO_SMTP_RSPAMD_URL";
@@ -260,6 +264,9 @@ pub struct OutboundConfig {
     pub max_attempts: u32,
     /// Queue polling interval.
     pub queue_interval: std::time::Duration,
+    /// DANE (RFC 7672): validate TLSA and enforce verified TLS where a
+    /// secure record set exists. [`ENV_DANE`]`=off` disables.
+    pub dane: bool,
 }
 
 impl SmtpConfig {
@@ -551,12 +558,16 @@ impl SmtpConfig {
         let queue_interval = Duration::from_secs(
             env_u64(ENV_QUEUE_INTERVAL_SECS, DEFAULT_QUEUE_INTERVAL_SECS)?.max(1),
         );
+        // DANE defaults ON (a secure TLSA set means the destination
+        // asked for verified TLS); the env var is the off-switch.
+        let dane = std::env::var(ENV_DANE).is_err() || env_bool(ENV_DANE)?;
         Ok(Some(OutboundConfig {
             smarthost,
             retry_base,
             retry_cap,
             max_attempts,
             queue_interval,
+            dane,
         }))
     }
 }

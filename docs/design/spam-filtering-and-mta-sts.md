@@ -86,7 +86,9 @@ is unsetting the addr and dropping the `_mta-sts` TXT to `id` change.
 ### Out of scope
 
 TLS-RPT report *generation/collection* (`_smtp._tls` reporting) — a
-sanctioned cut seam; only the MTA-STS side ships here. DANE/TLSA.
+sanctioned cut seam; only the MTA-STS side ships here. ~~DANE/TLSA~~
+(since built: outbound DANE lives in `alo-smtp-client::dane` +
+`alo-smtp::resolver`, see the trust-stack design note).
 
 ## Rejected alternatives
 

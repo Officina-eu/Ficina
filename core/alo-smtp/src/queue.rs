@@ -17,7 +17,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::backoff;
-use crate::client::{DeliveryError, OutboundSession, RcptOutcome, SMTP_PORT};
+use crate::client::{DeliveryError, OutboundSession, RcptOutcome, SMTP_PORT, TlsRequirement};
 use crate::dsn::{self, FailedRecipient};
 use crate::envelope::Envelope;
 use crate::resolver::{MailHost, MxResolve, ResolveFailure};
@@ -386,6 +386,7 @@ impl Queue {
         message: &[u8],
         rcpts: &[String],
     ) -> Result<Vec<RcptOutcome>, DeliveryError> {
+        let mut dane = "opportunistic";
         let mut session = match &self.policy.route {
             Route::Smarthost(addr) => {
                 OutboundSession::connect_addr(*addr, &self.policy.hostname).await?
@@ -402,10 +403,16 @@ impl Queue {
                         &host.ips,
                         SMTP_PORT,
                         &self.policy.hostname,
+                        host.tls.clone(),
                     )
                     .await
                     {
                         Ok(session) => {
+                            dane = match &host.tls {
+                                TlsRequirement::Opportunistic => "opportunistic",
+                                TlsRequirement::Required => "tls-required",
+                                TlsRequirement::DaneEe(_) => "dane-verified",
+                            };
                             connected = Some(session);
                             break;
                         }
@@ -419,7 +426,12 @@ impl Queue {
             }
         };
 
-        tracing::info!(tls = session.is_tls(), rcpts = rcpts.len(), "delivering outbound");
+        tracing::info!(
+            tls = session.is_tls(),
+            dane,
+            rcpts = rcpts.len(),
+            "delivering outbound"
+        );
         let result = session
             .deliver(envelope.mail_from.as_deref(), rcpts, message)
             .await;

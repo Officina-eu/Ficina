@@ -12,5 +12,6 @@
 
 pub mod client;
 pub mod client_reply;
+pub mod dane;
 pub mod line;
 pub mod tls;
