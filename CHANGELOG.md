@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- New: **Abuse controls for inbound and outbound mail.** A single
+  source IP can no longer monopolise the server — each is capped to a
+  fair number of simultaneous connections (excess get a polite "try
+  again"), and unknown senders are greylisted (briefly deferred, which
+  most spam sources never retry). Outbound, a per-destination send-rate
+  limit protects the server's sending reputation if an account is ever
+  compromised — a sudden flood is smoothed into a steady trickle rather
+  than blasted out. All tunable, and the outbound limiter is off by
+  default for single-tenant servers.
 - New: **Incoming mail is scanned for malware** (ClamAV, ~3.6 M
   signatures, auto-updating). A message carrying a known threat is
   refused at the door with a clear reason — it never reaches a

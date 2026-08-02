@@ -76,6 +76,8 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [x] Rspamd integrated at SMTP time; verdict wired to reply codes and headers (M4b: HTTP `/checkv2` consult at DATA → reject=550, soft-reject/greylist=451, else accept with `x-spam` merged into Authentication-Results; **fail-closed 451** when the scanner is unreachable; verified end-to-end with real Rspamd 4.1.2 — GTUBE → 550)
   - [x] Junk training: `Email/set` moves into/out of the Junk role call the Rspamd controller's learnspam/learnham (best-effort spawned, never gates the move; `ALO_JMAP_RSPAMD_URL` env, off when unset). Deploy gains a pinned redis (Bayes token store — previously Bayes was silently dead: no backend) + `secure_ip` controller access on the private network
   - [x] ClamAV malware scanning at DATA (clamd INSTREAM over the private network, pinned `clamav/clamav:1.4.5` with a persistent signature volume; signature match → 550 5.7.1 with the sanitized signature name, scanner outage → **fail-closed 451** exactly like Rspamd; >20 MiB messages pass unscanned, loudly logged; `ALO_SMTP_CLAMAV_ADDR` env, off when unset)
+  - [x] Abuse controls: native per-source-IP concurrent-connection cap (accept-loop, IPv6 bucketed by /64, over cap → 421; `ALO_SMTP_MAX_CONNECTIONS_PER_IP`, default 20) + greylisting (Rspamd greylist module, now redis-backed → `soft reject`/451 for unknown triplets) + outbound per-destination-domain send-rate limiting (token bucket in the queue, over-rate → defer-not-bounce, protects sending-IP reputation; `ALO_SMTP_OUTBOUND_RATE_PER_MIN`/`_BURST`, off by default)
+  - Deferred: FBL/ARF complaint handling (needs an inbound `abuse@`/complaint mailbox + RFC 5965 ARF parsing → auto-suppress; its own item)
 
 ### Store & APIs
 

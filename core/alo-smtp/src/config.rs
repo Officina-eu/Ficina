@@ -21,6 +21,9 @@ pub const ENV_MAX_MESSAGE_SIZE: &str = "ALO_SMTP_MAX_MESSAGE_SIZE";
 pub const ENV_MAX_RCPT: &str = "ALO_SMTP_MAX_RCPT";
 /// Environment variable for the concurrent-connection cap.
 pub const ENV_MAX_CONNECTIONS: &str = "ALO_SMTP_MAX_CONNECTIONS";
+/// Environment variable for the per-source-IP concurrent-connection cap
+/// (native inbound abuse control; `0` disables). IPv6 is bucketed by /64.
+pub const ENV_MAX_CONNECTIONS_PER_IP: &str = "ALO_SMTP_MAX_CONNECTIONS_PER_IP";
 /// Environment flag enabling outbound delivery (off by default — see
 /// the relay-safety note on [`OutboundConfig`]).
 pub const ENV_OUTBOUND_ENABLED: &str = "ALO_SMTP_OUTBOUND_ENABLED";
@@ -34,6 +37,13 @@ pub const ENV_RETRY_CAP_SECS: &str = "ALO_SMTP_RETRY_CAP_SECS";
 pub const ENV_MAX_ATTEMPTS: &str = "ALO_SMTP_MAX_ATTEMPTS";
 /// Environment variable for the queue polling interval in seconds.
 pub const ENV_QUEUE_INTERVAL_SECS: &str = "ALO_SMTP_QUEUE_INTERVAL_SECS";
+/// Environment variable for the outbound per-destination-domain send
+/// rate (messages/minute; `0` disables). Protects sending-IP reputation
+/// from a compromised account.
+pub const ENV_OUTBOUND_RATE_PER_MIN: &str = "ALO_SMTP_OUTBOUND_RATE_PER_MIN";
+/// Environment variable for the outbound rate burst depth (max
+/// instantaneous messages to one domain; defaults to the per-minute rate).
+pub const ENV_OUTBOUND_RATE_BURST: &str = "ALO_SMTP_OUTBOUND_RATE_BURST";
 /// Environment variable for the submission (STARTTLS) listener address.
 pub const ENV_SUBMISSION_ADDR: &str = "ALO_SMTP_SUBMISSION_ADDR";
 /// Environment variable for the implicit-TLS submission listener address.
@@ -126,6 +136,10 @@ const MIN_MAX_RCPT: usize = 100;
 /// 64K octets — a lower configured cap ships a non-compliant server.
 const MIN_MESSAGE_SIZE: usize = 64 * 1024;
 const DEFAULT_MAX_CONNECTIONS: usize = 256;
+/// Default per-IP concurrent-connection cap: generous for legitimate
+/// shared MTAs, still far below the global cap so one host cannot
+/// monopolise it.
+const DEFAULT_MAX_CONNECTIONS_PER_IP: usize = 20;
 const DEFAULT_RETRY_BASE_SECS: u64 = 60;
 const DEFAULT_RETRY_CAP_SECS: u64 = 3600;
 const DEFAULT_MAX_ATTEMPTS: u32 = 8;
@@ -166,6 +180,9 @@ pub struct SmtpConfig {
     /// Concurrent-connection cap; excess connections are greeted with
     /// 421 and closed so one host cannot pin unlimited tasks.
     pub max_connections: usize,
+    /// Per-source-IP concurrent-connection cap (`0` disables). Bounds a
+    /// single host's share of `max_connections`; IPv6 counts by /64.
+    pub max_connections_per_ip: usize,
     /// Outbound delivery settings; `None` means receive-only.
     pub outbound: Option<OutboundConfig>,
     /// Submission (STARTTLS, port 587) listener; `None` disables it.
@@ -290,6 +307,11 @@ pub struct OutboundConfig {
     /// DANE (RFC 7672): validate TLSA and enforce verified TLS where a
     /// secure record set exists. [`ENV_DANE`]`=off` disables.
     pub dane: bool,
+    /// Outbound send rate per destination domain (messages/minute; `0`
+    /// disables). [`ENV_OUTBOUND_RATE_PER_MIN`].
+    pub rate_per_min: u32,
+    /// Outbound rate burst depth. [`ENV_OUTBOUND_RATE_BURST`].
+    pub rate_burst: u32,
 }
 
 impl SmtpConfig {
@@ -347,6 +369,8 @@ impl SmtpConfig {
                 message: format!("{ENV_MAX_CONNECTIONS} must be at least 1"),
             });
         }
+        let max_connections_per_ip =
+            env_usize(ENV_MAX_CONNECTIONS_PER_IP, DEFAULT_MAX_CONNECTIONS_PER_IP)?;
 
         let outbound = Self::outbound_from_env()?;
 
@@ -449,6 +473,7 @@ impl SmtpConfig {
             max_message_size,
             max_rcpt,
             max_connections,
+            max_connections_per_ip,
             outbound,
             submission_addr,
             implicit_tls_addr,
@@ -607,6 +632,10 @@ impl SmtpConfig {
         // DANE defaults ON (a secure TLSA set means the destination
         // asked for verified TLS); the env var is the off-switch.
         let dane = std::env::var(ENV_DANE).is_err() || env_bool(ENV_DANE)?;
+        // Outbound rate limiting is off unless configured (a
+        // single-tenant server rarely needs it; a shared host does).
+        let rate_per_min = env_u64(ENV_OUTBOUND_RATE_PER_MIN, 0)? as u32;
+        let rate_burst = env_u64(ENV_OUTBOUND_RATE_BURST, u64::from(rate_per_min))? as u32;
         Ok(Some(OutboundConfig {
             smarthost,
             retry_base,
@@ -614,6 +643,8 @@ impl SmtpConfig {
             max_attempts,
             queue_interval,
             dane,
+            rate_per_min,
+            rate_burst,
         }))
     }
 }

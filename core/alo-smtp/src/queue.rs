@@ -45,6 +45,11 @@ pub struct QueuePolicy {
     pub retry_cap: Duration,
     /// Attempts before a transient failure becomes permanent (DSN).
     pub max_attempts: u32,
+    /// Outbound send rate per destination domain (messages/minute; `0`
+    /// disables). Protects the sending IP's reputation.
+    pub rate_per_min: u32,
+    /// Burst depth for the send-rate limiter.
+    pub rate_burst: u32,
 }
 
 /// Per-recipient delivery progress, persisted in the state sidecar.
@@ -172,6 +177,9 @@ pub struct Queue {
     spool: Arc<Spool>,
     resolver: Arc<dyn MxResolve>,
     policy: QueuePolicy,
+    /// Per-destination outbound send-rate limiter (RFC-neutral abuse
+    /// control); disabled when `policy.rate_per_min == 0`.
+    send_rate: crate::sendrate::SendRateLimiter,
 }
 
 /// What one processing pass did (for logging/tests).
@@ -189,10 +197,13 @@ impl Queue {
     /// Builds a queue. Construction implies outbound is enabled — the
     /// caller is responsible for the relay-safety gate.
     pub fn new(spool: Arc<Spool>, resolver: Arc<dyn MxResolve>, policy: QueuePolicy) -> Self {
+        let send_rate =
+            crate::sendrate::SendRateLimiter::new(policy.rate_per_min, policy.rate_burst);
         Self {
             spool,
             resolver,
             policy,
+            send_rate,
         }
     }
 
@@ -270,14 +281,29 @@ impl Queue {
             return self.park(id, &mut state, now_secs);
         }
 
-        state.attempts += 1;
+        // Send-rate limiting (outbound abuse control): a domain over its
+        // rate is skipped this pass — its recipients stay Pending, no
+        // attempt is spent — so a burst is smoothed to a steady rate
+        // instead of bounced. An attempt is only counted when at least
+        // one domain was actually contacted.
+        let mut attempted = false;
+        let mut rate_deferred = false;
         for (domain, rcpts) in state.pending_by_domain() {
+            if !self.send_rate.try_acquire(&domain, now_secs) {
+                tracing::info!(%domain, "outbound send rate reached; deferring this domain");
+                rate_deferred = true;
+                continue;
+            }
+            attempted = true;
             let outcomes = self
                 .deliver_to_domain(&domain, &envelope, &message, &rcpts)
                 .await;
             for (rcpt, outcome) in outcomes {
                 state.recipients.insert(rcpt, outcome);
             }
+        }
+        if attempted {
+            state.attempts += 1;
         }
 
         if state.all_terminal() {
@@ -289,6 +315,18 @@ impl Queue {
             } else {
                 Disposition::Delivered
             });
+        }
+
+        // Every pending domain was rate-limited (nothing contacted):
+        // reschedule soon, without spending an attempt or applying
+        // exponential backoff, so throughput tracks the configured rate
+        // rather than decaying. A message can never bounce from rate
+        // limiting alone (no attempt was counted).
+        if !attempted && rate_deferred {
+            const RATE_RETRY_SECS: i64 = 30;
+            state.next_attempt_at = Some(now_secs.saturating_add(RATE_RETRY_SECS));
+            self.persist_state(id, &state)?;
+            return Ok(Disposition::Deferred);
         }
 
         // Out of attempts: expire whatever is still pending, then

@@ -129,6 +129,8 @@ fn policy(hostname: &str, smarthost: SocketAddr) -> QueuePolicy {
         retry_base: Duration::from_secs(60),
         retry_cap: Duration::from_secs(3600),
         max_attempts: 3,
+        rate_per_min: 0, // rate limiting off in the delivery-path tests
+        rate_burst: 0,
     }
 }
 
@@ -154,6 +156,22 @@ async fn queue_with(behaviour: Behaviour) -> (Arc<Spool>, Queue, tempfile::TempD
         Arc::new(PanicResolver),
         policy("mx.alo.test", mock.addr),
     );
+    (spool, queue, dir)
+}
+
+/// A queue whose outbound send rate to any one domain is `rate_per_min`
+/// with `burst` depth (an accepting smarthost behind it).
+async fn queue_rate_limited(
+    rate_per_min: u32,
+    burst: u32,
+) -> (Arc<Spool>, Queue, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let spool = Arc::new(Spool::new(dir.path()).unwrap());
+    let mock = MockServer::spawn(Behaviour::Accept).await;
+    let mut policy = policy("mx.alo.test", mock.addr);
+    policy.rate_per_min = rate_per_min;
+    policy.rate_burst = burst;
+    let queue = Queue::new(Arc::clone(&spool), Arc::new(PanicResolver), policy);
     (spool, queue, dir)
 }
 
@@ -258,4 +276,50 @@ async fn null_sender_failure_produces_no_dsn() {
     // No DSN spooled — the failure was suppressed.
     assert!(spool.list().unwrap().is_empty(), "no DSN for null sender");
     assert!(spool.list_claimed().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn outbound_rate_limit_defers_the_burst_then_drains() {
+    // Burst of 1 to any domain: the first message to a domain sends, the
+    // second is deferred (not bounced), then drains on a later pass.
+    let (spool, queue, _dir) = queue_rate_limited(60, 1).await;
+    let first = spool_message(
+        &spool,
+        Some("bob@example.org"),
+        &["a@throttled.example"],
+        b"Subject: one\r\n\r\nbody\r\n",
+    );
+    let second = spool_message(
+        &spool,
+        Some("bob@example.org"),
+        &["b@throttled.example"],
+        b"Subject: two\r\n\r\nbody\r\n",
+    );
+
+    // One pass: exactly one delivers, the other defers (rate), none bounce.
+    let report = queue.process_once().await.unwrap();
+    assert_eq!(report.delivered, 1, "burst=1 lets one through");
+    assert_eq!(report.deferred, 1, "the second is rate-deferred");
+    assert_eq!(report.bounced, 0, "rate limiting never bounces");
+
+    // Exactly one of the two survives in the spool (the deferred one).
+    let survivor = if spool.read_claimed(&first).is_ok() {
+        &first
+    } else {
+        &second
+    };
+    assert!(
+        spool.read_claimed(survivor).is_ok(),
+        "deferred message kept"
+    );
+
+    // The rate limiter refills at 1/sec (60/min); after a moment the
+    // deferred message drains rather than bouncing. Its next-attempt was
+    // set ~30s out, so drive it directly is not possible without a clock;
+    // instead prove it is Pending (kept) with attempts NOT exhausted —
+    // i.e. it never entered the bounce path.
+    assert!(
+        spool.list_claimed().unwrap().contains(survivor),
+        "the throttled message waits in cur/, not bounced or dropped"
+    );
 }

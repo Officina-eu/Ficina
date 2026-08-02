@@ -45,6 +45,8 @@ pub fn spawn(spool: Arc<Spool>, hostname: String, outbound: OutboundConfig) {
         retry_base: outbound.retry_base,
         retry_cap: outbound.retry_cap,
         max_attempts: outbound.max_attempts,
+        rate_per_min: outbound.rate_per_min,
+        rate_burst: outbound.rate_burst,
     };
     let interval = outbound.queue_interval;
     let queue = Queue::new(spool, resolver, policy);

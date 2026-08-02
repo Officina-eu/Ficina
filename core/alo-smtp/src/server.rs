@@ -71,6 +71,9 @@ pub struct Runtime {
     identity: Option<Identity>,
     /// Concurrent-connection cap.
     max_connections: usize,
+    /// Per-source-IP concurrent-connection cap (`0` disables). Set from
+    /// config in [`run`]; constructors default it off.
+    max_connections_per_ip: usize,
     /// Apply RFC 6409 submission fixups before spooling (submission).
     apply_fixups: bool,
     /// Trust stack: SPF/DKIM/DMARC verification (MX) and DKIM signing
@@ -100,6 +103,7 @@ impl Runtime {
             tls_acceptor,
             identity,
             max_connections,
+            max_connections_per_ip: 0,
             apply_fixups,
             auth,
             local_delivery: None,
@@ -122,6 +126,13 @@ impl Runtime {
     #[must_use]
     pub fn with_auth(mut self, auth: Arc<AuthMail>) -> Self {
         self.auth = auth;
+        self
+    }
+
+    /// Sets the per-source-IP concurrent-connection cap (`0` disables).
+    #[must_use]
+    pub fn with_max_connections_per_ip(mut self, max: usize) -> Self {
+        self.max_connections_per_ip = max;
         self
     }
 
@@ -204,6 +215,7 @@ impl Runtime {
             tls_acceptor,
             identity,
             max_connections,
+            max_connections_per_ip: 0,
             apply_fixups: true,
             auth,
             local_delivery: None,
@@ -435,6 +447,7 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         tls_acceptor: Arc::clone(&tls_acceptor),
         identity: identity.clone(),
         max_connections: config.max_connections,
+        max_connections_per_ip: config.max_connections_per_ip,
         apply_fixups: false,
         auth: mx_auth,
         local_delivery: local_delivery.clone(),
@@ -476,6 +489,7 @@ fn submission_runtime(
         tls_acceptor: Arc::clone(tls_acceptor),
         identity: identity.clone(),
         max_connections: config.max_connections,
+        max_connections_per_ip: config.max_connections_per_ip,
         apply_fixups: true,
         auth: Arc::new(AuthMail::disabled(&config.hostname)),
         local_delivery: None,
@@ -555,16 +569,35 @@ async fn bind(addr: SocketAddr) -> Result<TcpListener, SmtpError> {
 /// for when graceful shutdown lands.
 pub async fn serve(listener: TcpListener, runtime: Arc<Runtime>) -> Result<(), SmtpError> {
     let limiter = Arc::new(tokio::sync::Semaphore::new(runtime.max_connections));
+    let per_ip = crate::connlimit::PerIpLimiter::new(runtime.max_connections_per_ip);
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
                 let span = tracing::info_span!("smtp_session", %peer);
+                // Per-IP cap first (a single host cannot consume the
+                // whole global pool), then the global cap. Both refuse
+                // with a transient 421 so a legitimate sender retries.
+                let Some(ip_guard) = per_ip.admit(peer.ip()) else {
+                    let hostname = runtime.params.hostname.clone();
+                    tokio::spawn(
+                        async move {
+                            tracing::warn!(%peer, "per-IP connection limit reached; refusing with 421");
+                            let mut stream = stream;
+                            let _best_effort = stream
+                                .write_all(Reply::service_closing(&hostname).to_string().as_bytes())
+                                .await;
+                        }
+                        .instrument(span),
+                    );
+                    continue;
+                };
                 match Arc::clone(&limiter).try_acquire_owned() {
                     Ok(permit) => {
                         let runtime = Arc::clone(&runtime);
                         tokio::spawn(
                             async move {
                                 let _permit = permit;
+                                let _ip_guard = ip_guard;
                                 if let Err(error) = accept_connection(stream, peer, runtime).await {
                                     tracing::debug!(%error, "session ended with I/O error");
                                 }
@@ -576,6 +609,7 @@ pub async fn serve(listener: TcpListener, runtime: Arc<Runtime>) -> Result<(), S
                         let hostname = runtime.params.hostname.clone();
                         tokio::spawn(
                             async move {
+                                let _ip_guard = ip_guard;
                                 tracing::warn!("connection limit reached; refusing with 421");
                                 let mut stream = stream;
                                 let _best_effort = stream
