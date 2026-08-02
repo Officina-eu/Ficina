@@ -466,3 +466,48 @@ the *email* domain, so discovery needs records pointing that domain's
 domain) at this server, plus Caddy vhosts for them. This is deployment wiring,
 documented in `deploy/production/README.md`; the endpoints themselves are
 verifiable directly on the server origin.
+
+## Deliverability + real-client interop (prod verification, 2026-08-02)
+
+Verified against the live server (`mail.namel3ss.com`) driving IMAPS/SMTPS
+with Python's stdlib `imaplib`/`smtplib` — the same protocols Thunderbird and
+Apple Mail speak underneath.
+
+**Trust stack** (`GET /admin/security/checks` against the email domain):
+
+| Check | Result |
+|---|---|
+| SPF | pass — `v=spf1 mx -all` (strict) |
+| DKIM | pass — key published at `fic._domainkey` |
+| DMARC | pass — `p=quarantine; adkim=s; aspf=s` (strict alignment) |
+| MX | pass — → `mail.namel3ss.com` |
+| **PTR (reverse DNS)** | **FAIL** — the sending IP has no PTR. **Operator action, set at the hosting/IP provider (not DNS zone):** Gmail/Outlook spam-file or reject senders whose PTR doesn't match. This is the one open inbox-placement blocker. |
+| MTA-STS | warn — not published (optional; improves inbound TLS enforcement). |
+
+**Real-client loop** (all over TLS, one round): IMAPS `LOGIN`, `SELECT INBOX`,
+`SEARCH ALL`, `SEARCH SUBJECT "<multi word>"`, `STORE ±FLAGS (\Flagged)`
+round-trip; SMTPS `EHLO`/`AUTH`/submission. A self-addressed probe was
+delivered and found by subject search in **~6 s**, then expunged. Send →
+receive → search → flag all pass.
+
+**Client quirk — multi-word SEARCH must be quoted (imaplib, our own tooling).**
+`imaplib`'s `M.uid("search", None, "SUBJECT", "two words")` sends the argument
+**unquoted** (`SUBJECT two words`), which the server *correctly* reads as
+`SUBJECT "two"` AND a sequence-set `words` → zero hits. Quoting the argument
+(`SUBJECT "two words"`) returns the expected matches. The alo-imap SEARCH
+parser and substring evaluator are RFC-correct (verified on the wire and in
+`core/alo-imap/src/search.rs`); real GUI clients quote their SEARCH strings, so
+this bites only hand-rolled `imaplib` scripts — noted so our own test tooling
+always quotes.
+
+**Observation — self-send routes outbound then loops back via MX** (`delivering
+outbound` → `delivered to store` in the alo-smtp log, message growing by the
+added Received/DKIM headers), rather than a direct local hand-off. Harmless
+for delivery; it just means a message to your own domain takes the full
+send+receive path (and so ~seconds, not instant).
+
+**Still needs external accounts (cannot self-verify here):** confirming our
+mail lands in the **inbox** (not spam) at Gmail / Outlook.com / Proton from the
+warmed IP — do this once the PTR record is set, since PTR is the dominant
+factor. The GUI-client matrix (Thunderbird, Apple Mail, Gmail-app IMAP) beyond
+the protocol-level loop above is also outstanding.

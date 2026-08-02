@@ -98,8 +98,16 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 ### Exit gate — Phase 1 done when:
 
 - [ ] The founder's real daily mail runs on alo via Thunderbird + a raw JMAP client, for two continuous weeks, zero lost messages
-- [ ] Interop pass recorded: Thunderbird, Apple Mail, Gmail-app-via-IMAP send/receive/flag/search correctly (transcripts in `docs/interop.md` where quirks surfaced)
-- [ ] Deliverability: our mail reaches Gmail/Outlook.com/Proton inboxes (not spam) from the warmed IP
+- [~] Interop pass recorded: Thunderbird, Apple Mail, Gmail-app-via-IMAP send/receive/flag/search correctly (transcripts in `docs/interop.md` where quirks surfaced).
+  **Protocol-level loop verified on prod** (2026-08-02, IMAPS+SMTPS): LOGIN/SELECT/
+  SEARCH ALL/SEARCH SUBJECT (quoted)/STORE flag + AUTH/SEND; send→receive→search in
+  ~6s; imaplib multi-word-quoting quirk recorded in `docs/interop.md`. Remaining: the
+  GUI-client matrix (the actual Thunderbird/Apple Mail/Gmail apps)
+- [~] Deliverability: our mail reaches Gmail/Outlook.com/Proton inboxes (not spam) from the warmed IP.
+  **Trust stack verified on prod** (SPF/DKIM/DMARC/MX all pass, strict alignment).
+  **Blocker: PTR (reverse DNS) is unset** — must be set at the IP/hosting provider;
+  it dominates inbox placement. MTA-STS optional/unpublished. External-inbox receipt
+  test pending the PTR fix (see `docs/interop.md`)
 
 ## Phase 2 — Product layer ⇄ (may overlap Phase 1 tail)
 
