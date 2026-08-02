@@ -84,6 +84,7 @@ pub fn app(state: AppState) -> Router {
         // Self-service personal signup (ADR 0018): unauthenticated, rate-
         // limited; provisions an account only after the recovery-email code
         // is verified.
+        .route("/signup/domains", get(signup_route::domains))
         .route("/signup/available", post(signup_route::available))
         .route("/signup/begin", post(signup_route::begin))
         .route("/signup/verify", post(signup_route::verify))

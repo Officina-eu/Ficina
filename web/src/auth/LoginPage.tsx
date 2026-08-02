@@ -2,14 +2,15 @@
 // a charcoal brand panel beside the credentials form — that hands off to the
 // dedicated Two-factor screen when the account has 2FA. The app owns the form
 // (the IdP renders none) and maps provider outcomes to plain error text.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { strings } from "../i18n";
 import { Button, Spinner } from "../ds";
 import { Logo } from "../shell/Logo";
+import { signupDomains } from "../signup/api";
 import { useAuth } from "./AuthProvider";
 import { AuthError } from "./oidcClient";
 import { TwoFactorScreen } from "./TwoFactorScreen";
@@ -31,6 +32,18 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Show the "create a personal account" link only when personal signup is
+  // actually enabled (ADR 0018); dormant deployments never surface it.
+  const [signupOn, setSignupOn] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void signupDomains().then((d) => {
+      if (live) setSignupOn(d.length > 0);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   async function attempt(otp?: string) {
     setSubmitting(true);
@@ -193,6 +206,14 @@ export function LoginPage() {
             <KeyRound size={18} />
             <span>{strings.signInWithSso}</span>
           </button>
+
+          {signupOn && (
+            <p className={styles.signupPrompt}>
+              <Link to="/signup" className={styles.linkButton}>
+                {strings.signupCreateLink}
+              </Link>
+            </p>
+          )}
         </form>
       </main>
     </div>

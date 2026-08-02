@@ -257,3 +257,10 @@
     display: none;
   }
 }
+
+/* The personal-signup prompt under the sign-in form (ADR 0018). */
+.signupPrompt {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}

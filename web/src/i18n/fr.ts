@@ -172,6 +172,41 @@ export const fr: Partial<Catalog> = {
   errorNetwork: "Impossible de joindre le serveur. Vérifiez votre connexion et réessayez.",
   signingOut: "Déconnexion…",
 
+  // signup — comptes personnels (ADR 0018)
+  signupHeading: "Créez votre adresse alo personnelle",
+  signupSubtitle: "Une messagerie privée et souveraine — sans publicité ni pistage.",
+  signupAddressLabel: "Choisissez votre adresse",
+  signupPickPlaceholder: "votrenom",
+  signupRecoveryLabel: "Votre e-mail actuel",
+  signupRecoveryHint:
+    "Nous y enverrons un code de vérification — il servira aussi d'adresse de récupération.",
+  signupSendCode: "Envoyer le code de vérification",
+  signupSending: "Envoi…",
+  signupChecking: "Vérification…",
+  signupAvailable: "Cette adresse est disponible",
+  signupTaken: "Cette adresse est déjà prise",
+  signupReserved: "Cette adresse est réservée",
+  signupInvalid: "Utilisez 3 à 64 lettres, chiffres, points ou tirets",
+  signupVerifyHeading: "Saisissez votre code",
+  signupVerifySubtitle: (recovery: string) =>
+    `Nous avons envoyé un code à 6 chiffres à ${recovery}. Il expire dans 10 minutes.`,
+  signupCodeLabel: "Code de vérification",
+  signupPasswordLabel: "Choisissez un mot de passe",
+  signupPasswordHint: "Au moins 8 caractères.",
+  signupCreate: "Créer le compte",
+  signupCreating: "Création de votre compte…",
+  signupResend: "Renvoyer le code",
+  signupVerifyError: "Ce code est incorrect ou a expiré. Veuillez réessayer.",
+  signupBeginError: "Nous n'avons pas pu envoyer le code. Veuillez réessayer.",
+  signupDoneHeading: "Tout est prêt",
+  signupDoneBody: (email: string) =>
+    `${email} est prête. Connectez-vous avec votre nouvelle adresse et votre mot de passe.`,
+  signupGoToLogin: "Aller à la connexion",
+  signupUnavailable: "Les inscriptions personnelles ne sont pas ouvertes pour le moment.",
+  signupHaveAccount: "Vous avez déjà un compte ?",
+  signupBackToLogin: "Se connecter",
+  signupCreateLink: "Créer un compte personnel",
+
   // mail
   mailLoading: "Chargement de votre courrier…",
   mailSearching: "Recherche…",

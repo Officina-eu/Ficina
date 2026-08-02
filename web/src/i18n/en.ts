@@ -171,6 +171,41 @@ export const en = {
   errorNetwork: "Cannot reach the server. Check your connection and try again.",
   signingOut: "Signing out…",
 
+  // signup — personal accounts (ADR 0018)
+  signupHeading: "Create your personal alo address",
+  signupSubtitle: "Private, sovereign email — no ads, no tracking, ever.",
+  signupAddressLabel: "Choose your address",
+  signupPickPlaceholder: "yourname",
+  signupRecoveryLabel: "Your current email",
+  signupRecoveryHint:
+    "We'll send a verification code here — it also becomes your account-recovery address.",
+  signupSendCode: "Send verification code",
+  signupSending: "Sending…",
+  signupChecking: "Checking…",
+  signupAvailable: "That address is available",
+  signupTaken: "That address is already taken",
+  signupReserved: "That address is reserved",
+  signupInvalid: "Use 3–64 letters, numbers, dots, or dashes",
+  signupVerifyHeading: "Enter your code",
+  signupVerifySubtitle: (recovery: string) =>
+    `We sent a 6-digit code to ${recovery}. It expires in 10 minutes.`,
+  signupCodeLabel: "Verification code",
+  signupPasswordLabel: "Choose a password",
+  signupPasswordHint: "At least 8 characters.",
+  signupCreate: "Create account",
+  signupCreating: "Creating your account…",
+  signupResend: "Resend code",
+  signupVerifyError: "That code is incorrect or has expired. Please try again.",
+  signupBeginError: "We couldn't send the code. Please try again.",
+  signupDoneHeading: "You're all set",
+  signupDoneBody: (email: string) =>
+    `${email} is ready. Sign in with your new address and password.`,
+  signupGoToLogin: "Go to sign in",
+  signupUnavailable: "Personal signups aren't open right now.",
+  signupHaveAccount: "Already have an account?",
+  signupBackToLogin: "Sign in",
+  signupCreateLink: "Create a personal account",
+
   // mail
   mailLoading: "Loading your mail…",
   mailSearching: "Searching…",

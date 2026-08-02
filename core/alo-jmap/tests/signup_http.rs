@@ -86,6 +86,33 @@ async fn pending_signup_store_roundtrip() {
 }
 
 #[tokio::test]
+async fn domains_lists_configured_and_empty_when_off() {
+    let h = harness("signup-domains").await;
+    let domain = unique_domain("dom");
+
+    // Configured: the domain is listed.
+    let on = signup_app(Arc::clone(&h.store), h.identity.clone(), vec![domain.clone()]);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/signup/domains")
+        .body(Body::empty())
+        .unwrap();
+    let (s, body) = send(&on, req).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(body["domains"][0], domain);
+
+    // Dormant (no domains): an empty list, so the UI hides signup.
+    let off = signup_app(Arc::clone(&h.store), h.identity.clone(), Vec::new());
+    let req = Request::builder()
+        .method("GET")
+        .uri("/signup/domains")
+        .body(Body::empty())
+        .unwrap();
+    let (_s, body) = send(&off, req).await;
+    assert_eq!(body["domains"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
 async fn available_reports_status() {
     let h = harness("signup-avail").await;
     let domain = unique_domain("avail");

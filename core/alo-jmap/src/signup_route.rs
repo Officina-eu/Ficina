@@ -55,6 +55,13 @@ struct VerifyRequest {
     password: String,
 }
 
+/// `GET /signup/domains` → `{domains: [...]}` — the domains open to personal
+/// signup. Empty means the surface is disabled; the web page reads this to
+/// show the address suffix and to hide signup when it is off.
+pub async fn domains(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({ "domains": state.personal_domains }))
+}
+
 /// `POST /signup/available` → `{available, reason}`. `reason` is a stable
 /// machine string the web UI localises (`ok`/`invalid`/`reserved`/
 /// `unavailable_domain`/`taken`).

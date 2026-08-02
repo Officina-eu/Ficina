@@ -7,6 +7,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { useLocale } from "./i18n";
 import { AuthProvider, LoginPage, RequireAuth } from "./auth";
+import { SignupPage } from "./signup";
 import { AppShell, ComingSoon, defaultModulePath, modules } from "./shell";
 import { Spinner } from "./ds";
 import { HomeModule } from "./home";
@@ -55,6 +56,9 @@ export function App() {
         <Fragment key={locale}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Public personal signup (ADR 0018); the page hides itself when no
+              personal domains are configured. */}
+          <Route path="/signup" element={<SignupPage />} />
           {/* The OIDC redirect target; the login flow reads the code inline, so
               a stray navigation here just returns to the app. */}
           <Route path="/auth/callback" element={<Navigate to={defaultModulePath} replace />} />
