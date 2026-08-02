@@ -6,13 +6,13 @@ contracts.
 
 ## Unreleased
 
-- New: **Address book (contacts).** You can now save contacts — names,
-  multiple emails and phone numbers, organization, job title, notes —
-  and saved contacts show up first when you're picking recipients in
-  compose. Contacts speak the standard vCard format under the hood, so
-  they're ready to sync to phones and other apps as that lands. (This
-  release ships the storage and API; the on-screen address book and
-  device sync follow.)
+- New: **Address book (contacts).** A new **Contacts** panel in your
+  account menu lets you keep an address book — names, multiple emails
+  and phone numbers, organization, job title, notes — with search,
+  create, edit, and delete. Saved contacts show up first when you're
+  picking recipients in compose. Contacts speak the standard vCard
+  format under the hood, so they're ready to sync to phones and other
+  apps as that lands. (Device sync and import/export follow.)
 - New: **alo now speaks French — and can speak more.** A full,
   native-quality French translation of the whole app, switchable from a
   new **Language** control in your account menu; your choice is

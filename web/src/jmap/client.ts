@@ -7,12 +7,15 @@ import {
   MAIL_CAPABILITY,
   SUBMISSION_CAPABILITY,
   CATEGORIES_CAPABILITY,
+  CONTACTS_CAPABILITY,
   categoryKeyword,
   type AdminGroup,
   type AdminUser,
   type AiProvider,
   type AuditEntry,
   type Category,
+  type Contact,
+  type ContactDraft,
   type ControlDomain,
   type ControlTenant,
   type EmailAddress,
@@ -184,7 +187,13 @@ export class JmapClient {
   async #request(methodCalls: MethodCall[]): Promise<JmapResponse> {
     const session = await this.session();
     const body: JmapRequest = {
-      using: [CORE_CAPABILITY, MAIL_CAPABILITY, SUBMISSION_CAPABILITY, CATEGORIES_CAPABILITY],
+      using: [
+        CORE_CAPABILITY,
+        MAIL_CAPABILITY,
+        SUBMISSION_CAPABILITY,
+        CATEGORIES_CAPABILITY,
+        CONTACTS_CAPABILITY,
+      ],
       methodCalls,
     };
     let response: Response;
@@ -320,6 +329,46 @@ export class JmapClient {
     const res = await this.#request([["Category/set", { accountId, destroy: [id] }, "s"]]);
     const bad = (this.#result(res, "s").notDestroyed as Record<string, unknown> | undefined)?.[id];
     if (bad !== undefined) throw new JmapError("could not delete the category");
+  }
+
+  /** The account's saved address-book contacts, in name order. */
+  async contacts(): Promise<Contact[]> {
+    const accountId = await this.accountId();
+    const res = await this.#request([["Contact/get", { accountId, ids: null }, "c"]]);
+    return (this.#result(res, "c").list as Contact[]) ?? [];
+  }
+
+  /** Creates a contact from a draft; returns its new id. */
+  async createContact(draft: ContactDraft): Promise<string> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      ["Contact/set", { accountId, create: { c: draft } }, "s"],
+    ]);
+    const result = this.#result(res, "s");
+    const created = (result.created as Record<string, { id: string }> | undefined)?.c;
+    if (created === undefined) {
+      const bad = (result.notCreated as Record<string, { description?: string }> | undefined)?.c;
+      throw new JmapError(bad?.description ?? "could not create the contact");
+    }
+    return created.id;
+  }
+
+  /** Replaces a contact's fields (a full draft, not a partial patch). */
+  async updateContact(id: string, draft: ContactDraft): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([
+      ["Contact/set", { accountId, update: { [id]: draft } }, "s"],
+    ]);
+    const bad = (this.#result(res, "s").notUpdated as Record<string, { description?: string }> | undefined)?.[id];
+    if (bad !== undefined) throw new JmapError(bad.description ?? "could not update the contact");
+  }
+
+  /** Deletes a contact. */
+  async deleteContact(id: string): Promise<void> {
+    const accountId = await this.accountId();
+    const res = await this.#request([["Contact/set", { accountId, destroy: [id] }, "s"]]);
+    const bad = (this.#result(res, "s").notDestroyed as Record<string, unknown> | undefined)?.[id];
+    if (bad !== undefined) throw new JmapError("could not delete the contact");
   }
 
   /** Tags (or untags) a message with a category. */

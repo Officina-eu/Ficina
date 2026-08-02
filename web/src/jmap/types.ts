@@ -7,6 +7,39 @@ export const CORE_CAPABILITY = "urn:ietf:params:jmap:core";
 export const SUBMISSION_CAPABILITY = "urn:ietf:params:jmap:submission";
 /** alo extension: user-defined colored message categories (Category/get+set). */
 export const CATEGORIES_CAPABILITY = "urn:alo:params:jmap:categories";
+/** JMAP Contacts (RFC 9610): the address book (Contact/get+set). */
+export const CONTACTS_CAPABILITY = "urn:ietf:params:jmap:contacts";
+
+/** One typed value on a contact — an email or phone with an optional label. */
+export interface ContactField {
+  kind: string | null;
+  value: string;
+}
+
+/** An address-book contact, as `Contact/get` returns it. */
+export interface Contact {
+  id: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+  emails: ContactField[];
+  phones: ContactField[];
+  organization: string | null;
+  jobTitle: string | null;
+  notes: string | null;
+}
+
+/** The editable fields of a contact (a create/update patch). */
+export interface ContactDraft {
+  name?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  emails?: ContactField[];
+  phones?: ContactField[];
+  organization?: string | null;
+  jobTitle?: string | null;
+  notes?: string | null;
+}
 
 export interface Session {
   apiUrl: string;
