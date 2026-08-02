@@ -15,8 +15,8 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, blob, carddav, contacts, delegates, docs, filters, flagdue, imap_import_route,
-    push, schedule, security, session, settings, share, snooze, unsubscribe,
+    admin, ai, api, autoconfig, blob, carddav, contacts, delegates, docs, filters, flagdue,
+    imap_import_route, push, schedule, security, session, settings, share, snooze, unsubscribe,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -68,6 +68,26 @@ pub fn app(state: AppState) -> Router {
         // Import wizard: pull recent mail from a remote IMAP host (Gmail/
         // Outlook/…) into the user's Inbox.
         .route("/import/imap", post(imap_import_route::import))
+        // Mail-client autoconfiguration (unauthenticated, public settings
+        // only): a mail app configures itself from just an email address.
+        // Mozilla format (Thunderbird / Apple Mail) at the .well-known path
+        // and the autoconfig-subdomain path; Microsoft POX (Outlook) at the
+        // autodiscover path. Operator DNS wiring is in the deploy README.
+        .route(
+            "/.well-known/autoconfig/mail/config-v1.1.xml",
+            get(autoconfig::mozilla),
+        )
+        .route("/mail/config-v1.1.xml", get(autoconfig::mozilla))
+        // Outlook varies the casing of this path; register both forms since
+        // axum routing is case-sensitive.
+        .route(
+            "/autodiscover/autodiscover.xml",
+            get(autoconfig::outlook).post(autoconfig::outlook),
+        )
+        .route(
+            "/Autodiscover/Autodiscover.xml",
+            get(autoconfig::outlook).post(autoconfig::outlook),
+        )
         // CardDAV (RFC 6352): native contact sync for phones and desktops.
         // Any WebDAV method routes to the one handler, which dispatches by
         // method + path; well-known bootstraps discovery.

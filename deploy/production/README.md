@@ -83,6 +83,41 @@ In Thunderbird / Apple Mail / your phone:
 
 Send yourself a message and reply to it to confirm the full loop.
 
+### One-step setup (autoconfig) — optional but recommended
+
+So users can add an account by typing only their email address (no server
+names or ports), alo serves the standard discovery documents from `alo-jmap`:
+
+- **Mozilla autoconfig** (Thunderbird, Apple Mail): `GET
+  /.well-known/autoconfig/mail/config-v1.1.xml` and `/mail/config-v1.1.xml`.
+- **Microsoft Autodiscover** (Outlook): `GET`/`POST
+  /autodiscover/autodiscover.xml`.
+
+Clients look for these under the **email domain** (the part after `@`), not
+the server FQDN, so wire the email domain to this server:
+
+1. **DNS** (at the email domain `example.com`, where mailboxes live):
+   - `CNAME autoconfig.example.com → mail.example.com`
+   - `CNAME autodiscover.example.com → mail.example.com`
+   - (optional, Thunderbird's second probe) an `A`/`CNAME` for the bare
+     `example.com` → this server, if it isn't already pointed elsewhere.
+2. **Caddy**: add site blocks for those names that reverse-proxy to
+   `alo-jmap:8080` (a one-line `reverse_proxy`, same as the `@backend` block
+   for the main host). Each name needs a certificate; add it to the certbot
+   list or let Caddy's on-demand TLS obtain it.
+
+Verify directly against the server origin before wiring DNS:
+
+```sh
+curl "https://mail.example.com/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=you@example.com"
+curl -X POST https://mail.example.com/autodiscover/autodiscover.xml \
+  -d '<Autodiscover><Request><EMailAddress>you@example.com</EMailAddress></Request></Autodiscover>'
+```
+
+The documents advertise IMAPS `993` and SMTPS `465` on the server FQDN with
+password auth inside TLS — the same settings as the manual steps above. They
+expose no secrets and need no authentication (the client has none yet).
+
 ## The login provider (OIDC)
 
 Once up, the OpenID Connect endpoints are live at `https://<DOMAIN>`:

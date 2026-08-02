@@ -6,6 +6,10 @@ contracts.
 
 ## Unreleased
 
+- New: **Mail apps set themselves up (autoconfig).** Add your alo address in
+  Thunderbird, Apple Mail, or Outlook and the app fills in the servers and
+  ports for you — no more typing IMAP/SMTP hostnames by hand. (Requires two
+  small DNS records for your mail domain; see the deployment guide.)
 - New: **Bring your old mail in (IMAP import).** A new **Import mail** item
   in your account menu pulls recent messages from another mailbox — pick
   **Gmail** or **Outlook** (the server address is filled in for you) or

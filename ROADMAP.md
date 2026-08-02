@@ -215,7 +215,14 @@ document or a formula.
 - [ ] Calendar import: recurrences with exceptions, rooms/resources; Teams links in future events rewritten to alo Meet
 - [x] Contacts import/export: `.vcf` (vCard 4.0) bulk import (`POST /contacts/import`, multi-card split + per-card cap, honest imported/skipped count) and whole-address-book export (`GET /contacts/export`, a `text/vcard` attachment), wired into the address-book UI (Import/Export buttons, EN + FR). Migrates a Gmail/Outlook/Apple contacts export straight in
 - [ ] OneDrive/SharePoint import with permission mapping + unmappable-items report
-- [ ] Autodiscover/autoconfig endpoints: clients self-configure from an email address
+- [~] Autodiscover/autoconfig endpoints: clients self-configure from an email address.
+  **Endpoints built** (`autoconfig`): Mozilla `clientConfig` (Thunderbird/Apple Mail)
+  at `/.well-known/autoconfig/mail/config-v1.1.xml` + `/mail/config-v1.1.xml`, and
+  Microsoft POX Autodiscover (Outlook) at `/autodiscover/autodiscover.xml` (both
+  casings) — unauthenticated, advertising IMAPS 993 + SMTPS 465 on the server FQDN,
+  caller input XML-escaped + charset-validated. Wire-verified on prod. Remaining
+  (operator/deploy): per-email-domain `autoconfig`/`autodiscover` DNS + Caddy vhosts
+  (documented in deploy README) so real clients resolve it from the email domain
 - [ ] Cutover safety: dual delivery during DNS propagation, read-only archive of old tenant, per-user rollback
 - [ ] Subscription retirement screen: dependency check, savings figure, cancellation checklist
 

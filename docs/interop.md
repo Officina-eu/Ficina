@@ -434,3 +434,35 @@ recorded scope and quirks:
   loopback/private/link-local address (shared `alo_ai::egress` guard), and
   the connection is pinned to the vetted IP — a hostname cannot be used to
   reach an internal service.
+
+## Mail-client autoconfig (client self-configuration)
+
+Two unauthenticated, read-only endpoints let a mail app configure itself from
+the user's email address (`autoconfig`), serving the same public facts —
+IMAPS `993` and SMTPS `465` on the server FQDN, password auth inside TLS — in
+the two formats clients ask for:
+
+- **Mozilla autoconfig** (Thunderbird; Apple Mail as a fallback):
+  `GET /.well-known/autoconfig/mail/config-v1.1.xml` and
+  `GET /mail/config-v1.1.xml`, a `clientConfig` document. The `?emailaddress=`
+  query names the provider domain (multi-domain deployments answer per
+  domain); the username is the literal `%EMAILADDRESS%` placeholder
+  Thunderbird substitutes, so caller input is never echoed.
+- **Microsoft POX Autodiscover** (Outlook): `GET`/`POST
+  /autodiscover/autodiscover.xml` (both path casings registered — axum is
+  case-sensitive, Outlook varies it), an `Autodiscover` document with IMAP +
+  SMTP `<Protocol>` blocks. The POSTed `<EMailAddress>` is echoed as
+  `<LoginName>` only if it is a sane `local@domain` with no markup; otherwise
+  the element is omitted and Outlook falls back to the typed address.
+
+Both reveal only public connection settings, so they are unauthenticated by
+design (the specs require it — the client has no credentials yet). Any
+caller-supplied value is XML-escaped and charset-validated before it reaches
+the document, so a hostile `emailaddress`/`EMailAddress` cannot inject markup.
+
+**Operator DNS (per email domain, not the server FQDN).** Clients look under
+the *email* domain, so discovery needs records pointing that domain's
+`autoconfig`/`autodiscover` names (and, for the well-known path, the bare
+domain) at this server, plus Caddy vhosts for them. This is deployment wiring,
+documented in `deploy/production/README.md`; the endpoints themselves are
+verifiable directly on the server origin.

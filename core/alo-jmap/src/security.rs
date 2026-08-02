@@ -41,7 +41,7 @@ fn item(key: &str, title: &str, status: Status, detail: String) -> Value {
 /// local). `DOMAIN` is deliberately NOT used: it is the server FQDN
 /// (`mail.example.com`), not the email domain (`example.com`). Falling back to
 /// the JMAP base URL host with a leading `mail.` stripped keeps a sane default.
-fn mail_domain(base_url: &str) -> String {
+pub(crate) fn mail_domain(base_url: &str) -> String {
     if let Ok(v) = std::env::var("ALO_SMTP_LOCAL_DOMAINS")
         && let Some(first) = v.split(',').map(str::trim).find(|s| !s.is_empty())
     {
