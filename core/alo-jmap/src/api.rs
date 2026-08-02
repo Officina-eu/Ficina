@@ -25,6 +25,7 @@ const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
 /// alo extension: user-defined colored message categories (Category/get+set).
 const CAP_CATEGORIES: &str = "urn:alo:params:jmap:categories";
 const CAP_VACATION: &str = "urn:ietf:params:jmap:vacationresponse";
+const CAP_QUOTA: &str = "urn:ietf:params:jmap:quota";
 
 /// `POST /jmap/api` — process a JMAP Request, return the Response.
 pub async fn api(
@@ -48,7 +49,7 @@ pub async fn api(
     for cap in using {
         match cap.as_str() {
             Some(CAP_CORE) | Some(CAP_MAIL) | Some(CAP_SIEVE) | Some(CAP_SUBMISSION)
-            | Some(CAP_CATEGORIES) | Some(CAP_VACATION) => {}
+            | Some(CAP_CATEGORIES) | Some(CAP_VACATION) | Some(CAP_QUOTA) => {}
             other => {
                 return Err(Problem::unknown_capability().detail(other.unwrap_or("").to_owned()));
             }
@@ -234,6 +235,7 @@ async fn dispatch(
         "Identity/get" => identity_get(account, args, state).await,
         "VacationResponse/get" => vacation_get(account, args).await,
         "VacationResponse/set" => vacation_set(account, args).await,
+        "Quota/get" => quota_get(account, args).await,
         "SieveScript/get" => crate::sieve::get(account, args).await,
         "SieveScript/set" => crate::sieve::set(account, args).await,
         "SieveScript/validate" => crate::sieve::validate(account, args).await,
@@ -1349,6 +1351,45 @@ async fn identity_get(account: &Account, args: &Value, state: &AppState) -> Resu
         "state": acct_state,
         "list": list,
         "notFound": not_found,
+    }))
+}
+
+/// `Quota/get` (RFC 9425): the tenant's mail storage quota — used and hard-limit
+/// octets — so a client can show a storage bar. A tenant with no cap (unlimited)
+/// reports no quota object. The cap is enforced on ingest and draft creation
+/// (ADR 0012); this method just surfaces it.
+async fn quota_get(account: &Account, args: &Value) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let acct_state = account.acc.state().await.map_err(store_err)?;
+    let (used, limit) = account.acc.storage_usage().await.map_err(store_err)?;
+    let mut all = Vec::new();
+    if let Some(hard) = limit {
+        all.push(json!({
+            "id": "octets",
+            "resourceType": "octets",
+            "used": used.max(0),
+            "hardLimit": hard.max(0),
+            "scope": "domain",
+            "name": "storage",
+            "types": ["Mail"],
+        }));
+    }
+    let (list, not_found) = match args.get("ids").and_then(Value::as_array) {
+        None => (all, Vec::new()),
+        Some(ids) => {
+            let mut list = Vec::new();
+            let mut not_found = Vec::new();
+            for id in ids {
+                match all.iter().find(|q| q["id"].as_str() == id.as_str()) {
+                    Some(q) => list.push(q.clone()),
+                    None => not_found.push(id.clone()),
+                }
+            }
+            (list, not_found)
+        }
+    };
+    Ok(json!({
+        "accountId": account.account_id(), "state": acct_state, "list": list, "notFound": not_found,
     }))
 }
 

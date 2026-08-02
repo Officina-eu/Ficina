@@ -16,6 +16,7 @@ const CAP_SUBMISSION: &str = "urn:ietf:params:jmap:submission";
 /// alo extension: user-defined colored message categories (Category/get+set).
 const CAP_CATEGORIES: &str = "urn:alo:params:jmap:categories";
 const CAP_VACATION: &str = "urn:ietf:params:jmap:vacationresponse";
+const CAP_QUOTA: &str = "urn:ietf:params:jmap:quota";
 
 /// `GET /.well-known/jmap` → the Session resource.
 pub async fn session(
@@ -62,7 +63,7 @@ pub async fn session(
             "isPersonal": true,
             "isReadOnly": false,
             "accountCapabilities": {
-                CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_VACATION: {}
+                CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_VACATION: {}, CAP_QUOTA: {}
             }
         }),
     );
@@ -85,7 +86,7 @@ pub async fn session(
                     "isReadOnly": !can_write,
                     "alo:canSend": send_mode != "none",
                     "accountCapabilities": {
-                        CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_VACATION: {}
+                        CAP_MAIL: {}, CAP_SIEVE: {}, CAP_SUBMISSION: {}, CAP_CATEGORIES: {}, CAP_VACATION: {}, CAP_QUOTA: {}
                     }
                 }),
             );
@@ -132,7 +133,8 @@ pub async fn session(
                 "submissionExtensions": {}
             },
             CAP_CATEGORIES: {},
-            CAP_VACATION: {}
+            CAP_VACATION: {},
+            CAP_QUOTA: {}
         },
         "accounts": accounts,
         "primaryAccounts": primary,

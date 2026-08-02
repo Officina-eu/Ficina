@@ -1511,6 +1511,27 @@ impl AccountStore {
     /// # Errors
     /// [`StoreError::OverQuota`] if the write would exceed the cap;
     /// [`StoreError::Db`] on failure.
+    /// This tenant's storage usage and cap in octets — `(used, limit)`, where a
+    /// `None` limit means unlimited (ADR 0012). Backs the JMAP `Quota/get`.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn storage_usage(&self) -> Result<(i64, Option<i64>)> {
+        let limit: Option<i64> =
+            sqlx::query_scalar("SELECT storage_quota_bytes FROM tenants WHERE id = $1")
+                .bind(self.tenant.as_str())
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
+        let used: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(size), 0)::bigint FROM blobs WHERE tenant_id = $1",
+        )
+        .bind(self.tenant.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok((used, limit))
+    }
+
     async fn check_quota(&self, incoming: i64) -> Result<()> {
         if incoming <= 0 {
             return Ok(());
