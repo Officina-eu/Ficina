@@ -229,6 +229,7 @@ async fn dispatch(
         "Email/query" => email_query(account, args).await,
         "Email/set" => email_set(account, args).await,
         "Email/changes" => changes(account, args, alo_store::changes::TYPE_EMAIL, state).await,
+        "SearchSnippet/get" => search_snippet_get(account, args, state).await,
         "Thread/get" => thread_get(account, args).await,
         "Identity/get" => identity_get(account, args, state).await,
         "VacationResponse/get" => vacation_get(account, args).await,
@@ -1157,6 +1158,125 @@ async fn email_update(account: &Account, id: &str, patch: &Value) -> Result<(), 
 
 // ---- Thread -----------------------------------------------------------
 
+/// The words to highlight in a `SearchSnippet`, gathered from the filter's text
+/// conditions (recursing into AND/OR/NOT operator trees).
+fn collect_search_terms(filter: Option<&Value>) -> Vec<String> {
+    let mut terms = Vec::new();
+    let Some(obj) = filter.and_then(Value::as_object) else {
+        return terms;
+    };
+    for key in ["text", "subject", "body", "from", "to"] {
+        if let Some(s) = obj.get(key).and_then(Value::as_str) {
+            terms.extend(s.split_whitespace().filter(|w| w.len() >= 2).map(str::to_owned));
+        }
+    }
+    for cond in obj.get("conditions").and_then(Value::as_array).into_iter().flatten() {
+        terms.extend(collect_search_terms(Some(cond)));
+    }
+    terms
+}
+
+fn push_escaped(out: &mut String, ch: char) {
+    match ch {
+        '&' => out.push_str("&amp;"),
+        '<' => out.push_str("&lt;"),
+        '>' => out.push_str("&gt;"),
+        '"' => out.push_str("&quot;"),
+        _ => out.push(ch),
+    }
+}
+
+/// HTML-escapes `text` and wraps each (ASCII-case-insensitive) occurrence of a
+/// search term in `<mark>…</mark>`, per the JMAP SearchSnippet convention. ASCII
+/// lowercasing preserves byte length, so match offsets stay aligned with the
+/// original; term bytes are ASCII, so they never fall inside a multibyte char.
+fn highlight(text: &str, terms: &[String]) -> String {
+    let lower = text.to_ascii_lowercase();
+    let mut marked = vec![false; text.len()];
+    for term in terms {
+        let t = term.to_ascii_lowercase();
+        if t.is_empty() {
+            continue;
+        }
+        let mut from = 0;
+        while let Some(pos) = lower[from..].find(&t) {
+            let s = from + pos;
+            let e = s + t.len();
+            marked[s..e].iter_mut().for_each(|m| *m = true);
+            from = e;
+        }
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut in_mark = false;
+    let mut idx = 0;
+    for ch in text.chars() {
+        let is_marked = marked.get(idx).copied().unwrap_or(false);
+        if is_marked && !in_mark {
+            out.push_str("<mark>");
+            in_mark = true;
+        } else if !is_marked && in_mark {
+            out.push_str("</mark>");
+            in_mark = false;
+        }
+        push_escaped(&mut out, ch);
+        idx += ch.len_utf8();
+    }
+    if in_mark {
+        out.push_str("</mark>");
+    }
+    out
+}
+
+/// `SearchSnippet/get` (RFC 8621 §5.1): for each requested email, the subject
+/// and a body preview with the search terms highlighted (`<mark>`), so a client
+/// can show why a message matched. Respects a folder-restricted delegate's grant.
+async fn search_snippet_get(
+    account: &Account,
+    args: &Value,
+    state: &AppState,
+) -> Result<Value, Value> {
+    check_account(args, account)?;
+    let terms = collect_search_terms(args.get("filter"));
+    let ids: Vec<&str> = args
+        .get("emailIds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .take(state.limits.max_objects_in_get)
+        .collect();
+
+    let mut list = Vec::new();
+    let mut not_found = Vec::new();
+    for id in ids {
+        let mid = MessageId::new(id);
+        match account.acc.message(&mid).await {
+            Ok(m) => {
+                if !message_folder_allowed(account, &mid).await {
+                    not_found.push(json!(id));
+                    continue;
+                }
+                let preview = match account.acc.message_bytes(&mid).await {
+                    Ok(raw) => jtypes::preview_of(&read_body(
+                        &raw,
+                        m.blob_id.as_str(),
+                        state.limits.max_body_value_bytes,
+                    )),
+                    Err(_) => String::new(),
+                };
+                list.push(json!({
+                    "emailId": id,
+                    "subject": highlight(&m.subject, &terms),
+                    "preview": highlight(&preview, &terms),
+                }));
+            }
+            Err(StoreError::NotFound) => not_found.push(json!(id)),
+            Err(e) => return Err(store_err(e)),
+        }
+    }
+    Ok(json!({ "accountId": account.account_id(), "list": list, "notFound": not_found }))
+}
+
 /// A stable, JMAP-id-safe (`A-Za-z0-9_-`) id for a send identity, derived from
 /// its address via FNV-1a-64 → 16 hex chars.
 fn identity_id(address: &str) -> String {
@@ -1518,4 +1638,39 @@ fn truncate_utf8(mut s: String, max: usize) -> (String, bool) {
     }
     s.truncate(end);
     (s, true)
+}
+
+#[cfg(test)]
+mod snippet_tests {
+    use super::{collect_search_terms, highlight};
+    use serde_json::json;
+
+    #[test]
+    fn highlight_marks_terms_case_insensitively_and_escapes() {
+        let out = highlight("Project Falcon <go>", &["falcon".to_owned()]);
+        // Match is case-insensitive; the original casing is preserved; HTML escaped.
+        assert_eq!(out, "Project <mark>Falcon</mark> &lt;go&gt;");
+    }
+
+    #[test]
+    fn highlight_without_terms_just_escapes() {
+        assert_eq!(highlight("a & b < c", &[]), "a &amp; b &lt; c");
+    }
+
+    #[test]
+    fn highlight_leaves_multibyte_text_intact() {
+        // An ASCII term never falls inside a multibyte char; accented text is kept.
+        assert_eq!(highlight("café crème", &["cr".to_owned()]), "café <mark>cr</mark>ème");
+    }
+
+    #[test]
+    fn collect_terms_gathers_from_text_and_operator_tree() {
+        let filter = json!({ "operator": "AND", "conditions": [
+            { "text": "falcon has" },
+            { "subject": "landed" }
+        ]});
+        let mut terms = collect_search_terms(Some(&filter));
+        terms.sort();
+        assert_eq!(terms, vec!["falcon", "has", "landed"]);
+    }
 }

@@ -110,7 +110,7 @@ pub struct ReadBody {
 
 /// Derive a short preview from the text body, else a crude tag-stripped HTML
 /// snippet, else empty.
-fn preview_of(body: &ReadBody) -> String {
+pub fn preview_of(body: &ReadBody) -> String {
     if let Some((text, _)) = &body.text {
         return text.chars().take(256).collect();
     }
