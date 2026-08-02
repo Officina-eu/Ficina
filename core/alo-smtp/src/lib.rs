@@ -26,6 +26,7 @@ pub use alo_smtp_client::{client, client_reply};
 pub mod command;
 pub mod config;
 pub mod data;
+pub mod dmarc_reporter;
 pub mod dsn;
 pub mod envelope;
 pub mod error;

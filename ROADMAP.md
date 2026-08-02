@@ -64,7 +64,8 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 - [x] SPF verification (M4: RFC 7208 full `check_host` — all mechanisms, macro expansion, 10-DNS-lookup + 2-void-lookup hard limits)
 - [x] DKIM: verification and signing, key management with rotation support (M4: verify multi-sig + relaxed/simple canon + `l=`/`x=`; sign RSA-2048 + Ed25519; `KeyStore` trait addressed by (domain, selector), file impl with perm checks + zeroize; verified by an independent tool (dkimpy))
 - [x] DMARC evaluation + report generation (M4: PSL org-domain, relaxed/strict alignment, disposition→550 on `p=reject`, aggregate-report XML per Appendix C)
-  - Deferred: DMARC report *delivery* (gzip + email via the M2 queue) — the XML is generated; sending is a follow-up job
+  - [x] DMARC report *delivery* (per-domain daily windows from recorded MX evaluations → gzip → §7.2.1.1 report mail via the outbound queue, §7.1 external-destination verification, DKIM-signed; `ALO_SMTP_DMARC_REPORTS=off` kill switch)
+  - Deferred: TLS-RPT (`_smtp._tls` JSON) report delivery — needs per-policy TLS session outcome tracking in the outbound client first
 - [x] ARC sealing (RFC 8617 first hop `i=1; cv=none` on Sieve-redirect forwards, sealed with the forwarding tenant's DKIM key; chain validator cross-checked against dkimpy both directions; `ALO_SMTP_ARC_SEALING=off` kill switch)
   - Deferred: inbound `arc=` stamping in Authentication-Results + sealing onto an existing chain (`i>1`) — the validator exists; wiring it at ingress is a follow-up
   - Deferred from M4 (sanctioned cut seam): chain validation + AAR/AMS/AS sealing; needed for mailing-list forwarding, not first-hop receive/submit

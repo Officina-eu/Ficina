@@ -23,6 +23,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # RFC 2822 date-time formatting for Received:/DSN headers.
 jiff = { workspace = true }
+# Gzip for DMARC aggregate-report attachments (RFC 7489 §7.2.1.1).
+flate2 = { workspace = true }
 # MX resolution for outbound delivery.
 hickory-resolver = { workspace = true }
 # TLS transport (STARTTLS + implicit TLS) and SASL AUTH.

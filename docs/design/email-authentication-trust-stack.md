@@ -107,7 +107,14 @@ session runs long:
   validation at ingress) remain follow-ups. Off-switch:
   `ALO_SMTP_ARC_SEALING=off`.
 - **TLS-RPT report generation** (e) — the MTA-STS policy is served;
-  the TLS-RPT *reporting* side is deferred.
+  the TLS-RPT *reporting* side is deferred (needs per-policy TLS
+  outcome tracking in `alo-smtp-client`). DMARC aggregate-report
+  *delivery* is **built**: the MX records evaluations
+  (`dmarc_report_events`, migration 0033), and `dmarc_reporter` in
+  `alo-smtp` sweeps daily windows per domain — current-policy `rua=`
+  with §7.1 external-destination verification, Appendix C XML, gzip,
+  §7.2.1.1 report mail, DKIM-signed, out via the outbound queue.
+  Off-switch: `ALO_SMTP_DMARC_REPORTS=off`.
 
 Anything cut is recorded in ROADMAP.md as an unchecked sub-item, never
 shipped as a stub.

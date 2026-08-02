@@ -293,7 +293,11 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         };
     let mx_auth = Arc::new(build_mx_auth(&config, auth_resolver.clone()));
     let dkim_store = local_delivery.as_ref().map(|ld| ld.store().clone());
-    let submission_auth = Arc::new(build_submission_auth(&config, auth_resolver, dkim_store)?);
+    let submission_auth = Arc::new(build_submission_auth(
+        &config,
+        auth_resolver.clone(),
+        dkim_store,
+    )?);
 
     // ARC sealing for Sieve redirects (RFC 8617): the submission
     // trust-stack context holds the signing keys (per-tenant store +
@@ -323,6 +327,42 @@ pub async fn run(config: SmtpConfig) -> Result<(), SmtpError> {
         crate::queue_runner::spawn(Arc::clone(&spool), config.hostname.clone(), outbound);
     } else {
         tracing::warn!("outbound delivery disabled; received mail accumulates in the spool");
+    }
+
+    // DMARC aggregate-report delivery (RFC 7489 §7.2): needs the event
+    // store (local delivery), the outbound queue to carry the reports,
+    // and DNS for policy discovery + destination verification.
+    if config.dmarc_reports {
+        if let (Some(ld), Some(resolver), true) =
+            (&local_delivery, &auth_resolver, config.outbound.is_some())
+        {
+            let report_domain = config
+                .local_domains
+                .first()
+                .cloned()
+                .unwrap_or_else(|| config.hostname.clone());
+            crate::dmarc_reporter::spawn(
+                ld.store().clone(),
+                Arc::clone(&spool),
+                Arc::clone(resolver),
+                Arc::clone(&submission_auth),
+                crate::dmarc_reporter::ReporterConfig {
+                    org_name: config.hostname.clone(),
+                    report_from: format!("dmarc-reports@{report_domain}"),
+                    min_age: config.dmarc_report_min_age,
+                    tick: config.dmarc_report_tick,
+                },
+            );
+        } else {
+            tracing::info!(
+                "DMARC aggregate reporting inactive (needs DATABASE_URL, outbound, and DNS)"
+            );
+        }
+    } else {
+        tracing::warn!(
+            "DMARC aggregate reporting disabled ({})",
+            crate::config::ENV_DMARC_REPORTS
+        );
     }
 
     // Optional submission listeners bind first and run as spawned
@@ -948,6 +988,22 @@ async fn handle_data_phase(
                         &body,
                     )
                     .await;
+                // Record the DMARC evaluation for aggregate reporting
+                // (RFC 7489 §7.2) — rejects included, defers excluded
+                // (the gauntlet already nulls the event on a defer). A
+                // failed insert never affects the SMTP outcome.
+                if let (Some(local), Some(event)) = (&runtime.local_delivery, &result.dmarc_event) {
+                    let record = alo_store::DmarcEventRecord {
+                        from_domain: event.from_domain.clone(),
+                        source_ip: peer.ip().to_string(),
+                        disposition: event.disposition.to_owned(),
+                        dkim_aligned: event.dkim_aligned,
+                        spf_aligned: event.spf_aligned,
+                    };
+                    if let Err(error) = local.store().record_dmarc_event(&record).await {
+                        tracing::warn!(%error, "dmarc report event not recorded");
+                    }
+                }
                 // Reject/defer verdicts end the transaction before spool.
                 let refusal = match result.outcome {
                     InboundOutcome::Accept => None,

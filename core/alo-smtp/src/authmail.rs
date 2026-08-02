@@ -102,6 +102,27 @@ pub struct InboundResult {
     /// received message (RFC 8601 §5); the caller must spool these bytes
     /// in place of the original. `None` when nothing was removed.
     pub stripped_body: Option<Vec<u8>>,
+    /// The DMARC evaluation, when a policy was discovered — the row the
+    /// caller records for aggregate reporting (RFC 7489 §7.2). `None`
+    /// when the sender publishes no DMARC record (nothing to report to)
+    /// or discovery hit a transient DNS error.
+    pub dmarc_event: Option<DmarcEvent>,
+}
+
+/// One DMARC evaluation, in aggregate-report terms (RFC 7489 §7.2):
+/// the applied disposition and the alignment outcomes for the From
+/// domain. No message content — exactly what the report discloses.
+#[derive(Debug, Clone)]
+pub struct DmarcEvent {
+    /// The RFC 5322 From domain the policy was evaluated for.
+    pub from_domain: String,
+    /// Applied disposition token (`none`/`quarantine`/`reject`),
+    /// after `pct=` sampling.
+    pub disposition: &'static str,
+    /// DKIM alignment outcome (§3.1).
+    pub dkim_aligned: bool,
+    /// SPF alignment outcome (§3.1).
+    pub spf_aligned: bool,
 }
 
 impl AuthMail {
@@ -172,6 +193,7 @@ impl AuthMail {
                 headers: String::new(),
                 outcome: InboundOutcome::Accept,
                 stripped_body: None,
+                dmarc_event: None,
             };
         }
 
@@ -185,6 +207,7 @@ impl AuthMail {
         let mut headers = String::new();
         let mut ar = AuthenticationResults::new(&self.hostname);
         let mut dmarc_reject = false;
+        let mut dmarc_event = None;
 
         // SPF + DKIM + DMARC — only when the resolver is available. When
         // it is not, these are skipped (mail still flows / gets scanned);
@@ -238,6 +261,25 @@ impl AuthMail {
             if dmarc_reject {
                 tracing::info!(from = %from_domain, "DMARC reject policy; refusing message");
             }
+
+            // Aggregate-report row (RFC 7489 §7.2): only evaluations
+            // where a policy was discovered are reportable — a pass
+            // applied no disposition; a fail applied the sampled one.
+            dmarc_event = match dmarc_verdict.result {
+                DmarcResult::Pass => Some(DmarcEvent {
+                    from_domain: dmarc_verdict.from_domain.clone(),
+                    disposition: Disposition::None.as_str(),
+                    dkim_aligned: dmarc_verdict.dkim_aligned,
+                    spf_aligned: dmarc_verdict.spf_aligned,
+                }),
+                DmarcResult::Fail => Some(DmarcEvent {
+                    from_domain: dmarc_verdict.from_domain.clone(),
+                    disposition: effective.as_str(),
+                    dkim_aligned: dmarc_verdict.dkim_aligned,
+                    spf_aligned: dmarc_verdict.spf_aligned,
+                }),
+                _ => None,
+            };
         }
 
         // Rspamd spam scoring (M4b) — runs whenever configured, whether or
@@ -256,10 +298,13 @@ impl AuthMail {
                 Ok(verdict) => Some(verdict),
                 Err(error) => {
                     tracing::error!(%error, "rspamd unreachable; deferring message (fail-closed)");
+                    // Deferred mail is retried and re-evaluated; recording
+                    // an event here would double-count it in the report.
                     return InboundResult {
                         headers: String::new(),
                         outcome: InboundOutcome::DeferSpam,
                         stripped_body: None,
+                        dmarc_event: None,
                     };
                 }
             }
@@ -291,11 +336,18 @@ impl AuthMail {
 
         // On any reject/defer the message is not spooled, so the stamped
         // headers are unused — drop them to keep the documented invariant.
+        // A 550 is final and stays reportable; a 451 defer is retried and
+        // re-evaluated, so its event is dropped (no double-counting).
         if outcome != InboundOutcome::Accept {
             return InboundResult {
                 headers: String::new(),
                 outcome,
                 stripped_body: None,
+                dmarc_event: if outcome == InboundOutcome::DeferSpam {
+                    None
+                } else {
+                    dmarc_event
+                },
             };
         }
 
@@ -309,6 +361,7 @@ impl AuthMail {
             headers,
             outcome,
             stripped_body,
+            dmarc_event,
         }
     }
 

@@ -48,7 +48,10 @@ pub enum Disposition {
 }
 
 impl Disposition {
-    fn parse(token: &str) -> Option<Self> {
+    /// Parses a disposition token (`none`/`quarantine`/`reject`) — the
+    /// inverse of [`Disposition::as_str`], used by the report job to
+    /// rehydrate stored evaluations.
+    pub fn parse(token: &str) -> Option<Self> {
         match token {
             "none" => Some(Self::None),
             "quarantine" => Some(Self::Quarantine),
@@ -132,6 +135,15 @@ pub struct DmarcPolicy {
     pub pct: u8,
     /// `rua=` aggregate report URIs (mailto:…).
     pub rua: Vec<String>,
+}
+
+impl DmarcPolicy {
+    /// Parses a DMARC TXT record value (requires `v=DMARC1` and `p=`,
+    /// §6.3) — the public constructor for callers outside discovery
+    /// (tests, tooling).
+    pub fn from_txt(record: &str) -> Option<Self> {
+        parse_policy(record)
+    }
 }
 
 /// Evaluates DMARC for a message.
@@ -222,6 +234,22 @@ pub fn org_domain(domain: &str) -> String {
         Some(org) => org.to_ascii_lowercase(),
         None => domain.to_ascii_lowercase(),
     }
+}
+
+/// Fetches and parses the DMARC record for `from_domain`, returning it
+/// with the domain it was found at (the From domain or its
+/// organizational domain). This is the same §6.6.3 discovery the
+/// evaluator uses — public for the aggregate-report job, which needs
+/// the published policy (and its `rua=`) at report time.
+///
+/// # Errors
+/// [`DnsError::Temporary`] when DNS is transiently unavailable (the
+/// caller should retry later rather than treat it as "no policy").
+pub async fn discover_policy<R: Resolver + ?Sized>(
+    resolver: &R,
+    from_domain: &str,
+) -> Result<Option<(DmarcPolicy, String)>, DnsError> {
+    discover(resolver, from_domain).await
 }
 
 /// Fetches and parses the DMARC record, returning it with the domain

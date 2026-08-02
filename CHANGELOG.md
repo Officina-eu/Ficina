@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **DMARC aggregate reports are now sent** (RFC 7489 §7.2). The MX
+  records every inbound DMARC evaluation and a daily job mails each
+  sender domain's published `rua=` address a gzipped XML report of what
+  we saw — source IPs, alignment outcomes, applied dispositions. This
+  is the feedback loop other domain owners rely on; external report
+  addresses are verified per §7.1 before anything is sent. Operators
+  can disable with `ALO_SMTP_DMARC_REPORTS=off` (migration 0033).
 - New: **Forwarded mail keeps its proof of authenticity (ARC).** Mail
   forwarded by a filter rule ("redirect") is now ARC-sealed (RFC 8617):
   the receiving server can verify the SPF/DKIM/DMARC results we saw at

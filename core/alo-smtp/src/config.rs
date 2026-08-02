@@ -71,6 +71,18 @@ pub const ENV_DKIM_ALGORITHM: &str = "ALO_SMTP_DKIM_ALGORITHM";
 /// (RFC 8617). **Default on**; set to `false`/`off` to disable (the
 /// rollback switch — forwards then break downstream DMARC again).
 pub const ENV_ARC_SEALING: &str = "ALO_SMTP_ARC_SEALING";
+/// Environment flag for DMARC aggregate-report delivery (RFC 7489
+/// §7.2). **Default on** (runs only when local delivery + outbound are
+/// configured); set to `false`/`off` to disable — the rollback switch.
+pub const ENV_DMARC_REPORTS: &str = "ALO_SMTP_DMARC_REPORTS";
+/// Environment variable overriding the report window age in seconds:
+/// events older than this are reported on the next tick. Unset uses
+/// the standard daily cadence (everything before the current UTC day).
+/// An override is an operational tool (testing, catch-up drills).
+pub const ENV_DMARC_REPORT_MIN_AGE_SECS: &str = "ALO_SMTP_DMARC_REPORT_MIN_AGE_SECS";
+/// Environment variable for the reporter tick interval in seconds
+/// (default 3600 — hourly sweeps, daily windows).
+pub const ENV_DMARC_REPORT_TICK_SECS: &str = "ALO_SMTP_DMARC_REPORT_TICK_SECS";
 /// Environment variable naming the Rspamd controller URL
 /// (`http://host:port`); unset disables spam scanning.
 pub const ENV_RSPAMD_URL: &str = "ALO_SMTP_RSPAMD_URL";
@@ -176,6 +188,15 @@ pub struct SmtpConfig {
     /// ARC sealing (RFC 8617) of Sieve-redirect forwards. On by
     /// default; [`ENV_ARC_SEALING`]`=off` is the operational off-switch.
     pub arc_sealing: bool,
+    /// DMARC aggregate-report delivery (RFC 7489 §7.2). On by default;
+    /// [`ENV_DMARC_REPORTS`]`=off` is the operational off-switch.
+    pub dmarc_reports: bool,
+    /// Report-window override in seconds ([`ENV_DMARC_REPORT_MIN_AGE_SECS`]);
+    /// `None` keeps the standard daily cadence.
+    pub dmarc_report_min_age: Option<std::time::Duration>,
+    /// Reporter sweep interval ([`ENV_DMARC_REPORT_TICK_SECS`], default
+    /// hourly).
+    pub dmarc_report_tick: std::time::Duration,
 }
 
 /// Rspamd integration settings (M4b).
@@ -375,6 +396,19 @@ impl SmtpConfig {
         // ARC sealing defaults ON (an unsealed forward fails downstream
         // DMARC); the env var is the explicit off-switch.
         let arc_sealing = std::env::var(ENV_ARC_SEALING).is_err() || env_bool(ENV_ARC_SEALING)?;
+        // DMARC aggregate reporting likewise defaults ON.
+        let dmarc_reports =
+            std::env::var(ENV_DMARC_REPORTS).is_err() || env_bool(ENV_DMARC_REPORTS)?;
+        let dmarc_report_min_age = match std::env::var(ENV_DMARC_REPORT_MIN_AGE_SECS) {
+            Err(_) => None,
+            Ok(raw) => Some(std::time::Duration::from_secs(raw.parse().map_err(
+                |_| SmtpError::Config {
+                    message: format!("{ENV_DMARC_REPORT_MIN_AGE_SECS}={raw} is not a number"),
+                },
+            )?)),
+        };
+        let dmarc_report_tick =
+            std::time::Duration::from_secs(env_u64(ENV_DMARC_REPORT_TICK_SECS, 3600)?.max(60));
 
         Ok(Self {
             bind_addr,
@@ -396,6 +430,9 @@ impl SmtpConfig {
             mta_sts,
             database_url,
             arc_sealing,
+            dmarc_reports,
+            dmarc_report_min_age,
+            dmarc_report_tick,
         })
     }
 
