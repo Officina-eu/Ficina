@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- New: **alomails — the Mail product as its own app.** Built with
+  `ALO_PRODUCT=mail`, the standalone alomails surface ships Home + Mail only
+  (no workspace, authoring, or suite-admin modules) and the browser tab now
+  reads *alomails* rather than *alo workplace*. This is the trimmed bundle
+  served at mail.alomails.com; the full workspace build is unchanged.
 - New: **Mail apps set themselves up (autoconfig).** Add your alo address in
   Thunderbird, Apple Mail, or Outlook and the app fills in the servers and
   ports for you — no more typing IMAP/SMTP hostnames by hand. (Requires two
