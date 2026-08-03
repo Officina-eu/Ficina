@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- New: **alomails speaks its own language on the sign-in screen.** The standalone
+  mail product's login now reads as an email service ("Your mail. Your privacy.
+  Your rules.", "Sovereign email · Hosted in Europe") instead of the workspace
+  copy. The brand text is part of the product surface, so each product carries
+  its own — and it stays fully translatable (English + French shipped).
 - Fixed: **Typing the bare mail domain now works.** Visiting `mail.example.com`
   (plain HTTP) previously connected to nothing and errored; it now redirects to
   HTTPS. Caddy serves port 80 for the redirect while the Let's Encrypt renewal

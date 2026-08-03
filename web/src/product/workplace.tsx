@@ -79,4 +79,9 @@ export const surface: ProductSurface = {
     { id: "code", label: strings.composeInsertCode, Icon: Code2, Modal: insertModal("code") },
   ],
   defaultPath,
+  brand: {
+    headline: () => strings.brandHeadline,
+    subtitle: () => strings.brandSubtitle,
+    euBadge: () => strings.brandEuBadge,
+  },
 };
