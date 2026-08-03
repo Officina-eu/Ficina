@@ -1,6 +1,62 @@
 # ADR 0019 — Platform + product repos (the suite structure)
 
-Status: **accepted** (owner-approved) · Stage 1 landed 2026-08-03
+Status: **accepted** (owner-approved) · Stage 1 landed 2026-08-03 ·
+**destination refined to platform-as-services 2026-08-03**
+
+## The destination — platform-as-services (the no-shortcut end-state)
+
+The question "where is code developed, and how does a change in one product
+reach the suite without a rewrite" reduces to **one** decision: *how do
+products share the platform (`store`/`identity`/`auth`)?* There are three ways,
+and only two avoid duplication:
+
+| Sharing model | Duplication | Product independence | Cross-cutting change |
+|---|---|---|---|
+| Copied source | yes | fake | manual, per repo |
+| Versioned library (pinned crate/repo) | no | real, coupled | publish + bump every product |
+| **Services + API** (identity service, storage service) | no | **real & decoupled** | deploy the service; products untouched |
+
+Today the platform is a **compiled library** (`alo-jmap` links `alo-store`/
+`alo-identity`), which is exactly why the monorepo is correct *now*: sharing
+compiled code across repos is strictly worse than one tree.
+
+**The best long-term architecture is the services model** — the same shape
+Microsoft 365 (Graph) and Google Workspace actually are: identity and storage
+are **versioned services**, each product (`alomails`, `alodocs`, …) is a
+genuinely independent repo/service depending on the platform's **APIs, not its
+source**, and the workspace is a **composition layer** (gateway + unified shell
++ SSO across the running services), not a container of everyone's code.
+
+In that end-state both goals are satisfied natively: a product change reaches
+the suite by deploying the product's service (runtime composition, no code
+copy), and products are developed in their own repos. The sharing boundary is
+the **API contract** — the only boundary that stays stable while everything
+behind it changes. The cost (why it is the disciplined choice, not the cheap
+one): the platform's service APIs become first-class versioned contracts,
+network boundaries appear between products and platform, and each service is
+deployed/observed independently. We do not pay that yet because the store/
+identity contracts are still moving — freezing them into a network API now
+would only churn the contract.
+
+### Refined path
+
+1. **Now — one monorepo.** Develop everything here; product repos are
+   **auto-published outputs** (the `publish-alomails` workflow). Atomic
+   cross-cutting changes while the platform contracts are still forming.
+2. **Platformise the services.** Keep identity as OIDC; give the store a real
+   **service API** (an `alo-platform` service + a versioned contract). This
+   supersedes the earlier "versioned crates" reading of Stage 3 — the
+   destination is *services*.
+3. **Split products onto the platform APIs.** Once the contracts are stable,
+   `alomails`/`alodocs` become independent repos/services consuming those APIs;
+   the workspace becomes the gateway + shell that composes them.
+
+The gate between steps is **contract stability**, not a date. Splitting before
+then is the real shortcut — it locks churning contracts into cross-repo APIs.
+
+---
+
+## Update — Stage 1 landed
 
 ## Update — Stage 1 landed
 

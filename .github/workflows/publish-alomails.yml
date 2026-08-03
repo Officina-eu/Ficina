@@ -1,0 +1,56 @@
+# Auto-publish the alomails product repo from this monorepo (ADR 0019).
+#
+# On every push to main, export the Mail product (platform + products/mail +
+# the mail-configured web + a mail-only deploy) and mirror it to the public
+# aloworld-org/alomails repo. The monorepo is the single source of truth; this
+# is what makes "edit here, it appears in the product repo" automatic — there
+# is never a second editable copy.
+#
+# ONE-TIME SETUP: add a repository secret `ALOMAILS_PUBLISH_TOKEN` to this repo
+# (Settings → Secrets and variables → Actions) — a fine-grained PAT (or GitHub
+# App token) with Contents: read & write on aloworld-org/alomails. Without it
+# the job fails with a clear message and nothing is published.
+name: Publish alomails
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-alomails
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alo-workplace
+        uses: actions/checkout@v4
+
+      - name: Build the alomails export
+        run: bash scripts/export-alomails.sh "$RUNNER_TEMP/alomails"
+
+      - name: Mirror to aloworld-org/alomails
+        env:
+          TOKEN: ${{ secrets.ALOMAILS_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::ALOMAILS_PUBLISH_TOKEN is not set — see the header of this workflow."
+            exit 1
+          fi
+          git clone --depth 1 \
+            "https://x-access-token:${TOKEN}@github.com/aloworld-org/alomails.git" repo
+          # Mirror the export into the repo working tree (keep only its .git).
+          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/alomails/" repo/
+          cd repo
+          git config user.name "alo-publish[bot]"
+          git config user.email "publish@aloworld.dev"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "alomails already current with ${GITHUB_SHA}"
+            exit 0
+          fi
+          git commit -m "sync from alo-workplace@${GITHUB_SHA}"
+          git push origin HEAD:main
