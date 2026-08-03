@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- Fixed: **The alomails sign-in no longer looks like a company login.** The
+  standalone mail product now shows a personal email hint (`you@alomails.com`
+  instead of `you@yourdomain.com`) and drops the enterprise "Sign in with SSO"
+  button — leaving Sign in + "Create a personal account". The workspace build
+  keeps SSO and the bring-your-own-domain hint. Both are product-surface
+  settings, so each product shows the right login.
 - New: **alomails speaks its own language on the sign-in screen.** The standalone
   mail product's login now reads as an email service ("Your mail. Your privacy.
   Your rules.", "Sovereign email · Hosted in Europe") instead of the workspace

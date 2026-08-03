@@ -84,4 +84,9 @@ export const surface: ProductSurface = {
     subtitle: () => strings.brandSubtitle,
     euBadge: () => strings.brandEuBadge,
   },
+  // Business/suite product: SSO for company IdPs, bring-your-domain placeholder.
+  login: {
+    sso: true,
+    emailPlaceholder: () => strings.emailPlaceholder,
+  },
 };
