@@ -1,0 +1,74 @@
+# Reusable publish workflow (ADR 0019): export one product from this monorepo
+# and mirror it to its public repo. Called by a thin per-product workflow
+# (publish-<product>.yml) — adding a product is that ~12-line caller plus a
+# scripts/products/<product>.sh config, not a copy of this logic.
+name: Publish product
+
+on:
+  workflow_call:
+    inputs:
+      product:
+        description: "Product key (scripts/products/<product>.sh)"
+        required: true
+        type: string
+      target_repo:
+        description: "owner/name of the public product repo"
+        required: true
+        type: string
+    secrets:
+      app_id:
+        description: "GitHub App id with Contents+Workflows write on target_repo"
+        required: true
+      app_private_key:
+        description: "The App's private key (.pem contents)"
+        required: true
+
+concurrency:
+  group: publish-${{ inputs.product }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alo-workplace
+        uses: actions/checkout@v4
+
+      - name: Export the product
+        run: bash scripts/export-product.sh "${{ inputs.product }}" "$RUNNER_TEMP/export"
+
+      - name: Split the target repo
+        id: repo
+        env:
+          REPO: ${{ inputs.target_repo }}
+        run: |
+          echo "owner=${REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${REPO##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint a target-scoped token from the App
+        id: app_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: ${{ steps.repo.outputs.owner }}
+          repositories: ${{ steps.repo.outputs.name }}
+
+      - name: Mirror to the product repo
+        env:
+          TOKEN: ${{ steps.app_token.outputs.token }}
+          TARGET: ${{ inputs.target_repo }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${TARGET}.git" repo
+          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/export/" repo/
+          cd repo
+          git config user.name "alo-publish[bot]"
+          git config user.email "publish@aloworld.dev"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "${TARGET} already current with ${GITHUB_SHA}"
+            exit 0
+          fi
+          git commit -m "sync from alo-workplace@${GITHUB_SHA}"
+          git push origin HEAD:main

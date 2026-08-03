@@ -1,0 +1,76 @@
+# Reusable back-port workflow (ADR 0019 two-way sync): turn external
+# contributions merged into a product's public repo into a reviewable PR here.
+# Called by a thin per-product workflow (backport-<product>.yml).
+#
+# No secrets: reading the public product repo needs none, and the PR is opened
+# with the workflow's own token — so no monorepo-write credential ever lives in
+# a public repo (we poll rather than let the public repo dispatch here).
+name: Back-port product
+
+on:
+  workflow_call:
+    inputs:
+      product:
+        description: "Product key (scripts/products/<product>.sh)"
+        required: true
+        type: string
+      source_repo:
+        description: "owner/name of the public product repo to back-port from"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: backport-${{ inputs.product }}
+  cancel-in-progress: false
+
+jobs:
+  backport:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alo-workplace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone the product repo
+        run: git clone --depth 200 "https://github.com/${{ inputs.source_repo }}.git" "$RUNNER_TEMP/product"
+
+      - name: Compute back-port patch
+        id: patch
+        run: |
+          bash scripts/backport-product.sh "${{ inputs.product }}" "$RUNNER_TEMP/product" "$RUNNER_TEMP/backport.patch"
+          if [ -s "$RUNNER_TEMP/backport.patch" ]; then
+            echo "has_patch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_patch=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open / update the back-port PR
+        if: steps.patch.outputs.has_patch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          SOURCE: ${{ inputs.source_repo }}
+        run: |
+          set -euo pipefail
+          git config user.name "alo-backport[bot]"
+          git config user.email "backport@aloworld.dev"
+          BR="backport/${PRODUCT}"
+          git checkout -B "$BR" origin/main
+          git apply --3way "$RUNNER_TEMP/backport.patch" \
+            || git apply --3way --reject "$RUNNER_TEMP/backport.patch" || true
+          git add -A
+          if git diff --cached --quiet; then
+            echo "back-port already present in the monorepo; nothing to open"
+            exit 0
+          fi
+          git commit -m "back-port contributions from ${SOURCE}"
+          git push -f origin "$BR"
+          gh pr create --base main --head "$BR" \
+            --title "Back-port contributions from ${SOURCE}" \
+            --body "Automated back-port of external contributions merged into ${SOURCE} (verbatim-shared paths only: platform, the product crates, migrate, web source). Review and merge to integrate; the publish pipeline then re-syncs the product repo. Any conflicts appear as \`.rej\` files to resolve by hand." \
+            || echo "a back-port PR for $BR is already open; branch updated in place"

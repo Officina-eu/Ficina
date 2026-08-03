@@ -1,18 +1,9 @@
-# Auto-publish the alomails product repo from this monorepo (ADR 0019).
+# Publish the Mail product to aloworld-org/alomails (ADR 0019). Thin caller of
+# the reusable publish-product workflow — the export logic is shared.
 #
-# On every push to main, export the Mail product (platform + products/mail +
-# the mail-configured web + a mail-only deploy) and mirror it to the public
-# aloworld-org/alomails repo. The monorepo is the single source of truth; this
-# is what makes "edit here, it appears in the product repo" automatic — there
-# is never a second editable copy.
-#
-# ONE-TIME SETUP: a GitHub App (owned by / installed on aloworld-org, with
-# Contents + Workflows: read & write on aloworld-org/alomails). Add two repo
-# secrets here (Settings → Secrets and variables → Actions):
-#   ALOMAILS_APP_ID           — the App's numeric ID
-#   ALOMAILS_APP_PRIVATE_KEY  — the App's private-key .pem contents
-# The job mints a short-lived, alomails-scoped installation token from these;
-# no long-lived credential is stored.
+# ONE-TIME SETUP: a GitHub App installed on aloworld-org/alomails with
+# Contents + Workflows: read & write, exposed here as two repo secrets:
+#   ALOMAILS_APP_ID · ALOMAILS_APP_PRIVATE_KEY
 name: Publish alomails
 
 on:
@@ -20,45 +11,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: publish-alomails
-  cancel-in-progress: false
-
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout alo-workplace
-        uses: actions/checkout@v4
-
-      - name: Build the alomails export
-        run: bash scripts/export-alomails.sh "$RUNNER_TEMP/alomails"
-
-      - name: Mint an alomails-scoped token from the App
-        id: app_token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.ALOMAILS_APP_ID }}
-          private-key: ${{ secrets.ALOMAILS_APP_PRIVATE_KEY }}
-          owner: aloworld-org
-          repositories: alomails
-
-      - name: Mirror to aloworld-org/alomails
-        env:
-          TOKEN: ${{ steps.app_token.outputs.token }}
-        run: |
-          set -euo pipefail
-          git clone --depth 1 \
-            "https://x-access-token:${TOKEN}@github.com/aloworld-org/alomails.git" repo
-          # Mirror the export into the repo working tree (keep only its .git).
-          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/alomails/" repo/
-          cd repo
-          git config user.name "alo-publish[bot]"
-          git config user.email "publish@aloworld.dev"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "alomails already current with ${GITHUB_SHA}"
-            exit 0
-          fi
-          git commit -m "sync from alo-workplace@${GITHUB_SHA}"
-          git push origin HEAD:main
+    uses: ./.github/workflows/publish-product.yml
+    with:
+      product: mail
+      target_repo: aloworld-org/alomails
+    secrets:
+      app_id: ${{ secrets.ALOMAILS_APP_ID }}
+      app_private_key: ${{ secrets.ALOMAILS_APP_PRIVATE_KEY }}
