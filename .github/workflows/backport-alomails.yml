@@ -1,0 +1,69 @@
+# Back-port external contributions from the public alomails repo into this
+# monorepo (ADR 0019 two-way sync). Together with publish-alomails.yml this
+# makes alomails a genuine contribution target: PRs merged there flow back here
+# as a reviewable PR, and the publish pipeline then re-syncs alomails.
+#
+# No secrets: reading the public alomails repo needs no token, and opening the
+# PR uses the workflow's own GITHUB_TOKEN. (We poll rather than have the public
+# repo dispatch here, so no monorepo-write token ever lives in a public repo.)
+name: Back-port from alomails
+
+on:
+  schedule:
+    - cron: "17 * * * *" # hourly; a no-op when there is nothing to back-port
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: backport-alomails
+  cancel-in-progress: false
+
+jobs:
+  backport:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alo-workplace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone alomails
+        run: git clone --depth 200 https://github.com/aloworld-org/alomails.git "$RUNNER_TEMP/alomails"
+
+      - name: Compute back-port patch
+        id: patch
+        run: |
+          bash scripts/backport-alomails.sh "$RUNNER_TEMP/alomails" "$RUNNER_TEMP/backport.patch"
+          if [ -s "$RUNNER_TEMP/backport.patch" ]; then
+            echo "has_patch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_patch=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open / update the back-port PR
+        if: steps.patch.outputs.has_patch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "alo-backport[bot]"
+          git config user.email "backport@aloworld.dev"
+          BR="backport/alomails"
+          git checkout -B "$BR" origin/main
+          # 3-way apply tolerates the monorepo having moved on since the last
+          # publish; a genuine conflict surfaces in the PR for a human to resolve.
+          git apply --3way "$RUNNER_TEMP/backport.patch" || git apply --3way --reject "$RUNNER_TEMP/backport.patch" || true
+          git add -A
+          if git diff --cached --quiet; then
+            echo "back-port already present in the monorepo; nothing to open"
+            exit 0
+          fi
+          git commit -m "back-port contributions from alomails"
+          git push -f origin "$BR"
+          gh pr create --base main --head "$BR" \
+            --title "Back-port contributions from alomails" \
+            --body "Automated back-port of external contributions merged into aloworld-org/alomails (verbatim-shared paths only: platform, products/mail, migrate, web source). Review and merge to integrate; the publish pipeline then re-syncs alomails. Conflicts, if any, appear as \`.rej\` files to resolve by hand." \
+            || echo "a back-port PR for $BR is already open; branch updated in place"

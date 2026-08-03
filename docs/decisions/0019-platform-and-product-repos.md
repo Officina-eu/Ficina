@@ -54,6 +54,29 @@ would only churn the contract.
 The gate between steps is **contract stability**, not a date. Splitting before
 then is the real shortcut — it locks churning contracts into cross-repo APIs.
 
+### Contribution model in the interim (two-way sync)
+
+While the monorepo is the source of truth, the public product repos would be
+read-only mirrors — an external PR merged into `alomails` would be clobbered by
+the next publish. To make `alomails` a **genuine contribution target** without
+giving up single-source-of-truth, the sync is two-way:
+
+- **Publish (out):** `publish-alomails.yml` exports monorepo → alomails on push.
+- **Back-port (in):** `backport-alomails.yml` polls alomails hourly; commits made
+  *past the last publish marker* (external contributions) are turned into a
+  patch of the **verbatim-shared paths** (`platform`, `products/mail`, `migrate`,
+  web source — not the transformed Cargo.toml / web build config / deploy /
+  licence / README / CI, which the export owns) and opened as a **reviewable PR**
+  into the monorepo. A maintainer merges it; the next publish re-syncs alomails.
+
+No secrets cross the boundary: reading the public repo needs none, and the PR is
+opened with the workflow's own token — so no monorepo-write credential ever
+lives in a public repo (we poll rather than let the public repo dispatch here).
+
+This is a lightweight, transform-aware Copybara. When the services split lands,
+it becomes unnecessary: each product repo is then the real source of truth and
+contributions land there directly.
+
 ---
 
 ## Update — Stage 1 landed
