@@ -65,9 +65,10 @@ forked. See [ARCHITECTURE.md](ARCHITECTURE.md).
 ## Repository layout
 
 ```
-core/      Rust services: smtp, auth-mail, store, jmap, imap, dav, identity, ai
+platform/       Shared kernel (ADR 0019): store, identity, auth-mail, sieve, ai
+products/mail/   The Mail product (alomails): smtp, smtp-client, imap, jmap
+suite/           Workplace umbrella: control plane, cross-product integration
 web/       TypeScript web application: all modules, one design system
-control/   Multi-tenant control plane: provisioning, quotas, billing hooks
 migrate/   alo Migrate: the M365 exit suite (Graph API based)
 deploy/    Container composition, pinned engine versions, infrastructure
 docs/      Product, protocol, and operations documentation

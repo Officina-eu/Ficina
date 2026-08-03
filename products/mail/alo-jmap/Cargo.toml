@@ -7,17 +7,17 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-alo-store = { path = "../alo-store" }
-alo-sieve = { path = "../alo-sieve" }
-alo-identity = { path = "../alo-identity" }
+alo-store = { path = "../../../platform/alo-store" }
+alo-sieve = { path = "../../../platform/alo-sieve" }
+alo-identity = { path = "../../../platform/alo-identity" }
 # The shared outbound SMTP client — EmailSubmission/set sends through the
 # trusted internal submission listener using the same production client the
 # SMTP delivery path uses.
 alo-smtp-client = { path = "../alo-smtp-client" }
 # The AI inference layer (ADR 0011) — the /ai/improve route bridges to it.
-alo-ai = { path = "../alo-ai" }
+alo-ai = { path = "../../../platform/alo-ai" }
 # Per-domain DKIM key generation when a domain is verified (ADR 0014).
-alo-auth-mail = { path = "../alo-auth-mail" }
+alo-auth-mail = { path = "../../../platform/alo-auth-mail" }
 # Live DNS checks for the admin Security & trust page (SPF/DMARC/DKIM/MX/PTR).
 hickory-resolver = { workspace = true }
 # The MTA-STS policy fetch (HTTPS) in the Security & trust checks.

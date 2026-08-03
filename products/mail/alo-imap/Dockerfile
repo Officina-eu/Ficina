@@ -1,5 +1,5 @@
 # Build context is the repository root (the Cargo workspace);
-# compose invokes this as: context ".." dockerfile "core/alo-imap/Dockerfile".
+# compose invokes this as: context ".." dockerfile "products/mail/alo-imap/Dockerfile".
 FROM rust:1.90-slim AS build
 WORKDIR /src
 # SQLX_OFFLINE + the checked-in .sqlx query cache let sqlx's compile-time
@@ -7,8 +7,9 @@ WORKDIR /src
 ENV SQLX_OFFLINE=true
 COPY Cargo.toml Cargo.lock ./
 COPY .sqlx ./.sqlx
-COPY core ./core
-COPY control ./control
+COPY platform ./platform
+COPY products ./products
+COPY suite ./suite
 COPY migrate ./migrate
 RUN cargo build --release --package alo-imap
 

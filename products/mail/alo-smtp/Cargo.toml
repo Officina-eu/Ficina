@@ -8,10 +8,10 @@ publish.workspace = true
 
 [dependencies]
 alo-smtp-client = { path = "../alo-smtp-client" }
-alo-auth-mail = { path = "../alo-auth-mail" }
-alo-store = { path = "../alo-store" }
-alo-sieve = { path = "../alo-sieve" }
-alo-identity = { path = "../alo-identity" }
+alo-auth-mail = { path = "../../../platform/alo-auth-mail" }
+alo-store = { path = "../../../platform/alo-store" }
+alo-sieve = { path = "../../../platform/alo-sieve" }
+alo-identity = { path = "../../../platform/alo-identity" }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -37,7 +37,7 @@ base64 = { workspace = true }
 [dev-dependencies]
 # The in-memory fixture DNS resolver, to verify a captured DKIM signature
 # against its published key in the per-tenant DKIM end-to-end test (ADR 0014).
-alo-auth-mail = { path = "../alo-auth-mail", features = ["test-fixtures"] }
+alo-auth-mail = { path = "../../../platform/alo-auth-mail", features = ["test-fixtures"] }
 # Unique temp spool directories for integration tests.
 tempfile = "3"
 # A real TLS client for the STARTTLS/AUTH submission integration test.

@@ -7,8 +7,9 @@ WORKDIR /src
 ENV SQLX_OFFLINE=true
 COPY Cargo.toml Cargo.lock ./
 COPY .sqlx ./.sqlx
-COPY core ./core
-COPY control ./control
+COPY platform ./platform
+COPY products ./products
+COPY suite ./suite
 COPY migrate ./migrate
 RUN cargo build --release --package alo-control --bins
 

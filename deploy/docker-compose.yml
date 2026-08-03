@@ -82,7 +82,7 @@ services:
   alo-smtp:
     build:
       context: ..
-      dockerfile: core/alo-smtp/Dockerfile
+      dockerfile: products/mail/alo-smtp/Dockerfile
     environment:
       ALO_SMTP_ADDR: 0.0.0.0:2525
       ALO_SMTP_HOSTNAME: ${ALO_SMTP_HOSTNAME:-mx.alo.test}

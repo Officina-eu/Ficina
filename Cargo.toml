@@ -1,6 +1,21 @@
 [workspace]
 resolver = "3"
-members = ["core/alo-smtp", "core/alo-smtp-client", "core/alo-auth-mail", "core/alo-store", "core/alo-jmap", "core/alo-imap", "core/alo-sieve", "core/alo-identity", "core/alo-ai", "control", "migrate"]
+members = [
+    # platform — the shared kernel every product builds on (ADR 0019)
+    "platform/alo-store",
+    "platform/alo-identity",
+    "platform/alo-auth-mail",
+    "platform/alo-sieve",
+    "platform/alo-ai",
+    # products/mail — the Mail product (alomails)
+    "products/mail/alo-smtp",
+    "products/mail/alo-smtp-client",
+    "products/mail/alo-imap",
+    "products/mail/alo-jmap",
+    # suite — the workplace umbrella (control plane, integration)
+    "suite/alo-control",
+    "migrate",
+]
 
 [workspace.package]
 version = "0.0.1"

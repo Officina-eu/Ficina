@@ -47,5 +47,11 @@ state *why*.
   and re-checked at the store.
 - Compat adapters translate at the edge into JMAP; the core never
   learns MAPI/EAS concepts.
-- Monorepo: `core/` `web/` `control/` `migrate/` `deploy/` `docs/`.
-  Rust below the waterline, TypeScript above. Nothing else.
+- Monorepo, layered by ADR 0019: `platform/` (the shared kernel —
+  store, identity, auth-mail, sieve, ai) → `products/<product>/` (the
+  Mail product lives in `products/mail/`: smtp, smtp-client, imap, jmap)
+  → `suite/` (the workplace umbrella — control plane, integration).
+  Plus `web/` `migrate/` `deploy/` `docs/`. Dependency direction is
+  one-way: suite → products → platform; a product never depends on the
+  suite or on another product. Rust below the waterline, TypeScript
+  above. Nothing else.

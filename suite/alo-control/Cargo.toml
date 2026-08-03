@@ -7,10 +7,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-alo-store = { path = "../core/alo-store" }
-alo-identity = { path = "../core/alo-identity" }
+alo-store = { path = "../../platform/alo-store" }
+alo-identity = { path = "../../platform/alo-identity" }
 # Per-domain DKIM key generation when a domain is verified (ADR 0014).
-alo-auth-mail = { path = "../core/alo-auth-mail" }
+alo-auth-mail = { path = "../../platform/alo-auth-mail" }
 # DNS TXT lookup to verify a tenant's domain ownership (same resolver the
 # Security & trust checks use).
 hickory-resolver = { workspace = true }

@@ -150,7 +150,7 @@ services:
   alo-smtp:
     build:
       context: ../..
-      dockerfile: core/alo-smtp/Dockerfile
+      dockerfile: products/mail/alo-smtp/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
@@ -218,7 +218,7 @@ services:
   alo-imap:
     build:
       context: ../..
-      dockerfile: core/alo-imap/Dockerfile
+      dockerfile: products/mail/alo-imap/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
@@ -252,7 +252,7 @@ services:
   alo-jmap:
     build:
       context: ../..
-      dockerfile: core/alo-jmap/Dockerfile
+      dockerfile: products/mail/alo-jmap/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
@@ -306,7 +306,7 @@ services:
   alo-control:
     build:
       context: ../..
-      dockerfile: control/Dockerfile
+      dockerfile: suite/alo-control/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }

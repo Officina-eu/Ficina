@@ -1,6 +1,21 @@
 # ADR 0019 — Platform + product repos (the suite structure)
 
-Status: **proposed** (awaiting owner approval)
+Status: **accepted** (owner-approved) · Stage 1 landed 2026-08-03
+
+## Update — Stage 1 landed
+
+The monorepo is now layered `platform/ products/mail/ suite/` with the
+one-way dependency direction enforced by the Cargo path graph. Verified:
+`cargo check --workspace` green, and all four service images
+(alo-jmap/smtp/imap/control) rebuild from the new Dockerfile/compose paths
+(alo-jmap redeployed healthy). No behaviour change — pure structure.
+
+**One placement refinement vs. the draft:** `alo-ai` sits in **`platform/`**,
+not the suite. Its egress/SSRF guard (`alo_ai::egress`) is shared
+infrastructure the Mail product already depends on (IMAP-import host
+validation), so it cannot be suite-only without breaking the product build.
+Carving the *proprietary AI features/models* from the shared inference
+plumbing is a later refinement and does not block the split.
 
 ## Context
 

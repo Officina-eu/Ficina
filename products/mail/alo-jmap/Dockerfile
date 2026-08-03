@@ -1,5 +1,5 @@
 # Build context is the repository root (the Cargo workspace);
-# compose invokes this as: context ".." dockerfile "core/alo-jmap/Dockerfile".
+# compose invokes this as: context ".." dockerfile "products/mail/alo-jmap/Dockerfile".
 FROM rust:1.90-slim AS build
 WORKDIR /src
 # SQLX_OFFLINE + the checked-in .sqlx query cache let sqlx's compile-time
@@ -7,8 +7,9 @@ WORKDIR /src
 ENV SQLX_OFFLINE=true
 COPY Cargo.toml Cargo.lock ./
 COPY .sqlx ./.sqlx
-COPY core ./core
-COPY control ./control
+COPY platform ./platform
+COPY products ./products
+COPY suite ./suite
 COPY migrate ./migrate
 # Also build identityctl (the admin/provisioning CLI) so the running image
 # can bootstrap the first admin via `docker compose exec`.
