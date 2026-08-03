@@ -405,6 +405,36 @@ Implemented methods: `OPTIONS`, `PROPFIND` (principal / home / addressbook
 The eventual clean home is a dedicated `alo-dav` crate (per ROADMAP);
 today it is a module in alo-jmap, reusing its auth + store wiring.
 
+## CalDAV (alo-jmap::carddav, RFC 4791)
+
+The calendar syncs natively to Apple Calendar / iOS, Android (via a CalDAV
+app), and Thunderbird, riding the **same handler, auth, and discovery** as
+CardDAV — one calendar collection per account at
+`/dav/calendars/<user>/default/` (objects are `<eventId>.ics`), and the
+principal advertises `calendar-home-set` alongside `addressbook-home-set` so a
+client discovers whichever it asks for. `.well-known/caldav` → `/dav/`. The
+sync-token is the account modseq (`urn:alo:calendar:<modseq>`) filtered to
+`Event` changes, so `sync-collection` maps onto `AccountStore::changes`.
+Per-object ETags hash the event **fields** (not the serialized iCalendar,
+whose `DTSTAMP` changes each render — hashing that would churn every sync).
+
+Implemented methods mirror CardDAV: `OPTIONS` (advertises `calendar-access`),
+`PROPFIND` (principal / calendar-home / calendar / object), `REPORT`
+(`calendar-multiget`, `calendar-query`, `sync-collection`), `GET`, `PUT`
+(`If-Match`/`If-None-Match`), `DELETE`. Deliberate scope cuts:
+- **iCalendar (RFC 5545) is minimal**: `UID`, `SUMMARY`, `DESCRIPTION`,
+  `LOCATION`, `DTSTART`/`DTEND` as UTC (`…Z`) or all-day (`VALUE=DATE`). A
+  `TZID`-qualified or floating time is read as **UTC** — so a client that
+  writes local times with a `VTIMEZONE` may see the instant shifted. Clients
+  configured to write UTC round-trip exactly. Recurrence (`RRULE`), attendees,
+  alarms, and `VTODO`/`VJOURNAL` are not yet modelled (Agenda later slices).
+- `calendar-query` time-range/component filters are **not** evaluated — the
+  REPORT returns the whole collection (a valid, unfiltered result the client
+  narrows), exactly as CardDAV does for `addressbook-query`.
+- No `PROPPATCH`/`MKCALENDAR`/`MOVE`: the single calendar is fixed.
+Wire-verified on the live server (principal discovery, PUT/GET/REPORT/
+sync-collection/DELETE, sync-token advancing on writes).
+
 ## IMAP import (client role, RFC 3501)
 
 The **Import mail** wizard makes alo an IMAP *client* (distinct from the

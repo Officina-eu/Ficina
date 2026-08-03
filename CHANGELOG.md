@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- New: **Your alomails calendar syncs to your phone and computer (CalDAV).** Add
+  your alo account to iPhone/iPad or macOS Calendar, Android (via a CalDAV app),
+  or Thunderbird, and the events you create in alomails appear there — and events
+  you add on your phone sync back. It rides the same one-account setup as your
+  contacts (CardDAV), with incremental sync so only changes move.
 - New: **Calendar, built right into alomails.** alomails is now Mail **and**
   Calendar in one app — the Gmail/Outlook shape — with a familiar month and week
   Agenda: a "New event" button, click a day or time slot to add one, and click
