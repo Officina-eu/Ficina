@@ -3,7 +3,7 @@
 // colour, lists, alignment, quote, rule, link, image, equation, code, clear).
 // Formatting uses the browser's built-in editing commands; it emits HTML on every
 // edit, and the parent derives a plain-text alternative from it.
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlignCenter,
@@ -11,7 +11,6 @@ import {
   AlignRight,
   Baseline,
   Bold,
-  Code2,
   Eraser,
   Highlighter,
   Image as ImageIcon,
@@ -21,19 +20,13 @@ import {
   ListOrdered,
   Minus,
   Quote,
-  Sigma,
   Strikethrough,
   Underline,
 } from "lucide-react";
 
 import { strings } from "../../i18n";
+import { surface } from "../../product";
 import styles from "./RichTextEditor.module.css";
-
-// The equation/code insert UI pulls in KaTeX + Prism, so it is code-split: those
-// libraries load only when a user inserts one, never on the mail path (ADR 0015).
-const AuthoringInsertModal = lazy(() =>
-  import("../../authoring").then((m) => ({ default: m.AuthoringInsertModal })),
-);
 
 /** Largest inline image edge (px); wider images are downscaled before embedding. */
 const MAX_IMAGE_EDGE = 1400;
@@ -120,8 +113,14 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
   const ref = useRef<HTMLDivElement>(null);
   const savedRange = useRef<Range | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [insert, setInsert] = useState<null | "equation" | "code">(null);
+  // The id of the open compose-insert (from the product surface), or null.
+  const [insert, setInsert] = useState<string | null>(null);
   const [font, setFont] = useState(DEFAULT_FONT);
+  // Compose-editor inserts (e.g. equation/code) are contributed by the product
+  // surface (ADR 0019): the mail product has none, so the mail build carries no
+  // KaTeX/Prism; the workspace supplies them. Read at render, not module scope
+  // (the surface ↔ mail import cycle leaves it unset at module init).
+  const composeInserts = surface.composeInserts;
   const [size, setSize] = useState("3");
 
   useEffect(() => {
@@ -200,9 +199,9 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
     execRestored("createLink", url.trim());
   }
 
-  function openInsert(kind: "equation" | "code") {
+  function openInsert(id: string) {
     saveRange();
-    setInsert(kind);
+    setInsert(id);
   }
 
   /** Insert HTML at the saved caret, parsed via <template> so MathML/atoms survive. */
@@ -388,8 +387,9 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
         })}
         {divider("d3")}
 
-        {tool("eq", strings.composeInsertEquation, <Sigma size={16} />, () => openInsert("equation"))}
-        {tool("code", strings.composeInsertCode, <Code2 size={16} />, () => openInsert("code"))}
+        {composeInserts.map((ci) =>
+          tool(ci.id, ci.label, <ci.Icon size={16} />, () => openInsert(ci.id)),
+        )}
         {tool("clear", strings.clearFormatting, <Eraser size={16} />, () => exec("removeFormat"))}
       </div>
 
@@ -419,11 +419,13 @@ export function RichTextEditor({ initialHtml, onChange, placeholder, autoFocus }
         onDrop={(e) => void onDrop(e)}
         suppressContentEditableWarning
       />
-      {insert !== null && (
-        <Suspense fallback={null}>
-          <AuthoringInsertModal kind={insert} onInsert={insertHtml} onClose={() => setInsert(null)} />
-        </Suspense>
-      )}
+      {(() => {
+        if (insert === null) return null;
+        const ci = composeInserts.find((c) => c.id === insert);
+        if (ci === undefined) return null;
+        const Modal = ci.Modal;
+        return <Modal onInsert={insertHtml} onClose={() => setInsert(null)} />;
+      })()}
     </div>
   );
 }

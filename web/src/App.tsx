@@ -1,88 +1,57 @@
-// The application router. Public route: the login screen. Everything else is
-// behind RequireAuth and rendered inside the shell frame; the module set comes
-// from the registry, so adding a module is a registry entry, not a router
-// change. Only Mail has a real surface this pass; the rest show "coming soon".
-import { Fragment, Suspense, lazy } from "react";
+// The application router. Public routes: sign-in and personal signup.
+// Everything else is behind RequireAuth and rendered inside the shell frame.
+// The whole module/console set comes from the active product surface (ADR
+// 0019), so the router is product-agnostic — trimming a product to a subset
+// swaps the surface, never this file.
+import { Fragment } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { useLocale } from "./i18n";
 import { AuthProvider, LoginPage, RequireAuth } from "./auth";
 import { SignupPage } from "./signup";
-import { AppShell, ComingSoon, defaultModulePath, modules } from "./shell";
-import { Spinner } from "./ds";
-import { HomeModule } from "./home";
-import { MailModule } from "./mail";
-import { AdminConsole } from "./admin";
-import { ControlConsole } from "./control";
-
-// The Docs technical-authoring module pulls in KaTeX + Prism (and every Prism
-// language grammar), so it is code-split: those libraries load only when a user
-// opens Docs, never on the mail path (ADR 0015).
-const DocsModule = lazy(() => import("./authoring").then((m) => ({ default: m.DocsModule })));
-
-function ModuleLoading() {
-  return (
-    <div style={{ display: "flex", justifyContent: "center", padding: "4rem" }}>
-      <Spinner size={24} />
-    </div>
-  );
-}
-
-/** The real surface for a module, or a "coming soon" placeholder. Docs'
- * technical-authoring surface (ADR 0015) lives under Drive (ADR 0010). */
-function moduleElement(id: string, label: string, Icon: (typeof modules)[number]["Icon"]) {
-  if (id === "home") return <HomeModule />;
-  if (id === "mail") return <MailModule />;
-  if (id === "drive") {
-    return (
-      <Suspense fallback={<ModuleLoading />}>
-        <DocsModule />
-      </Suspense>
-    );
-  }
-  return <ComingSoon title={label} Icon={Icon} />;
-}
+import { AppShell, ComingSoon } from "./shell";
+import { surface } from "./product";
 
 export function App() {
-  // Subscribe to the active language. Keying the route tree on the
-  // locale remounts it on a switch, so every component re-reads
-  // `strings.*` in the new language (a rare, deliberate action — the
-  // remount cost is invisible and avoids threading a context through
-  // ~50 call sites).
+  // Subscribe to the active language. Keying the route tree on the locale
+  // remounts it on a switch, so every component re-reads `strings.*` in the new
+  // language (a rare, deliberate action — the remount cost is invisible and
+  // avoids threading a context through ~50 call sites).
   const locale = useLocale();
   return (
     <BrowserRouter>
       <AuthProvider>
         <Fragment key={locale}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          {/* Public personal signup (ADR 0018); the page hides itself when no
-              personal domains are configured. */}
-          <Route path="/signup" element={<SignupPage />} />
-          {/* The OIDC redirect target; the login flow reads the code inline, so
-              a stray navigation here just returns to the app. */}
-          <Route path="/auth/callback" element={<Navigate to={defaultModulePath} replace />} />
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            {/* Public personal signup (ADR 0018); the page hides itself when no
+                personal domains are configured. */}
+            <Route path="/signup" element={<SignupPage />} />
+            {/* The OIDC redirect target; the login flow reads the code inline, so
+                a stray navigation here just returns to the app. */}
+            <Route path="/auth/callback" element={<Navigate to={surface.defaultPath} replace />} />
 
-          <Route element={<RequireAuth />}>
-            {/* The admin console has its own full-screen shell (not the mail
-                rail); it gates to tenant admins internally. */}
-            <Route path="/admin/*" element={<AdminConsole />} />
-            {/* The platform control plane (ADR 0012): its own full-screen
-                shell, gated to platform operators internally. */}
-            <Route path="/control/*" element={<ControlConsole />} />
-            <Route element={<AppShell />}>
-              <Route index element={<Navigate to={defaultModulePath} replace />} />
-              {modules.map((m) => (
-                <Route
-                  key={m.id}
-                  path={`${m.path}/*`}
-                  element={moduleElement(m.id, m.label, m.Icon)}
-                />
+            <Route element={<RequireAuth />}>
+              {/* Full-screen consoles (own shell, gated internally) — e.g. tenant
+                  admin, and the control plane in the workspace product. */}
+              {surface.consoles.map((c) => (
+                <Route key={c.path} path={c.path} element={c.element()} />
               ))}
-              <Route path="*" element={<Navigate to={defaultModulePath} replace />} />
+              <Route element={<AppShell />}>
+                <Route index element={<Navigate to={surface.defaultPath} replace />} />
+                {surface.modules.map((m) => (
+                  <Route
+                    key={m.id}
+                    path={`${m.path}/*`}
+                    element={
+                      m.element ? m.element() : <ComingSoon title={m.label} Icon={m.Icon} />
+                    }
+                  />
+                ))}
+                <Route path="*" element={<Navigate to={surface.defaultPath} replace />} />
+              </Route>
             </Route>
-          </Route>
-        </Routes>
+          </Routes>
         </Fragment>
       </AuthProvider>
     </BrowserRouter>
