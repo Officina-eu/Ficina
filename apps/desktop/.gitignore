@@ -1,0 +1,6 @@
+# Rust build output
+src-tauri/target/
+# Tauri-generated schemas/artifacts
+src-tauri/gen/
+# Icon-gen tooling
+node_modules/

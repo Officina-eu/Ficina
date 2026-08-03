@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **alomails as a real desktop app.** Download an installable app from
+  **mail.alomails.com/download** — its own window and dock/taskbar icon, not a
+  browser tab. It's built with Tauri (Rust shell + the existing web UI, ~2 MB,
+  uses the system webview — no bundled browser), so it's the same app you know
+  with nothing rewritten (ADR 0005). Windows (.msi) ships now; the macOS .dmg
+  builds on CI. Unsigned for now, so the OS may warn about an unidentified
+  developer until signing certificates are added.
 - New: **Forgot your password? Reset it yourself.** A "Forgot password?" link on
   the sign-in screen now starts a self-service reset: enter your alo address, get
   a code at the recovery mailbox you set up at signup, and choose a new password —

@@ -1,0 +1,59 @@
+# Build the alomails desktop apps (ADR 0005 Tauri shell) for macOS + Windows.
+#
+# Windows can be built on a dev machine directly (`cargo tauri build`); the Mac
+# .dmg must build on macOS, which is what the mac runner here is for. Both
+# produce UNSIGNED installers for now — they install and run, but show the OS
+# "unidentified developer" prompt until signing secrets are added (Apple
+# Developer ID for macOS, a code-signing cert for Windows). Wire those in as
+# repo secrets and this workflow signs automatically.
+#
+# Trigger manually (workflow_dispatch) or by pushing a `desktop-v*` tag. Note:
+# macOS runners bill more Actions minutes on a private repo — run when needed.
+name: Desktop apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: universal-apple-darwin
+            args: "--target universal-apple-darwin"
+          - platform: windows-latest
+            target: ""
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Build + attach installers to a draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'desktop-latest' }}
+          releaseName: "alomails desktop"
+          releaseBody: "Download the installer for your platform. Unsigned for now — your OS may warn about an unidentified developer."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
