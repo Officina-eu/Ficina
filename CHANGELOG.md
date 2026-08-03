@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- New: **Invite guests to an event.** Add email addresses to an event and, when
+  you save, alomails emails each guest a standard invitation (iMIP `REQUEST`)
+  from your address — so anyone on Gmail, Outlook, or Apple Calendar gets a real,
+  RSVP-able invite in their own calendar, and editing the event re-sends an
+  update. (Receiving invitations back as RSVPs in alomails comes next.)
 - New: **Recurring events.** When you create or edit an event, pick how it
   repeats — every day, week, month, or year — and it fills the calendar going
   forward (with an optional end). The repeat rides along to your phone/Apple
