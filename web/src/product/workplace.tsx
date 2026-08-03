@@ -7,7 +7,7 @@
 // `../authoring`). alomails ships the `mail` surface instead and deletes this
 // file together with those areas — nothing else in the web app references them.
 import { Suspense, lazy } from "react";
-import { Building2, Calendar, Code2, HardDrive, MessagesSquare, Sigma, Video } from "lucide-react";
+import { Building2, Code2, HardDrive, MessagesSquare, Sigma, Video } from "lucide-react";
 
 import { strings } from "../i18n";
 import { Spinner } from "../ds";
@@ -49,7 +49,6 @@ function insertModal(kind: "equation" | "code"): ComposeInsert["Modal"] {
 
 const suiteModules: ProductModule[] = [
   ...sharedModules,
-  { id: "agenda", path: "/agenda", label: strings.moduleAgenda, Icon: Calendar, enabled: false },
   { id: "chat", path: "/chat", label: strings.moduleChat, Icon: MessagesSquare, enabled: false },
   // Drive proper is not built; its surface hosts the Docs technical-authoring
   // preview (ADR 0015), which lives under Drive (ADR 0010).

@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **Calendar, built right into alomails.** alomails is now Mail **and**
+  Calendar in one app — the Gmail/Outlook shape — with a familiar month and week
+  Agenda: a "New event" button, click a day or time slot to add one, and click
+  an event to edit or delete it. Events live on your own account, tenant-isolated
+  like everything else. (First slice: personal timed and all-day events; syncing
+  to your phone / Apple Calendar via CalDAV, and emailed invitations, come next.)
 - New: **alomails as a real desktop app.** Download an installable app from
   **mail.alomails.com/download** — its own window and dock/taskbar icon, not a
   browser tab. It's built with Tauri (Rust shell + the existing web UI, ~2 MB,
