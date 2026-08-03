@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **Recurring events.** When you create or edit an event, pick how it
+  repeats — every day, week, month, or year — and it fills the calendar going
+  forward (with an optional end). The repeat rides along to your phone/Apple
+  Calendar over CalDAV, and events created there with a repeat show up in
+  alomails too. Editing or deleting a repeating event changes the whole series;
+  per-occurrence exceptions come later.
 - New: **Your alomails calendar syncs to your phone and computer (CalDAV).** Add
   your alo account to iPhone/iPad or macOS Calendar, Android (via a CalDAV app),
   or Thunderbird, and the events you create in alomails appear there — and events
