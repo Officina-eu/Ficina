@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- Fixed: **Typing the bare mail domain now works.** Visiting `mail.example.com`
+  (plain HTTP) previously connected to nothing and errored; it now redirects to
+  HTTPS. Caddy serves port 80 for the redirect while the Let's Encrypt renewal
+  challenge is served from a shared webroot — so certificate auto-renewal keeps
+  working without certbot needing its own public port. Verified with a live
+  renewal dry-run.
 - New: **alomails — the Mail product as its own app.** Built with
   `ALO_PRODUCT=mail`, the standalone alomails surface ships Home + Mail only
   (no workspace, authoring, or suite-admin modules) and the browser tab now
