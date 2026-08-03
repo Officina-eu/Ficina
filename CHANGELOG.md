@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **Forgot your password? Reset it yourself.** A "Forgot password?" link on
+  the sign-in screen now starts a self-service reset: enter your alo address, get
+  a code at the recovery mailbox you set up at signup, and choose a new password —
+  no admin needed. The request step always looks the same whether or not the
+  address exists, so it never reveals who has an account; the code is short-lived,
+  attempt-capped, and rate-limited, exactly like signup. (Applies to accounts
+  created from this release on, since it needs the recovery mailbox on file.)
 - Fixed: **The alomails sign-in no longer looks like a company login.** The
   standalone mail product now shows a personal email hint (`you@alomails.com`
   instead of `you@yourdomain.com`) and drops the enterprise "Sign in with SSO"
