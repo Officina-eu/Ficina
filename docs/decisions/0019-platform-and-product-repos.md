@@ -17,6 +17,29 @@ validation), so it cannot be suite-only without breaking the product build.
 Carving the *proprietary AI features/models* from the shared inference
 plumbing is a later refinement and does not block the split.
 
+## Update — Stage 2 landed (`aloworld-org/alomails` seeded)
+
+The public Mail product repo is live at
+[`aloworld-org/alomails`](https://github.com/aloworld-org/alomails)
+(AGPL-3.0). Content: `platform/` + `products/mail/` + `migrate/` + a mail-only
+workspace `Cargo.toml` + `deploy/production/` (the `alo-control` service and
+its Caddy route removed) + `LICENSE` + `README`. Verified: `cargo check
+--workspace` green **standalone** in the seeded tree.
+
+**Deviation from the draft — clean seed, not a subtree with history.** The
+monorepo's history carries private business/licensing strategy (ADR 0002,
+control-plane ADRs, positioning) that touched shared paths; a filtered-history
+export would leak those commit messages/contents into a public repo. So the
+seed is a **single clean initial commit**. The trade-off: `alomails` does not
+(yet) share commit history with the monorepo. Development still happens in the
+monorepo; `alomails` is refreshed from it. Curated history can be added later
+if wanted.
+
+**Deferred to a fast-follow:** the mail **web client** (the current web app
+carries workplace-only modules — authoring/control — that must be trimmed
+before it ships in the public mail repo), and a Stage-3 flip to versioned
+platform releases once the `alo-store`/`alo-identity` contracts stabilise.
+
 ## Context
 
 alo is becoming a suite: Mail first, then Docs, Calendar, Chat, Meet,
