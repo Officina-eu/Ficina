@@ -6,10 +6,13 @@
 # is what makes "edit here, it appears in the product repo" automatic — there
 # is never a second editable copy.
 #
-# ONE-TIME SETUP: add a repository secret `ALOMAILS_PUBLISH_TOKEN` to this repo
-# (Settings → Secrets and variables → Actions) — a fine-grained PAT (or GitHub
-# App token) with Contents: read & write on aloworld-org/alomails. Without it
-# the job fails with a clear message and nothing is published.
+# ONE-TIME SETUP: a GitHub App (owned by / installed on aloworld-org, with
+# Contents + Workflows: read & write on aloworld-org/alomails). Add two repo
+# secrets here (Settings → Secrets and variables → Actions):
+#   ALOMAILS_APP_ID           — the App's numeric ID
+#   ALOMAILS_APP_PRIVATE_KEY  — the App's private-key .pem contents
+# The job mints a short-lived, alomails-scoped installation token from these;
+# no long-lived credential is stored.
 name: Publish alomails
 
 on:
@@ -31,15 +34,20 @@ jobs:
       - name: Build the alomails export
         run: bash scripts/export-alomails.sh "$RUNNER_TEMP/alomails"
 
+      - name: Mint an alomails-scoped token from the App
+        id: app_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ALOMAILS_APP_ID }}
+          private-key: ${{ secrets.ALOMAILS_APP_PRIVATE_KEY }}
+          owner: aloworld-org
+          repositories: alomails
+
       - name: Mirror to aloworld-org/alomails
         env:
-          TOKEN: ${{ secrets.ALOMAILS_PUBLISH_TOKEN }}
+          TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           set -euo pipefail
-          if [ -z "${TOKEN:-}" ]; then
-            echo "::error::ALOMAILS_PUBLISH_TOKEN is not set — see the header of this workflow."
-            exit 1
-          fi
           git clone --depth 1 \
             "https://x-access-token:${TOKEN}@github.com/aloworld-org/alomails.git" repo
           # Mirror the export into the repo working tree (keep only its .git).
