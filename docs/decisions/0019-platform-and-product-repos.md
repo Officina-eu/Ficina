@@ -35,16 +35,21 @@ seed is a **single clean initial commit**. The trade-off: `alomails` does not
 monorepo; `alomails` is refreshed from it. Curated history can be added later
 if wanted.
 
-**Web client — shipped.** The mail web app is now in `alomails/web` with the
-suite-only surfaces removed (src/control and src/authoring deleted; the
-router, module registry, compose editor, and account menu rewired). It keeps
-mail/auth/signup/contacts/import/admin + the design system + EN/FR i18n; tsc
-+ eslint clean, vite build green (KaTeX/Prism drop out of the bundle). This is
-currently a **trimmed export** of the monorepo web app — a small divergence.
-The zero-divergence fix (make the web module set product-configurable so one
-source builds both the suite and the mail variant, and the export strips the
-proprietary source) is a follow-up; the web is harder to split than the Rust
-because it is one bundled SPA.
+**Web client — shipped, and modularized (zero-divergence).** The web app is now
+defined by a single **product surface** (`web/src/product`): which rail
+modules, full-screen consoles, and compose-editor inserts a product has.
+App.tsx, the rail, the account menu, and the rich-text editor read the surface
+generically — none hard-imports `control`/`authoring`. A `@product` build alias
+(vite `ALO_PRODUCT` + tsconfig path) selects the surface: **workspace** by
+default, **mail** with `ALO_PRODUCT=mail`. Verified from one source: the default
+build carries Docs (59 KaTeX assets); the mail build carries **zero** KaTeX and
+no control/authoring chunks. tsc + eslint clean, 73 web tests pass.
+
+Only `product/workplace.tsx` imports the suite-only areas, so exporting alomails
+is now **mechanical**: copy the workspace web, delete `src/control` +
+`src/authoring` + `product/workplace.tsx`, default to mail — no logic edits.
+alomails already runs this structure (`alomails/web`, mail surface). The web is
+thus a **trimmed export with a one-file seam**, not a hand-maintained fork.
 
 **Still deferred:** the Stage-3 flip to versioned platform releases once the
 `alo-store`/`alo-identity` contracts stabilise.
