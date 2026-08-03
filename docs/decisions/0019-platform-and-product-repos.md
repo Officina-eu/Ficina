@@ -35,10 +35,19 @@ seed is a **single clean initial commit**. The trade-off: `alomails` does not
 monorepo; `alomails` is refreshed from it. Curated history can be added later
 if wanted.
 
-**Deferred to a fast-follow:** the mail **web client** (the current web app
-carries workplace-only modules — authoring/control — that must be trimmed
-before it ships in the public mail repo), and a Stage-3 flip to versioned
-platform releases once the `alo-store`/`alo-identity` contracts stabilise.
+**Web client — shipped.** The mail web app is now in `alomails/web` with the
+suite-only surfaces removed (src/control and src/authoring deleted; the
+router, module registry, compose editor, and account menu rewired). It keeps
+mail/auth/signup/contacts/import/admin + the design system + EN/FR i18n; tsc
++ eslint clean, vite build green (KaTeX/Prism drop out of the bundle). This is
+currently a **trimmed export** of the monorepo web app — a small divergence.
+The zero-divergence fix (make the web module set product-configurable so one
+source builds both the suite and the mail variant, and the export strips the
+proprietary source) is a follow-up; the web is harder to split than the Rust
+because it is one bundled SPA.
+
+**Still deferred:** the Stage-3 flip to versioned platform releases once the
+`alo-store`/`alo-identity` contracts stabilise.
 
 ## Context
 
