@@ -6,6 +6,9 @@ contracts.
 
 ## Unreleased
 
+- New: **Dutch (Nederlands).** The whole interface is now available in Dutch —
+  pick it under Account → Language (it's also auto-selected for Dutch browsers).
+  Alongside English and French, for Belgian/Flemish teams.
 - New: **Shared calendars sync to your phone.** Every calendar you can see —
   your own and any shared with you — now appears as its own calendar on your
   phone / Apple Calendar / Thunderbird over CalDAV, with its name and colour;
