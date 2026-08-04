@@ -6,6 +6,10 @@ contracts.
 
 ## Unreleased
 
+- **Desktop 0.1.9**: bundles the redesigned Home, Calendar, and Tasks (List /
+  Board / Timeline / Calendar / Overview, the new-task modal, and the branded
+  dialogs). Installed apps auto-update.
+
 - Fixed: **Desktop app (Windows) opened to a blank window.** The "open external
   links in your browser" behaviour was mistaking the app's own local address for
   an outside site on Windows, so it never loaded. The app now opens straight to

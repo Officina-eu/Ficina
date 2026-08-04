@@ -1,6 +1,6 @@
 [package]
 name = "alomails-desktop"
-version = "0.1.8"
+version = "0.1.9"
 description = "alomails desktop shell"
 authors = ["aloworld"]
 edition = "2021"
