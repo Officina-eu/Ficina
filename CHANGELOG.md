@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **Turn an email into a task.** Open a message, and "Create a task" (in the
+  ⋯ menu) makes a task from it — titled with the subject and linked back to the
+  message. On the task, "Open the source email" jumps straight to that message.
+  Where a tenant has AI configured, "Suggest tasks from this email" reads the
+  message and drops candidate to-dos into your task inbox to accept or dismiss —
+  it never adds them to your board on its own. The source link stays inside your
+  tenant: it can only ever open a message you're already allowed to read.
 - New: **Tasks.** A calm, fast task manager — the third leg of mail + calendar +
   tasks. Board (kanban) and list are two views of the *same* tasks: switch
   instantly, drag a card between columns to change its status or reorder within
