@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **A landing page at alomails.com.** The bare domain now has a proper
+  marketing page — what alomails is (private, sovereign email + calendar, hosted
+  in Europe) with app downloads — while the app itself stays on
+  mail.alomails.com. The apex gets its own certificate; the app's TLS and mail
+  are untouched. (Goes live once the apex DNS points at the server; run
+  `deploy/production/init-landing.sh`.)
 - New: **Skip one occurrence of a repeating event.** Deleting a single instance
   of a recurring series — "cancel *this* Tuesday's standup, keep the rest" —
   now removes just that occurrence while the series stays. Opening a repeating
