@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- New: **Tasks.** A calm, fast task manager — the third leg of mail + calendar +
+  tasks. Board (kanban) and list are two views of the *same* tasks: switch
+  instantly, drag a card between columns to change its status or reorder within
+  one. Each task has an assignee, due date, priority, subtasks, comments, and a
+  history; the detail slides in from the side without leaving your board.
+  Personal tasks are private; team projects are shared. A task can remember the
+  email or event it came from, a due date can surface on the calendar, and the
+  AI *suggests* action items you accept or dismiss — it never creates tasks
+  silently. In English, French, and Dutch.
 - New: **Dutch (Nederlands).** The whole interface is now available in Dutch —
   pick it under Account → Language (it's also auto-selected for Dutch browsers).
   Alongside English and French, for Belgian/Flemish teams.
