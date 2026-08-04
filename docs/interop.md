@@ -432,6 +432,12 @@ Implemented methods mirror CardDAV: `OPTIONS` (advertises `calendar-access`),
   REPORT returns the whole collection (a valid, unfiltered result the client
   narrows), exactly as CardDAV does for `addressbook-query`.
 - No `PROPPATCH`/`MKCALENDAR`/`MOVE`: the single calendar is fixed.
+- **Per-occurrence overrides (`RECURRENCE-ID`) are not carried over CalDAV
+  yet.** Editing a single instance of a recurring series in place (the app's
+  "This event" save) is stored and shown in-app, but the `.ics` served/parsed
+  for a series is the master alone — a `VEVENT` with `RECURRENCE-ID` is neither
+  emitted nor read. Phones therefore still show the un-edited occurrence until a
+  later slice serialises overrides (skip-one, `EXDATE`, already round-trips).
 Wire-verified on the live server (principal discovery, PUT/GET/REPORT/
 sync-collection/DELETE, sync-token advancing on writes).
 

@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- New: **Edit a single event in a repeating series.** Opening one occurrence of a
+  recurring event now offers **This event** or **All events** on save — move or
+  rename just this Tuesday's standup while the rest of the series stays put, or
+  apply the change to the whole series. Skipping a single occurrence (delete →
+  "This event") already existed; this is its editing counterpart. For now the
+  per-occurrence edit shows in the app; it does not yet propagate to phones over
+  CalDAV (the series still syncs) — that follow-on is tracked in the calendar
+  notes.
 - New: **Shared and team calendars.** You can now share a calendar with a
   colleague by email, or with a whole group (team) at once, giving them either
   **view** or **edit** access. Shared calendars appear in everyone's sidebar
