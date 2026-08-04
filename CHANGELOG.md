@@ -6,6 +6,10 @@ contracts.
 
 ## Unreleased
 
+- Fixed: **alomails shows only Mail + Calendar again.** The web deploy was
+  building the full workplace surface, so the sidebar briefly showed Chat, Drive,
+  and Meet — products that aren't part of alomails. The publish step now builds
+  the mail surface (`ALO_PRODUCT=mail`), so alomails is Home, Mail, and Agenda.
 - New: **Edit a single event in a repeating series.** Opening one occurrence of a
   recurring event now offers **This event** or **All events** on save — move or
   rename just this Tuesday's standup while the rest of the series stays put, or
