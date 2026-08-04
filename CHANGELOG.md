@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- Fixed: **Desktop app (Windows) opened to a blank window.** The "open external
+  links in your browser" behaviour was mistaking the app's own local address for
+  an outside site on Windows, so it never loaded. The app now opens straight to
+  your workspace. Also: the desktop app no longer shows the old File/Edit menu
+  bar on Windows/Linux (macOS keeps its standard menu), and interface text is no
+  longer selectable like a web page — only message bodies and fields are. Ship
+  0.1.8; installs on the auto-update feed refresh automatically.
 - Fixed: **Deleting a tenant now removes its tasks too.** Task projects and
   tasks were left behind when a tenant was deleted (they weren't tied to the
   tenant record); they are now purged with it, like the rest of a tenant's data.

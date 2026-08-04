@@ -6,13 +6,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import { strings } from "../i18n";
-import { Spinner, cx } from "../ds";
+import { Spinner, cx, useDialogs } from "../ds";
 import { useJmapClient } from "../jmap";
 import type { ControlDomain, ControlTenant } from "../jmap";
 import { RegisterDomainModal } from "./RegisterDomainModal";
 import styles from "../admin/admin.module.css";
 
 export function DomainsPage() {
+  const { confirm } = useDialogs();
   const client = useJmapClient();
   const [domains, setDomains] = useState<ControlDomain[] | null>(null);
   const [tenants, setTenants] = useState<ControlTenant[]>([]);
@@ -47,7 +48,7 @@ export function DomainsPage() {
   }
 
   async function remove(d: ControlDomain) {
-    if (!window.confirm(strings.domainDeleteConfirm(d.domain))) return;
+    if (!(await confirm({ message: strings.domainDeleteConfirm(d.domain), danger: true }))) return;
     try {
       await client.deleteDomain(d.domain);
     } finally {

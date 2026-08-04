@@ -61,16 +61,32 @@ pub fn run() {
                 .center()
                 .resizable(true)
                 .on_navigation(move |url| {
-                    // The UI is local (the `tauri://` bundle). Any real web
-                    // navigation — a clicked link, a `target="_blank"` — opens in
-                    // the OS browser, so the app never becomes a browser tab.
-                    if matches!(url.scheme(), "http" | "https") {
+                    // The UI is local. Tauri serves it over `tauri://localhost`
+                    // on macOS/Linux but `http://tauri.localhost` on Windows, so
+                    // the app's OWN navigation is http-schemed there — it must be
+                    // treated as internal, not shipped to the OS browser (doing so
+                    // left the webview stuck on about:blank). Only a real external
+                    // site (a clicked link, `target="_blank"`) opens in the browser.
+                    let host = url.host_str().unwrap_or("");
+                    let internal = url.scheme() == "tauri"
+                        || host.is_empty()
+                        || host == "tauri.localhost"
+                        || host == "localhost";
+                    if !internal && matches!(url.scheme(), "http" | "https") {
                         let _ = handle.opener().open_url(url.as_str(), None::<&str>);
                         return false;
                     }
                     true
                 })
                 .build()?;
+            // A native menu bar is the platform convention on macOS (the global
+            // bar at the top of the screen), but dated chrome inside the window on
+            // Windows/Linux, where modern apps show none. Drop it off-mac so the
+            // app doesn't read as a generic windowed program.
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = win.remove_menu();
+            }
             // Restore the last size/position (a no-op on first run).
             let _ = win.restore_state(StateFlags::all());
             Ok(())

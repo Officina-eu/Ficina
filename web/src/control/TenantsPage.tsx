@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import { strings } from "../i18n";
-import { Spinner, cx } from "../ds";
+import { Spinner, cx, useDialogs } from "../ds";
 import { useJmapClient } from "../jmap";
 import type { ControlTenant } from "../jmap";
 import { formatBytes } from "../mail/format";
@@ -13,6 +13,7 @@ import { CreateTenantModal } from "./CreateTenantModal";
 import styles from "../admin/admin.module.css";
 
 export function TenantsPage() {
+  const { confirm, prompt } = useDialogs();
   const client = useJmapClient();
   const [tenants, setTenants] = useState<ControlTenant[] | null>(null);
   const [error, setError] = useState(false);
@@ -39,7 +40,7 @@ export function TenantsPage() {
   }
 
   async function remove(t: ControlTenant) {
-    if (!window.confirm(strings.tenantDeleteConfirm(t.name))) return;
+    if (!(await confirm({ message: strings.tenantDeleteConfirm(t.name), danger: true }))) return;
     try {
       await client.deleteTenant(t.id, t.id);
     } finally {
@@ -49,7 +50,7 @@ export function TenantsPage() {
 
   async function setQuota(t: ControlTenant) {
     const current = t.storageQuotaBytes === null ? "" : String(t.storageQuotaBytes / 1_000_000_000);
-    const answer = window.prompt(strings.tenantQuotaPrompt, current);
+    const answer = await prompt({ message: strings.tenantQuotaPrompt, defaultValue: current });
     if (answer === null) return; // cancelled
     const trimmed = answer.trim();
     let quotaBytes: number | null;
