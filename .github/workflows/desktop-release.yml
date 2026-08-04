@@ -86,13 +86,12 @@ jobs:
           # Updater signing — the app only accepts updates signed by this key.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple code-signing + notarization (macOS leg only; no-ops if unset).
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # NOTE: Apple code-signing env (APPLE_CERTIFICATE, APPLE_ID, …) is
+          # deliberately NOT set here. Passing it EMPTY makes tauri-action try to
+          # import an empty certificate and the macOS build fails at codesign.
+          # Add it back only once the Developer ID secrets exist (a build fed an
+          # empty APPLE_CERTIFICATE tries to sign and dies). See
+          # docs/desktop-signing.md.
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'desktop-latest' }}
