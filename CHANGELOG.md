@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- New: **Shared and team calendars.** You can now share a calendar with a
+  colleague by email, or with a whole group (team) at once, giving them either
+  **view** or **edit** access. Shared calendars appear in everyone's sidebar
+  marked with their access level; a view-only calendar opens read-only, while an
+  editor can add and change its events. Owners get a **Share** button on any
+  calendar they own to add or remove people and groups at any time. Sharing is
+  strictly within your organization — a calendar can only ever be shared with
+  people in the same tenant, never across the boundary.
 - New: **A landing page at alomails.com.** The bare domain now has a proper
   marketing page — what alomails is (private, sovereign email + calendar, hosted
   in Europe) with app downloads — while the app itself stays on
