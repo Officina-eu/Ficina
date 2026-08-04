@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- New: **Event cancellations.** When an organizer calls off a meeting, alomails
+  removes it from your calendar automatically and shows a clear "Cancelled"
+  notice on the email — no stale events left behind. And when you cancel an event
+  you organized (delete it), every guest is emailed a cancellation so it drops
+  off their calendar too. Works with Gmail, Outlook, and Apple both ways.
 - New: **RSVP to invitations you receive.** When a calendar invitation lands in
   your inbox — from anyone on Gmail, Outlook, or Apple — alomails shows an
   **Accept / Maybe / Decline** card right in the reading pane, with the event's
