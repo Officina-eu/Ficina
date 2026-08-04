@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **RSVP to invitations you receive.** When a calendar invitation lands in
+  your inbox — from anyone on Gmail, Outlook, or Apple — alomails shows an
+  **Accept / Maybe / Decline** card right in the reading pane, with the event's
+  time, place, and who invited you. Accept (or Maybe) drops the event onto your
+  calendar and emails a proper reply back to the organizer so their calendar
+  updates too; Decline just sends the reply. Together with sending invitations,
+  the full invite loop now works both ways.
 - New: **Invite guests to an event.** Add email addresses to an event and, when
   you save, alomails emails each guest a standard invitation (iMIP `REQUEST`)
   from your address — so anyone on Gmail, Outlook, or Apple Calendar gets a real,
