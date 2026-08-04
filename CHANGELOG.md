@@ -35,9 +35,13 @@ contracts.
   your alomails account over a secure connection — an installed program, not a
   window pointed at the website. It's built with Tauri (Rust shell + the existing
   web UI, uses the system webview — no bundled browser), so it's the same app you
-  know with nothing rewritten (ADR 0005). Windows (.msi) ships now; the macOS
-  .dmg builds on CI. Unsigned for now, so the OS may warn about an unidentified
-  developer until signing certificates are added.
+  know with nothing rewritten (ADR 0005). Windows ships now; the macOS .dmg
+  builds on CI. **The app keeps itself up to date:** on launch it checks a
+  signed update feed and, if a newer version is out, downloads it, verifies its
+  signature, installs it, and relaunches — silently, in the background, so you
+  download it once. (Still unsigned to the OS, so the first install may warn
+  about an unidentified developer until code-signing certificates are added —
+  that's separate from the update signing, which is already in place.)
 - New: **Forgot your password? Reset it yourself.** A "Forgot password?" link on
   the sign-in screen now starts a self-service reset: enter your alo address, get
   a code at the recovery mailbox you set up at signup, and choose a new password —

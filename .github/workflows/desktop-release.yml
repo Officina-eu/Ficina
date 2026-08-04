@@ -71,6 +71,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater artifacts so the app will accept them. Add these as
+          # repo secrets (Settings → Secrets → Actions); the private key is the
+          # updater key generated with `cargo tauri signer generate`, the
+          # password is what it was generated with (empty here). Without them the
+          # build still produces installers, just no self-update packages.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'desktop-latest' }}

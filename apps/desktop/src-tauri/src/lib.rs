@@ -10,11 +10,20 @@
 //! webview, so there are no browser cross-origin/CORS limits and the OAuth
 //! login's redirect-following works like a real HTTP client. Auth is bearer
 //! tokens (no cookies), which cross origins cleanly.
+//!
+//! The app keeps itself current: on launch the frontend checks the signed
+//! update feed (see `web/src/platform/updater.ts`) and, if a newer version is
+//! published, downloads it, verifies its minisign signature against the public
+//! key baked into `tauri.conf.json`, installs it, and relaunches. The `updater`
+//! and `process` (relaunch) plugins below provide that; nothing installs
+//! without a signature the public key verifies.
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .run(tauri::generate_context!())
         .expect("error while running the alomails desktop app");
 }
