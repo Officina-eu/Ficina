@@ -6,6 +6,9 @@ contracts.
 
 ## Unreleased
 
+- Fixed: **Deleting a tenant now removes its tasks too.** Task projects and
+  tasks were left behind when a tenant was deleted (they weren't tied to the
+  tenant record); they are now purged with it, like the rest of a tenant's data.
 - New: **Turn an email into a task.** Open a message, and "Create a task" (in the
   ⋯ menu) makes a task from it — titled with the subject and linked back to the
   message. On the task, "Open the source email" jumps straight to that message.
