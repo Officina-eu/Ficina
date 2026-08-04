@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- New: **Shared calendars sync to your phone.** Every calendar you can see —
+  your own and any shared with you — now appears as its own calendar on your
+  phone / Apple Calendar / Thunderbird over CalDAV, with its name and colour;
+  read-only shared calendars show as read-only. (Your existing personal calendar
+  is unchanged.) Times written in a named time zone are handled correctly, and
+  clients that ask for a specific date range now get just that range.
 - New: **Event reminders.** Set a reminder on any event — from "at the time of
   the event" up to "1 day before" — and it fires natively on your phone / Apple
   Calendar (synced as a calendar alarm), even when the app is closed.

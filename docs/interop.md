@@ -443,13 +443,29 @@ Implemented methods mirror CardDAV: `OPTIONS` (advertises `calendar-access`),
 - **Recurrence rules:** `FREQ`+`INTERVAL`+`COUNT`/`UNTIL`+`BYDAY`+`BYMONTHDAY`
   expand (weekly Mon/Wed/Fri, monthly n-th/last weekday, month-day incl. `-1`);
   `BYMONTH`/`BYSETPOS`/`WKST` are ignored (Monday week-start assumed).
-- **Remaining CalDAV gaps (decisions, not omissions):** (a) *one collection* —
-  only the user's own `default` calendar is served; shared/team calendars don't
-  appear as separate collections (needs a multi-collection restructure + per-
-  collection sync-tokens). (b) `calendar-query` time-range is still not evaluated
-  (unfiltered fallback is valid; multiget + sync-collection cover real clients).
-  (c) *UTC only* — `TZID`/`VTIMEZONE` are read as UTC; real named-zone support
-  needs a timezone-database dependency and an ADR (engines-are-pinned rule).
+- **Multiple collections:** every calendar the user can see is its own CalDAV
+  collection — the personal calendar keeps the backward-compatible `default`
+  segment, and each shared/team calendar is served at
+  `calendars/<uid>/<calendarId>/`. `PROPFIND` on calendar-home (Depth 1)
+  enumerates them (name + colour from the calendar; a view-only shared calendar
+  advertises only `read` in `current-user-privilege-set`). A PUT to a collection
+  the caller can't edit is refused by the store (`can_edit`), not misfiled.
+  Sync-token is still the account-wide modseq, filtered per collection by the
+  event's calendar — so each collection syncs independently, at the cost of a
+  no-op sync round when another calendar changed.
+- **Time-range filtering:** a `calendar-query` with `<C:time-range>` is now
+  honoured (events are filtered to the window; a recurring master is kept if it
+  starts before the window end and the client expands). No range → whole
+  collection, as before.
+- **Time zones:** a `TZID=`-qualified `DTSTART`/`DTEND`/`EXDATE` is converted
+  from that IANA zone to UTC (via the `jiff` tz database). An unknown zone (e.g.
+  a Windows name like `Eastern Standard Time`) or a floating time still falls
+  back to UTC. Full `VTIMEZONE` definitions are not parsed — the `TZID` name is
+  trusted against the IANA database.
+- **Remaining cut:** a phone-*originated* per-occurrence edit is still not
+  captured — `from_ics` reads only the first `VEVENT`, so a client PUT of a
+  multi-`VEVENT` series keeps the master and drops the client's override
+  (server → client override sync works).
 Wire-verified on the live server (principal discovery, PUT/GET/REPORT/
 sync-collection/DELETE, sync-token advancing on writes).
 
