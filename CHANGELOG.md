@@ -6,6 +6,23 @@ contracts.
 
 ## Unreleased
 
+- New: **Event reminders.** Set a reminder on any event — from "at the time of
+  the event" up to "1 day before" — and it fires natively on your phone / Apple
+  Calendar (synced as a calendar alarm), even when the app is closed.
+- New: **See when people are free.** When you add guests to an event, **Check
+  availability** shows who is busy at that time (within your organization) so you
+  can schedule around conflicts — busy/free only, never their event details.
+- New: **See who's coming.** When a guest accepts, declines, or answers "maybe"
+  to your invitation, their reply is now recorded on the event, so opening it
+  shows each guest's status instead of the reply just sitting in your inbox.
+- New: **More repeat options.** Events can repeat on specific weekdays
+  (e.g. every Mon/Wed/Fri, or every weekday) and on monthly patterns like the
+  2nd Tuesday or the last day of the month. A new **Every weekday** preset is in
+  the repeat picker.
+- New: **Per-occurrence changes reach your phone, and guests.** Editing or
+  skipping a single occurrence of a repeating event now syncs that one instance
+  to your phone over CalDAV, and — if the event has guests — emails them so just
+  that occurrence moves or drops off their calendar too.
 - Fixed: **alomails shows only Mail + Calendar again.** The web deploy was
   building the full workplace surface, so the sidebar briefly showed Chat, Drive,
   and Meet — products that aren't part of alomails. The publish step now builds

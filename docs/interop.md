@@ -432,12 +432,24 @@ Implemented methods mirror CardDAV: `OPTIONS` (advertises `calendar-access`),
   REPORT returns the whole collection (a valid, unfiltered result the client
   narrows), exactly as CardDAV does for `addressbook-query`.
 - No `PROPPATCH`/`MKCALENDAR`/`MOVE`: the single calendar is fixed.
-- **Per-occurrence overrides (`RECURRENCE-ID`) are not carried over CalDAV
-  yet.** Editing a single instance of a recurring series in place (the app's
-  "This event" save) is stored and shown in-app, but the `.ics` served/parsed
-  for a series is the master alone — a `VEVENT` with `RECURRENCE-ID` is neither
-  emitted nor read. Phones therefore still show the un-edited occurrence until a
-  later slice serialises overrides (skip-one, `EXDATE`, already round-trips).
+- **Per-occurrence overrides (`RECURRENCE-ID`) sync one way (server → client).**
+  A series is served as the master `VEVENT` plus one `VEVENT` per edited instance
+  (its own `RECURRENCE-ID` at the original slot), so phones now render "this
+  event" edits (GET and the `calendar-data` in multiget/REPORT). Reminders sync
+  as a `VALARM` (display, negative `TRIGGER`). Still a cut: a phone-*originated*
+  per-occurrence edit is not captured — `from_ics` reads only the first `VEVENT`,
+  so a client PUT of a multi-`VEVENT` series keeps the master and drops the
+  client's override. `EXDATE` (skip-one) round-trips both ways.
+- **Recurrence rules:** `FREQ`+`INTERVAL`+`COUNT`/`UNTIL`+`BYDAY`+`BYMONTHDAY`
+  expand (weekly Mon/Wed/Fri, monthly n-th/last weekday, month-day incl. `-1`);
+  `BYMONTH`/`BYSETPOS`/`WKST` are ignored (Monday week-start assumed).
+- **Remaining CalDAV gaps (decisions, not omissions):** (a) *one collection* —
+  only the user's own `default` calendar is served; shared/team calendars don't
+  appear as separate collections (needs a multi-collection restructure + per-
+  collection sync-tokens). (b) `calendar-query` time-range is still not evaluated
+  (unfiltered fallback is valid; multiget + sync-collection cover real clients).
+  (c) *UTC only* — `TZID`/`VTIMEZONE` are read as UTC; real named-zone support
+  needs a timezone-database dependency and an ADR (engines-are-pinned rule).
 Wire-verified on the live server (principal discovery, PUT/GET/REPORT/
 sync-collection/DELETE, sync-token advancing on writes).
 
