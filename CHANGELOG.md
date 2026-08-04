@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- New: **Skip one occurrence of a repeating event.** Deleting a single instance
+  of a recurring series — "cancel *this* Tuesday's standup, keep the rest" —
+  now removes just that occurrence while the series stays. Opening a repeating
+  event offers **This event** or **All events**. The exclusion rides along to
+  your phone and Apple Calendar over CalDAV (an iCalendar `EXDATE`), and
+  exclusions made there sync back. (Editing a single occurrence in place is the
+  next step.)
 - New: **Event cancellations.** When an organizer calls off a meeting, alomails
   removes it from your calendar automatically and shows a clear "Cancelled"
   notice on the email — no stale events left behind. And when you cancel an event
