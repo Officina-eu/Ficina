@@ -4,3 +4,6 @@ src-tauri/target/
 src-tauri/gen/
 # Icon-gen tooling
 node_modules/
+
+# Bundled web UI (built from ../../web at package time)
+dist/

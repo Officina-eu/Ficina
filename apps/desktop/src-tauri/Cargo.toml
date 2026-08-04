@@ -19,6 +19,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# The bundled UI reaches the alo API through the native HTTP client (requests
+# issue from Rust, not the webview), so the app has no browser cross-origin/CORS
+# constraints against the hosted server. See src/lib.rs.
+tauri-plugin-http = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

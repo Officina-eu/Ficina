@@ -1,4 +1,6 @@
 # Build the alomails desktop apps (ADR 0005 Tauri shell) for macOS + Windows.
+# The app bundles the real web UI locally and talks to the hosted API over the
+# native HTTP client — an installed program, not a window pointed at the site.
 #
 # Windows can be built on a dev machine directly (`cargo tauri build`); the Mac
 # .dmg must build on macOS, which is what the mac runner here is for. Both
@@ -44,6 +46,26 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The desktop app bundles the real web UI (not a redirect stub). Build it
+      # as the mail surface, pointed at the hosted API, and stage it where the
+      # Tauri config expects it (apps/desktop/dist). `shell: bash` so the env
+      # syntax is identical on the Windows and macOS runners.
+      - name: Build + stage the bundled web UI
+        shell: bash
+        env:
+          ALO_PRODUCT: mail
+          VITE_API_BASE: https://mail.alomails.com
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+          rm -rf apps/desktop/dist
+          cp -r web/dist apps/desktop/dist
 
       - name: Build + attach installers to a draft release
         uses: tauri-apps/tauri-action@v0

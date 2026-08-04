@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Base capability for the alomails window. The window hosts our own trusted origin (mail.alomails.com) and calls no Rust commands, so only the core defaults are granted — no filesystem, shell, or other native APIs are exposed.",
+  "description": "Base capability for the alomails window. The UI is bundled locally and calls no Rust commands beyond the native HTTP client, which is scoped to the hosted alo API host only — no filesystem, shell, or other native APIs are exposed.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://mail.alomails.com/*" }]
+    }
+  ]
 }

@@ -30,10 +30,13 @@ contracts.
   to your phone / Apple Calendar via CalDAV, and emailed invitations, come next.)
 - New: **alomails as a real desktop app.** Download an installable app from
   **mail.alomails.com/download** — its own window and dock/taskbar icon, not a
-  browser tab. It's built with Tauri (Rust shell + the existing web UI, ~2 MB,
-  uses the system webview — no bundled browser), so it's the same app you know
-  with nothing rewritten (ADR 0005). Windows (.msi) ships now; the macOS .dmg
-  builds on CI. Unsigned for now, so the OS may warn about an unidentified
+  browser tab. The full alomails interface is **bundled inside the app** and
+  loads locally (instant, works offline until it needs the network), talking to
+  your alomails account over a secure connection — an installed program, not a
+  window pointed at the website. It's built with Tauri (Rust shell + the existing
+  web UI, uses the system webview — no bundled browser), so it's the same app you
+  know with nothing rewritten (ADR 0005). Windows (.msi) ships now; the macOS
+  .dmg builds on CI. Unsigned for now, so the OS may warn about an unidentified
   developer until signing certificates are added.
 - New: **Forgot your password? Reset it yourself.** A "Forgot password?" link on
   the sign-in screen now starts a self-service reset: enter your alo address, get

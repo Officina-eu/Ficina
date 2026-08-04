@@ -1,13 +1,20 @@
-//! alomails desktop shell (ADR 0005): a native Tauri window that hosts the one
-//! alo web application, served from mail.alomails.com. No product logic lives
-//! here — the UI is the shared TypeScript frontend — so the desktop app stays a
-//! thin, zero-divergence shell over the same codebase every platform uses.
-//! Native OS integration (tray, notifications, autostart) is the ADR-0005
-//! phase-two work that layers on top of this entry point.
+//! alomails desktop shell (ADR 0005): a native Tauri app that bundles the one
+//! alo web application and runs it as an installed desktop program — its own
+//! window and dock/taskbar icon, its UI loaded locally (not a window pointed at
+//! a website). No product logic lives here; the UI is the shared TypeScript
+//! frontend, so the desktop app stays a thin, zero-divergence shell over the
+//! same codebase every platform uses.
+//!
+//! The bundled UI calls the hosted alo API (mail.alomails.com) through the
+//! native HTTP plugin: requests issue from this Rust process rather than the
+//! webview, so there are no browser cross-origin/CORS limits and the OAuth
+//! login's redirect-following works like a real HTTP client. Auth is bearer
+//! tokens (no cookies), which cross origins cleanly.
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         .run(tauri::generate_context!())
         .expect("error while running the alomails desktop app");
 }
