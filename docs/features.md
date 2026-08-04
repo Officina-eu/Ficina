@@ -94,6 +94,23 @@ This table doubles as the answer to a prospect asking "where's feature X?" — e
 - [2] Travel-time blocking between physical meetings
 - [3] Team scheduling: round-robin and collective availability for sales/support teams
 
+## Tasks
+
+The third leg of the mail + calendar + tasks wedge — one record, board and
+list views over the same data, personal and team. ADRs 0021–0023.
+
+- [L] Tasks: title, description, assignee, due date, priority, subtasks, comments, activity history, attachments — one record, tenant-scoped
+- [L] ★ Board (kanban) and list are two views of the SAME task — instant, lossless switch; drag to move between columns / reorder (ADR 0022)
+- [L] Personal tasks (private) and team tasks (shared projects with assignees) — one data model, different scoping (ADR 0021)
+- [L] ★ Task detail as a slide-in side panel (never navigates away): description, subtasks, comments, activity, source link
+- [L] ★ Source link: a task remembers the email or calendar event it was created from, and can jump back to it (email→task, meeting→task)
+- [L] ★ AI proposes action items from a meeting/email; the user accepts the real ones — propose-then-approve, never silent creation (ADR 0023)
+- [L] Task ↔ calendar: a task with a due date surfaces on the calendar alongside events
+- [L] ★ "What's on my plate today" — an aggregate the AI assembles from tasks (+ calendar + mail as they connect)
+- [2] Per-project membership + roles for team projects (v1 scopes team projects tenant-wide)
+- [2] Recurring tasks, task dependencies, custom board columns
+- [3] Workload view, timeline/Gantt, task templates
+
 ## Chat
 
 - [L] Channels (public/private), DMs, real threads, reactions, mentions
