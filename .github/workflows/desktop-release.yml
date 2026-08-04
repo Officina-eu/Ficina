@@ -123,8 +123,11 @@ jobs:
   publish-feed:
     needs: build
     runs-on: ubuntu-latest
-    # Only publish the sovereign feed when the deploy secrets are present.
-    if: ${{ github.ref_type == 'tag' }}
+    # Runs on a tag even if a build leg failed, so a platform that DID build
+    # still publishes (the feed's latest.json is assembled from whatever
+    # artifacts exist). This also makes the feed a diagnostic: which platforms
+    # appear tells us which builds succeeded.
+    if: ${{ always() && github.ref_type == 'tag' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -133,6 +136,7 @@ jobs:
           path: _in
           pattern: art-*
           merge-multiple: true
+        continue-on-error: true
 
       - name: Assemble latest.json + stage the feed
         shell: bash
@@ -150,6 +154,13 @@ jobs:
           mactar="$(find _in -name '*.app.tar.gz' | head -1)"
           macsig="$(find _in -name '*.app.tar.gz.sig' | head -1)"
           macdmg="$(find _in -name '*.dmg' | head -1)"
+
+          # Never overwrite a good feed with an empty one if nothing built.
+          if [ -z "$winexe" ] && [ -z "$mactar" ]; then
+            echo "No updater artifacts were produced — leaving the feed untouched."
+            echo "SKIP_PUBLISH=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
 
           # Stable-named installers for the download page + versioned updater
           # packages (the URLs referenced by latest.json).
@@ -177,6 +188,7 @@ jobs:
           ls -la out
 
       - name: Publish to the update feed
+        if: ${{ env.SKIP_PUBLISH != '1' }}
         env:
           DEPLOY_HOST: ${{ secrets.ALO_DEPLOY_HOST }}
           DEPLOY_KEY: ${{ secrets.ALO_DEPLOY_KEY }}
