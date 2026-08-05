@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **Spaces — the shared home for team work (foundation).** A Space (e.g. "Acme
+  project") is a group with named members and three plain roles — viewer,
+  editor, manager. It's the spine the whole suite will plug into: files first,
+  then tasks, mailboxes, and more, all inheriting one membership instead of the
+  per-item permission maze. Membership is always visible, a manager changes it,
+  and a Space always keeps at least one manager. Everything is scoped to your
+  organisation: a non-member can't even see a Space exists, and another
+  organisation gets a clean "not found". ADRs 0026–0029.
+
 - **Single sign-on for standalone products (token introspection).** The login
   system can now tell a separate product's backend not just *who* signed in but
   *which organisation* they belong to — the piece that lets a genuinely
