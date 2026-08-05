@@ -1,0 +1,56 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.back {
+  display: inline-flex;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 5px;
+}
+.back:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.name {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+.save {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  min-width: 60px;
+  text-align: right;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+/* Univer fills the body; it renders its own toolbar/grid/formula bar inside. */
+.univer {
+  position: absolute;
+  inset: 0;
+}

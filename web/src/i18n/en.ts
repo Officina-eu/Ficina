@@ -1214,6 +1214,7 @@ export const en = {
   driveMemberError: "Couldn’t add that person — check the email and your role.",
   driveNewDoc: "New doc",
   driveNewDocPrompt: "Name the new doc",
+  driveNewSheetPrompt: "Name the new sheet",
   officeUnavailable: "This document couldn’t be opened for editing. Try again, or download it.",
   moduleSearch: "Search",
   searchPlaceholder: "Search files, tasks and email…",

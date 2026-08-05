@@ -1489,6 +1489,41 @@ export class JmapClient {
     await this.driveAddVersion(id, blobId, size);
   }
 
+  /** Create an alo Sheet (a Univer workbook): a drive node whose blob holds the
+   *  workbook snapshot JSON. Starts empty ("{}" → a blank default workbook). */
+  async driveCreateSheet(space: string | null, parent: string | null, name: string): Promise<string> {
+    const { blobId, size } = await this.uploadFile(
+      new File(["{}"], `${name}.json`, { type: "application/json" }),
+    );
+    const res = await this.#fetch(`${API_BASE}/drive/files`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ space, parent, name, blobId, size, contentType: "application/json", kind: "sheet" }),
+    });
+    if (!res.ok) throw new JmapError(`driveCreateSheet ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Load an alo Sheet's workbook snapshot (the parsed Univer object). */
+  async driveSheetContent(id: string): Promise<Record<string, unknown>> {
+    const text = await (await this.driveDownload(id)).text();
+    if (text.trim() === "") return {};
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      return parsed !== null && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Save an alo Sheet's workbook snapshot as a new version. */
+  async driveSaveSheet(id: string, workbook: Record<string, unknown>): Promise<void> {
+    const { blobId, size } = await this.uploadFile(
+      new File([JSON.stringify(workbook)], "sheet.json", { type: "application/json" }),
+    );
+    await this.driveAddVersion(id, blobId, size);
+  }
+
   // ---- alo Base (ADR 0032): a relational base is a drive node (kind=base)
   //      whose tables/fields/records/views are relational data.
 
