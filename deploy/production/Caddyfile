@@ -61,6 +61,15 @@ https://{$DOMAIN} {
 		file_server
 	}
 
+	# Collabora Online (ADR 0010): the office editor bundle and its WOPI
+	# discovery are served same-origin by proxying to the pinned engine
+	# container. Must come BEFORE the SPA fallback, or /hosting/discovery is
+	# swallowed by index.html and the Office editor can't find its URL.
+	@collabora path /browser/* /cool/* /lool/* /hosting/*
+	handle @collabora {
+		reverse_proxy collabora:9980
+	}
+
 	# The web app: static files with client-side-routing fallback to index.html.
 	handle {
 		root * /srv
