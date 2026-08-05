@@ -20,6 +20,27 @@ const productTitle: Record<typeof product, string> = {
   drive: "alodrives",
 };
 
+// Local dev backend. `npm run dev` serves the UI from Vite but the app calls its
+// API same-origin, so in dev we proxy the API (and Collabora) path prefixes to a
+// real alo server — the live server by default, overridable with VITE_DEV_API
+// (e.g. a local jmap on http://localhost:8080). Auth is bearer-token in
+// localStorage (no cookies), so changeOrigin is all that's needed.
+const DEV_API = process.env.VITE_DEV_API ?? "https://mail.alomails.com";
+const DEV_API_PATHS = [
+  "/jmap", "/ai", "/admin", "/settings", "/docs", "/snooze", "/send-later",
+  "/calendar", "/tasks", "/spaces", "/drive", "/wopi", "/search", "/contacts",
+  "/import", "/signup", "/reset", "/autodiscover", "/Autodiscover", "/dav",
+  "/filters", "/share", "/oauth", "/.well-known", "/auth",
+  // Collabora, so Office files open in the local dev app too.
+  "/hosting", "/browser", "/cool", "/lool",
+];
+const devProxy = Object.fromEntries(
+  DEV_API_PATHS.map((p) => [
+    p,
+    { target: DEV_API, changeOrigin: true, secure: true, ws: true },
+  ]),
+);
+
 export default defineConfig({
   plugins: [
     react(),
@@ -37,6 +58,9 @@ export default defineConfig({
     alias: {
       "@product": fileURLToPath(new URL(`./src/product/${product}.tsx`, import.meta.url)),
     },
+  },
+  server: {
+    proxy: devProxy,
   },
   test: {
     environment: "jsdom",
