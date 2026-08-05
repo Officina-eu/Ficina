@@ -157,6 +157,21 @@ impl AccountStore {
         self.writable_row(id).await.map(|_| ())
     }
 
+    /// Whether the caller may write a node they can see: `true` (writable),
+    /// `false` (read-only). `NotFound` if they cannot see it at all — used to
+    /// decide a WOPI editor's edit-vs-view permission.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] / [`StoreError::Db`].
+    pub async fn drive_writable(&self, id: &DriveNodeId) -> Result<bool> {
+        self.readable_row(id).await?; // NotFound if invisible
+        match self.writable_row(id).await {
+            Ok(_) => Ok(true),
+            Err(StoreError::Forbidden) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Inserts a bare (blob-less) node — used by attached modules that create a
     /// Drive node of their own kind (e.g. alo Base's `kind='base'`). Write
     /// access to the location is enforced.

@@ -1198,6 +1198,7 @@ export const en = {
   driveMemberError: "Couldn’t add that person — check the email and your role.",
   driveNewDoc: "New doc",
   driveNewDocPrompt: "Name the new doc",
+  officeUnavailable: "This document couldn’t be opened for editing. Try again, or download it.",
   driveNewBase: "New base",
   driveNewBasePrompt: "Name the new base",
   baseNewRow: "New row",

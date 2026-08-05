@@ -17,7 +17,7 @@ use crate::state::{AppState, Limits};
 use crate::{
     admin, ai, api, autoconfig, base, blob, calendar, carddav, contacts, delegates, docs, drive, filters,
     flagdue, imap_import_route, push, reset_route, schedule, security, session, settings, share,
-    signup_route, snooze, spaces, tasks, unsubscribe,
+    signup_route, snooze, spaces, tasks, unsubscribe, wopi,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -198,6 +198,14 @@ pub fn app(state: AppState) -> Router {
             post(drive::restore_version),
         )
         .route("/drive/nodes/{id}/download", get(drive::download))
+        // Office editing (Collabora over WOPI, ADR 0010): mint a token, then the
+        // token-authed WOPI host endpoints Collabora calls to load/save bytes.
+        .route("/drive/nodes/{id}/office", get(wopi::office_token))
+        .route("/wopi/files/{id}", get(wopi::check_file_info))
+        .route(
+            "/wopi/files/{id}/contents",
+            get(wopi::get_file).post(wopi::put_file),
+        )
         // alo Base (ADR 0032) — relational data under a base drive node. Distinct
         // literal prefixes so a node-id param never collides with a literal.
         .route("/drive/base", post(base::create_base))

@@ -47,6 +47,7 @@ pub mod snooze;
 pub mod spaces;
 pub mod state;
 pub mod submission;
+pub mod wopi;
 pub mod tasks;
 pub mod unsubscribe;
 

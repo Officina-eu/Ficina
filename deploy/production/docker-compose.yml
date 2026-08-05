@@ -297,6 +297,9 @@ services:
       # seam standalone products (Drive) use to resolve a bearer token to its
       # tenant + user. Unset ⇒ the introspection endpoint stays disabled (404).
       ALO_IDENTITY_INTROSPECT_SECRET: ${ALO_IDENTITY_INTROSPECT_SECRET:-}
+      # HMAC secret for the WOPI office-editor tokens (ADR 0010). Unset ⇒ office
+      # editing is disabled (the endpoints 404).
+      ALO_JMAP_WOPI_SECRET: ${ALO_JMAP_WOPI_SECRET:-}
       ALO_JMAP_BASE_URL: https://${DOMAIN}
       ALO_JMAP_ADDR: 0.0.0.0:8080
       # Where EmailSubmission/set sends: the SMTP trusted internal listener,

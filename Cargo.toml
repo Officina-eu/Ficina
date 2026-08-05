@@ -67,6 +67,7 @@ encoding_rs = "0.8"
 ring = "0.17"
 ed25519-dalek = { version = "2", features = ["pkcs8", "rand_core"] }
 sha2 = "0.10"
+hmac = "0.12"
 zeroize = "1"
 # Auditable constant-time byte comparison for alo-identity's secret and
 # token-hash checks (ring's own helper is deprecated as "no side-channel

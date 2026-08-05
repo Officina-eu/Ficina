@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **Real Word / Excel / PowerPoint editing in Drive (Collabora).** Open a
+  `.docx`, `.xlsx`, `.pptx` (or OpenDocument) file in Drive and it now opens in a
+  full editor **inside the workspace** — powered by Collabora, with genuine
+  desktop-Office fidelity. Edits save straight back to Drive as new versions, and
+  the file stays where it lives (shared with its Space's members). This is the
+  *compatibility* type — for a great native document, use an alo Doc or alo Base.
+  The editor is embedded same-origin behind our own WOPI host with short-lived,
+  signed access tokens; the engine is a memory-capped pinned container so it
+  can't disturb mail. ADR 0010. (New-from-blank Office files come next; for now,
+  upload one and open it.)
+
 - **alo Base — board, calendar & gallery views + select and link fields.** alo
   Base now feels like Airtable: add **Select** and **Multi-select** fields (with
   coloured chips), **Person** and **Link-to-another-table** fields, then look at

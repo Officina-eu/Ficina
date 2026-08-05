@@ -1376,6 +1376,13 @@ export class JmapClient {
     return res.blob();
   }
 
+  /** Mint a WOPI token to open a file in the Collabora office editor. */
+  async driveOfficeToken(id: string): Promise<string> {
+    const res = await this.#fetch(`${API_BASE}/drive/nodes/${encodeURIComponent(id)}/office`);
+    if (!res.ok) throw new JmapError(`driveOfficeToken ${res.status}`);
+    return ((await res.json()) as { token: string }).token;
+  }
+
   /** Append a new version to a node from an already-uploaded blob. */
   async driveAddVersion(id: string, blobId: string, size: number): Promise<void> {
     const res = await this.#fetch(`${API_BASE}/drive/nodes/${encodeURIComponent(id)}/versions`, {

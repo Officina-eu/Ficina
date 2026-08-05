@@ -29,6 +29,11 @@ import { DestinationDialog, MembersDialog, VersionsDialog } from "./dialogs";
 // BlockNote is heavy and only needed when a doc opens — code-split it out.
 const DocEditor = lazy(() => import("./DocEditor").then((m) => ({ default: m.DocEditor })));
 const BaseEditor = lazy(() => import("./BaseEditor").then((m) => ({ default: m.BaseEditor })));
+const OfficeEditor = lazy(() => import("./OfficeEditor").then((m) => ({ default: m.OfficeEditor })));
+
+/** Real Office files open in Collabora; kept here so it doesn't pull the editor
+ *  into the main bundle. */
+const OFFICE_EXT = /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv)$/i;
 import { fileSize, nodeIcon, saveBlob } from "./parts";
 import styles from "./DriveModule.module.css";
 
@@ -50,6 +55,7 @@ export function DriveModule() {
   const [versionsNode, setVersionsNode] = useState<string | null>(null);
   const [openDoc, setOpenDoc] = useState<{ id: string; name: string } | null>(null);
   const [openBase, setOpenBase] = useState<{ id: string; name: string } | null>(null);
+  const [openOffice, setOpenOffice] = useState<{ id: string; name: string } | null>(null);
   const [showMembers, setShowMembers] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -88,6 +94,7 @@ export function DriveModule() {
     if (n.kind === "folder") setPath((p) => [...p, { id: n.id, name: n.name }]);
     else if (n.kind === "doc") setOpenDoc({ id: n.id, name: n.name });
     else if (n.kind === "base") setOpenBase({ id: n.id, name: n.name });
+    else if (n.kind === "file" && OFFICE_EXT.test(n.name)) setOpenOffice({ id: n.id, name: n.name });
     else void download(n);
   }
 
@@ -424,6 +431,18 @@ export function DriveModule() {
             name={openBase.name}
             onClose={() => {
               setOpenBase(null);
+              void load();
+            }}
+          />
+        </Suspense>
+      )}
+      {openOffice !== null && (
+        <Suspense fallback={null}>
+          <OfficeEditor
+            nodeId={openOffice.id}
+            name={openOffice.name}
+            onClose={() => {
+              setOpenOffice(null);
               void load();
             }}
           />
