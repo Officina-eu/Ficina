@@ -353,6 +353,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web:/srv:ro
+      - ./web-workplace:/srv-workplace:ro
       - ./downloads:/srv-downloads:ro
       - ./landing:/srv-landing:ro
       - certs:/certs:ro

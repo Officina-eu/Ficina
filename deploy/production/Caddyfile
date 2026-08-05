@@ -131,3 +131,60 @@ https://alomails.com {
 		}
 	}
 }
+
+# ── aloworkplace.com — the workspace umbrella (all products, one login) ─────
+# The full suite (Home, Mail, Agenda, Tasks, Drive) served from /srv-workplace,
+# talking to the SAME alo-jmap backend (same-origin, so login stays first-party).
+# Its OWN certbot certificate in /certs/live/aloworkplace.com/. These blocks must
+# NOT be loaded until that cert exists, or Caddy fails to start the site — bring
+# them online with init-workplace.sh (same seed→issue→restart dance as the apex).
+http://aloworkplace.com, http://www.aloworkplace.com {
+	handle /.well-known/acme-challenge/* {
+		root * /var/www/certbot
+		file_server
+	}
+	handle {
+		redir https://aloworkplace.com{uri} permanent
+	}
+}
+
+# www → apex canonical.
+https://www.aloworkplace.com {
+	tls /certs/live/aloworkplace.com/fullchain.pem /certs/live/aloworkplace.com/privkey.pem
+	redir https://aloworkplace.com{uri} permanent
+}
+
+https://aloworkplace.com {
+	tls /certs/live/aloworkplace.com/fullchain.pem /certs/live/aloworkplace.com/privkey.pem
+	encode zstd gzip
+
+	# Same backend paths as the mail app — the API, blobs, and every OIDC
+	# endpoint — reverse-proxied to the shared alo-jmap. Same origin ⇒ no CORS.
+	@backend path /jmap/* /ai/* /admin/* /settings/* /docs /docs/* /snooze /send-later /send-later/* /calendar/* /tasks /tasks/* /spaces /spaces/* /drive/* /contacts /contacts/* /import/* /signup/* /reset/* /autodiscover/* /Autodiscover/* /mail/config-v1.1.xml /dav /dav/* /filters /filters/* /share/* /oauth/* /.well-known/* /auth/token
+	handle @backend {
+		reverse_proxy alo-jmap:8080
+	}
+
+	@control path /control/*
+	handle @control {
+		reverse_proxy alo-control:8090
+	}
+
+	handle_path /download/* {
+		root * /srv-downloads
+		file_server
+	}
+
+	# The workspace SPA (a separate build from the mail app).
+	handle {
+		root * /srv-workplace
+		try_files {path} /index.html
+		file_server
+		header {
+			Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+			-Server
+		}
+	}
+}

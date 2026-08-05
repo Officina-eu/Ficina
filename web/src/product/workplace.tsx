@@ -7,10 +7,11 @@
 // `../authoring`). alomails ships the `mail` surface instead and deletes this
 // file together with those areas — nothing else in the web app references them.
 import { Suspense, lazy } from "react";
-import { Building2, Code2, MessagesSquare, Sigma, Video } from "lucide-react";
+import { Building2, Code2, HardDrive, MessagesSquare, Sigma, Video } from "lucide-react";
 
 import { strings } from "../i18n";
 import { ControlConsole } from "../control";
+import { DriveModule } from "../drive";
 import type { ComposeInsert, ProductModule, ProductSurface } from "./types";
 import { adminConsole, defaultPath, sharedModules } from "./shared";
 
@@ -33,9 +34,19 @@ function insertModal(kind: "equation" | "code"): ComposeInsert["Modal"] {
 }
 
 const suiteModules: ProductModule[] = [
-  // Drive (with its file-hosted documents) comes from sharedModules, alongside
-  // Home/Mail/Agenda/Tasks. The suite adds the not-yet-built Chat and Meet.
+  // The alomails products (Home/Mail/Agenda/Tasks) come from sharedModules; the
+  // workspace adds Drive (alodrives, with its file-hosted documents) and the
+  // not-yet-built Chat and Meet. This is why Drive shows on aloworkplace.com but
+  // not on the standalone alomails app.
   ...sharedModules,
+  {
+    id: "drive",
+    path: "/drive",
+    label: strings.moduleDrive,
+    Icon: HardDrive,
+    enabled: true,
+    element: () => <DriveModule />,
+  },
   { id: "chat", path: "/chat", label: strings.moduleChat, Icon: MessagesSquare, enabled: false },
   { id: "meet", path: "/meet", label: strings.moduleMeet, Icon: Video, enabled: false },
 ];
