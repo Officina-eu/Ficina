@@ -19,6 +19,24 @@ export const fr: Partial<Catalog> = {
   moduleDrive: "Fichiers",
   moduleDocs: "Documents",
 
+  // Search
+  moduleSearch: "Rechercher",
+  searchPlaceholder: "Rechercher fichiers, tâches et courriels…",
+  searchHint: "Cherchez fichiers et tâches par nom, et courriels par contenu.",
+  searchNoResults: "Aucun résultat.",
+  searchKind: (kind: string) =>
+    kind === "task"
+      ? "Tâche"
+      : kind === "message"
+        ? "Courriel"
+        : kind === "folder"
+          ? "Dossier"
+          : kind === "doc"
+            ? "Document"
+            : kind === "base"
+              ? "Base"
+              : "Fichier",
+
   // Home dashboard
   homeGreetingMorning: "Bonjour",
   homeGreetingAfternoon: "Bon après-midi",

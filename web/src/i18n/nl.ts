@@ -19,6 +19,24 @@ export const nl: Partial<Catalog> = {
   moduleDrive: "Drive",
   moduleDocs: "Documenten",
 
+  // Search
+  moduleSearch: "Zoeken",
+  searchPlaceholder: "Zoek bestanden, taken en e-mail…",
+  searchHint: "Zoek bestanden en taken op naam, en e-mail op inhoud.",
+  searchNoResults: "Niets gevonden.",
+  searchKind: (kind: string) =>
+    kind === "task"
+      ? "Taak"
+      : kind === "message"
+        ? "E-mail"
+        : kind === "folder"
+          ? "Map"
+          : kind === "doc"
+            ? "Document"
+            : kind === "base"
+              ? "Base"
+              : "Bestand",
+
   // Home dashboard
   homeGreetingMorning: "Goedemorgen",
   homeGreetingAfternoon: "Goedemiddag",

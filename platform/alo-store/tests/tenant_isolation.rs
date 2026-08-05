@@ -1108,3 +1108,35 @@ async fn workspace_search_only_returns_visible_items() {
     // An empty query is empty, not everything.
     assert!(a.workspace_search("   ", 20).await.unwrap().is_empty());
 }
+
+/// Workspace search — mail is matched by full CONTENT (the body, via the mail
+/// full-text index), not just the subject, and only ever the caller's own mail.
+#[tokio::test]
+async fn workspace_search_finds_own_mail_by_body_only() {
+    let store = common::test_store().await;
+    let t1 = store.create_tenant("srchm-t1").await.unwrap();
+    let ts1 = store.for_tenant(t1.clone());
+    let ua = ts1.create_user("a@srchm.test").await.unwrap();
+    let ub = ts1.create_user("b@srchm.test").await.unwrap();
+    let a = store.for_account(t1.clone(), ua);
+    let b = store.for_account(t1.clone(), ub);
+    let inbox = a.inbox().await.unwrap();
+
+    // The distinctive term lives ONLY in the body, never the subject — so a hit
+    // proves content search, not subject search.
+    let raw = "From: sender@example.test\r\nSubject: Status update\r\n\r\n\
+               Please review the flamingo migration plan before Friday.\r\n";
+    a.ingest(&inbox, raw.as_bytes()).await.unwrap();
+
+    let hits = a.workspace_search("flamingo", 20).await.unwrap();
+    assert_eq!(hits.len(), 1, "own message matched by body");
+    assert_eq!(hits[0].kind, "message");
+
+    // A co-tenant who doesn't own the mailbox sees nothing; nor does another
+    // tenant. Mail is per-user (Law 1).
+    assert!(b.workspace_search("flamingo", 20).await.unwrap().is_empty(), "another user's mail");
+    let t2 = store.create_tenant("srchm-t2").await.unwrap();
+    let ud = store.for_tenant(t2.clone()).create_user("d@srchm.test").await.unwrap();
+    let d = store.for_account(t2, ud);
+    assert!(d.workspace_search("flamingo", 20).await.unwrap().is_empty(), "never across tenants");
+}

@@ -1,8 +1,11 @@
 //! Workspace search (ADR 0029) — one query across the modules, scoped to exactly
 //! what the caller may already see (their personal items, the Spaces they belong
-//! to, their visible task projects). Names/titles first (this slice); content
-//! (full-text over file bytes + mail bodies) and cross-module ranking come next.
+//! to, their visible task projects, their own mailbox). Files and tasks match by
+//! name/title; mail matches by full content — the message body is in the mail
+//! full-text index, so this searches *inside* the email, not just its subject.
 //! Access is applied in SQL, never widened — the same predicates the modules use.
+//! Still to come: content search inside Drive file bytes (needs per-format text
+//! extraction) and cross-module relevance ranking.
 
 use crate::account::AccountStore;
 use crate::error::{Result, StoreError};
@@ -10,7 +13,8 @@ use crate::error::{Result, StoreError};
 /// One search result, enough to render a row and open the item.
 #[derive(Debug, Clone)]
 pub struct SearchHit {
-    /// `folder` | `file` | `doc` | `base` (a Drive node kind) or `task`.
+    /// `folder` | `file` | `doc` | `base` (a Drive node kind), `task`, or
+    /// `message` (a mail message).
     pub kind: String,
     pub id: String,
     pub title: String,
@@ -20,9 +24,11 @@ pub struct SearchHit {
 }
 
 impl AccountStore {
-    /// Searches the workspace by name/title. Returns up to `limit` Drive nodes
-    /// (in the caller's personal files or member Spaces) and up to `limit`
-    /// visible active tasks whose title matches — a substring, case-insensitive.
+    /// Searches the workspace. Returns up to `limit` Drive nodes (in the caller's
+    /// personal files or member Spaces) and up to `limit` visible active tasks
+    /// whose name/title matches — a substring, case-insensitive — plus up to
+    /// `limit` of the caller's own messages whose subject, participants, or
+    /// **body** match, via the mail full-text index (content search).
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
@@ -79,6 +85,37 @@ impl AccountStore {
         for (id, title) in tasks {
             hits.push(SearchHit {
                 kind: "task".to_owned(),
+                id,
+                title,
+                space: None,
+            });
+        }
+
+        // Mail: full-text over the message's subject, participants, AND body —
+        // the `search` tsvector the mail module builds and queries. Scoped to the
+        // caller's own mail (`user_id`), exactly as `AccountStore::search` is.
+        // This is the content-search half: a term only in the body still matches.
+        let mail = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, subject FROM messages \
+             WHERE tenant_id = $1 AND user_id = $2 \
+               AND search @@ plainto_tsquery('simple', $3) \
+             ORDER BY received_at DESC LIMIT $4",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(q)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+        for (id, subject) in mail {
+            let title = if subject.trim().is_empty() {
+                "(no subject)".to_owned()
+            } else {
+                subject
+            };
+            hits.push(SearchHit {
+                kind: "message".to_owned(),
                 id,
                 title,
                 space: None,

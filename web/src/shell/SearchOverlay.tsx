@@ -9,6 +9,7 @@ import {
   Folder,
   File as FileIcon,
   ListChecks,
+  Mail,
   Search,
   Table2,
   X,
@@ -17,6 +18,7 @@ import {
 
 import { strings } from "../i18n";
 import { useJmapClient, type SearchHitDto } from "../jmap";
+import { surface } from "../product";
 import { Spinner } from "../ds";
 import styles from "./SearchOverlay.module.css";
 
@@ -30,9 +32,27 @@ function hitIcon(kind: string): LucideIcon {
       return Table2;
     case "task":
       return ListChecks;
+    case "message":
+      return Mail;
     default:
       return FileIcon;
   }
+}
+
+/** The rail module a hit opens in — Drive for any file kind, else its own. */
+function moduleFor(kind: string): string {
+  if (kind === "task") return "tasks";
+  if (kind === "message") return "mail";
+  return "drive";
+}
+
+/**
+ * A hit is shown only when the active product surface actually mounts the module
+ * that opens it: the standalone Drive app (app.alodrives.com) has no mail or
+ * tasks module, so those hits must never appear there (clicking would 404).
+ */
+function surfaceHasModule(id: string): boolean {
+  return surface.modules.some((m) => m.id === id && m.enabled);
 }
 
 export function SearchOverlay({ onClose }: { onClose: () => void }) {
@@ -55,7 +75,9 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
     timer.current = window.setTimeout(() => {
       void client
         .search(q)
-        .then((h) => live && setHits(h))
+        // Only surface hits this product can actually open (a Drive-only app
+        // has no mail/tasks module).
+        .then((h) => live && setHits(h.filter((hit) => surfaceHasModule(moduleFor(hit.kind)))))
         .catch(() => live && setHits([]))
         .finally(() => live && setLoading(false));
     }, 200);
@@ -76,6 +98,8 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
   function open(hit: SearchHitDto) {
     if (hit.kind === "task") {
       navigate(`/tasks?open=${encodeURIComponent(hit.id)}`);
+    } else if (hit.kind === "message") {
+      navigate(`/mail?open=${encodeURIComponent(hit.id)}`);
     } else {
       const space = hit.space ? `&space=${encodeURIComponent(hit.space)}` : "";
       navigate(`/drive?open=${encodeURIComponent(hit.id)}${space}`);

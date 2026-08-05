@@ -1,6 +1,6 @@
 //! Workspace search HTTP surface (ADR 0029): one authenticated query across the
-//! caller's Drive files and visible tasks. Access is enforced in the store, so
-//! this only shapes the response.
+//! caller's Drive files, visible tasks, and own mail (by full message content).
+//! Access is enforced in the store, so this only shapes the response.
 
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
@@ -19,8 +19,9 @@ pub struct SearchQuery {
     limit: Option<i64>,
 }
 
-/// `GET /search?q=&limit=` → `{"hits":[{kind,id,title,space}]}` — files + tasks
-/// matching by name/title, scoped to what the caller can see.
+/// `GET /search?q=&limit=` → `{"hits":[{kind,id,title,space}]}` — files and tasks
+/// matching by name/title and mail matching by content, scoped to what the
+/// caller can see.
 pub async fn search(
     State(state): State<AppState>,
     headers: HeaderMap,

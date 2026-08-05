@@ -6,12 +6,15 @@ contracts.
 
 ## Unreleased
 
-- **Workspace search (files + tasks).** A search box in the left rail (or
-  **Ctrl/Cmd-K** anywhere) searches across your **files and tasks** by name at
-  once, and a result jumps you straight to it — opening the file or task. It only
-  ever shows what you can already see (your files, your Spaces, your tasks); a
-  teammate's private items and other organisations never appear. Names first;
-  searching *inside* file contents and mail comes next. ADR 0029.
+- **Workspace search (files, tasks + email content).** A search box in the left
+  rail (or **Ctrl/Cmd-K** anywhere) searches across your **files, tasks and
+  email** at once, and a result jumps you straight to it — opening the file, task
+  or message. Files and tasks match by name; **email matches by full content**, so
+  a word that appears only in the body of a message still finds it. It only ever
+  shows what you can already see (your files, your Spaces, your tasks, your own
+  mailbox); a teammate's private items, another person's mail, and other
+  organisations never appear — and each app only shows results it can open.
+  Searching *inside* Drive file contents (Word/PDF/etc.) comes next. ADR 0029.
 
 - **Real Word / Excel / PowerPoint editing in Drive (Collabora).** Open a
   `.docx`, `.xlsx`, `.pptx` (or OpenDocument) file in Drive and it now opens in a
