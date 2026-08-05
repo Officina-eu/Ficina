@@ -1198,6 +1198,16 @@ export const en = {
   driveMemberError: "Couldn’t add that person — check the email and your role.",
   driveNewDoc: "New doc",
   driveNewDocPrompt: "Name the new doc",
+  driveNewBase: "New base",
+  driveNewBasePrompt: "Name the new base",
+  baseNewRow: "New row",
+  baseAddField: "Add field",
+  baseFieldName: "Field name",
+  baseNewTable: "New table",
+  baseTypeText: "Text",
+  baseTypeNumber: "Number",
+  baseTypeDate: "Date",
+  baseTypeCheckbox: "Checkbox",
 } as const;
 
 /** Every string key in the catalog. */

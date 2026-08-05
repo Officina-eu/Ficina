@@ -614,7 +614,7 @@ export interface SpaceDetailDto {
 
 // ---- Drive (ADR 0027) -------------------------------------------------------
 
-export type DriveNodeKind = "folder" | "file" | "doc" | "sheet" | "slides";
+export type DriveNodeKind = "folder" | "file" | "doc" | "sheet" | "slides" | "base";
 
 /** A node in the Drive tree. `space` is the Space id when it lives in a Space,
  *  or null for the caller's personal My Files. */
@@ -642,4 +642,46 @@ export interface DriveVersionDto {
   size: number;
   createdBy: string;
   createdAt: string;
+}
+
+// ---- alo Base (ADR 0032) ----------------------------------------------------
+
+export type BaseFieldType =
+  | "text" | "number" | "date" | "checkbox" | "select"
+  | "multiselect" | "attachment" | "person" | "link";
+
+export type BaseViewKind = "grid" | "board" | "calendar" | "gallery";
+
+export interface BaseFieldDto {
+  id: string;
+  name: string;
+  type: BaseFieldType;
+  options: Record<string, unknown>;
+}
+
+export interface BaseViewDto {
+  id: string;
+  kind: BaseViewKind;
+  name: string;
+  config: Record<string, unknown>;
+}
+
+export interface BaseRecordDto {
+  id: string;
+  /** Cell values keyed by field id. */
+  cells: Record<string, unknown>;
+}
+
+export interface BaseTableDto {
+  id: string;
+  name: string;
+  fields: BaseFieldDto[];
+  views: BaseViewDto[];
+  records: BaseRecordDto[];
+}
+
+/** A whole Base: its tables, each with fields, views, and records. */
+export interface BaseDto {
+  nodeId: string;
+  tables: BaseTableDto[];
 }

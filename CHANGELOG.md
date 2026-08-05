@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- **alo Base — the grid you click (web UI).** "New base" in Drive creates an alo
+  Base and opens its **editable grid**: columns are your typed fields, rows are
+  records, and you edit **right in the cells** (text, number, date, checkbox).
+  Add a row, add a column (choose its type), and add more tables — all saving as
+  you go. It opens inside the workspace like the doc editor, and (like everything
+  in Drive) it's shared by where it lives. Board/calendar/gallery views over the
+  same rows, linked records, and more field types come next. ADR 0032.
+
 - **alo Base — a relational data table (backend).** alo's native "sheet" isn't a
   grid of cells — it's a small database with a spreadsheet face (Airtable-style).
   A Base lives in Drive like any file (in My Files or a Space, auto-shared with

@@ -51,6 +51,9 @@ import {
   type SpaceRole,
   type DriveNodeDto,
   type DriveVersionDto,
+  type BaseDto,
+  type BaseFieldType,
+  type BaseViewKind,
 } from "./types";
 import { API_BASE } from "../platform/runtime";
 
@@ -1427,6 +1430,112 @@ export class JmapClient {
       new File([json], "doc.json", { type: "application/json" }),
     );
     await this.driveAddVersion(id, blobId, size);
+  }
+
+  // ---- alo Base (ADR 0032): a relational base is a drive node (kind=base)
+  //      whose tables/fields/records/views are relational data.
+
+  /** Create a Base (its node + a default table). Returns the base node id. */
+  async createBase(space: string | null, parent: string | null, name: string): Promise<string> {
+    const res = await this.#fetch(`${API_BASE}/drive/base`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ space, parent, name }),
+    });
+    if (!res.ok) throw new JmapError(`createBase ${res.status}`);
+    return ((await res.json()) as { nodeId: string }).nodeId;
+  }
+
+  /** The whole Base at a node. */
+  async base(nodeId: string): Promise<BaseDto> {
+    const res = await this.#fetch(`${API_BASE}/drive/base/${encodeURIComponent(nodeId)}`);
+    if (!res.ok) throw new JmapError(`base ${res.status}`);
+    return (await res.json()) as BaseDto;
+  }
+
+  /** Add a table to a Base. */
+  async baseAddTable(nodeId: string, name: string): Promise<string> {
+    const res = await this.#fetch(`${API_BASE}/drive/base/${encodeURIComponent(nodeId)}/tables`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new JmapError(`baseAddTable ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Add a typed field (column) to a table. */
+  async baseAddField(
+    tableId: string,
+    name: string,
+    type: BaseFieldType,
+    options?: Record<string, unknown>,
+  ): Promise<string> {
+    const res = await this.#fetch(
+      `${API_BASE}/drive/base-tables/${encodeURIComponent(tableId)}/fields`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, type, options: options ?? {} }),
+      },
+    );
+    if (!res.ok) throw new JmapError(`baseAddField ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Add a record (row) to a table. */
+  async baseAddRecord(tableId: string, cells?: Record<string, unknown>): Promise<string> {
+    const res = await this.#fetch(
+      `${API_BASE}/drive/base-tables/${encodeURIComponent(tableId)}/records`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cells: cells ?? {} }),
+      },
+    );
+    if (!res.ok) throw new JmapError(`baseAddRecord ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Replace a record's cells. */
+  async baseUpdateRecord(recordId: string, cells: Record<string, unknown>): Promise<void> {
+    const res = await this.#fetch(
+      `${API_BASE}/drive/base-records/${encodeURIComponent(recordId)}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cells }),
+      },
+    );
+    if (!res.ok) throw new JmapError(`baseUpdateRecord ${res.status}`);
+  }
+
+  /** Delete a record. */
+  async baseDeleteRecord(recordId: string): Promise<void> {
+    const res = await this.#fetch(
+      `${API_BASE}/drive/base-records/${encodeURIComponent(recordId)}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) throw new JmapError(`baseDeleteRecord ${res.status}`);
+  }
+
+  /** Add a view over a table. */
+  async baseAddView(
+    tableId: string,
+    kind: BaseViewKind,
+    name: string,
+    config?: Record<string, unknown>,
+  ): Promise<string> {
+    const res = await this.#fetch(
+      `${API_BASE}/drive/base-tables/${encodeURIComponent(tableId)}/views`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind, name, config: config ?? {} }),
+      },
+    );
+    if (!res.ok) throw new JmapError(`baseAddView ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
   }
 
   /** Upload a large file as an expiring public share link (alo Transfer),
