@@ -14,7 +14,6 @@ import {
   FolderPlus,
   Presentation,
   Sheet,
-  Table2,
   HardDrive,
   History,
   MoveRight,
@@ -33,7 +32,6 @@ import { DestinationDialog, MembersDialog, VersionsDialog } from "./dialogs";
 import { blankOfficeFile, type OfficeExt } from "./blankTemplates";
 // BlockNote is heavy and only needed when a doc opens — code-split it out.
 const DocEditor = lazy(() => import("./DocEditor").then((m) => ({ default: m.DocEditor })));
-const BaseEditor = lazy(() => import("./BaseEditor").then((m) => ({ default: m.BaseEditor })));
 const OfficeEditor = lazy(() => import("./OfficeEditor").then((m) => ({ default: m.OfficeEditor })));
 
 /** Real Office files open in Collabora; kept here so it doesn't pull the editor
@@ -59,7 +57,6 @@ export function DriveModule() {
   const [moveNode, setMoveNode] = useState<{ id: string; mode: "move" | "copy" } | null>(null);
   const [versionsNode, setVersionsNode] = useState<string | null>(null);
   const [openDoc, setOpenDoc] = useState<{ id: string; name: string } | null>(null);
-  const [openBase, setOpenBase] = useState<{ id: string; name: string } | null>(null);
   const [openOffice, setOpenOffice] = useState<{ id: string; name: string } | null>(null);
   const [showMembers, setShowMembers] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -106,7 +103,6 @@ export function DriveModule() {
       if (node === null) return;
       if (node.kind === "folder") setPath([{ id: node.id, name: node.name }]);
       else if (node.kind === "doc") setOpenDoc({ id, name: node.name });
-      else if (node.kind === "base") setOpenBase({ id, name: node.name });
       else if (node.kind === "file" && OFFICE_EXT.test(node.name)) setOpenOffice({ id, name: node.name });
     });
   }, [searchParams, setSearchParams, client]);
@@ -120,7 +116,6 @@ export function DriveModule() {
   function openNode(n: DriveNodeDto) {
     if (n.kind === "folder") setPath((p) => [...p, { id: n.id, name: n.name }]);
     else if (n.kind === "doc") setOpenDoc({ id: n.id, name: n.name });
-    else if (n.kind === "base") setOpenBase({ id: n.id, name: n.name });
     else if (n.kind === "file" && OFFICE_EXT.test(n.name)) setOpenOffice({ id: n.id, name: n.name });
     else void download(n);
   }
@@ -132,18 +127,6 @@ export function DriveModule() {
       const id = await client.driveCreateDoc(location, parent, name);
       await load();
       setOpenDoc({ id, name });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  async function newBase() {
-    const name = (await prompt({ message: strings.driveNewBasePrompt }))?.trim();
-    if (!name) return;
-    try {
-      const id = await client.createBase(location, parent, name);
-      await load();
-      setOpenBase({ id, name });
     } catch {
       /* ignore */
     }
@@ -381,7 +364,6 @@ export function DriveModule() {
                   align="end"
                   items={[
                     { key: "doc", label: strings.driveKindDoc, icon: <FileText size={15} />, onClick: () => void newDoc() },
-                    { key: "base", label: strings.driveKindSheet, icon: <Table2 size={15} />, onClick: () => void newBase() },
                     { key: "word", label: strings.driveKindWord, icon: <FileType size={15} />, onClick: () => void newOffice("docx"), divider: true },
                     { key: "excel", label: strings.driveKindExcel, icon: <Sheet size={15} />, onClick: () => void newOffice("xlsx") },
                     { key: "slides", label: strings.driveKindSlides, icon: <Presentation size={15} />, onClick: () => void newOffice("pptx") },
@@ -468,18 +450,6 @@ export function DriveModule() {
             name={openDoc.name}
             onClose={() => {
               setOpenDoc(null);
-              void load();
-            }}
-          />
-        </Suspense>
-      )}
-      {openBase !== null && (
-        <Suspense fallback={null}>
-          <BaseEditor
-            nodeId={openBase.id}
-            name={openBase.name}
-            onClose={() => {
-              setOpenBase(null);
               void load();
             }}
           />

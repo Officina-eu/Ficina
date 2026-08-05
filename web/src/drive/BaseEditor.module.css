@@ -85,18 +85,19 @@
   color: var(--accent);
 }
 
-/* grid — an Airtable-style data grid in brand colours */
+/* grid — an Airtable-style data grid: a white sheet on a warm canvas */
 .gridWrap {
   flex: 1;
   overflow: auto;
   min-height: 0;
   padding: 0 0 40vh;
-  background: var(--bg-surface);
+  background: var(--warm-100); /* warm canvas so the white grid reads as a sheet */
 }
 .grid {
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--text-sm);
+  background: var(--bg-surface);
 }
 .grid th,
 .grid td {
@@ -109,7 +110,7 @@
   background: var(--bg-sunken);
   z-index: 2;
   border-bottom: 2px solid var(--border-default);
-  height: 40px;
+  height: 44px;
 }
 /* row-number gutter — sticky so it stays while scrolling wide tables */
 .rowNumHead,
@@ -133,8 +134,8 @@
 }
 .colHead {
   text-align: left;
-  padding: 0 12px;
-  min-width: 180px;
+  padding: 0 14px;
+  min-width: 220px;
   white-space: nowrap;
 }
 .colTypeIcon {
@@ -181,8 +182,9 @@
 }
 .cell {
   padding: 0;
-  min-width: 180px;
-  height: 40px;
+  min-width: 220px;
+  height: 44px;
+  background: var(--bg-surface); /* white cells on the warm canvas */
 }
 .cellPrimary {
   font-weight: var(--weight-medium);
@@ -191,16 +193,19 @@
 .cellPad {
   border-right: none !important;
   width: 48px;
-  background: var(--bg-surface);
+  background: var(--warm-100); /* the row's tail blends into the canvas */
 }
 .input {
   width: 100%;
   border: none;
   background: transparent;
-  padding: 9px 12px;
+  padding: 11px 14px;
   font-size: var(--text-sm);
   color: var(--text-primary);
   font-family: inherit;
+}
+.input::placeholder {
+  color: var(--text-tertiary);
 }
 .input:focus {
   outline: 2px solid var(--accent);
