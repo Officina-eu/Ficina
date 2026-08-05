@@ -1140,3 +1140,73 @@ async fn workspace_search_finds_own_mail_by_body_only() {
     let d = store.for_account(t2, ud);
     assert!(d.workspace_search("flamingo", 20).await.unwrap().is_empty(), "never across tenants");
 }
+
+/// Workspace search — Drive files match by CONTENT, not just name: a plain-text
+/// file and an alo Doc are indexed from their bytes at write time. Content is
+/// still location-scoped (personal → owner only), never cross-tenant.
+#[tokio::test]
+async fn workspace_search_finds_drive_files_by_content() {
+    use alo_store::{DriveLocation, NewDriveFile};
+    use bytes::Bytes;
+    let store = common::test_store().await;
+    let t1 = store.create_tenant("srchc-t1").await.unwrap();
+    let ts1 = store.for_tenant(t1.clone());
+    let ua = ts1.create_user("a@srchc.test").await.unwrap();
+    let ub = ts1.create_user("b@srchc.test").await.unwrap();
+    let a = store.for_account(t1.clone(), ua);
+    let b = store.for_account(t1.clone(), ub);
+
+    // A text file whose NAME ("notes.txt") does not contain the term, but whose
+    // BODY does.
+    let txt = a
+        .put_blob(Bytes::from_static(b"the migration plan is due friday"), Some("text/plain"))
+        .await
+        .unwrap();
+    a.drive_create_file(
+        &DriveLocation::Personal,
+        None,
+        &NewDriveFile {
+            name: "notes.txt".to_owned(),
+            blob_id: txt.as_str().to_owned(),
+            size: 32,
+            content_type: Some("text/plain".to_owned()),
+            kind: Some("file".to_owned()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // An alo Doc (BlockNote JSON) with a distinctive word only in its text run.
+    let doc_json = br#"[{"type":"paragraph","content":[{"type":"text","text":"secret pangolin roadmap","styles":{}}]}]"#;
+    let dblob = a.put_blob(Bytes::from_static(doc_json), Some("application/json")).await.unwrap();
+    a.drive_create_file(
+        &DriveLocation::Personal,
+        None,
+        &NewDriveFile {
+            name: "Untitled".to_owned(),
+            blob_id: dblob.as_str().to_owned(),
+            size: doc_json.len() as i64,
+            content_type: Some("application/json".to_owned()),
+            kind: Some("doc".to_owned()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // A finds each by a word that lives only inside the file.
+    let mig = a.workspace_search("migration", 20).await.unwrap();
+    assert_eq!(mig.len(), 1, "text file matched by body");
+    let pan = a.workspace_search("pangolin", 20).await.unwrap();
+    assert_eq!(pan.len(), 1, "alo Doc matched by content");
+    assert_eq!(pan[0].kind, "doc");
+
+    // A co-tenant who doesn't own these personal files sees nothing; neither
+    // does another tenant.
+    assert!(b.workspace_search("migration", 20).await.unwrap().is_empty(), "another user's private file");
+    let t2 = store.create_tenant("srchc-t2").await.unwrap();
+    let ud = store.for_tenant(t2.clone()).create_user("d@srchc.test").await.unwrap();
+    let d = store.for_account(t2, ud);
+    assert!(d.workspace_search("pangolin", 20).await.unwrap().is_empty(), "never across tenants");
+}

@@ -4,8 +4,10 @@
 //! name/title; mail matches by full content — the message body is in the mail
 //! full-text index, so this searches *inside* the email, not just its subject.
 //! Access is applied in SQL, never widened — the same predicates the modules use.
-//! Still to come: content search inside Drive file bytes (needs per-format text
-//! extraction) and cross-module relevance ranking.
+//! Drive files now match on content too: a text file or alo Doc is indexed from
+//! its bytes at write time (see `drive_index_node`), so a term inside the
+//! document is found. Still to come: text extraction for binary formats
+//! (docx/xlsx/pdf) and cross-module relevance ranking.
 
 use crate::account::AccountStore;
 use crate::error::{Result, StoreError};
@@ -25,10 +27,10 @@ pub struct SearchHit {
 
 impl AccountStore {
     /// Searches the workspace. Returns up to `limit` Drive nodes (in the caller's
-    /// personal files or member Spaces) and up to `limit` visible active tasks
-    /// whose name/title matches — a substring, case-insensitive — plus up to
-    /// `limit` of the caller's own messages whose subject, participants, or
-    /// **body** match, via the mail full-text index (content search).
+    /// personal files or member Spaces) whose **name or indexed content** matches,
+    /// up to `limit` visible active tasks whose title matches — a substring,
+    /// case-insensitive — plus up to `limit` of the caller's own messages whose
+    /// subject, participants, or **body** match, via the mail full-text index.
     ///
     /// # Errors
     /// [`StoreError::Db`] on failure.
@@ -39,13 +41,17 @@ impl AccountStore {
         }
         let mut hits = Vec::new();
 
-        // Drive nodes: name match, in a location the caller can read.
+        // Drive nodes: name OR content match, in a location the caller can read.
+        // `content` is the text index built at write time (plain-text files + alo
+        // Docs); it is NULL for un-indexed/binary nodes, which then match on name
+        // only.
         let drive = sqlx::query_as::<_, (String, String, String, Option<String>)>(
             "SELECT id, kind, name, \
                     CASE WHEN location_kind = 'space' THEN location_id ELSE NULL END AS space \
              FROM drive_nodes \
              WHERE tenant_id = $1 AND trashed = false \
-               AND strpos(lower(name), lower($3)) > 0 \
+               AND ( strpos(lower(name), lower($3)) > 0 \
+                  OR content @@ plainto_tsquery('simple', $3) ) \
                AND ( (location_kind = 'personal' AND location_id = $2) \
                   OR (location_kind = 'space' AND location_id IN ( \
                         SELECT space_id FROM space_members \
@@ -60,7 +66,12 @@ impl AccountStore {
         .await
         .map_err(StoreError::Db)?;
         for (id, kind, name, space) in drive {
-            hits.push(SearchHit { kind, id, title: name, space });
+            hits.push(SearchHit {
+                kind,
+                id,
+                title: name,
+                space,
+            });
         }
 
         // Tasks: title match, on a project visible to the caller (team, or their

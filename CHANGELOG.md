@@ -14,7 +14,11 @@ contracts.
   shows what you can already see (your files, your Spaces, your tasks, your own
   mailbox); a teammate's private items, another person's mail, and other
   organisations never appear — and each app only shows results it can open.
-  Searching *inside* Drive file contents (Word/PDF/etc.) comes next. ADR 0029.
+  Search now also looks **inside your files**: a text file or an alo Doc is
+  indexed from its contents when you save it, so a word *inside* the document
+  finds it, not just its name. (Word/Excel/PowerPoint and PDF content indexing —
+  which needs format-by-format text extraction — is still to come; those files
+  remain findable by name.) ADR 0029.
 
 - **Real Word / Excel / PowerPoint editing in Drive (Collabora).** Open a
   `.docx`, `.xlsx`, `.pptx` (or OpenDocument) file in Drive and it now opens in a

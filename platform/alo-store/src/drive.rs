@@ -17,6 +17,65 @@ use crate::error::{Result, StoreError};
 use crate::id::{DriveNodeId, SpaceId};
 use crate::spaces::SpaceRole;
 
+/// Largest file we pull back to build a content index. Bigger files stay
+/// name-searchable; we just don't read the whole blob to index its text.
+const INDEX_MAX_BYTES: i64 = 2 * 1024 * 1024;
+/// Cap on the characters fed to the content vector, so one enormous document
+/// can't bloat the index or the row.
+const INDEX_TEXT_CAP: usize = 256 * 1024;
+
+/// Whether a node's bytes are text we know how to extract for the content index:
+/// an alo Doc (BlockNote JSON) or any `text/*` file. Binary office formats and
+/// PDFs are not yet extractable (they need a per-format pipeline) and return
+/// false, leaving them name-searchable only.
+fn is_indexable(kind: &str, content_type: Option<&str>) -> bool {
+    kind == "doc" || content_type.is_some_and(|c| c.starts_with("text/"))
+}
+
+/// Extracts plain text from a node's bytes for the content index, or `None` when
+/// there is nothing useful to index. An alo Doc is BlockNote JSON (we collect its
+/// text runs); a `text/*` file is its bytes as UTF-8. Output is capped at
+/// [`INDEX_TEXT_CAP`] characters.
+fn extract_index_text(kind: &str, content_type: Option<&str>, bytes: &[u8]) -> Option<String> {
+    let raw = if kind == "doc" {
+        let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+        let mut out = String::new();
+        collect_text_runs(&value, &mut out);
+        out
+    } else if content_type.is_some_and(|c| c.starts_with("text/")) {
+        String::from_utf8_lossy(bytes).into_owned()
+    } else {
+        return None;
+    };
+    if raw.trim().is_empty() {
+        return None;
+    }
+    Some(raw.chars().take(INDEX_TEXT_CAP).collect())
+}
+
+/// Walks a BlockNote document tree, appending every inline `text` run (across
+/// nested `content`/`children`) into `out`, space-separated. Robust to the exact
+/// shape: it collects any `"text"` string it finds, wherever it appears.
+fn collect_text_runs(value: &serde_json::Value, out: &mut String) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(text)) = map.get("text") {
+                out.push_str(text);
+                out.push(' ');
+            }
+            for child in map.values() {
+                collect_text_runs(child, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_text_runs(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Where a node lives — the unit access is scoped to.
 #[derive(Debug, Clone)]
 pub enum DriveLocation {
@@ -380,6 +439,8 @@ impl AccountStore {
         self.insert_version(&mut tx, node.as_str(), 1, &new.blob_id, new.size)
             .await?;
         tx.commit().await.map_err(StoreError::Db)?;
+        // Best-effort content index (never fails the create).
+        self.drive_index_node(node.as_str()).await;
         Ok(node)
     }
 
@@ -419,7 +480,59 @@ impl AccountStore {
         .await
         .map_err(StoreError::Db)?;
         tx.commit().await.map_err(StoreError::Db)?;
+        // The bytes changed — re-index the node's content (best-effort).
+        self.drive_index_node(id.as_str()).await;
         Ok(next)
+    }
+
+    /// Rebuilds a node's `content` full-text index from its current bytes, when
+    /// they are text-extractable (a plain-text file or an alo Doc). Best-effort:
+    /// a failure to read the blob or parse the text leaves the node without a
+    /// content index (still name-searchable) rather than failing the save that
+    /// triggered it. Binary formats (docx/xlsx/pdf) are skipped until a
+    /// per-format extraction pipeline lands.
+    async fn drive_index_node(&self, node: &str) {
+        // Read what we need to decide + extract. A missing/oversized/foreign row
+        // simply means "don't index".
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, i64)>(
+            "SELECT kind, blob_id, content_type, size FROM drive_nodes \
+             WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(node)
+        .fetch_optional(&self.pool)
+        .await;
+        let Ok(Some((kind, Some(blob_id), content_type, size))) = row else {
+            return;
+        };
+        if size > INDEX_MAX_BYTES || !is_indexable(&kind, content_type.as_deref()) {
+            return;
+        }
+        // Resolve the blob's hash, then pull its bytes from the blob store.
+        let hash = sqlx::query_scalar::<_, String>(
+            "SELECT hash FROM blobs WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(&blob_id)
+        .fetch_optional(&self.pool)
+        .await;
+        let Ok(Some(hash)) = hash else { return };
+        let Ok(bytes) = self.blobs.get(self.tenant.as_str(), &hash).await else {
+            return;
+        };
+        let Some(text) = extract_index_text(&kind, content_type.as_deref(), &bytes) else {
+            return;
+        };
+        // Set (or clear, if the text is empty) the content vector. Best-effort.
+        let _ = sqlx::query(
+            "UPDATE drive_nodes SET content = to_tsvector('simple', $3) \
+             WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(node)
+        .bind(&text)
+        .execute(&self.pool)
+        .await;
     }
 
     /// Restores an old version by appending it as a NEW current version (history
@@ -506,15 +619,13 @@ impl AccountStore {
         .execute(&mut *tx)
         .await
         .map_err(StoreError::Db)?;
-        sqlx::query(
-            "UPDATE drive_nodes SET parent_id = $3 WHERE tenant_id = $1 AND id = $2",
-        )
-        .bind(self.tenant.as_str())
-        .bind(id.as_str())
-        .bind(dest_parent.map(DriveNodeId::as_str))
-        .execute(&mut *tx)
-        .await
-        .map_err(StoreError::Db)?;
+        sqlx::query("UPDATE drive_nodes SET parent_id = $3 WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant.as_str())
+            .bind(id.as_str())
+            .bind(dest_parent.map(DriveNodeId::as_str))
+            .execute(&mut *tx)
+            .await
+            .map_err(StoreError::Db)?;
         tx.commit().await.map_err(StoreError::Db)?;
         Ok(())
     }
@@ -582,7 +693,8 @@ impl AccountStore {
             .await
             .map_err(StoreError::Db)?;
             if let Some(blob) = &n.blob_id {
-                self.insert_version(&mut tx, new_id, 1, blob, n.size).await?;
+                self.insert_version(&mut tx, new_id, 1, blob, n.size)
+                    .await?;
             }
         }
         tx.commit().await.map_err(StoreError::Db)?;
@@ -649,12 +761,7 @@ impl AccountStore {
     }
 
     /// A destination parent must be a live folder in the same location.
-    async fn check_parent(
-        &self,
-        kind: &str,
-        id: &str,
-        parent: Option<&DriveNodeId>,
-    ) -> Result<()> {
+    async fn check_parent(&self, kind: &str, id: &str, parent: Option<&DriveNodeId>) -> Result<()> {
         let Some(parent) = parent else {
             return Ok(());
         };
