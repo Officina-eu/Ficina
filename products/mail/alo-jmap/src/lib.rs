@@ -48,6 +48,7 @@ pub mod spaces;
 pub mod state;
 pub mod submission;
 pub mod wopi;
+pub mod workspace_search;
 pub mod tasks;
 pub mod unsubscribe;
 

@@ -1069,3 +1069,42 @@ async fn base_data_scopes_through_its_drive_node() {
     assert!(a.base_add_field(&table, "F", "not-a-type", &json!({})).await.is_err());
     assert!(a.base_add_view(&table, "not-a-kind", "V", &json!({})).await.is_err());
 }
+
+/// Workspace search (ADR 0029): only surfaces what the caller can already see —
+/// their personal files, member-Space files, and visible tasks — never another
+/// user's private items and never another tenant's.
+#[tokio::test]
+async fn workspace_search_only_returns_visible_items() {
+    use alo_store::{DriveLocation, NewDriveFile};
+    let store = common::test_store().await;
+    let t1 = store.create_tenant("srch-t1").await.unwrap();
+    let ts1 = store.for_tenant(t1.clone());
+    let ua = ts1.create_user("a@srch.test").await.unwrap();
+    let ub = ts1.create_user("b@srch.test").await.unwrap();
+    let a = store.for_account(t1.clone(), ua);
+    let b = store.for_account(t1.clone(), ub);
+
+    // A's private file + task both mention "acme".
+    a.drive_create_file(
+        &DriveLocation::Personal,
+        None,
+        &NewDriveFile { name: "Acme brief".to_owned(), blob_id: "x".to_owned(), size: 1, ..Default::default() },
+    )
+    .await
+    .unwrap();
+    let proj = a.ensure_personal_project().await.unwrap();
+    a.create_task(&proj, &task("Acme kickoff")).await.unwrap();
+
+    // A finds both; B (same tenant, non-owner) finds neither (private).
+    assert_eq!(a.workspace_search("acme", 20).await.unwrap().len(), 2);
+    assert!(b.workspace_search("acme", 20).await.unwrap().is_empty(), "another user's private items");
+
+    // Cross-tenant: an outsider finds nothing.
+    let t2 = store.create_tenant("srch-t2").await.unwrap();
+    let ud = store.for_tenant(t2.clone()).create_user("d@srch.test").await.unwrap();
+    let d = store.for_account(t2, ud);
+    assert!(d.workspace_search("acme", 20).await.unwrap().is_empty(), "never across tenants");
+
+    // An empty query is empty, not everything.
+    assert!(a.workspace_search("   ", 20).await.unwrap().is_empty());
+}

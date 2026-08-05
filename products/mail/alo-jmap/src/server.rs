@@ -17,7 +17,7 @@ use crate::state::{AppState, Limits};
 use crate::{
     admin, ai, api, autoconfig, base, blob, calendar, carddav, contacts, delegates, docs, drive, filters,
     flagdue, imap_import_route, push, reset_route, schedule, security, session, settings, share,
-    signup_route, snooze, spaces, tasks, unsubscribe, wopi,
+    signup_route, snooze, spaces, tasks, unsubscribe, wopi, workspace_search,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -218,6 +218,8 @@ pub fn app(state: AppState) -> Router {
             "/drive/base-records/{record}",
             put(base::update_record).delete(base::delete_record),
         )
+        // Workspace search (ADR 0029): files + tasks by name/title.
+        .route("/search", get(workspace_search::search))
         .route("/contacts", get(contacts::list))
         // Address-book import (a .vcf upload) and export (whole book as .vcf).
         .route("/contacts/import", post(contacts::import))

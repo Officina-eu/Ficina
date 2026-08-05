@@ -54,6 +54,7 @@ import {
   type BaseDto,
   type BaseFieldType,
   type BaseViewKind,
+  type SearchHitDto,
 } from "./types";
 import { API_BASE } from "../platform/runtime";
 
@@ -1259,6 +1260,14 @@ export class JmapClient {
     return ((await res.json()) as { nodes: DriveNodeDto[] }).nodes;
   }
 
+  /** A single Drive node the caller can read (for opening a search result). */
+  async driveNode(id: string): Promise<DriveNodeDto | null> {
+    const res = await this.#fetch(`${API_BASE}/drive/nodes/${encodeURIComponent(id)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new JmapError(`driveNode ${res.status}`);
+    return ((await res.json()) as { node: DriveNodeDto }).node;
+  }
+
   /** The trashed nodes of a location. */
   async driveTrash(space: string | null): Promise<DriveNodeDto[]> {
     const q = new URLSearchParams();
@@ -1381,6 +1390,13 @@ export class JmapClient {
     const res = await this.#fetch(`${API_BASE}/drive/nodes/${encodeURIComponent(id)}/office`);
     if (!res.ok) throw new JmapError(`driveOfficeToken ${res.status}`);
     return ((await res.json()) as { token: string }).token;
+  }
+
+  /** Workspace search: files + tasks by name/title (ADR 0029). */
+  async search(query: string): Promise<SearchHitDto[]> {
+    const res = await this.#fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new JmapError(`search ${res.status}`);
+    return ((await res.json()) as { hits: SearchHitDto[] }).hits;
   }
 
   /** Append a new version to a node from an already-uploaded blob. */

@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- **Workspace search (files + tasks).** A search box in the left rail (or
+  **Ctrl/Cmd-K** anywhere) searches across your **files and tasks** by name at
+  once, and a result jumps you straight to it — opening the file or task. It only
+  ever shows what you can already see (your files, your Spaces, your tasks); a
+  teammate's private items and other organisations never appear. Names first;
+  searching *inside* file contents and mail comes next. ADR 0029.
+
 - **Real Word / Excel / PowerPoint editing in Drive (Collabora).** Open a
   `.docx`, `.xlsx`, `.pptx` (or OpenDocument) file in Drive and it now opens in a
   full editor **inside the workspace** — powered by Collabora, with genuine

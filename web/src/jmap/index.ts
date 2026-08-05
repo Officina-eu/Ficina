@@ -69,6 +69,7 @@ export {
   type BaseRecordDto,
   type BaseFieldType,
   type BaseViewKind,
+  type SearchHitDto,
   type ShareableGroup,
   type SharedMailbox,
   type Delegate,

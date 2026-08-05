@@ -685,3 +685,14 @@ export interface BaseDto {
   nodeId: string;
   tables: BaseTableDto[];
 }
+
+// ---- Workspace search (ADR 0029) --------------------------------------------
+
+/** One search result: a Drive node (kind folder/file/doc/base) or a task. */
+export interface SearchHitDto {
+  kind: string;
+  id: string;
+  title: string;
+  /** The Space id when it's a Space file, else null (personal / task). */
+  space: string | null;
+}

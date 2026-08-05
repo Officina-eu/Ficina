@@ -4,6 +4,7 @@
 // location's access (ADR 0027), so there is no per-file sharing here — sharing
 // is membership of the Space it lives in, always visible via "Members".
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   ChevronRight,
   Copy,
@@ -83,6 +84,28 @@ export function DriveModule() {
     setNodes(null);
     void load();
   }, [load]);
+
+  // Open a node arrived at from workspace search (?open=<id>&space=<id>).
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get("open");
+    if (id === null) return;
+    const sp = searchParams.get("space");
+    const next = new URLSearchParams(searchParams);
+    next.delete("open");
+    next.delete("space");
+    setSearchParams(next, { replace: true });
+    setLocation(sp);
+    setTrashView(false);
+    setPath([]);
+    void client.driveNode(id).then((node) => {
+      if (node === null) return;
+      if (node.kind === "folder") setPath([{ id: node.id, name: node.name }]);
+      else if (node.kind === "doc") setOpenDoc({ id, name: node.name });
+      else if (node.kind === "base") setOpenBase({ id, name: node.name });
+      else if (node.kind === "file" && OFFICE_EXT.test(node.name)) setOpenOffice({ id, name: node.name });
+    });
+  }, [searchParams, setSearchParams, client]);
 
   function selectLocation(space: string | null) {
     setLocation(space);

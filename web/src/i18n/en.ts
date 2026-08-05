@@ -1199,6 +1199,20 @@ export const en = {
   driveNewDoc: "New doc",
   driveNewDocPrompt: "Name the new doc",
   officeUnavailable: "This document couldn’t be opened for editing. Try again, or download it.",
+  moduleSearch: "Search",
+  searchPlaceholder: "Search files and tasks…",
+  searchHint: "Search your files and tasks by name.",
+  searchNoResults: "Nothing found.",
+  searchKind: (kind: string) =>
+    kind === "task"
+      ? "Task"
+      : kind === "folder"
+        ? "Folder"
+        : kind === "doc"
+          ? "Doc"
+          : kind === "base"
+            ? "Base"
+            : "File",
   driveNewBase: "New base",
   driveNewBasePrompt: "Name the new base",
   baseNewRow: "New row",
