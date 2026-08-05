@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **Drive — files, in one coherent place (backend).** Every file lives in exactly
+  one spot: your private **My Files**, or a **Space** (where it's automatically
+  shared with that Space's members). No OneDrive-vs-SharePoint split, no per-file
+  permission maze — a file's access is simply its location's access. You get
+  folders, upload, download, rename, move, copy, trash/restore, and full version
+  history with restore. **Moving a file changes who can see it** (into a Space
+  shares it; out of it un-shares it) — verified on the live server, along with:
+  a Space viewer can read but not change files (a clean "not allowed"), and
+  another organisation gets "not found" on everything. The file manager UI comes
+  next. ADR 0027.
+
 - **Spaces — the shared home for team work (foundation).** A Space (e.g. "Acme
   project") is a group with named members and three plain roles — viewer,
   editor, manager. It's the spine the whole suite will plug into: files first,
