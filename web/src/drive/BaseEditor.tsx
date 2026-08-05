@@ -3,13 +3,23 @@
 // write is gated server-side by the Base's Drive access; this UI reflects it.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Calendar,
   CalendarDays,
+  CheckSquare,
+  ChevronDownCircle,
+  Hash,
   LayoutGrid,
+  Link2,
+  Paperclip,
   Plus,
   Rows3,
   Table2,
+  Tags,
   Trello,
+  Type,
+  User,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import { strings } from "../i18n";
@@ -36,6 +46,19 @@ const FIELD_TYPES: { type: BaseFieldType; label: () => string }[] = [
   { type: "person", label: () => strings.baseTypePerson },
   { type: "link", label: () => strings.baseTypeLink },
 ];
+
+/** The small type icon shown in each column header — Airtable's field-type cue. */
+const FIELD_ICON: Record<BaseFieldType, LucideIcon> = {
+  text: Type,
+  number: Hash,
+  date: Calendar,
+  checkbox: CheckSquare,
+  select: ChevronDownCircle,
+  multiselect: Tags,
+  person: User,
+  link: Link2,
+  attachment: Paperclip,
+};
 
 const VIEW_KINDS: { kind: BaseViewKind; label: () => string; Icon: typeof LayoutGrid }[] = [
   { kind: "grid", label: () => strings.baseViewGrid, Icon: LayoutGrid },
@@ -299,12 +322,18 @@ export function BaseEditor({
                 <thead>
                   <tr>
                     <th className={styles.rowNumHead}>#</th>
-                    {table.fields.map((f) => (
-                      <th key={f.id} className={styles.colHead}>
-                        <span className={styles.colName}>{f.name}</span>
-                        <span className={styles.colType}>{f.type}</span>
-                      </th>
-                    ))}
+                    {table.fields.map((f, fi) => {
+                      const Icon = FIELD_ICON[f.type] ?? Type;
+                      return (
+                        <th
+                          key={f.id}
+                          className={fi === 0 ? `${styles.colHead} ${styles.colHeadPrimary}` : styles.colHead}
+                        >
+                          <Icon size={14} className={styles.colTypeIcon} strokeWidth={1.75} />
+                          <span className={styles.colName}>{f.name}</span>
+                        </th>
+                      );
+                    })}
                     <th className={styles.addColHead}>
                       <div className={styles.addColWrap} ref={fieldRef}>
                         <button type="button" className={styles.addCol} onClick={() => setFieldMenu((v) => !v)} aria-label={strings.baseAddField}>
@@ -344,10 +373,10 @@ export function BaseEditor({
                 </thead>
                 <tbody>
                   {table.records.map((r, ri) => (
-                    <tr key={r.id}>
+                    <tr key={r.id} className={styles.row}>
                       <td className={styles.rowNum}>{ri + 1}</td>
-                      {table.fields.map((f) => (
-                        <td key={f.id} className={styles.cell}>
+                      {table.fields.map((f, fi) => (
+                        <td key={f.id} className={fi === 0 ? `${styles.cell} ${styles.cellPrimary}` : styles.cell}>
                           <Cell field={f} value={r.cells[f.id]} tables={tables} onCommit={(v) => void setCell(r, f.id, v)} />
                         </td>
                       ))}

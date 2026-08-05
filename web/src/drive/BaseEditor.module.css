@@ -42,13 +42,14 @@
   justify-content: center;
 }
 
-/* table tabs */
+/* table tabs — Airtable-style bottom tabs on a navy-tinted bar */
 .tabs {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 2px;
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 var(--space-4);
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
   overflow-x: auto;
 }
@@ -56,20 +57,22 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
+  padding: 9px 14px;
   font-size: var(--text-sm);
   color: var(--text-secondary);
   white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
 }
 .tab:hover {
-  background: var(--bg-raised);
+  color: var(--text-primary);
 }
 .tabOn,
 .tabOn:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
+  border-bottom-color: var(--accent);
+  background: var(--bg-surface);
 }
 .tabAdd {
   display: inline-flex;
@@ -82,12 +85,13 @@
   color: var(--accent);
 }
 
-/* grid */
+/* grid — an Airtable-style data grid in brand colours */
 .gridWrap {
   flex: 1;
   overflow: auto;
   min-height: 0;
-  padding: var(--space-3) var(--space-4) 40vh;
+  padding: 0 0 40vh;
+  background: var(--bg-surface);
 }
 .grid {
   border-collapse: separate;
@@ -102,39 +106,55 @@
 .grid thead th {
   position: sticky;
   top: 0;
-  background: var(--bg-raised);
-  z-index: 1;
-  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-sunken);
+  z-index: 2;
+  border-bottom: 2px solid var(--border-default);
+  height: 40px;
 }
+/* row-number gutter — sticky so it stays while scrolling wide tables */
 .rowNumHead,
 .rowNum {
-  width: 44px;
-  min-width: 44px;
+  width: 56px;
+  min-width: 56px;
   text-align: center;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
-  border-left: 1px solid var(--border-subtle);
+  font-variant-numeric: tabular-nums;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-sunken);
+}
+.rowNumHead {
+  z-index: 3;
+}
+.rowNum {
+  background: var(--bg-surface);
 }
 .colHead {
   text-align: left;
-  padding: 8px 10px;
-  min-width: 160px;
+  padding: 0 12px;
+  min-width: 180px;
+  white-space: nowrap;
+}
+.colTypeIcon {
+  color: var(--text-tertiary);
+  vertical-align: middle;
+  margin-right: 7px;
 }
 .colName {
-  display: block;
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
+  vertical-align: middle;
 }
-.colType {
-  display: block;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  text-transform: capitalize;
+/* the primary (first) field carries the record's identity — slightly stronger */
+.colHeadPrimary {
+  border-right: 2px solid var(--border-default);
 }
 .addColHead {
-  width: 44px;
-  min-width: 44px;
-  background: var(--bg-raised);
+  width: 48px;
+  min-width: 48px;
+  background: var(--bg-sunken);
 }
 .addColWrap {
   position: relative;
@@ -143,90 +163,71 @@
 }
 .addCol {
   display: inline-flex;
-  padding: 5px;
+  padding: 6px;
   border-radius: 6px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 .addCol:hover {
-  background: var(--bg-surface);
+  background: var(--accent-soft);
   color: var(--accent);
 }
-.addColMenu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 5;
-  width: 220px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* zebra-free rows with a warm hover, terracotta-tinted selection feel */
+.row:hover td {
+  background: var(--accent-soft);
 }
-.addColInput,
-.addColSelect {
-  padding: 7px 9px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-}
-.addColBtn {
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #fff;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
-.rowNum {
-  color: var(--text-tertiary);
+.row:hover .rowNum {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .cell {
   padding: 0;
-  min-width: 160px;
+  min-width: 180px;
+  height: 40px;
+}
+.cellPrimary {
+  font-weight: var(--weight-medium);
+  border-right: 2px solid var(--border-default);
 }
 .cellPad {
   border-right: none !important;
-  width: 44px;
+  width: 48px;
+  background: var(--bg-surface);
 }
 .input {
   width: 100%;
   border: none;
   background: transparent;
-  padding: 8px 10px;
+  padding: 9px 12px;
   font-size: var(--text-sm);
   color: var(--text-primary);
   font-family: inherit;
 }
 .input:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
   background: var(--bg-surface);
+  border-radius: 2px;
 }
 .check {
-  margin: 8px 10px;
+  margin: 9px 12px;
+  accent-color: var(--accent);
 }
+/* full-width "add row" that reads like the next empty line */
 .addRow {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  padding: 8px 12px;
+  gap: 7px;
+  padding: 10px 14px;
   font-size: var(--text-sm);
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-subtle);
-  border-right: 1px solid var(--border-subtle);
-  border-left: 1px solid var(--border-subtle);
   width: 100%;
   justify-content: flex-start;
+  position: sticky;
+  left: 0;
 }
 .addRow:hover {
-  background: var(--bg-raised);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
@@ -264,34 +265,36 @@
   font-weight: var(--weight-medium);
 }
 
-/* ---- view bar ---- */
+/* ---- view bar: the view switcher (grid / board / calendar / gallery) ---- */
 .viewbar {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 6px var(--space-4);
+  gap: 4px;
+  padding: 7px var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
   flex-shrink: 0;
   overflow-x: auto;
 }
 .viewTab {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   white-space: nowrap;
 }
 .viewTab:hover {
   background: var(--bg-raised);
+  color: var(--text-primary);
 }
 .viewTabOn,
 .viewTabOn:hover {
-  background: var(--bg-raised);
-  color: var(--text-primary);
-  font-weight: var(--weight-medium);
+  background: var(--accent-tint);
+  color: var(--accent-active);
+  font-weight: var(--weight-semibold);
 }
 .addViewWrap {
   position: relative;

@@ -21,6 +21,13 @@
   flex-direction: column;
   gap: 2px;
 }
+/* Trash lives at the very bottom of the sidebar (file-manager convention),
+   set off from the locations above by a hairline. */
+.sideBottom {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
 .sideLabel {
   display: flex;
   align-items: center;

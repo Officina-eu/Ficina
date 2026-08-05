@@ -299,7 +299,7 @@ export function DriveModule() {
           ))}
         </div>
 
-        <div className={styles.sideGroup}>
+        <div className={`${styles.sideGroup} ${styles.sideBottom}`}>
           <button
             type="button"
             className={trashView ? `${styles.sideItem} ${styles.sideActive}` : styles.sideItem}
@@ -353,15 +353,17 @@ export function DriveModule() {
             )}
             {canWrite && !trashView && (
               <>
-                <button type="button" className={styles.ghostBtn} onClick={() => void newFolder()}>
-                  <FolderPlus size={15} /> {strings.driveNewFolder}
-                </button>
-                <button type="button" className={styles.ghostBtn} onClick={() => void newDoc()}>
-                  <FileText size={15} /> {strings.driveNewDoc}
-                </button>
-                <button type="button" className={styles.ghostBtn} onClick={() => void newBase()}>
-                  <Table2 size={15} /> {strings.driveNewBase}
-                </button>
+                <Menu
+                  triggerLabel={strings.driveNew}
+                  label={strings.driveNew}
+                  icon={<Plus size={15} />}
+                  align="end"
+                  items={[
+                    { key: "doc", label: strings.driveKindDoc, icon: <FileText size={15} />, onClick: () => void newDoc() },
+                    { key: "base", label: strings.driveKindSheet, icon: <Table2 size={15} />, onClick: () => void newBase() },
+                    { key: "folder", label: strings.driveKindFolder, icon: <FolderPlus size={15} />, onClick: () => void newFolder() },
+                  ]}
+                />
                 <button type="button" className={styles.primaryBtn} onClick={() => fileRef.current?.click()} disabled={uploading}>
                   <Upload size={15} /> {uploading ? strings.driveUploading : strings.driveUpload}
                 </button>
