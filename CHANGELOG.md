@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- **Task followers.** You can follow a task to keep an eye on it; whoever
+  creates a task follows it automatically, and the assignee and anyone else can
+  follow or unfollow from the task detail. The follower list shows each person's
+  avatar. Following is scoped to your organisation — you can only follow tasks
+  you can already see, and a follow request for another organisation's task is
+  refused.
+
 - **Desktop 0.1.9**: bundles the redesigned Home, Calendar, and Tasks (List /
   Board / Timeline / Calendar / Overview, the new-task modal, and the branded
   dialogs). Installed apps auto-update.
