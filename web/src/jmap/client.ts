@@ -1181,7 +1181,12 @@ export class JmapClient {
   async uploadFile(file: File): Promise<{ blobId: string; type: string; size: number }> {
     const session = await this.session();
     const accountId = await this.accountId();
-    const url = session.uploadUrl.replace("{accountId}", encodeURIComponent(accountId));
+    const absolute = session.uploadUrl.replace("{accountId}", encodeURIComponent(accountId));
+    // The session's uploadUrl is absolute (the server's own origin). Use only its
+    // path against our API base — same-origin in the browser (proxied in dev, so
+    // no CORS), and the hosted server in the desktop app — like every other call.
+    const { pathname, search } = new URL(absolute, API_BASE);
+    const url = `${API_BASE}${pathname}${search}`;
     const res = await this.#fetch(url, {
       method: "POST",
       headers: { "content-type": file.type.length > 0 ? file.type : "application/octet-stream" },
