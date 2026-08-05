@@ -16,6 +16,8 @@ export interface MenuItem {
   onClick: () => void;
   danger?: boolean;
   disabled?: boolean;
+  /** Draw a separator line above this item (groups the menu). */
+  divider?: boolean;
 }
 
 interface MenuProps {
@@ -77,20 +79,22 @@ export function Menu({ label, icon, items, align = "end", triggerLabel }: MenuPr
       {open && (
         <div className={cx(styles.menu, align === "start" ? styles.start : styles.end)} role="menu">
           {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="menuitem"
-              className={cx(styles.item, item.danger && styles.danger)}
-              disabled={item.disabled}
-              onClick={() => {
-                setOpen(false);
-                item.onClick();
-              }}
-            >
-              {item.icon !== undefined && <span className={styles.itemIcon}>{item.icon}</span>}
-              <span className={styles.itemLabel}>{item.label}</span>
-            </button>
+            <div key={item.key} className={styles.itemWrap}>
+              {item.divider === true && <div className={styles.divider} role="separator" />}
+              <button
+                type="button"
+                role="menuitem"
+                className={cx(styles.item, item.danger && styles.danger)}
+                disabled={item.disabled}
+                onClick={() => {
+                  setOpen(false);
+                  item.onClick();
+                }}
+              >
+                {item.icon !== undefined && <span className={styles.itemIcon}>{item.icon}</span>}
+                <span className={styles.itemLabel}>{item.label}</span>
+              </button>
+            </div>
           ))}
         </div>
       )}

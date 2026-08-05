@@ -25,6 +25,14 @@
 .chev {
   color: var(--text-tertiary);
 }
+.itemWrap {
+  display: contents;
+}
+.divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-1) var(--space-2);
+}
 
 .menu {
   position: absolute;

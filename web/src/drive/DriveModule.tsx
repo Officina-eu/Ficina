@@ -11,6 +11,8 @@ import {
   Download,
   FileText,
   FolderPlus,
+  Presentation,
+  Sheet,
   Table2,
   HardDrive,
   History,
@@ -27,6 +29,7 @@ import { strings } from "../i18n";
 import { useJmapClient, type DriveNodeDto, type SpaceDto } from "../jmap";
 import { Menu, Spinner, useDialogs, type MenuItem } from "../ds";
 import { DestinationDialog, MembersDialog, VersionsDialog } from "./dialogs";
+import { blankOfficeFile, type OfficeExt } from "./blankTemplates";
 // BlockNote is heavy and only needed when a doc opens — code-split it out.
 const DocEditor = lazy(() => import("./DocEditor").then((m) => ({ default: m.DocEditor })));
 const BaseEditor = lazy(() => import("./BaseEditor").then((m) => ({ default: m.BaseEditor })));
@@ -140,6 +143,22 @@ export function DriveModule() {
       const id = await client.createBase(location, parent, name);
       await load();
       setOpenBase({ id, name });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Create a blank Office document (Word/Excel/PowerPoint) from a template and
+   *  open it in the Collabora editor — the two-file-types rule (ADR 0030). */
+  async function newOffice(ext: OfficeExt) {
+    const kind = ext === "xlsx" ? strings.driveKindExcel : strings.driveKindSlides;
+    const name = (await prompt({ message: strings.driveNameNew(kind) }))?.trim();
+    if (!name) return;
+    try {
+      const file = blankOfficeFile(ext, name);
+      const id = await client.driveUpload(location, parent, file);
+      await load();
+      setOpenOffice({ id, name: file.name });
     } catch {
       /* ignore */
     }
@@ -361,7 +380,9 @@ export function DriveModule() {
                   items={[
                     { key: "doc", label: strings.driveKindDoc, icon: <FileText size={15} />, onClick: () => void newDoc() },
                     { key: "base", label: strings.driveKindSheet, icon: <Table2 size={15} />, onClick: () => void newBase() },
-                    { key: "folder", label: strings.driveKindFolder, icon: <FolderPlus size={15} />, onClick: () => void newFolder() },
+                    { key: "excel", label: strings.driveKindExcel, icon: <Sheet size={15} />, onClick: () => void newOffice("xlsx"), divider: true },
+                    { key: "slides", label: strings.driveKindSlides, icon: <Presentation size={15} />, onClick: () => void newOffice("pptx") },
+                    { key: "folder", label: strings.driveKindFolder, icon: <FolderPlus size={15} />, onClick: () => void newFolder(), divider: true },
                   ]}
                 />
                 <button type="button" className={styles.primaryBtn} onClick={() => fileRef.current?.click()} disabled={uploading}>
