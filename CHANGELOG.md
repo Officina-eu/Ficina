@@ -6,6 +6,16 @@ contracts.
 
 ## Unreleased
 
+- **Drive — the file manager (web UI).** Drive is now a module in the app: down
+  the side, **My Files** and each **Space** you belong to, plus **Trash**. The
+  main area shows the current folder with a breadcrumb, drag-or-click **upload**,
+  **New folder**, and per-item actions — open, download, rename, move, make a
+  copy, version history, and move-to-trash (restore or delete-forever from
+  Trash). A Space shows **Members** (who has access), which managers can change.
+  "Move to…" lets you shift a file between My Files and a Space — and because
+  access follows location, that changes who can see it. Built for the live app;
+  the document types (alo Doc / alo Base / Word-Excel compatibility) come next.
+
 - **Drive — files, in one coherent place (backend).** Every file lives in exactly
   one spot: your private **My Files**, or a **Space** (where it's automatically
   shared with that Space's members). No OneDrive-vs-SharePoint split, no per-file

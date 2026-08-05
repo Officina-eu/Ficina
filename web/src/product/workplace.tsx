@@ -7,34 +7,19 @@
 // `../authoring`). alomails ships the `mail` surface instead and deletes this
 // file together with those areas — nothing else in the web app references them.
 import { Suspense, lazy } from "react";
-import { Building2, Code2, HardDrive, MessagesSquare, Sigma, Video } from "lucide-react";
+import { Building2, Code2, MessagesSquare, Sigma, Video } from "lucide-react";
 
 import { strings } from "../i18n";
-import { Spinner } from "../ds";
 import { ControlConsole } from "../control";
 import type { ComposeInsert, ProductModule, ProductSurface } from "./types";
 import { adminConsole, defaultPath, sharedModules } from "./shared";
 
-// Docs pulls in KaTeX + Prism, so it is code-split: those libraries load only
-// when a user opens Docs or inserts an equation/code block, never on mail.
-const DocsModule = lazy(() => import("../authoring").then((m) => ({ default: m.DocsModule })));
+// The technical-authoring editor pulls in KaTeX + Prism, so it is code-split:
+// those libraries load only when a user inserts an equation/code block, never on
+// mail. (The full Docs surface now lives inside Drive as a file type.)
 const AuthoringInsertModal = lazy(() =>
   import("../authoring").then((m) => ({ default: m.AuthoringInsertModal })),
 );
-
-function DriveSurface() {
-  return (
-    <Suspense
-      fallback={
-        <div style={{ display: "flex", justifyContent: "center", padding: "4rem" }}>
-          <Spinner size={24} />
-        </div>
-      }
-    >
-      <DocsModule />
-    </Suspense>
-  );
-}
 
 /** A compose-insert Modal that reuses the shared authoring modal for `kind`. */
 function insertModal(kind: "equation" | "code"): ComposeInsert["Modal"] {
@@ -48,18 +33,10 @@ function insertModal(kind: "equation" | "code"): ComposeInsert["Modal"] {
 }
 
 const suiteModules: ProductModule[] = [
+  // Drive (with its file-hosted documents) comes from sharedModules, alongside
+  // Home/Mail/Agenda/Tasks. The suite adds the not-yet-built Chat and Meet.
   ...sharedModules,
   { id: "chat", path: "/chat", label: strings.moduleChat, Icon: MessagesSquare, enabled: false },
-  // Drive proper is not built; its surface hosts the Docs technical-authoring
-  // preview (ADR 0015), which lives under Drive (ADR 0010).
-  {
-    id: "drive",
-    path: "/drive",
-    label: strings.moduleDrive,
-    Icon: HardDrive,
-    enabled: true,
-    element: () => <DriveSurface />,
-  },
   { id: "meet", path: "/meet", label: strings.moduleMeet, Icon: Video, enabled: false },
 ];
 
