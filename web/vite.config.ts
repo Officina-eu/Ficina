@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import type { ProxyOptions } from "vite";
 import { fileURLToPath } from "node:url";
 
 // Product selection (ADR 0019): the whole app is defined by one product
@@ -51,12 +52,42 @@ const API_PATHS = [
 const COLLABORA_PATHS = ["/wopi", "/hosting", "/browser", "/cool", "/lool"];
 
 const base = { target: DEV_API, changeOrigin: true, secure: true, ws: true };
-const devProxy = {
+
+// Collabora guards its editor with origin-based security keyed to the production
+// domains: a `frame-ancestors` CSP (who may frame the editor) and a server-side
+// Origin check. From localhost neither passes. For DEV ONLY we rewrite, in the
+// proxy: the response CSP to also allow this dev origin (so the browser lets us
+// frame it), and the request Origin to the real backend (so Collabora's server
+// accepts the frame/socket). Production Collabora is untouched.
+const collabora: ProxyOptions = {
+  ...base,
+  configure: (proxy) => {
+    proxy.on("proxyRes", (res) => {
+      const csp = res.headers["content-security-policy"];
+      if (typeof csp === "string") {
+        res.headers["content-security-policy"] = csp
+          // Let this dev origin frame the editor…
+          .replace(
+            /frame-ancestors ([^;]*)/,
+            (_m, v: string) => `frame-ancestors ${v} http://localhost:5173`,
+          )
+          // …and let the editor's socket/XHR reach it through the dev proxy.
+          .replace(
+            /connect-src ([^;]*)/,
+            (_m, v: string) => `connect-src ${v} http://localhost:5173 ws://localhost:5173`,
+          );
+      }
+    });
+    proxy.on("proxyReq", (req) => req.setHeader("origin", DEV_API));
+    proxy.on("proxyReqWs", (req) => req.setHeader("origin", DEV_API));
+  },
+};
+const devProxy: Record<string, ProxyOptions> = {
   ...Object.fromEntries(API_PATHS.map((p) => [p, { ...base, bypass: spaBypass }])),
-  ...Object.fromEntries(COLLABORA_PATHS.map((p) => [p, { ...base }])),
+  ...Object.fromEntries(COLLABORA_PATHS.map((p) => [p, collabora])),
 };
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
     {
@@ -69,6 +100,15 @@ export default defineConfig({
       },
     },
   ],
+  // The host the Office (Collabora) editor loads and saves through. In a real
+  // deployment the app is served same-origin as the backend, so this is empty
+  // and the editor uses the page origin. In local dev the app is on localhost
+  // but the backend + Collabora are the remote server — which cannot reach the
+  // developer's localhost for the WOPI file — so the editor must target the real
+  // backend host directly. `serve` (dev) injects it; `build` leaves it empty.
+  define: {
+    __ALO_OFFICE_HOST__: JSON.stringify(command === "serve" ? DEV_API : ""),
+  },
   resolve: {
     alias: {
       "@product": fileURLToPath(new URL(`./src/product/${product}.tsx`, import.meta.url)),
@@ -80,4 +120,4 @@ export default defineConfig({
   test: {
     environment: "jsdom",
   },
-});
+}));

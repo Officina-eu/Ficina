@@ -7,6 +7,7 @@ import { X } from "lucide-react";
 
 import { strings } from "../i18n";
 import { useJmapClient } from "../jmap";
+import { OFFICE_HOST } from "../platform/runtime";
 import { Spinner } from "../ds";
 import styles from "./OfficeEditor.module.css";
 
@@ -30,13 +31,17 @@ export function OfficeEditor({
     let live = true;
     void (async () => {
       try {
-        const origin = window.location.origin;
         const token = await client.driveOfficeToken(nodeId);
-        const discovery = await (await fetch(`${origin}/hosting/discovery`)).text();
+        // Discovery is read same-origin (proxied in dev) to avoid CORS.
+        const discovery = await (await fetch(`${window.location.origin}/hosting/discovery`)).text();
         const match = discovery.match(/\/browser\/[^"'?]+?\/cool\.html/);
         if (!match) throw new Error("no editor url");
-        const wopiSrc = `${origin}/wopi/files/${encodeURIComponent(nodeId)}`;
-        const url = `${origin}${match[0]}?WOPISrc=${encodeURIComponent(wopiSrc)}&access_token=${encodeURIComponent(token)}&lang=en`;
+        // The frame is loaded same-origin (proxied in dev, so no cross-origin
+        // framing). But the WOPI file Collabora fetches server-side must be on a
+        // host it can reach: same-origin in prod, the real backend in local dev
+        // (Collabora can't reach the developer's localhost).
+        const wopiSrc = `${OFFICE_HOST}/wopi/files/${encodeURIComponent(nodeId)}`;
+        const url = `${window.location.origin}${match[0]}?WOPISrc=${encodeURIComponent(wopiSrc)}&access_token=${encodeURIComponent(token)}&lang=en`;
         if (live) setSrc(url);
       } catch {
         if (live) setFailed(true);
