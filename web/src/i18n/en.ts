@@ -153,6 +153,11 @@ export const en = {
   brandSubtitleMail:
     "Private, AI-native email — sovereign and hosted in Europe.",
   brandEuBadgeMail: "Sovereign email · Hosted in Europe",
+  // auth — brand panel, standalone Drive product (alodrives)
+  brandHeadlineDrive: "Your files.\nYour folders.\nYour rules.",
+  brandSubtitleDrive:
+    "Files, folders, and documents in one place — shared by where they live, and always yours.",
+  brandEuBadgeDrive: "Your files, no lock-in",
 
   // auth — sign in
   signInHeading: "Sign in",

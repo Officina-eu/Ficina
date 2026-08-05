@@ -3,9 +3,12 @@ import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
 // Product selection (ADR 0019): the whole app is defined by one product
-// surface. `@product` resolves to it — the full workspace by default, or the
-// mail-only surface when built with ALO_PRODUCT=mail (as alomails does).
-const product = process.env.ALO_PRODUCT === "mail" ? "mail" : "workplace";
+// surface. `@product` resolves to it — the full workspace by default, the
+// mail-only surface when built with ALO_PRODUCT=mail (alomails), or the
+// Drive-only surface with ALO_PRODUCT=drive (alodrives).
+const ALO_PRODUCT = process.env.ALO_PRODUCT;
+const product =
+  ALO_PRODUCT === "mail" ? "mail" : ALO_PRODUCT === "drive" ? "drive" : "workplace";
 
 // Browser-tab brand name per product. A proper-noun brand, not translatable
 // copy — so it lives here (like the `alo` wordmark) rather than in i18n, and
@@ -14,6 +17,7 @@ const product = process.env.ALO_PRODUCT === "mail" ? "mail" : "workplace";
 const productTitle: Record<typeof product, string> = {
   workplace: "alo workplace",
   mail: "alomails",
+  drive: "alodrives",
 };
 
 export default defineConfig({

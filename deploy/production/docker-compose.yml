@@ -355,6 +355,8 @@ services:
       - ./web:/srv:ro
       - ./web-workplace:/srv-workplace:ro
       - ./web-workplace-landing:/srv-workplace-landing:ro
+      - ./web-drive:/srv-drive:ro
+      - ./web-drive-landing:/srv-drive-landing:ro
       - ./downloads:/srv-downloads:ro
       - ./landing:/srv-landing:ro
       - certs:/certs:ro

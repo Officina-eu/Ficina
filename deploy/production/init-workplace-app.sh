@@ -28,18 +28,21 @@ grep -q "web-workplace-landing:/srv-workplace-landing" docker-compose.yml || { e
 echo "==> Resolving app.aloworkplace.com (should be this server)…"
 getent hosts app.aloworkplace.com || echo "   (could not resolve locally; continuing)"
 
-echo "==> 1/3 Expanding the aloworkplace.com certificate to cover app.aloworkplace.com"
-# --expand adds the new SAN to the SAME lineage. Caddy keeps serving the current
-# 2-name cert until the restart below, so there is no gap.
+# Order matters: Caddy must be serving the app.aloworkplace.com HTTP block
+# (the ACME challenge) BEFORE certbot runs, or Let's Encrypt can't fetch the
+# challenge for the new host. The app HTTPS block loads against the existing
+# 2-name cert in the meantime (a brief SAN mismatch on app.aloworkplace.com,
+# resolved by the expand + restart below).
+echo "==> 1/3 (Re)creating Caddy with the landing mount + the app block"
+docker compose up -d caddy
+sleep 3
+
+echo "==> 2/3 Expanding the aloworkplace.com certificate to cover app.aloworkplace.com"
 docker compose run --rm --entrypoint certbot certbot \
   certonly --webroot -w /var/www/certbot --non-interactive --agree-tos --no-eff-email \
   --expand --cert-name aloworkplace.com \
   --email "${ACME_EMAIL}" \
   -d aloworkplace.com -d www.aloworkplace.com -d app.aloworkplace.com
-
-echo "==> 2/3 (Re)creating Caddy with the landing mount + the app block"
-docker compose up -d caddy
-sleep 3
 
 echo "==> 3/3 Restarting Caddy to pick up the expanded certificate"
 docker compose restart caddy

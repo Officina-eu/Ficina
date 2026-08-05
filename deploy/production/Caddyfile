@@ -212,3 +212,82 @@ https://app.aloworkplace.com {
 		}
 	}
 }
+
+# ── alodrives.com — landing page (apex) + the standalone Drive app (app subdomain)
+# Same split as aloworkplace: the apex alodrives.com is a static marketing
+# landing (/srv-drive-landing, its own repo alodrives-website), the Drive app
+# (a Drive-only build) lives at app.alodrives.com (/srv-drive), shared alo-jmap
+# backend, same-origin. ONE certbot cert covers alodrives.com + www + app. These
+# blocks must NOT load until that cert exists — bring online with init-alodrives.sh.
+http://alodrives.com, http://www.alodrives.com, http://app.alodrives.com {
+	handle /.well-known/acme-challenge/* {
+		root * /var/www/certbot
+		file_server
+	}
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}
+
+# www → apex canonical.
+https://www.alodrives.com {
+	tls /certs/live/alodrives.com/fullchain.pem /certs/live/alodrives.com/privkey.pem
+	redir https://alodrives.com{uri} permanent
+}
+
+# The apex: the static marketing landing (its own repo, alodrives-website).
+https://alodrives.com {
+	tls /certs/live/alodrives.com/fullchain.pem /certs/live/alodrives.com/privkey.pem
+	encode zstd gzip
+
+	handle_path /download/* {
+		root * /srv-downloads
+		file_server
+	}
+
+	handle {
+		root * /srv-drive-landing
+		file_server
+		header {
+			Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+			-Server
+		}
+	}
+}
+
+# app.alodrives.com: the standalone Drive app (Drive-only build). Same cert as
+# the apex (app is a SAN). Same backend paths as mail, same-origin.
+https://app.alodrives.com {
+	tls /certs/live/alodrives.com/fullchain.pem /certs/live/alodrives.com/privkey.pem
+	encode zstd gzip
+
+	@backend path /jmap/* /ai/* /admin/* /settings/* /docs /docs/* /snooze /send-later /send-later/* /calendar/* /tasks /tasks/* /spaces /spaces/* /drive/* /contacts /contacts/* /import/* /signup/* /reset/* /autodiscover/* /Autodiscover/* /mail/config-v1.1.xml /dav /dav/* /filters /filters/* /share/* /oauth/* /.well-known/* /auth/token
+	handle @backend {
+		reverse_proxy alo-jmap:8080
+	}
+
+	@control path /control/*
+	handle @control {
+		reverse_proxy alo-control:8090
+	}
+
+	handle_path /download/* {
+		root * /srv-downloads
+		file_server
+	}
+
+	# The Drive-only SPA.
+	handle {
+		root * /srv-drive
+		try_files {path} /index.html
+		file_server
+		header {
+			Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+			-Server
+		}
+	}
+}
