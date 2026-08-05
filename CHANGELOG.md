@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **alo Base — board, calendar & gallery views + select and link fields.** alo
+  Base now feels like Airtable: add **Select** and **Multi-select** fields (with
+  coloured chips), **Person** and **Link-to-another-table** fields, then look at
+  the same records as a **grid**, a **board** (kanban — drag cards between
+  columns to change their status), a **calendar** (records on the day of a date
+  field), or a **gallery** (cards). Switching view never changes the data — it's
+  the same records, seen differently. Add views with a picker (choose what to
+  group or date by). ADR 0032.
+
 - **alo Base — the grid you click (web UI).** "New base" in Drive creates an alo
   Base and opens its **editable grid**: columns are your typed fields, rows are
   records, and you edit **right in the cells** (text, number, date, checkbox).
