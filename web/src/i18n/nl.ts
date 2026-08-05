@@ -910,6 +910,12 @@ export const nl: Partial<Catalog> = {
   // Docs
   docTitle: "Q3 Offerte — Proceq",
   docSaved: "Opgeslagen in Drive · alle wijzigingen opgeslagen",
+  docAiPlaceholder: "Vertel de AI wat te schrijven of wijzigen…",
+  docAiPropose: "Opstellen",
+  docAiProposalLabel: "Voorstel — controleer voor je het toevoegt",
+  docAiInsert: "Invoegen",
+  docAiDiscard: "Verwerpen",
+  docAiUnavailable: "AI is momenteel niet beschikbaar.",
   docAskAi: "Vraag AI",
   docShare: "Delen",
   docInsert: "Invoegen",

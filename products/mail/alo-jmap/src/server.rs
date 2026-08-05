@@ -66,6 +66,12 @@ pub fn app(state: AppState) -> Router {
             "/ai/ask",
             post(ai::ask).layer(DefaultBodyLimit::max(ai::MAX_ASK_BYTES)),
         )
+        // Document AI (ADR 0029 §3): propose text for the alo Doc editor to
+        // apply only on approval.
+        .route(
+            "/ai/compose",
+            post(ai::compose).layer(DefaultBodyLimit::max(ai::MAX_SUMMARIZE_BYTES)),
+        )
         // Snooze: hide conversations until a chosen time (a background sweeper wakes them).
         .route("/snooze", post(snooze::snooze))
         // Send later: hold a draft until a chosen time (a background sweeper sends it).

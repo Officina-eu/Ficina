@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- **AI in documents — propose, then approve.** In an alo Doc, **Ask AI** lets you
+  tell the AI what to write or change ("draft an intro about…", "summarise this").
+  The AI comes back with a **proposal you review** — nothing is added to your
+  document until you click **Insert** (or **Discard** to throw it away). The AI
+  never edits your document silently; that's the promise. ADR 0029.
+
 - **Ask your workspace (AI).** The search box (Ctrl/Cmd-K) now has an **Ask AI**
   option: ask a question in plain language — "where's the Acme proposal?", "what
   did we decide about pricing?" — and get an answer drawn from **your own files,

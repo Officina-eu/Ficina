@@ -1,10 +1,18 @@
 // alo Doc — the block editor (ADR 0031), built on BlockNote. A doc's content is
 // a BlockNote block tree stored as the node's blob in Drive; opening loads it,
-// editing auto-saves a new version (debounced). This is the v1 document: a real
-// Notion-style block editor over Drive storage. Technical/interactive/linked
-// blocks and propose-then-approve AI are later slices.
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { X } from "lucide-react";
+// editing auto-saves a new version (debounced).
+//
+// Document AI (ADR 0029 §3) is propose-then-approve: "Ask AI" returns a *draft*
+// shown in a panel; nothing enters the document until the user clicks Insert.
+// The AI never writes silently — that is the product's trust promise.
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
+import { Sparkles, X } from "lucide-react";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/core/fonts/inter.css";
@@ -17,32 +25,8 @@ import styles from "./DocEditor.module.css";
 
 type SaveState = "idle" | "saving" | "saved";
 
-/** The editor proper — mounted only once content is loaded. The doc's blocks
- *  are loaded into a default-schema editor via `replaceBlocks` (casting at the
- *  BlockNote boundary, whose generics fight `exactOptionalPropertyTypes`). */
-function Editor({
-  initial,
-  onChange,
-}: {
-  initial: unknown[];
-  onChange: (blocks: unknown[]) => void;
-}) {
-  const editor = useCreateBlockNote();
-  const loaded = useRef(false);
-  useEffect(() => {
-    if (!loaded.current && initial.length > 0) {
-      loaded.current = true;
-      editor.replaceBlocks(
-        editor.document,
-        initial as Parameters<typeof editor.replaceBlocks>[1],
-      );
-    }
-  }, [editor, initial]);
-  // BlockNote's own editor type does not satisfy `exactOptionalPropertyTypes`;
-  // cast to the component's expected prop type (same library, same version).
-  const editorProp = editor as unknown as ComponentProps<typeof BlockNoteView>["editor"];
-  return <BlockNoteView editor={editorProp} onChange={() => onChange(editor.document)} />;
-}
+/** Cap on the current-document context sent to the AI (characters). */
+const CONTEXT_CAP = 12000;
 
 export function DocEditor({
   nodeId,
@@ -54,25 +38,41 @@ export function DocEditor({
   onClose: () => void;
 }) {
   const client = useJmapClient();
-  const [initial, setInitial] = useState<unknown[] | null>(null);
+  const editor = useCreateBlockNote();
+  const [ready, setReady] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const pending = useRef<unknown[] | null>(null);
   const timer = useRef<number | null>(null);
+  const loaded = useRef(false);
+
+  // AI propose-then-approve state.
+  const [aiOpen, setAiOpen] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  const [proposing, setProposing] = useState(false);
+  const [proposal, setProposal] = useState<string | null>(null);
+  const [aiError, setAiError] = useState(false);
 
   useEffect(() => {
     let live = true;
     void client
       .driveDocContent(nodeId)
       .then((c) => {
-        if (live) setInitial(c as unknown[]);
+        if (!live) return;
+        const blocks = c as unknown[];
+        if (!loaded.current && blocks.length > 0) {
+          loaded.current = true;
+          editor.replaceBlocks(
+            editor.document,
+            blocks as Parameters<typeof editor.replaceBlocks>[1],
+          );
+        }
+        setReady(true);
       })
-      .catch(() => {
-        if (live) setInitial([]);
-      });
+      .catch(() => live && setReady(true));
     return () => {
       live = false;
     };
-  }, [client, nodeId]);
+  }, [client, nodeId, editor]);
 
   const save = useCallback(
     async (blocks: unknown[]) => {
@@ -88,17 +88,15 @@ export function DocEditor({
     [client, nodeId],
   );
 
-  const onChange = useCallback(
-    (blocks: unknown[]) => {
-      pending.current = blocks;
-      setSaveState("saving");
-      if (timer.current !== null) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => {
-        if (pending.current) void save(pending.current);
-      }, 1200);
-    },
-    [save],
-  );
+  const onChange = useCallback(() => {
+    const blocks = editor.document;
+    pending.current = blocks;
+    setSaveState("saving");
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      if (pending.current) void save(pending.current);
+    }, 1200);
+  }, [editor, save]);
 
   async function close() {
     if (timer.current !== null) window.clearTimeout(timer.current);
@@ -106,33 +104,122 @@ export function DocEditor({
     onClose();
   }
 
+  async function propose() {
+    const ask = instruction.trim();
+    if (ask === "" || proposing) return;
+    setProposing(true);
+    setAiError(false);
+    setProposal(null);
+    try {
+      const context = (await editor.blocksToMarkdownLossy(editor.document)).slice(0, CONTEXT_CAP);
+      const text = await client.composeDoc(ask, context);
+      setProposal(text);
+    } catch {
+      setAiError(true);
+    } finally {
+      setProposing(false);
+    }
+  }
+
+  /** Approve: turn the proposal into blocks and append them — the only path that
+   *  writes AI text into the document. */
+  async function insertProposal() {
+    if (!proposal) return;
+    const blocks = await editor.tryParseMarkdownToBlocks(proposal);
+    const doc = editor.document;
+    const anchor = doc[doc.length - 1];
+    if (anchor) {
+      editor.insertBlocks(
+        blocks as Parameters<typeof editor.insertBlocks>[0],
+        anchor,
+        "after",
+      );
+    } else {
+      editor.replaceBlocks(
+        editor.document,
+        blocks as Parameters<typeof editor.replaceBlocks>[1],
+      );
+    }
+    onChange();
+    discardProposal();
+  }
+
+  function discardProposal() {
+    setProposal(null);
+    setInstruction("");
+    setAiOpen(false);
+    setAiError(false);
+  }
+
+  const editorProp = editor as unknown as ComponentProps<typeof BlockNoteView>["editor"];
+
   return (
     <div className={styles.overlay}>
       <header className={styles.head}>
-        <button
-          type="button"
-          className={styles.back}
-          onClick={() => void close()}
-          aria-label={strings.close}
-        >
+        <button type="button" className={styles.back} onClick={() => void close()} aria-label={strings.close}>
           <X size={18} />
         </button>
         <span className={styles.name}>{name}</span>
+        <button
+          type="button"
+          className={styles.aiBtn}
+          onClick={() => setAiOpen((o) => !o)}
+          aria-pressed={aiOpen}
+        >
+          <Sparkles size={15} />
+          {strings.docAskAi}
+        </button>
         <span className={styles.save}>
-          {saveState === "saving"
-            ? strings.docSaving
-            : saveState === "saved"
-              ? strings.docSaved
-              : ""}
+          {saveState === "saving" ? strings.docSaving : saveState === "saved" ? strings.docSaved : ""}
         </span>
       </header>
+      {aiOpen && (
+        <div className={styles.aiBar}>
+          <div className={styles.aiInputRow}>
+            <Sparkles size={16} className={styles.aiIcon} />
+            <input
+              className={styles.aiInput}
+              autoFocus
+              value={instruction}
+              placeholder={strings.docAiPlaceholder}
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void propose();
+              }}
+            />
+            <button
+              type="button"
+              className={styles.aiGo}
+              onClick={() => void propose()}
+              disabled={proposing || instruction.trim() === ""}
+            >
+              {proposing ? <Spinner size={14} /> : strings.docAiPropose}
+            </button>
+          </div>
+          {aiError && <p className={styles.aiErr}>{strings.docAiUnavailable}</p>}
+          {proposal !== null && (
+            <div className={styles.aiPanel}>
+              <div className={styles.aiPanelLabel}>{strings.docAiProposalLabel}</div>
+              <div className={styles.aiProposal}>{proposal}</div>
+              <div className={styles.aiActions}>
+                <button type="button" className={styles.aiInsert} onClick={() => void insertProposal()}>
+                  {strings.docAiInsert}
+                </button>
+                <button type="button" className={styles.aiDiscard} onClick={discardProposal}>
+                  {strings.docAiDiscard}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <div className={styles.body}>
-        {initial === null ? (
+        {!ready ? (
           <div className={styles.center}>
             <Spinner size={22} />
           </div>
         ) : (
-          <Editor initial={initial} onChange={onChange} />
+          <BlockNoteView editor={editorProp} onChange={onChange} />
         )}
       </div>
     </div>

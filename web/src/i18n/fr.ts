@@ -923,6 +923,12 @@ export const fr: Partial<Catalog> = {
   // Docs
   docTitle: "Offre T3 — Proceq",
   docSaved: "Enregistré dans les fichiers · toutes les modifications sont enregistrées",
+  docAiPlaceholder: "Dites à l’IA quoi écrire ou modifier…",
+  docAiPropose: "Rédiger",
+  docAiProposalLabel: "Proposition — à vérifier avant d’ajouter",
+  docAiInsert: "Insérer",
+  docAiDiscard: "Rejeter",
+  docAiUnavailable: "L’IA n’est pas disponible pour le moment.",
   docAskAi: "Demander à l’IA",
   docShare: "Partager",
   docInsert: "Insérer",

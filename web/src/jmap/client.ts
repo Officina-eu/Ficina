@@ -1414,6 +1414,20 @@ export class JmapClient {
     return (await res.json()) as AiAnswerDto;
   }
 
+  /** Propose document text from an instruction + the current doc (ADR 0029 §3).
+   * Returns proposed Markdown the caller shows for approval; throws if AI is
+   * unavailable (the editor then surfaces a hint). Never applies anything
+   * itself — approval happens in the editor. */
+  async composeDoc(instruction: string, context: string): Promise<string> {
+    const res = await this.#fetch(`${API_BASE}/ai/compose`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instruction, context }),
+    });
+    if (!res.ok) throw new JmapError(`compose ${res.status}`);
+    return ((await res.json()) as { proposal: string }).proposal;
+  }
+
   /** Append a new version to a node from an already-uploaded blob. */
   async driveAddVersion(id: string, blobId: string, size: number): Promise<void> {
     const res = await this.#fetch(`${API_BASE}/drive/nodes/${encodeURIComponent(id)}/versions`, {

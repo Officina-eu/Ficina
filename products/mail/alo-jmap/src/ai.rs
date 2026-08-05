@@ -253,6 +253,43 @@ pub async fn ask(
     }
 }
 
+/// `POST /ai/compose` — `{"instruction": "...", "context": "<current doc md>"}`
+/// → `{"proposal": "..."}`. Document AI (ADR 0029 §3): returns *proposed* text
+/// for the alo Doc editor to show; the editor only writes it on the user's
+/// approval, never silently. Degrades like the other AI endpoints (503 when AI
+/// is off, 502 on a backend failure).
+pub async fn compose(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, Problem> {
+    let account = authenticate(&state, &headers).await?;
+    if body.len() > MAX_SUMMARIZE_BYTES {
+        return Err(Problem::with(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "context too large",
+        ));
+    }
+    let request: Value = serde_json::from_slice(&body).map_err(|_| Problem::not_json())?;
+    let instruction = request
+        .get("instruction")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if instruction.is_empty() {
+        return Err(Problem::with(
+            StatusCode::BAD_REQUEST,
+            "instruction required",
+        ));
+    }
+    let context = request.get("context").and_then(Value::as_str).unwrap_or("");
+    let config = tenant_ai_config(&account).await?;
+    let proposal = alo_ai::compose_doc(&config, instruction, context)
+        .await
+        .map_err(|e| ai_problem(&e))?;
+    Ok(Json(json!({ "proposal": proposal })))
+}
+
 /// Map an inference error to a client problem with a coarse, safe code.
 fn ai_problem(err: &InferenceError) -> Problem {
     match err {

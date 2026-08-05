@@ -471,6 +471,55 @@ pub async fn ask_workspace(
     chat(config, &ask_workspace_messages(question, sources), 0.2).await
 }
 
+/// The system prompt for document authoring (ADR 0029 §3). The result is always
+/// a *proposal* the user approves before it enters their document — this prompt
+/// only shapes the text; the caller never applies it silently.
+const COMPOSE_SYSTEM: &str = "You help write a document. Follow the user's instruction to produce the \
+text they asked for, using the current document (if given) only as context. Write in the document's \
+language. Return ONLY the text to add or the revised text, formatted as plain Markdown — no preamble, \
+explanation, or surrounding quotes.";
+
+/// The chat messages for a "draft/continue/revise this document" request. Pure
+/// and exported so the prompt is testable without a backend. `context` is the
+/// current document text (may be empty for a from-scratch draft).
+#[must_use]
+pub fn compose_doc_messages(instruction: &str, context: &str) -> Vec<ChatMessage> {
+    let user = if context.trim().is_empty() {
+        format!("Instruction: {}", instruction.trim())
+    } else {
+        format!(
+            "Current document:\n{}\n\nInstruction: {}",
+            context.trim(),
+            instruction.trim()
+        )
+    };
+    vec![
+        ChatMessage {
+            role: "system".to_owned(),
+            content: COMPOSE_SYSTEM.to_owned(),
+        },
+        ChatMessage {
+            role: "user".to_owned(),
+            content: user,
+        },
+    ]
+}
+
+/// Draft or revise document text from an instruction and the current document
+/// (ADR 0029 §3). Returns a *proposal*; the caller shows it and only writes it
+/// to the document on the user's approval — never silently.
+///
+/// # Errors
+/// [`InferenceError`] variants for disabled/unconfigured/unreachable/backend/
+/// empty — all safe to surface (they carry no content).
+pub async fn compose_doc(
+    config: &AiConfig,
+    instruction: &str,
+    context: &str,
+) -> Result<String, InferenceError> {
+    chat(config, &compose_doc_messages(instruction, context), 0.4).await
+}
+
 /// A lightweight connectivity check for the admin "Test connection" action:
 /// `GET {base}/v1/models`. Returns the number of models the endpoint reports.
 /// Unlike [`improve`] it does not gate on `enabled` — the admin is testing a
@@ -586,6 +635,25 @@ mod tests {
         assert!(u.contains("[2] task \"Acme kickoff\" — Prepare the deck"));
         // 'message' is rendered as the user-facing "email".
         assert!(u.contains("[3] email \"Re: pricing\""));
+    }
+
+    #[test]
+    fn compose_doc_prompt_includes_context_then_instruction() {
+        let m = compose_doc_messages("continue the intro", "# Title\nSome text.");
+        assert_eq!(m[0].role, "system");
+        assert!(m[0].content.contains("proposal") || m[0].content.contains("ONLY"));
+        let u = &m[1].content;
+        assert!(u.contains("Current document:"));
+        assert!(u.contains("Some text."));
+        assert!(u.contains("Instruction: continue the intro"));
+        // From-scratch: no context section.
+        let blank = compose_doc_messages("write a haiku about the sea", "   ");
+        assert!(!blank[1].content.contains("Current document:"));
+        assert!(
+            blank[1]
+                .content
+                .contains("Instruction: write a haiku about the sea")
+        );
     }
 
     #[test]
