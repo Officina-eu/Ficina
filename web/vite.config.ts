@@ -26,20 +26,35 @@ const productTitle: Record<typeof product, string> = {
 // (e.g. a local jmap on http://localhost:8080). Auth is bearer-token in
 // localStorage (no cookies), so changeOrigin is all that's needed.
 const DEV_API = process.env.VITE_DEV_API ?? "https://mail.alomails.com";
-const DEV_API_PATHS = [
+
+// Several API prefixes (/drive, /tasks, /admin, …) are ALSO client-side route
+// paths. A browser page-load of one (refresh on /drive) sends `Accept: text/html`
+// and must be served by Vite's own dev shell — proxying it would return the
+// live server's PRODUCTION index.html, whose hashed asset URLs the dev server
+// doesn't have → a blank page. So on an HTML navigation we bypass the proxy and
+// let Vite serve index.html (the SPA); real API/XHR calls (Accept: */* etc.)
+// proxy through as normal.
+const spaBypass = (req: { headers: Record<string, string | string[] | undefined> }) => {
+  const accept = req.headers.accept;
+  if (typeof accept === "string" && accept.includes("text/html")) return "/index.html";
+  return undefined;
+};
+
+const API_PATHS = [
   "/jmap", "/ai", "/admin", "/settings", "/docs", "/snooze", "/send-later",
-  "/calendar", "/tasks", "/spaces", "/drive", "/wopi", "/search", "/contacts",
+  "/calendar", "/tasks", "/spaces", "/drive", "/search", "/contacts",
   "/import", "/signup", "/reset", "/autodiscover", "/Autodiscover", "/dav",
   "/filters", "/share", "/oauth", "/.well-known", "/auth",
-  // Collabora, so Office files open in the local dev app too.
-  "/hosting", "/browser", "/cool", "/lool",
 ];
-const devProxy = Object.fromEntries(
-  DEV_API_PATHS.map((p) => [
-    p,
-    { target: DEV_API, changeOrigin: true, secure: true, ws: true },
-  ]),
-);
+// Collabora paths are loaded by the editor itself (and its server), never a
+// user page navigation — proxy them straight through with no SPA bypass.
+const COLLABORA_PATHS = ["/wopi", "/hosting", "/browser", "/cool", "/lool"];
+
+const base = { target: DEV_API, changeOrigin: true, secure: true, ws: true };
+const devProxy = {
+  ...Object.fromEntries(API_PATHS.map((p) => [p, { ...base, bypass: spaBypass }])),
+  ...Object.fromEntries(COLLABORA_PATHS.map((p) => [p, { ...base }])),
+};
 
 export default defineConfig({
   plugins: [
