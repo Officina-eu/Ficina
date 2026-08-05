@@ -136,6 +136,10 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
           <Search size={18} className={styles.searchIcon} />
           <input
             className={styles.input}
+            type="search"
+            name="workspace-search"
+            autoComplete="off"
+            aria-label={strings.searchPlaceholder}
             autoFocus
             value={q}
             placeholder={strings.searchPlaceholder}

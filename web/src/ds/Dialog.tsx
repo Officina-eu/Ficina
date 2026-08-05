@@ -132,6 +132,9 @@ export function DialogProvider({ children }: { children: ReactNode }) {
             <input
               ref={inputRef}
               className={styles.input}
+              name="dialog-value"
+              autoComplete="off"
+              aria-label={request.title ?? request.message}
               value={value}
               placeholder={request.placeholder}
               onChange={(e) => setValue(e.target.value)}
