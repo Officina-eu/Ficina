@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- **Single sign-on for standalone products (token introspection).** The login
+  system can now tell a separate product's backend not just *who* signed in but
+  *which organisation* they belong to — the piece that lets a genuinely
+  standalone app (Drive next) share the one workspace login without copying the
+  login code or its database. It's a protected, off-by-default endpoint
+  (RFC 7662); nothing changes for existing apps. Groundwork for ADR 0025.
+
 - **Desktop 0.1.10**: bundles everything since 0.1.9 — task attachments, labels,
   followers, and "blocked by" dependencies, the branded date picker, and the
   Timeline dependency arrows. Installed apps auto-update.
