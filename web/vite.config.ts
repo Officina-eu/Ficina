@@ -53,38 +53,14 @@ const COLLABORA_PATHS = ["/wopi", "/hosting", "/browser", "/cool", "/lool"];
 
 const base = { target: DEV_API, changeOrigin: true, secure: true, ws: true };
 
-// Collabora guards its editor with origin-based security keyed to the production
-// domains: a `frame-ancestors` CSP (who may frame the editor) and a server-side
-// Origin check. From localhost neither passes. For DEV ONLY we rewrite, in the
-// proxy: the response CSP to also allow this dev origin (so the browser lets us
-// frame it), and the request Origin to the real backend (so Collabora's server
-// accepts the frame/socket). Production Collabora is untouched.
-const collabora: ProxyOptions = {
-  ...base,
-  configure: (proxy) => {
-    proxy.on("proxyRes", (res) => {
-      const csp = res.headers["content-security-policy"];
-      if (typeof csp === "string") {
-        res.headers["content-security-policy"] = csp
-          // Let this dev origin frame the editor…
-          .replace(
-            /frame-ancestors ([^;]*)/,
-            (_m, v: string) => `frame-ancestors ${v} http://localhost:5173`,
-          )
-          // …and let the editor's socket/XHR reach it through the dev proxy.
-          .replace(
-            /connect-src ([^;]*)/,
-            (_m, v: string) => `connect-src ${v} http://localhost:5173 ws://localhost:5173`,
-          );
-      }
-    });
-    proxy.on("proxyReq", (req) => req.setHeader("origin", DEV_API));
-    proxy.on("proxyReqWs", (req) => req.setHeader("origin", DEV_API));
-  },
-};
+// The Office editor loads entirely from the real backend host (see OFFICE_HOST /
+// OfficeEditor), so the only Collabora path the app itself fetches is the WOPI
+// discovery — proxied here same-origin to avoid CORS. Collabora allows the dev
+// origin to frame it via its own `frame_ancestors` config (compose), so no CSP
+// rewriting is needed.
 const devProxy: Record<string, ProxyOptions> = {
   ...Object.fromEntries(API_PATHS.map((p) => [p, { ...base, bypass: spaBypass }])),
-  ...Object.fromEntries(COLLABORA_PATHS.map((p) => [p, collabora])),
+  ...Object.fromEntries(COLLABORA_PATHS.map((p) => [p, { ...base }])),
 };
 
 export default defineConfig(({ command }) => ({

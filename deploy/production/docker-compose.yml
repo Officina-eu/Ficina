@@ -142,8 +142,13 @@ services:
       aliasgroup2: "https://app\\.alodrives\\.com:443"
       aliasgroup3: "https://mail\\.alomails\\.com:443"
       # Caddy terminates TLS; allow our app origins to frame the editor; no
-      # admin console.
-      extra_params: "--o:ssl.enable=false --o:ssl.termination=true --o:net.frame_ancestors=https://app.aloworkplace.com https://app.alodrives.com https://mail.alomails.com --o:home_mode.enable=true"
+      # admin console. frame_ancestors is space-separated but the entrypoint
+      # word-splits it, so only the first token is the static value — the app
+      # domains are added dynamically per request (their WOPI host). We put
+      # http://localhost:5173 first so a local dev app (which proxies its API to
+      # this server) can frame the editor too; the domains stay listed for
+      # documentation and are honoured dynamically.
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=true --o:net.frame_ancestors=http://localhost:5173 https://app.aloworkplace.com https://app.alodrives.com https://mail.alomails.com --o:home_mode.enable=true"
       DONT_GEN_SSL_CERT: "1"
     networks: [alo]
     healthcheck:
