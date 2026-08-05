@@ -1373,6 +1373,62 @@ export class JmapClient {
     return res.blob();
   }
 
+  /** Append a new version to a node from an already-uploaded blob. */
+  async driveAddVersion(id: string, blobId: string, size: number): Promise<void> {
+    const res = await this.#fetch(`${API_BASE}/drive/nodes/${encodeURIComponent(id)}/versions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ blobId, size }),
+    });
+    if (!res.ok) throw new JmapError(`driveAddVersion ${res.status}`);
+  }
+
+  // ---- alo Doc (ADR 0031): a doc is a drive node (kind=doc) whose blob holds a
+  //      BlockNote block tree (JSON). Content in a blob, versioned by Drive.
+
+  /** Create an empty alo Doc and return its node id. */
+  async driveCreateDoc(space: string | null, parent: string | null, name: string): Promise<string> {
+    const { blobId, size } = await this.uploadFile(
+      new File(["[]"], `${name}.json`, { type: "application/json" }),
+    );
+    const res = await this.#fetch(`${API_BASE}/drive/files`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        space,
+        parent,
+        name,
+        blobId,
+        size,
+        contentType: "application/json",
+        kind: "doc",
+      }),
+    });
+    if (!res.ok) throw new JmapError(`driveCreateDoc ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Load an alo Doc's block content (the parsed BlockNote document). */
+  async driveDocContent(id: string): Promise<unknown[]> {
+    const text = await (await this.driveDownload(id)).text();
+    if (text.trim() === "") return [];
+    try {
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Save an alo Doc's block content as a new version. */
+  async driveSaveDoc(id: string, content: unknown[]): Promise<void> {
+    const json = JSON.stringify(content);
+    const { blobId, size } = await this.uploadFile(
+      new File([json], "doc.json", { type: "application/json" }),
+    );
+    await this.driveAddVersion(id, blobId, size);
+  }
+
   /** Upload a large file as an expiring public share link (alo Transfer),
    * instead of an inline attachment. `days` is the link lifetime chosen by the
    * sender. The file is streamed, so there is no size limit. */

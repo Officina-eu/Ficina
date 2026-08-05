@@ -4,6 +4,7 @@
   height: 100%;
   min-height: 0;
   background: var(--bg-surface);
+  position: relative;
 }
 
 /* ---- sidebar ---- */

@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **alo Doc — a block editor in Drive (first slice).** "New doc" in Drive creates
+  an **alo Doc** — a clean, Notion-style block document (headings, lists, tables,
+  quotes, images, and more) that opens right inside the workspace. It lives in
+  Drive like any file: in your My Files or a Space (auto-shared with that Space),
+  and **every change auto-saves as a new version** you can roll back to. It's the
+  alo-native document type, distinct from a Word file (which opens in the
+  compatibility editor) — ADRs 0030–0032. Coming next on top of this: technical
+  authoring (math/code), live data blocks, and propose-then-approve AI.
+
 - **Drive — the file manager (web UI).** Drive is now a module in the app: down
   the side, **My Files** and each **Space** you belong to, plus **Trash**. The
   main area shows the current folder with a breadcrumb, drag-or-click **upload**,

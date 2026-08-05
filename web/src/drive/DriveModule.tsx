@@ -3,11 +3,12 @@
 // and per-item actions. Every file lives in one location; its access is that
 // location's access (ADR 0027), so there is no per-file sharing here — sharing
 // is membership of the Space it lives in, always visible via "Members".
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   Copy,
   Download,
+  FileText,
   FolderPlus,
   HardDrive,
   History,
@@ -24,6 +25,8 @@ import { strings } from "../i18n";
 import { useJmapClient, type DriveNodeDto, type SpaceDto } from "../jmap";
 import { Menu, Spinner, useDialogs, type MenuItem } from "../ds";
 import { DestinationDialog, MembersDialog, VersionsDialog } from "./dialogs";
+// BlockNote is heavy and only needed when a doc opens — code-split it out.
+const DocEditor = lazy(() => import("./DocEditor").then((m) => ({ default: m.DocEditor })));
 import { fileSize, nodeIcon, saveBlob } from "./parts";
 import styles from "./DriveModule.module.css";
 
@@ -43,6 +46,7 @@ export function DriveModule() {
 
   const [moveNode, setMoveNode] = useState<{ id: string; mode: "move" | "copy" } | null>(null);
   const [versionsNode, setVersionsNode] = useState<string | null>(null);
+  const [openDoc, setOpenDoc] = useState<{ id: string; name: string } | null>(null);
   const [showMembers, setShowMembers] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -79,7 +83,20 @@ export function DriveModule() {
 
   function openNode(n: DriveNodeDto) {
     if (n.kind === "folder") setPath((p) => [...p, { id: n.id, name: n.name }]);
+    else if (n.kind === "doc") setOpenDoc({ id: n.id, name: n.name });
     else void download(n);
+  }
+
+  async function newDoc() {
+    const name = (await prompt({ message: strings.driveNewDocPrompt }))?.trim();
+    if (!name) return;
+    try {
+      const id = await client.driveCreateDoc(location, parent, name);
+      await load();
+      setOpenDoc({ id, name });
+    } catch {
+      /* ignore */
+    }
   }
 
   async function download(n: DriveNodeDto) {
@@ -293,6 +310,9 @@ export function DriveModule() {
                 <button type="button" className={styles.ghostBtn} onClick={() => void newFolder()}>
                   <FolderPlus size={15} /> {strings.driveNewFolder}
                 </button>
+                <button type="button" className={styles.ghostBtn} onClick={() => void newDoc()}>
+                  <FileText size={15} /> {strings.driveNewDoc}
+                </button>
                 <button type="button" className={styles.primaryBtn} onClick={() => fileRef.current?.click()} disabled={uploading}>
                   <Upload size={15} /> {uploading ? strings.driveUploading : strings.driveUpload}
                 </button>
@@ -365,6 +385,18 @@ export function DriveModule() {
       )}
       {showMembers && currentSpace !== null && (
         <MembersDialog space={currentSpace} onClose={() => setShowMembers(false)} />
+      )}
+      {openDoc !== null && (
+        <Suspense fallback={null}>
+          <DocEditor
+            nodeId={openDoc.id}
+            name={openDoc.name}
+            onClose={() => {
+              setOpenDoc(null);
+              void load();
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

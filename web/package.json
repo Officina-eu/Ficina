@@ -11,6 +11,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@blocknote/core": "^0.52.1",
+    "@blocknote/mantine": "^0.52.1",
+    "@blocknote/react": "^0.52.1",
     "@fontsource-variable/eb-garamond": "^5.1.0",
     "@fontsource-variable/inter": "^5.1.0",
     "@tauri-apps/api": "^2.11.1",

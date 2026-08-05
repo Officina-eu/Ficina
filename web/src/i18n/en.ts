@@ -1011,6 +1011,7 @@ export const en = {
   // alo Docs surface (document chrome)
   docTitle: "Q3 Offer — Proceq",
   docSaved: "Saved to Drive · all changes saved",
+  docSaving: "Saving…",
   docAskAi: "Ask AI",
   docShare: "Share",
   docInsert: "Insert",
@@ -1195,6 +1196,8 @@ export const en = {
   driveRemoveMember: "Remove",
   driveRemoveMemberConfirm: (who: string) => `Remove ${who} from this Space?`,
   driveMemberError: "Couldn’t add that person — check the email and your role.",
+  driveNewDoc: "New doc",
+  driveNewDocPrompt: "Name the new doc",
 } as const;
 
 /** Every string key in the catalog. */
