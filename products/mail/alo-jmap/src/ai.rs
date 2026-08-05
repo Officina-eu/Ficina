@@ -194,10 +194,11 @@ pub async fn ask(
         return Err(Problem::with(StatusCode::BAD_REQUEST, "q required"));
     }
 
-    // Access-scoped retrieval — the only thing the AI may ever see.
+    // Access-scoped retrieval — the only thing the AI may ever see. Keyword-aware
+    // so a natural-language question matches on its content words.
     let hits = account
         .acc
-        .workspace_search(&question, ASK_SOURCES)
+        .workspace_search_terms(&question, ASK_SOURCES)
         .await
         .map_err(|_| Problem::server_error())?;
     let sources_json: Vec<Value> = hits

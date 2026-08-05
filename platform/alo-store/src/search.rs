@@ -102,6 +102,9 @@ impl AccountStore {
             });
         }
 
+        // (See `workspace_search_terms` for the keyword-aware variant the AI
+        // "ask your workspace" flow uses on natural-language questions.)
+
         // Mail: full-text over the message's subject, participants, AND body —
         // the `search` tsvector the mail module builds and queries. Scoped to the
         // caller's own mail (`user_id`), exactly as `AccountStore::search` is.
@@ -135,4 +138,143 @@ impl AccountStore {
 
         Ok(hits)
     }
+
+    /// Keyword-aware retrieval for the AI "ask your workspace" flow (ADR 0029):
+    /// the caller passes a whole natural-language question ("what did we decide
+    /// about the Acme pricing?"), which we reduce to its content words before
+    /// matching — so a file or task matches on *any* keyword, not on the literal
+    /// question string. Access scoping is identical to [`Self::workspace_search`]
+    /// (files in the caller's personal/member locations, their visible tasks,
+    /// their own mail); the AI is never shown more than the caller could open.
+    /// Falls back to a plain search when the question has no usable keywords.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn workspace_search_terms(
+        &self,
+        question: &str,
+        limit: i64,
+    ) -> Result<Vec<SearchHit>> {
+        let terms = keywords(question);
+        if terms.is_empty() {
+            return self.workspace_search(question, limit).await;
+        }
+        let joined = terms.join(" ");
+        let mut hits = Vec::new();
+
+        // Drive: any keyword as a substring of the name, OR a content match.
+        let drive = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+            "SELECT id, kind, name, \
+                    CASE WHEN location_kind = 'space' THEN location_id ELSE NULL END AS space \
+             FROM drive_nodes \
+             WHERE tenant_id = $1 AND trashed = false \
+               AND ( EXISTS (SELECT 1 FROM unnest($4::text[]) kw WHERE strpos(lower(name), kw) > 0) \
+                  OR content @@ plainto_tsquery('simple', $5) ) \
+               AND ( (location_kind = 'personal' AND location_id = $2) \
+                  OR (location_kind = 'space' AND location_id IN ( \
+                        SELECT space_id FROM space_members \
+                        WHERE tenant_id = $1 AND user_id = $2)) ) \
+             ORDER BY updated_at DESC LIMIT $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(limit)
+        .bind(&terms)
+        .bind(&joined)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+        for (id, kind, name, space) in drive {
+            hits.push(SearchHit {
+                kind,
+                id,
+                title: name,
+                space,
+            });
+        }
+
+        // Tasks: any keyword as a substring of the title, on a visible project.
+        let tasks = sqlx::query_as::<_, (String, String)>(
+            "SELECT t.id, t.title FROM tasks t \
+             WHERE t.tenant_id = $1 AND t.state = 'active' \
+               AND EXISTS (SELECT 1 FROM unnest($4::text[]) kw WHERE strpos(lower(t.title), kw) > 0) \
+               AND t.project_id IN ( \
+                     SELECT p.id FROM task_projects p WHERE p.tenant_id = $1 \
+                       AND p.archived = false \
+                       AND (p.kind = 'team' OR (p.kind = 'personal' AND p.owner_user_id = $2))) \
+             ORDER BY t.updated_at DESC LIMIT $3",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(limit)
+        .bind(&terms)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+        for (id, title) in tasks {
+            hits.push(SearchHit {
+                kind: "task".to_owned(),
+                id,
+                title,
+                space: None,
+            });
+        }
+
+        // Mail: the full-text index already tokenizes, so the keyword string
+        // works directly — scoped to the caller's own mailbox.
+        let mail = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, subject FROM messages \
+             WHERE tenant_id = $1 AND user_id = $2 \
+               AND search @@ plainto_tsquery('simple', $3) \
+             ORDER BY received_at DESC LIMIT $4",
+        )
+        .bind(self.tenant.as_str())
+        .bind(self.user.as_str())
+        .bind(&joined)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+        for (id, subject) in mail {
+            let title = if subject.trim().is_empty() {
+                "(no subject)".to_owned()
+            } else {
+                subject
+            };
+            hits.push(SearchHit {
+                kind: "message".to_owned(),
+                id,
+                title,
+                space: None,
+            });
+        }
+
+        Ok(hits)
+    }
+}
+
+/// Reduces a natural-language question to its content keywords: lowercase words
+/// of three or more characters, minus a small stop-word list, de-duplicated,
+/// capped. Empty when the question is all stop-words/punctuation (the caller
+/// then falls back to a literal search).
+fn keywords(question: &str) -> Vec<String> {
+    const STOP: &[&str] = &[
+        "the", "and", "for", "you", "your", "this", "that", "with", "from", "about", "have", "has",
+        "had", "what", "which", "where", "who", "whom", "when", "why", "how", "are", "was", "were",
+        "did", "does", "can", "could", "would", "should", "will", "into", "our", "their", "they",
+        "them", "there", "here", "any", "all", "some", "get", "got", "give", "tell", "show",
+        "find", "was", "not", "but", "out", "off",
+    ];
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for word in question.split(|c: char| !c.is_alphanumeric()) {
+        let word = word.to_lowercase();
+        if word.len() >= 3 && !STOP.contains(&word.as_str()) && seen.insert(word.clone()) {
+            out.push(word);
+            if out.len() >= 12 {
+                break;
+            }
+        }
+    }
+    out
 }

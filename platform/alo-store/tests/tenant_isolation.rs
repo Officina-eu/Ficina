@@ -1210,3 +1210,44 @@ async fn workspace_search_finds_drive_files_by_content() {
     let d = store.for_account(t2, ud);
     assert!(d.workspace_search("pangolin", 20).await.unwrap().is_empty(), "never across tenants");
 }
+
+/// AI retrieval reduces a natural-language question to keywords, so it matches
+/// items a literal substring of the whole question never would — still scoped to
+/// what the caller can see.
+#[tokio::test]
+async fn workspace_search_terms_matches_question_keywords() {
+    use alo_store::{DriveLocation, NewDriveFile};
+    let store = common::test_store().await;
+    let t1 = store.create_tenant("kw-t1").await.unwrap();
+    let ts1 = store.for_tenant(t1.clone());
+    let ua = ts1.create_user("a@kw.test").await.unwrap();
+    let ub = ts1.create_user("b@kw.test").await.unwrap();
+    let a = store.for_account(t1.clone(), ua);
+    let b = store.for_account(t1.clone(), ub);
+
+    a.drive_create_file(
+        &DriveLocation::Personal,
+        None,
+        &NewDriveFile { name: "Acme proposal.docx".to_owned(), blob_id: "x".to_owned(), size: 1, ..Default::default() },
+    )
+    .await
+    .unwrap();
+    let proj = a.ensure_personal_project().await.unwrap();
+    a.create_task(&proj, &task("Acme kickoff meeting")).await.unwrap();
+
+    // The literal question is not a substring of either title, but its keyword
+    // "acme" is — keyword retrieval finds both.
+    let q = "what do I have about the Acme proposal?";
+    assert!(a.workspace_search(q, 20).await.unwrap().is_empty(), "literal search misses");
+    assert_eq!(a.workspace_search_terms(q, 20).await.unwrap().len(), 2, "keyword search finds both");
+
+    // Still access-scoped: another user and another tenant get nothing.
+    assert!(b.workspace_search_terms(q, 20).await.unwrap().is_empty());
+    let t2 = store.create_tenant("kw-t2").await.unwrap();
+    let ud = store.for_tenant(t2.clone()).create_user("d@kw.test").await.unwrap();
+    let d = store.for_account(t2, ud);
+    assert!(d.workspace_search_terms(q, 20).await.unwrap().is_empty());
+
+    // An all-stopword question falls back cleanly (no keywords → no crash).
+    assert!(a.workspace_search_terms("what is this?", 20).await.unwrap().is_empty());
+}
