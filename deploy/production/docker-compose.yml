@@ -354,6 +354,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web:/srv:ro
       - ./web-workplace:/srv-workplace:ro
+      - ./web-workplace-landing:/srv-workplace-landing:ro
       - ./downloads:/srv-downloads:ro
       - ./landing:/srv-landing:ro
       - certs:/certs:ro

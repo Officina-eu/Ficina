@@ -132,19 +132,21 @@ https://alomails.com {
 	}
 }
 
-# ── aloworkplace.com — the workspace umbrella (all products, one login) ─────
-# The full suite (Home, Mail, Agenda, Tasks, Drive) served from /srv-workplace,
-# talking to the SAME alo-jmap backend (same-origin, so login stays first-party).
-# Its OWN certbot certificate in /certs/live/aloworkplace.com/. These blocks must
-# NOT be loaded until that cert exists, or Caddy fails to start the site — bring
-# them online with init-workplace.sh (same seed→issue→restart dance as the apex).
-http://aloworkplace.com, http://www.aloworkplace.com {
+# ── aloworkplace.com — landing page (apex) + the workspace app (app subdomain) ──
+# Same split as alomails: the apex aloworkplace.com is a static marketing landing
+# (/srv-workplace-landing), the workspace app (all products, one login) lives at
+# app.aloworkplace.com (/srv-workplace) and talks to the shared alo-jmap
+# same-origin so login stays first-party. ONE certbot cert covers all three names
+# (aloworkplace.com + www + app as SANs, in /certs/live/aloworkplace.com/). These
+# blocks must NOT load until that cert exists — bring app online + expand the
+# cert with init-workplace-app.sh (seed already done for the apex).
+http://aloworkplace.com, http://www.aloworkplace.com, http://app.aloworkplace.com {
 	handle /.well-known/acme-challenge/* {
 		root * /var/www/certbot
 		file_server
 	}
 	handle {
-		redir https://aloworkplace.com{uri} permanent
+		redir https://{host}{uri} permanent
 	}
 }
 
@@ -154,12 +156,34 @@ https://www.aloworkplace.com {
 	redir https://aloworkplace.com{uri} permanent
 }
 
+# The apex: the static marketing landing (its own repo, aloworkplace-website).
 https://aloworkplace.com {
 	tls /certs/live/aloworkplace.com/fullchain.pem /certs/live/aloworkplace.com/privkey.pem
 	encode zstd gzip
 
-	# Same backend paths as the mail app — the API, blobs, and every OIDC
-	# endpoint — reverse-proxied to the shared alo-jmap. Same origin ⇒ no CORS.
+	handle_path /download/* {
+		root * /srv-downloads
+		file_server
+	}
+
+	handle {
+		root * /srv-workplace-landing
+		file_server
+		header {
+			Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+			-Server
+		}
+	}
+}
+
+# app.aloworkplace.com: the workspace app (all products, one login). Same cert as
+# the apex (app is a SAN). Same backend paths as mail, same-origin.
+https://app.aloworkplace.com {
+	tls /certs/live/aloworkplace.com/fullchain.pem /certs/live/aloworkplace.com/privkey.pem
+	encode zstd gzip
+
 	@backend path /jmap/* /ai/* /admin/* /settings/* /docs /docs/* /snooze /send-later /send-later/* /calendar/* /tasks /tasks/* /spaces /spaces/* /drive/* /contacts /contacts/* /import/* /signup/* /reset/* /autodiscover/* /Autodiscover/* /mail/config-v1.1.xml /dav /dav/* /filters /filters/* /share/* /oauth/* /.well-known/* /auth/token
 	handle @backend {
 		reverse_proxy alo-jmap:8080
