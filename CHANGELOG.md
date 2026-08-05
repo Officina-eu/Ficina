@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- **Task dependencies ("blocked by").** A task can now be marked as blocked by
+  another; the task detail lists what's blocking it, with a picker to add or
+  remove blockers, and the Timeline draws an arrow from each blocker to the task
+  it holds up. A task can't block itself, and — like everything else — you can
+  only link tasks you can already see, so a dependency never points across
+  organisations or into someone else's private project.
+
 - **Task followers.** You can follow a task to keep an eye on it; whoever
   creates a task follows it automatically, and the assignee and anyone else can
   follow or unfollow from the task detail. The follower list shows each person's
