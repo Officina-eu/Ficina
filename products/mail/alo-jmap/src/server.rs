@@ -15,9 +15,9 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, autoconfig, base, blob, calendar, carddav, contacts, delegates, docs, drive, filters,
-    flagdue, imap_import_route, push, reset_route, schedule, security, session, settings, share,
-    signup_route, snooze, spaces, tasks, unsubscribe, wopi, workspace_search,
+    admin, ai, api, autoconfig, base, blob, calendar, carddav, contacts, delegates, docs, drive,
+    filters, flagdue, imap_import_route, push, reset_route, schedule, security, session, settings,
+    share, signup_route, snooze, spaces, tasks, unsubscribe, wopi, workspace_search,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -59,6 +59,12 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/ai/extract-tasks",
             post(ai::extract_tasks).layer(DefaultBodyLimit::max(ai::MAX_SUMMARIZE_BYTES)),
+        )
+        // Ask across the workspace (ADR 0029): cited answers over access-scoped
+        // retrieval of files, tasks, and mail.
+        .route(
+            "/ai/ask",
+            post(ai::ask).layer(DefaultBodyLimit::max(ai::MAX_ASK_BYTES)),
         )
         // Snooze: hide conversations until a chosen time (a background sweeper wakes them).
         .route("/snooze", post(snooze::snooze))
@@ -163,7 +169,10 @@ pub fn app(state: AppState) -> Router {
             axum::routing::delete(tasks::remove_dependency),
         )
         // Spaces — the membership spine (ADR 0026). Static paths before /{id}.
-        .route("/spaces", get(spaces::list_spaces).post(spaces::create_space))
+        .route(
+            "/spaces",
+            get(spaces::list_spaces).post(spaces::create_space),
+        )
         .route(
             "/spaces/{id}",
             get(spaces::get_space).put(spaces::update_space),
@@ -181,9 +190,7 @@ pub fn app(state: AppState) -> Router {
         .route("/drive/files", post(drive::create_file))
         .route(
             "/drive/nodes/{id}",
-            get(drive::get_node)
-                .put(drive::rename)
-                .delete(drive::purge),
+            get(drive::get_node).put(drive::rename).delete(drive::purge),
         )
         .route("/drive/nodes/{id}/move", post(drive::move_node))
         .route("/drive/nodes/{id}/copy", post(drive::copy_node))

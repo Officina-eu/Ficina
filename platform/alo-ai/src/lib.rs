@@ -305,7 +305,10 @@ pub fn parse_extracted_tasks(text: &str) -> Vec<ExtractedTask> {
 ///
 /// # Errors
 /// [`InferenceError`] on a disabled/unconfigured backend or transport failure.
-pub async fn extract_tasks(config: &AiConfig, text: &str) -> Result<Vec<ExtractedTask>, InferenceError> {
+pub async fn extract_tasks(
+    config: &AiConfig,
+    text: &str,
+) -> Result<Vec<ExtractedTask>, InferenceError> {
     let out = chat(config, &extract_tasks_messages(text), 0.2).await?;
     Ok(parse_extracted_tasks(&out))
 }
@@ -387,6 +390,87 @@ pub async fn summarize(config: &AiConfig, thread: &str) -> Result<String, Infere
     chat(config, &summarize_messages(thread), 0.2).await
 }
 
+/// One retrieved item offered to the model as grounding for a workspace answer
+/// (ADR 0029). The retrieval layer has already applied the caller's access, so
+/// every source here is something they could open themselves — the model is
+/// never shown more than the user can see.
+#[derive(Debug, Clone)]
+pub struct WorkspaceSource {
+    /// 1-based citation number the model refers to (e.g. `[1]`).
+    pub index: usize,
+    /// `file` | `doc` | `base` | `folder` | `task` | `message`.
+    pub kind: String,
+    /// The item's name/title/subject.
+    pub title: String,
+    /// A short extra line (e.g. a task's description); empty when there is none.
+    pub detail: String,
+}
+
+/// The system prompt for answering a question across the user's own workspace
+/// (ADR 0029). It is strict about grounding: answer only from the listed
+/// sources, cite them, and never invent — the product's trust promise.
+const ASK_WORKSPACE_SYSTEM: &str = "You are the assistant inside the user's own private workspace. \
+Answer their question using ONLY the numbered sources below — the files, tasks, and emails of theirs \
+that matched a search. Cite every source you use by its number in square brackets, like [1] or [2]. \
+Be concise and concrete, and answer in the question's language. If the sources do not contain the \
+answer, say you could not find it in their workspace — never invent files, people, facts, or details \
+that are not in the sources. Return only the answer — no preamble or heading.";
+
+/// Renders the retrieved sources into the grounding block the model reads.
+fn render_sources(sources: &[WorkspaceSource]) -> String {
+    let mut out = String::new();
+    for source in sources {
+        let kind = match source.kind.as_str() {
+            "message" => "email",
+            "doc" => "document",
+            other => other,
+        };
+        out.push_str(&format!("[{}] {} \"{}\"", source.index, kind, source.title));
+        if !source.detail.trim().is_empty() {
+            out.push_str(" — ");
+            out.push_str(source.detail.trim());
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// The chat messages for an "ask across my workspace" request. Pure and exported
+/// so the prompt is testable without a backend.
+#[must_use]
+pub fn ask_workspace_messages(question: &str, sources: &[WorkspaceSource]) -> Vec<ChatMessage> {
+    let user = format!(
+        "Question: {}\n\nSources:\n{}",
+        question.trim(),
+        render_sources(sources)
+    );
+    vec![
+        ChatMessage {
+            role: "system".to_owned(),
+            content: ASK_WORKSPACE_SYSTEM.to_owned(),
+        },
+        ChatMessage {
+            role: "user".to_owned(),
+            content: user,
+        },
+    ]
+}
+
+/// Answer a question grounded in the caller's retrieved workspace items (ADR
+/// 0029). The caller assembles `sources` from access-scoped search; this only
+/// builds the prompt and calls the backend.
+///
+/// # Errors
+/// [`InferenceError`] variants for disabled/unconfigured/unreachable/backend/
+/// empty — all safe to surface (they carry no content).
+pub async fn ask_workspace(
+    config: &AiConfig,
+    question: &str,
+    sources: &[WorkspaceSource],
+) -> Result<String, InferenceError> {
+    chat(config, &ask_workspace_messages(question, sources), 0.2).await
+}
+
 /// A lightweight connectivity check for the admin "Test connection" action:
 /// `GET {base}/v1/models`. Returns the number of models the endpoint reports.
 /// Unlike [`improve`] it does not gate on `enabled` — the admin is testing a
@@ -465,6 +549,43 @@ mod tests {
         assert_eq!(m[0].role, "system");
         assert_eq!(m[1].role, "user");
         assert_eq!(m[1].content, "Hey, wanna meet tmrw?");
+    }
+
+    #[test]
+    fn ask_workspace_prompt_lists_numbered_cited_sources() {
+        let sources = vec![
+            WorkspaceSource {
+                index: 1,
+                kind: "file".to_owned(),
+                title: "Acme proposal.docx".to_owned(),
+                detail: String::new(),
+            },
+            WorkspaceSource {
+                index: 2,
+                kind: "task".to_owned(),
+                title: "Acme kickoff".to_owned(),
+                detail: "Prepare the deck".to_owned(),
+            },
+            WorkspaceSource {
+                index: 3,
+                kind: "message".to_owned(),
+                title: "Re: pricing".to_owned(),
+                detail: String::new(),
+            },
+        ];
+        let m = ask_workspace_messages("where is the acme proposal?", &sources);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0].role, "system");
+        // The system prompt enforces grounding + citation.
+        assert!(m[0].content.contains("ONLY the numbered sources"));
+        assert!(m[0].content.contains("square brackets"));
+        // The user turn carries the question and each numbered source.
+        let u = &m[1].content;
+        assert!(u.contains("where is the acme proposal?"));
+        assert!(u.contains("[1] file \"Acme proposal.docx\""));
+        assert!(u.contains("[2] task \"Acme kickoff\" — Prepare the deck"));
+        // 'message' is rendered as the user-facing "email".
+        assert!(u.contains("[3] email \"Re: pricing\""));
     }
 
     #[test]

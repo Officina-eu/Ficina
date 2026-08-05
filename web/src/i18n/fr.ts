@@ -24,6 +24,11 @@ export const fr: Partial<Catalog> = {
   searchPlaceholder: "Rechercher fichiers, tâches et courriels…",
   searchHint: "Cherchez fichiers et tâches par nom, et courriels par contenu.",
   searchNoResults: "Aucun résultat.",
+  aiAskAbout: (q: string): string => `Demander à l’IA : « ${q} »`,
+  aiSources: "Sources",
+  aiUnconfigured:
+    "L’IA n’est pas encore configurée — un administrateur peut ajouter un modèle. Voici les correspondances :",
+  aiUnreachable: "Impossible de joindre l’IA. Voici les correspondances :",
   searchKind: (kind: string) =>
     kind === "task"
       ? "Tâche"

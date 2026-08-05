@@ -688,11 +688,22 @@ export interface BaseDto {
 
 // ---- Workspace search (ADR 0029) --------------------------------------------
 
-/** One search result: a Drive node (kind folder/file/doc/base) or a task. */
+/** One search result: a Drive node (kind folder/file/doc/base), a task, or a
+ * mail message (kind "message"). */
 export interface SearchHitDto {
   kind: string;
   id: string;
   title: string;
-  /** The Space id when it's a Space file, else null (personal / task). */
+  /** The Space id when it's a Space file, else null (personal / task / mail). */
   space: string | null;
+}
+
+/** Answer from "ask your workspace" (ADR 0029). `answer` is the cited text, or
+ * null when no model produced one; `reason` says why (no model configured, or
+ * the backend was unreachable). `sources` — the access-scoped matches — are
+ * always present, so the UI shows results even when the AI half is unavailable. */
+export interface AiAnswerDto {
+  answer: string | null;
+  reason: "unconfigured" | "unreachable" | null;
+  sources: SearchHitDto[];
 }

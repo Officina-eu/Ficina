@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **Ask your workspace (AI).** The search box (Ctrl/Cmd-K) now has an **Ask AI**
+  option: ask a question in plain language — "where's the Acme proposal?", "what
+  did we decide about pricing?" — and get an answer drawn from **your own files,
+  tasks, and email**, with the sources it used listed and clickable underneath.
+  The AI only ever sees what you could already open — it can't widen your access —
+  and it answers *from your sources*, citing them, rather than making things up.
+  If no AI model is set up yet (an admin configures one), you still get the
+  matching files/tasks/email, just without the written answer. ADR 0029.
+
 - **Workspace search (files, tasks + email content).** A search box in the left
   rail (or **Ctrl/Cmd-K** anywhere) searches across your **files, tasks and
   email** at once, and a result jumps you straight to it — opening the file, task

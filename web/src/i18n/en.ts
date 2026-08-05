@@ -1203,6 +1203,10 @@ export const en = {
   searchPlaceholder: "Search files, tasks and email…",
   searchHint: "Search files and tasks by name, and email by content.",
   searchNoResults: "Nothing found.",
+  aiAskAbout: (q: string): string => `Ask AI: “${q}”`,
+  aiSources: "Sources",
+  aiUnconfigured: "AI isn’t set up yet — an admin can add a model. Here’s what matched:",
+  aiUnreachable: "The AI couldn’t be reached. Here’s what matched:",
   searchKind: (kind: string): string =>
     kind === "task"
       ? "Task"

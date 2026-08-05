@@ -55,6 +55,7 @@ import {
   type BaseFieldType,
   type BaseViewKind,
   type SearchHitDto,
+  type AiAnswerDto,
 } from "./types";
 import { API_BASE } from "../platform/runtime";
 
@@ -1397,6 +1398,20 @@ export class JmapClient {
     const res = await this.#fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
     if (!res.ok) throw new JmapError(`search ${res.status}`);
     return ((await res.json()) as { hits: SearchHitDto[] }).hits;
+  }
+
+  /** Ask a question across the workspace (ADR 0029): a cited answer over the
+   * caller's access-scoped files, tasks, and mail. The matches come back even
+   * when no model is configured (`answer` null, `reason` set), so the caller
+   * can always show results. */
+  async askWorkspace(query: string): Promise<AiAnswerDto> {
+    const res = await this.#fetch(`${API_BASE}/ai/ask`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q: query }),
+    });
+    if (!res.ok) throw new JmapError(`ask ${res.status}`);
+    return (await res.json()) as AiAnswerDto;
   }
 
   /** Append a new version to a node from an already-uploaded blob. */

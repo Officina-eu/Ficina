@@ -1,7 +1,8 @@
-// Workspace search (ADR 0029) — a global command-palette-style overlay that
-// searches across the caller's files and tasks by name/title. Opened from the
-// rail or Ctrl/Cmd-K; a result navigates to its module and opens it. Content
-// search and more modules (mail, contacts) come in later slices.
+// Workspace search + AI (ADR 0029) — a global command-palette-style overlay.
+// Typing searches across the caller's files, tasks, and mail (names + content);
+// "Ask AI" answers a question from those same access-scoped results and cites
+// its sources. Opened from the rail or Ctrl/Cmd-K; a result (or a citation)
+// navigates to its module and opens it.
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -11,13 +12,14 @@ import {
   ListChecks,
   Mail,
   Search,
+  Sparkles,
   Table2,
   X,
   type LucideIcon,
 } from "lucide-react";
 
 import { strings } from "../i18n";
-import { useJmapClient, type SearchHitDto } from "../jmap";
+import { useJmapClient, type AiAnswerDto, type SearchHitDto } from "../jmap";
 import { surface } from "../product";
 import { Spinner } from "../ds";
 import styles from "./SearchOverlay.module.css";
@@ -55,15 +57,25 @@ function surfaceHasModule(id: string): boolean {
   return surface.modules.some((m) => m.id === id && m.enabled);
 }
 
+/** Keeps only the hits this product can actually open (a Drive-only app has no
+ * mail/tasks module, so those would navigate nowhere). */
+function openable(hits: SearchHitDto[]): SearchHitDto[] {
+  return hits.filter((hit) => surfaceHasModule(moduleFor(hit.kind)));
+}
+
 export function SearchOverlay({ onClose }: { onClose: () => void }) {
   const client = useJmapClient();
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHitDto[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [answer, setAnswer] = useState<AiAnswerDto | null>(null);
+  const [asking, setAsking] = useState(false);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
+    // A new query invalidates any prior AI answer.
+    setAnswer(null);
     if (q.trim() === "") {
       setHits(null);
       setLoading(false);
@@ -75,9 +87,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
     timer.current = window.setTimeout(() => {
       void client
         .search(q)
-        // Only surface hits this product can actually open (a Drive-only app
-        // has no mail/tasks module).
-        .then((h) => live && setHits(h.filter((hit) => surfaceHasModule(moduleFor(hit.kind)))))
+        .then((h) => live && setHits(openable(h)))
         .catch(() => live && setHits([]))
         .finally(() => live && setLoading(false));
     }, 200);
@@ -86,6 +96,18 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
       if (timer.current !== null) window.clearTimeout(timer.current);
     };
   }, [q, client]);
+
+  function ask() {
+    const question = q.trim();
+    if (question === "" || asking) return;
+    setAsking(true);
+    setAnswer(null);
+    void client
+      .askWorkspace(question)
+      .then((a) => setAnswer({ ...a, sources: openable(a.sources) }))
+      .catch(() => setAnswer({ answer: null, reason: "unreachable", sources: [] }))
+      .finally(() => setAsking(false));
+  }
 
   useEffect(() => {
     function key(e: KeyboardEvent) {
@@ -118,11 +140,51 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
             value={q}
             placeholder={strings.searchPlaceholder}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") ask();
+            }}
           />
           <button type="button" className={styles.close} onClick={onClose} aria-label={strings.close}>
             <X size={18} />
           </button>
         </div>
+        {q.trim() !== "" && (
+          <button type="button" className={styles.askRow} onClick={ask} disabled={asking}>
+            <Sparkles size={16} className={styles.askIcon} />
+            <span className={styles.askLabel}>{strings.aiAskAbout(q.trim())}</span>
+            {asking && <Spinner size={14} />}
+          </button>
+        )}
+        {answer && (
+          <div className={styles.answer}>
+            {answer.answer && <p className={styles.answerText}>{answer.answer}</p>}
+            {answer.answer === null && (
+              <p className={styles.answerNote}>
+                {answer.reason === "unconfigured" ? strings.aiUnconfigured : strings.aiUnreachable}
+              </p>
+            )}
+            {answer.sources.length > 0 && (
+              <>
+                <div className={styles.answerSourcesLabel}>{strings.aiSources}</div>
+                <ul className={styles.list}>
+                  {answer.sources.map((h, i) => {
+                    const Icon = hitIcon(h.kind);
+                    return (
+                      <li key={`src:${h.kind}:${h.id}`}>
+                        <button type="button" className={styles.hit} onClick={() => open(h)}>
+                          <span className={styles.citeNum}>{i + 1}</span>
+                          <Icon size={16} className={styles.hitIcon} />
+                          <span className={styles.hitTitle}>{h.title}</span>
+                          <span className={styles.hitKind}>{strings.searchKind(h.kind)}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
         <div className={styles.results}>
           {loading && hits === null ? (
             <div className={styles.state}>

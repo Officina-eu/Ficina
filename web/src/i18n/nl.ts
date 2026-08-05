@@ -24,6 +24,11 @@ export const nl: Partial<Catalog> = {
   searchPlaceholder: "Zoek bestanden, taken en e-mail…",
   searchHint: "Zoek bestanden en taken op naam, en e-mail op inhoud.",
   searchNoResults: "Niets gevonden.",
+  aiAskAbout: (q: string): string => `Vraag het de AI: “${q}”`,
+  aiSources: "Bronnen",
+  aiUnconfigured:
+    "AI is nog niet ingesteld — een beheerder kan een model toevoegen. Dit kwam overeen:",
+  aiUnreachable: "De AI was niet bereikbaar. Dit kwam overeen:",
   searchKind: (kind: string) =>
     kind === "task"
       ? "Taak"

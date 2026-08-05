@@ -70,6 +70,7 @@ export {
   type BaseFieldType,
   type BaseViewKind,
   type SearchHitDto,
+  type AiAnswerDto,
   type ShareableGroup,
   type SharedMailbox,
   type Delegate,
