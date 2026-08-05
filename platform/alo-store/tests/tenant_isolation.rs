@@ -1010,3 +1010,62 @@ async fn drive_nodes_scope_by_location_and_never_cross_tenant() {
     // The outsider cannot even address the Space location as their own.
     assert_not_found(d.drive_list(&DriveLocation::Space(space.clone()), None).await);
 }
+
+/// alo Base (ADR 0032): a Base's data is reachable only through its Drive node's
+/// access — a Space viewer reads but cannot write (Forbidden), an editor writes,
+/// a non-member or another tenant gets NotFound/None on every path.
+#[tokio::test]
+async fn base_data_scopes_through_its_drive_node() {
+    use alo_store::{DriveLocation, SpaceRole, UserId};
+    use serde_json::json;
+    let store = common::test_store().await;
+    let t1 = store.create_tenant("base-t1").await.unwrap();
+    let ts1 = store.for_tenant(t1.clone());
+    let ua = ts1.create_user("a@base.test").await.unwrap();
+    let ub = ts1.create_user("b@base.test").await.unwrap();
+    let ub_id = ub.as_str().to_owned();
+    let a = store.for_account(t1.clone(), ua);
+    let b = store.for_account(t1.clone(), ub);
+
+    // A creates a Space + a Base in it; B is added as a viewer.
+    let space = a.create_space("Team").await.unwrap();
+    let sloc = DriveLocation::Space(space.clone());
+    let node = a.create_base(&sloc, None, "CRM").await.unwrap();
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer).await.unwrap();
+
+    // The Base loads with its default table; a record can be added by A.
+    let base = a.base(&node).await.unwrap().unwrap();
+    assert_eq!(base.tables.len(), 1, "default table");
+    let table = base.tables[0].id.clone();
+    assert_eq!(base.tables[0].fields.len(), 2, "Name + Notes");
+    assert_eq!(base.tables[0].records.len(), 3, "three seed rows");
+    let rec = a.base_add_record(&table, &json!({ "x": "hi" })).await.unwrap();
+
+    // Viewer B can READ the base but not write it.
+    assert!(b.base(&node).await.unwrap().is_some(), "a member reads the base");
+    assert_forbidden(b.base_add_record(&table, &json!({})).await);
+    assert_forbidden(b.base_update_record(&rec, &json!({})).await);
+    assert_forbidden(b.base_add_field(&table, "Extra", "text", &json!({})).await);
+    assert_forbidden(b.base_add_table(&node, "T2").await);
+
+    // Promote B to editor → now B can write.
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Editor).await.unwrap();
+    b.base_update_record(&rec, &json!({ "x": "edited" })).await.unwrap();
+
+    // A private personal Base stays private to its owner.
+    let personal = a.create_base(&DriveLocation::Personal, None, "Private").await.unwrap();
+    assert!(a.base(&personal).await.unwrap().is_some());
+    assert!(b.base(&personal).await.unwrap().is_none(), "another user's personal base is invisible");
+
+    // Cross-tenant: an outsider sees nothing and can write nothing.
+    let t2 = store.create_tenant("base-t2").await.unwrap();
+    let ud = store.for_tenant(t2.clone()).create_user("d@base.test").await.unwrap();
+    let d = store.for_account(t2, ud);
+    assert!(d.base(&node).await.unwrap().is_none());
+    assert_not_found(d.base_add_record(&table, &json!({})).await);
+    assert_not_found(d.base_update_record(&rec, &json!({})).await);
+    assert_not_found(d.base_add_table(&node, "evil").await);
+    // A bad field type / view kind is refused (Conflict), not a silent accept.
+    assert!(a.base_add_field(&table, "F", "not-a-type", &json!({})).await.is_err());
+    assert!(a.base_add_view(&table, "not-a-kind", "V", &json!({})).await.is_err());
+}

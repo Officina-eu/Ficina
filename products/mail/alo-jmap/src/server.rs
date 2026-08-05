@@ -15,7 +15,7 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, autoconfig, blob, calendar, carddav, contacts, delegates, docs, drive, filters,
+    admin, ai, api, autoconfig, base, blob, calendar, carddav, contacts, delegates, docs, drive, filters,
     flagdue, imap_import_route, push, reset_route, schedule, security, session, settings, share,
     signup_route, snooze, spaces, tasks, unsubscribe,
 };
@@ -198,6 +198,18 @@ pub fn app(state: AppState) -> Router {
             post(drive::restore_version),
         )
         .route("/drive/nodes/{id}/download", get(drive::download))
+        // alo Base (ADR 0032) — relational data under a base drive node. Distinct
+        // literal prefixes so a node-id param never collides with a literal.
+        .route("/drive/base", post(base::create_base))
+        .route("/drive/base/{node}", get(base::get_base))
+        .route("/drive/base/{node}/tables", post(base::add_table))
+        .route("/drive/base-tables/{table}/fields", post(base::add_field))
+        .route("/drive/base-tables/{table}/records", post(base::add_record))
+        .route("/drive/base-tables/{table}/views", post(base::add_view))
+        .route(
+            "/drive/base-records/{record}",
+            put(base::update_record).delete(base::delete_record),
+        )
         .route("/contacts", get(contacts::list))
         // Address-book import (a .vcf upload) and export (whole book as .vcf).
         .route("/contacts/import", post(contacts::import))

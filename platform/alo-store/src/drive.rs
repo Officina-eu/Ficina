@@ -139,6 +139,61 @@ impl AccountStore {
         Ok(row)
     }
 
+    /// Gate for another module attaching to a Drive node (e.g. alo Base, ADR
+    /// 0032): the caller may **read** the node's location, else `NotFound`.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] / [`StoreError::Db`].
+    pub(crate) async fn drive_require_read(&self, id: &DriveNodeId) -> Result<()> {
+        self.readable_row(id).await.map(|_| ())
+    }
+
+    /// Gate for another module attaching to a Drive node: the caller may
+    /// **write** the node's location, else `NotFound`/`Forbidden`.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] / [`StoreError::Forbidden`] / [`StoreError::Db`].
+    pub(crate) async fn drive_require_write(&self, id: &DriveNodeId) -> Result<()> {
+        self.writable_row(id).await.map(|_| ())
+    }
+
+    /// Inserts a bare (blob-less) node — used by attached modules that create a
+    /// Drive node of their own kind (e.g. alo Base's `kind='base'`). Write
+    /// access to the location is enforced.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`]/[`StoreError::Forbidden`] per access;
+    /// [`StoreError::Conflict`] on a bad parent; [`StoreError::Db`].
+    pub(crate) async fn drive_insert_node(
+        &self,
+        loc: &DriveLocation,
+        parent: Option<&DriveNodeId>,
+        kind: &str,
+        name: &str,
+    ) -> Result<DriveNodeId> {
+        let (lkind, lid) = self.loc_parts(loc);
+        self.require_location_write(&lkind, &lid).await?;
+        self.check_parent(&lkind, &lid, parent).await?;
+        let node = DriveNodeId::generate();
+        sqlx::query(
+            "INSERT INTO drive_nodes \
+               (tenant_id, id, location_kind, location_id, parent_id, kind, name, created_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(self.tenant.as_str())
+        .bind(node.as_str())
+        .bind(&lkind)
+        .bind(&lid)
+        .bind(parent.map(DriveNodeId::as_str))
+        .bind(kind)
+        .bind(name)
+        .bind(self.user.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+        Ok(node)
+    }
+
     // ---- reads ---------------------------------------------------------------
 
     /// A single node the caller can read, or `None`.

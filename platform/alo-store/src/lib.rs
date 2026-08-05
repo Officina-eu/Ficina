@@ -31,6 +31,7 @@ pub mod rfc2047;
 pub mod schedule;
 pub mod settings;
 pub mod share;
+pub mod base;
 pub mod drive;
 pub mod signup;
 pub mod snooze;
@@ -54,7 +55,7 @@ pub use dmarc_reports::{DmarcAggregateRow, DmarcEventRecord};
 pub use document::{Document, DocumentSummary};
 pub use error::{Result, StoreError};
 pub use id::{
-    AttachmentId, BlobId, CalendarId, CategoryId, CommentId, ContactId, DriveNodeId, EventId, GroupId, LabelId, MailboxId, MessageId,
+    AttachmentId, BaseFieldId, BaseRecordId, BaseTableId, BaseViewId, BlobId, CalendarId, CategoryId, CommentId, ContactId, DriveNodeId, EventId, GroupId, LabelId, MailboxId, MessageId,
     ProjectId, SpaceId, SubtaskId, TaskId, TenantId, ThreadId, UserId,
 };
 pub use identity::{
@@ -70,6 +71,7 @@ pub use model::{
 pub use reset::PendingReset;
 pub use schedule::DueSend;
 pub use share::{ShareCreated, ShareTarget};
+pub use base::{Base, BaseField, BaseRecord, BaseTable, BaseView};
 pub use drive::{DriveLocation, DriveNode, DriveVersion, NewDriveFile};
 pub use signup::PendingSignup;
 pub use spaces::{Space, SpaceMember, SpaceRole};

@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **alo Base — a relational data table (backend).** alo's native "sheet" isn't a
+  grid of cells — it's a small database with a spreadsheet face (Airtable-style).
+  A Base lives in Drive like any file (in My Files or a Space, auto-shared with
+  members); it has tables with **typed fields** (text, number, date, checkbox,
+  select, attachment, person, and link-to-record), records, and **multiple views
+  over the same records** (grid/board/calendar/gallery — switching view never
+  changes data). The engine is live and verified on the server: a Space viewer
+  can read but not edit, another organisation gets "not found", and bad field
+  types are rejected. The grid you'll click comes next; then linked records and
+  the office-file compatibility editors. ADR 0032.
+
 - **alo Doc — a block editor in Drive (first slice).** "New doc" in Drive creates
   an **alo Doc** — a clean, Notion-style block document (headings, lists, tables,
   quotes, images, and more) that opens right inside the workspace. It lives in
