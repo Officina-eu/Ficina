@@ -6,6 +6,10 @@ contracts.
 
 ## Unreleased
 
+- **Desktop 0.1.10**: bundles everything since 0.1.9 — task attachments, labels,
+  followers, and "blocked by" dependencies, the branded date picker, and the
+  Timeline dependency arrows. Installed apps auto-update.
+
 - **Task dependencies ("blocked by").** A task can now be marked as blocked by
   another; the task detail lists what's blocking it, with a picker to add or
   remove blockers, and the Timeline draws an arrow from each blocker to the task
