@@ -882,6 +882,9 @@ export const fr: Partial<Catalog> = {
   providerNotConfigured: "Non configuré",
   kindOllama: "Ollama",
   kindalo: "alo IA",
+  kindMistral: "Mistral (UE)",
+  mistralDesc:
+    "Modèles européens, hébergés dans l’UE. Ajoutez votre clé Mistral pour activer. Recommandé pour la souveraineté des données.",
   kindOpenai: "OpenAI",
   kindAnthropic: "Anthropic",
   kindCustom: "Point de terminaison personnalisé",

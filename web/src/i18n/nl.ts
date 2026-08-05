@@ -869,6 +869,9 @@ export const nl: Partial<Catalog> = {
   providerNotConfigured: "Niet geconfigureerd",
   kindOllama: "Ollama",
   kindalo: "alo AI",
+  kindMistral: "Mistral (EU)",
+  mistralDesc:
+    "Europese modellen, gehost in de EU. Voeg je Mistral-sleutel toe om in te schakelen. Aanbevolen voor datasoevereiniteit.",
   kindOpenai: "OpenAI",
   kindAnthropic: "Anthropic",
   kindCustom: "Aangepast eindpunt",
