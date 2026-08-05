@@ -10,6 +10,7 @@ import {
   Copy,
   Download,
   FileText,
+  FileType,
   FolderPlus,
   Presentation,
   Sheet,
@@ -151,7 +152,8 @@ export function DriveModule() {
   /** Create a blank Office document (Word/Excel/PowerPoint) from a template and
    *  open it in the Collabora editor — the two-file-types rule (ADR 0030). */
   async function newOffice(ext: OfficeExt) {
-    const kind = ext === "xlsx" ? strings.driveKindExcel : strings.driveKindSlides;
+    const kind =
+      ext === "docx" ? strings.driveKindWord : ext === "xlsx" ? strings.driveKindExcel : strings.driveKindSlides;
     const name = (await prompt({ message: strings.driveNameNew(kind) }))?.trim();
     if (!name) return;
     try {
@@ -380,7 +382,8 @@ export function DriveModule() {
                   items={[
                     { key: "doc", label: strings.driveKindDoc, icon: <FileText size={15} />, onClick: () => void newDoc() },
                     { key: "base", label: strings.driveKindSheet, icon: <Table2 size={15} />, onClick: () => void newBase() },
-                    { key: "excel", label: strings.driveKindExcel, icon: <Sheet size={15} />, onClick: () => void newOffice("xlsx"), divider: true },
+                    { key: "word", label: strings.driveKindWord, icon: <FileType size={15} />, onClick: () => void newOffice("docx"), divider: true },
+                    { key: "excel", label: strings.driveKindExcel, icon: <Sheet size={15} />, onClick: () => void newOffice("xlsx") },
                     { key: "slides", label: strings.driveKindSlides, icon: <Presentation size={15} />, onClick: () => void newOffice("pptx") },
                     { key: "folder", label: strings.driveKindFolder, icon: <FolderPlus size={15} />, onClick: () => void newFolder(), divider: true },
                   ]}
