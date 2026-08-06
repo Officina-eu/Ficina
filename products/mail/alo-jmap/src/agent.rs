@@ -153,6 +153,7 @@ pub async fn agent_execute(
         "trash_email" => execute_move_to_role(&account, &args, "trash", "Trash").await,
         "snooze_email" => execute_snooze(&account, &args).await,
         "draft_email" => execute_draft_email(&account, &args, &state).await,
+        "draft_reply" => execute_draft_reply(&account, &args, &state).await,
         // Unreachable given the allowlist check, but the match stays total.
         _ => Err(Problem::with(StatusCode::BAD_REQUEST, "unknown tool")),
     }
@@ -286,8 +287,7 @@ async fn ensure_role_mailbox(account: &Account, role: &str, name: &str) -> Resul
 /// `$draft`) for them to review and send — this path never sends. The visible
 /// `From` is always the caller's own canonical address (resolved server-side, so
 /// a draft can never impersonate another author, even before it is sent); only
-/// the recipient, subject, and body come from the approved proposal. Reuses the
-/// same `mime::build` + `ingest` the JMAP `Email/set` create path uses.
+/// the recipient, subject, and body come from the approved proposal.
 async fn execute_draft_email(
     account: &Account,
     args: &Value,
@@ -297,39 +297,110 @@ async fn execute_draft_email(
     if !crate::submission::valid_addr(&to) {
         return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "a valid recipient address is required"));
     }
+    let body = draft_body_arg(args)?;
+    let subject = args.get("subject").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+
+    let from = caller_from_address(account, state).await?;
+    let outgoing = compose(&from, vec![to], subject, body, Vec::new(), Vec::new());
+    let id = save_draft(account, &outgoing).await?;
+    Ok(Json(json!({ "ok": true, "result": { "kind": "draft", "id": id.as_str() } })))
+}
+
+/// Draft a REPLY to an email in the sources and save it to Drafts (`$draft`),
+/// never sent. The reply is addressed to the original sender, keeps the subject
+/// in the same thread (`Re:` once, not stacked), and carries `In-Reply-To` +
+/// `References` so mail clients thread it. The body is the approved text; `From`
+/// is the caller's own address, exactly as for a new draft.
+async fn execute_draft_reply(
+    account: &Account,
+    args: &Value,
+    state: &AppState,
+) -> Result<Json<Value>, Problem> {
+    let mid = message_id_arg(args)?;
+    let body = draft_body_arg(args)?;
+    // The account door scopes this: a foreign or absent id is a clean not-found,
+    // never another tenant's message.
+    let bytes = account
+        .acc
+        .message_bytes(&mid)
+        .await
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "the email to reply to was not found"))?;
+    let to = crate::submission::extract_from_addr(&bytes)
+        .filter(|a| crate::submission::valid_addr(a))
+        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "the original email has no address to reply to"))?;
+    let parsed = alo_store::message::parse(&bytes);
+    let subject = reply_subject(&parsed.subject);
+    let in_reply_to: Vec<String> = parsed
+        .message_id
+        .as_deref()
+        .map(strip_brackets)
+        .filter(|s| !s.is_empty())
+        .into_iter()
+        .collect();
+    let references = reply_references(&parsed.referenced_ids, parsed.message_id.as_deref());
+
+    let from = caller_from_address(account, state).await?;
+    let outgoing = compose(&from, vec![to], subject, body, in_reply_to, references);
+    let id = save_draft(account, &outgoing).await?;
+    Ok(Json(json!({ "ok": true, "result": { "kind": "draft", "id": id.as_str() } })))
+}
+
+/// The required, non-empty `body` of a draft/reply.
+fn draft_body_arg(args: &Value) -> Result<String, Problem> {
     let body = args.get("body").and_then(Value::as_str).unwrap_or("").trim().to_owned();
     if body.is_empty() {
         return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "the email body is required"));
     }
-    let subject = args.get("subject").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+    Ok(body)
+}
 
-    // Sender is always the caller's own canonical address — never model-chosen.
-    let from = state
+/// The caller's own canonical send-from address. Resolved server-side so the
+/// model can never choose the author of a draft.
+async fn caller_from_address(account: &Account, state: &AppState) -> Result<String, Problem> {
+    state
         .store
         .for_tenant(account.tenant.clone())
         .email_of(&account.user)
         .await
         .map_err(|_| Problem::server_error())?
-        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "this account has no send address"))?;
+        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "this account has no send address"))
+}
 
-    let outgoing = crate::mime::Outgoing {
-        from: crate::mime::Addr { name: None, email: from.clone() },
-        to: vec![crate::mime::Addr { name: None, email: to }],
+/// Assemble a plain-text outgoing message. The `mime` builder CR/LF-sanitizes
+/// every header and RFC 2047-encodes non-ASCII, so composed fields carry no
+/// header-injection path.
+fn compose(
+    from: &str,
+    to: Vec<String>,
+    subject: String,
+    body: String,
+    in_reply_to: Vec<String>,
+    references: Vec<String>,
+) -> crate::mime::Outgoing {
+    crate::mime::Outgoing {
+        from: crate::mime::Addr { name: None, email: from.to_owned() },
+        to: to
+            .into_iter()
+            .map(|email| crate::mime::Addr { name: None, email })
+            .collect(),
         cc: Vec::new(),
         bcc: Vec::new(),
         subject,
-        in_reply_to: Vec::new(),
-        references: Vec::new(),
+        in_reply_to,
+        references,
         body_text: body,
         body_html: None,
         attachments: Vec::new(),
-        message_id_domain: crate::api::domain_of(&from),
+        message_id_domain: crate::api::domain_of(from),
         message_id_token: crate::api::new_message_token(),
-    };
-    let raw = crate::mime::build(&outgoing);
+    }
+}
 
-    // Save into Drafts (created on first use) with $draft, like any composed
-    // draft — the user reviews it and sends it through the normal path.
+/// Build the message and save it into Drafts (created on first use) with the
+/// `$draft` keyword — the same path the JMAP `Email/set` create uses. The user
+/// reviews it and sends it through the normal submission path; this never sends.
+async fn save_draft(account: &Account, outgoing: &crate::mime::Outgoing) -> Result<MessageId, Problem> {
+    let raw = crate::mime::build(outgoing);
     let drafts = ensure_role_mailbox(account, "drafts", "Drafts").await?;
     let id = account
         .acc
@@ -341,7 +412,40 @@ async fn execute_draft_email(
         .set_keyword(&id, "$draft", true)
         .await
         .map_err(|_| Problem::server_error())?;
-    Ok(Json(json!({ "ok": true, "result": { "kind": "draft", "id": id.as_str() } })))
+    Ok(id)
+}
+
+/// Strip the surrounding angle brackets from a message-id, leaving the bare id
+/// the `mime` builder expects (it re-wraps in `<…>`).
+fn strip_brackets(raw: &str) -> String {
+    raw.trim().trim_start_matches('<').trim_end_matches('>').trim().to_owned()
+}
+
+/// The subject for a reply: prefix `Re: ` unless one is already present
+/// (case-insensitive), so replies-to-replies don't stack `Re: Re:`.
+fn reply_subject(original: &str) -> String {
+    let t = original.trim();
+    if t.is_empty() {
+        "Re:".to_owned()
+    } else if t.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("re:")) {
+        t.to_owned()
+    } else {
+        format!("Re: {t}")
+    }
+}
+
+/// The reply's `References` chain (RFC 5322 §3.6.4): the parent's own referenced
+/// ids followed by the parent's `Message-ID`, brackets stripped and duplicates
+/// removed, order preserved.
+fn reply_references(parent_refs: &[String], parent_id: Option<&str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for raw in parent_refs.iter().map(String::as_str).chain(parent_id) {
+        let bare = strip_brackets(raw);
+        if !bare.is_empty() && !out.contains(&bare) {
+            out.push(bare);
+        }
+    }
+    out
 }
 
 /// Create a task from approved args, on the caller's personal project. Reuses the
@@ -494,7 +598,34 @@ fn parse_due(s: &str) -> Option<time::OffsetDateTime> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::{parse_due, parse_rfc3339, parse_wake_time, resolve_email_source};
+    use super::{
+        parse_due, parse_rfc3339, parse_wake_time, reply_references, reply_subject,
+        resolve_email_source,
+    };
+
+    #[test]
+    fn reply_subject_prefixes_re_once() {
+        assert_eq!(reply_subject("Lunch Thursday?"), "Re: Lunch Thursday?");
+        // An existing Re: (any case, with or without a space) is not stacked.
+        assert_eq!(reply_subject("Re: Lunch"), "Re: Lunch");
+        assert_eq!(reply_subject("RE:Lunch"), "RE:Lunch");
+        assert_eq!(reply_subject("  Re: Lunch  "), "Re: Lunch");
+        // An empty subject still yields a valid reply subject.
+        assert_eq!(reply_subject(""), "Re:");
+    }
+
+    #[test]
+    fn reply_references_chains_parent_then_strips_and_dedupes() {
+        let parent_refs = vec!["<a@x>".to_owned(), "<b@x>".to_owned()];
+        let refs = reply_references(&parent_refs, Some("<c@x>"));
+        assert_eq!(refs, vec!["a@x", "b@x", "c@x"]); // brackets stripped, parent last
+        // A parent id already in the chain is not duplicated.
+        let dup = reply_references(&["<c@x>".to_owned()], Some("<c@x>"));
+        assert_eq!(dup, vec!["c@x"]);
+        // No parent Message-ID: just the referenced ids, bare.
+        assert_eq!(reply_references(&["<a@x>".to_owned()], None), vec!["a@x"]);
+        assert!(reply_references(&[], None).is_empty());
+    }
 
     #[test]
     fn resolves_an_email_source_number_to_its_message_id() {
