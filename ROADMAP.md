@@ -136,7 +136,11 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 ### Chat & Meet
 
 - [ ] Synapse per tenant provisioned by control plane; OIDC delegated to `alo-identity`
-- [ ] alo Chat UI: channels, DMs, threads, reactions, mentions, guest access — Matrix invisible
+- [ ] alo Chat UI: channels, DMs, threads, reactions, mentions, guest access — Matrix invisible.
+  Design bar = **Sila (silahq.com)**: sidebar (DMs/channels/agents/shared/search), polished
+  message feed (avatars, bubbles, timestamps, media previews, presence). See `features.md` → Chat.
+- [ ] ★ Agent-native chat: AI agents as first-class participants (own avatars, @mentionable,
+  propose-then-approve replies/reactions) — the AI-native differentiator applied to chat.
 - [ ] Application service streaming events to the (future) AI bus
 - [ ] LiveKit deployed; token minting from alo identities; Meet UI on the components SDK
 - [ ] Meeting links native in Agenda; recording to Drive with consent indicators

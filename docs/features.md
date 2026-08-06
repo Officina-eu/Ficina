@@ -114,12 +114,16 @@ list views over the same data, personal and team. ADRs 0021–0023.
 ## Chat
 
 - [L] Channels (public/private), DMs, real threads, reactions, mentions
+- [L] **Rich, modern chat UI** — the visual bar is Slack/Teams-grade, not a bolt-on. Design reference: **Sila (silahq.com)**: a left sidebar (DMs, channels, agents, shared, search), a clean message feed with human avatars + distinct agent icons, message bubbles with sender + timestamp, inline media/link previews, hover actions (react/reply/more), typing + presence indicators, unread badges.
 - [L] File sharing into Drive (one storage, not a parallel one — SharePoint's original sin)
 - [L] Powerful search across full history — ★ no paywalled memory, ever (Slack's most-hated limit)
 - [L] Guest access for externals, per-channel
+- [2] ★ **Agent-native chat** (the AI-native differentiator, à la Sila) — AI agents are first-class participants in channels/DMs with their own avatars/indicators, can be @mentioned, and reply/react in-thread under the **propose-then-approve** trust model (never silent action); a browseable agent directory with usage. EU-only inference per the model strategy.
+- [2] ★ AI/natural-language search **and** notifications — "notify me when the Acme deal is mentioned", "where did we decide the price?" — over full history, no paywalled memory.
+- [2] Expiring messages and time-limited groupchats (ephemeral conversations that clean themselves up), à la Sila.
 - [2] Reminders ("remind me about this message tomorrow"), saved items
-- [2] Instant huddle — one-click voice in a channel, no calendar event
-- [2] ★ Cross-org channels between two alo tenants (agencies ↔ clients)
+- [2] Instant huddle — one-click voice in a channel, no calendar event; ★ with call transcription + auto notes posted back to the thread
+- [2] ★ Cross-org channels between two alo tenants (agencies ↔ clients) — incl. shared human **and agent** coordination across tenants
 - [3] Message workflows/automations (approval emoji triggers, simple bots)
 
 ## Meet
