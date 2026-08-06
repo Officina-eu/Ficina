@@ -8,6 +8,27 @@ Rule of the file: nothing gets built that isn't listed here, and nothing gets li
 
 ---
 
+## AI — an agent for every product (ADR 0034)
+
+Cross-cutting principle: **every product has its own dedicated agent**, scoped to
+that product's data + actions, all under **propose-then-approve** (never silent),
+**access-scoped** (only what the user can already see/do), and **EU-only** models.
+Above them sits the **"Ask alo" orchestrator** (ADR 0029) that routes across
+products. One shared framework (the `alo-ai` crate + a tool registry + the
+propose/approve UI); each agent is a thin, product-scoped tool set + prompt.
+
+- [L] ★ **Mail agent** — triage, summarize a thread, draft / smart-reply, extract tasks, "why flagged" *(largely built)*
+- [L] ★ **Tasks agent** — propose action items, "what's on my plate", prioritise *(built, ADR 0023)*
+- [L] ★ **Docs agent** — write / edit / clean-paste / inline-diff, agent mode *(built, ADR 0029/0031)*
+- [2] ★ **"Ask alo" orchestrator** — cross-product cited search + routing to the agents below *(search + doc AI built; routing is the growth)*
+- [2] ★ **Agenda (Calendar) agent** — find times, schedule, summarize the day/week, prep a meeting, propose events from mail
+- [2] ★ **Sheet agent** — formulas from intent, analysis, clean/transform data, chart-from-intent
+- [2] ★ **Drive agent** — find & organise files, summarize a document, extract from attachments
+- [2] ★ **Chat agent(s)** — first-class chat participants, @mentionable, reply/react (see → Chat)
+- [3] Per-agent skills users can create and share; the browseable agent directory
+
+---
+
 ## Mail
 
 - [L] Mailboxes, folders/labels, aliases, plus-addressing (`user+tag@`)

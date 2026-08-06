@@ -38,7 +38,7 @@ alo is built against each of those failures:
 | **alo Meet** | Video meetings integrated with Agenda and Chat; meeting links native to the calendar. |
 | **alo Drive** | File storage and sharing with permissions, synced to desktop, serving Office-format files losslessly. |
 | **alo Docs** | Documents, spreadsheets, and presentations edited in the browser, in Microsoft formats, embedded under alo's interface. |
-| **alo AI** | The unifier: semantic search across all modules, inbox triage, thread and meeting summarization, drafted replies, attachment understanding (reads incoming .docx/.xlsx), an in-product "where did X go?" onboarding assistant, and an MCP server so customers' AI agents can work with their workspace. |
+| **alo AI** | **An agent for every product** (ADR 0034) — a Mail agent, Agenda agent, Tasks agent, Docs agent, Sheet agent, Drive agent, and Chat agent, each scoped to its product's data + actions — with an **"Ask alo" orchestrator** above them for semantic search and cross-product routing. All propose-then-approve (never silent), access-scoped, EU-only inference. Plus attachment understanding (reads incoming .docx/.xlsx), a "where did X go?" onboarding assistant, and an MCP server so customers' own AI agents can work with their workspace. |
 | **alo Migrate** | The M365 exit suite — see section 6. |
 | **Admin console** | Tenant management, users and groups, domains, deliverability autopilot, audit logging, GDPR exports, backups. |
 
