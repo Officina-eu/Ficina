@@ -221,8 +221,17 @@ async fn execute_archive(account: &Account, args: &Value) -> Result<Json<Value>,
             .find(|m| m.role.as_deref() == Some(role))
             .map(|m| MailboxId::new(m.id.as_str()))
     };
-    let archive = by_role("archive")
-        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "no Archive mailbox"))?;
+    // Get-or-create the Archive mailbox, the same on-demand idiom every other
+    // standard role uses (Inbox, Drafts, Snoozed, Scheduled) — a first archive on
+    // an account that never had the folder should succeed, not fail.
+    let archive = match by_role("archive") {
+        Some(id) => id,
+        None => account
+            .acc
+            .create_mailbox(None, "Archive", Some("archive"))
+            .await
+            .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not archive the email"))?,
+    };
     account
         .acc
         .add_to_mailbox(&msg, &archive)

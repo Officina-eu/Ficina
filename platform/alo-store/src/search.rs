@@ -220,17 +220,21 @@ impl AccountStore {
             });
         }
 
-        // Mail: the full-text index already tokenizes, so the keyword string
-        // works directly — scoped to the caller's own mailbox.
+        // Mail: match ANY keyword against the full-text index (same "any keyword"
+        // recall as drive/tasks above), scoped to the caller's own mailbox. ORing
+        // per-term matters because a request is often action-phrased ("archive the
+        // Acme newsletter") — the verb is a keyword but never appears in the email,
+        // so ANDing every term would exclude the very message being referenced.
         let mail = sqlx::query_as::<_, (String, String)>(
             "SELECT id, subject FROM messages \
              WHERE tenant_id = $1 AND user_id = $2 \
-               AND search @@ plainto_tsquery('simple', $3) \
+               AND EXISTS (SELECT 1 FROM unnest($3::text[]) kw \
+                             WHERE search @@ plainto_tsquery('simple', kw)) \
              ORDER BY received_at DESC LIMIT $4",
         )
         .bind(self.tenant.as_str())
         .bind(self.user.as_str())
-        .bind(&joined)
+        .bind(&terms)
         .bind(limit)
         .fetch_all(&self.pool)
         .await
