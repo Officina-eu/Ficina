@@ -60,6 +60,12 @@ contracts.
   — never an arbitrary email — and it goes out through the normal signed-sending
   path, moving to Sent just as if you had clicked Send yourself. ADR 0034.
 
+- **Ask AI can file an email into one of your folders.** Ask it to "move this to
+  Work" or "file the payslip under Payroll" and — once you **Approve** — it takes
+  the message out of your inbox and into that folder. It only ever uses folders
+  you already have (it won't invent one from a typo), and if you name a folder
+  that doesn't exist it says so instead of guessing. ADR 0034.
+
 - **Workspace search (files, tasks + email content).** A search box in the left
   rail (or **Ctrl/Cmd-K** anywhere) searches across your **files, tasks and
   email** at once, and a result jumps you straight to it — opening the file, task

@@ -26,6 +26,7 @@ pub const AGENT_TOOLS: &[&str] = &[
     "draft_email",
     "draft_reply",
     "send_email",
+    "move_to_folder",
 ];
 
 /// One action the agent proposes. `args` is validated tool-by-tool at the
@@ -67,20 +68,34 @@ Available tools:\n\
 - draft_email: write a NEW email and save it to the user's Drafts for them to review and send — it is NEVER sent automatically. args: {\"to\": string email address (required), \"subject\": string (optional), \"body\": string (required)}. Compose the body from the request; do not invent facts. The sender is always the user's own address — never set it.\n\
 - draft_reply: write a reply to an email in the sources and save it to the user's Drafts — NEVER sent automatically. args: {\"source\": number (the email to reply to, required), \"body\": string (required)}. The reply goes to that email's sender and keeps its subject thread; compose the body from the request, do not invent facts.\n\
 - send_email: SEND a message that is ALREADY in the user's Drafts. This delivers it to its recipients and CANNOT be undone. args: {\"source\": number (a draft in the sources, required)}. Only propose this when the user clearly and explicitly asks to send, and only for a draft that already exists — if there is no draft yet, write one first with draft_email or draft_reply and let the user send it. The user still approves before anything is sent.\n\
+- move_to_folder: move an email into one of the user's own mail folders. args: {\"source\": number, \"folder\": string}. Set \"folder\" to EXACTLY one of the folder names listed under \"Folders\" below — never invent a folder. If the user names a folder that is not in that list, ANSWER instead and say that folder does not exist. Prefer the dedicated tools for Archive (archive_email) and Trash (trash_email).\n\
 For any tool that acts on an email, set \"source\" to the number [n] of that email in the numbered sources above; only propose it when the relevant email is present in the sources. \
 Resolve any relative date or time (today, tomorrow 3pm, next Friday) against the current date given below into an absolute value (YYYY-MM-DD for a task due, RFC 3339 UTC for an event). \
 If the request needs an action no tool covers, ANSWER instead and say you cannot do that yet. Write the answer/say text in the user's language. Output ONLY the JSON object — no markdown, no code fences, no preamble.";
 
 /// The chat messages for one agent turn. Pure and exported so the prompt is
 /// testable without a backend. `today` is the caller's current date
-/// (`YYYY-MM-DD`) so the model can resolve relative dates like "tomorrow".
+/// (`YYYY-MM-DD`) so the model can resolve relative dates like "tomorrow";
+/// `folders` are the user's mail-folder names, so `move_to_folder` can only
+/// target a real one.
 #[must_use]
-pub fn agent_messages(request: &str, sources: &[WorkspaceSource], today: &str) -> Vec<ChatMessage> {
+pub fn agent_messages(
+    request: &str,
+    sources: &[WorkspaceSource],
+    today: &str,
+    folders: &[String],
+) -> Vec<ChatMessage> {
+    let folder_line = if folders.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nFolders (for move_to_folder): {}", folders.join(", "))
+    };
     let user = format!(
-        "Today's date is {}.\nRequest: {}\n\nSources:\n{}",
+        "Today's date is {}.\nRequest: {}\n\nSources:\n{}{}",
         today.trim(),
         request.trim(),
-        render_sources(sources)
+        render_sources(sources),
+        folder_line
     );
     vec![
         ChatMessage {
@@ -153,8 +168,9 @@ pub async fn run_agent(
     request: &str,
     sources: &[WorkspaceSource],
     today: &str,
+    folders: &[String],
 ) -> Result<AgentDecision, InferenceError> {
-    let text = chat(config, &agent_messages(request, sources, today), 0.2).await?;
+    let text = chat(config, &agent_messages(request, sources, today, folders), 0.2).await?;
     parse_decision(&text)
 }
 
@@ -208,11 +224,25 @@ mod tests {
 
     #[test]
     fn prompt_carries_request_sources_date_and_the_tool() {
-        let msgs = agent_messages("book a slot", &[src(1, "message", "Acme thread")], "2026-08-07");
+        let folders = ["Work".to_owned(), "Receipts".to_owned()];
+        let msgs = agent_messages(
+            "book a slot",
+            &[src(1, "message", "Acme thread")],
+            "2026-08-07",
+            &folders,
+        );
         assert_eq!(msgs.len(), 2);
         assert!(msgs[0].content.contains("create_task"));
         assert!(msgs[1].content.contains("book a slot"));
         assert!(msgs[1].content.contains("Acme thread"));
         assert!(msgs[1].content.contains("2026-08-07"));
+        // The user's real folder names are offered for move_to_folder.
+        assert!(msgs[1].content.contains("Work, Receipts"));
+    }
+
+    #[test]
+    fn prompt_omits_the_folder_line_when_there_are_none() {
+        let msgs = agent_messages("hi", &[], "2026-08-07", &[]);
+        assert!(!msgs[1].content.contains("Folders (for move_to_folder)"));
     }
 }

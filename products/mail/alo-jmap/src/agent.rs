@@ -10,7 +10,7 @@
 //! can never act outside the caller's own permissions.
 
 use alo_ai::{AgentDecision, AiConfig, InferenceError, WorkspaceSource};
-use alo_store::{CalendarEvent, EventId, MailboxId, MessageId, NewTask};
+use alo_store::{CalendarEvent, EventId, MailboxId, MessageId, NewTask, Page, MAX_PAGE};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::{body::Bytes, Json};
@@ -99,7 +99,11 @@ pub async fn agent(
         .iter()
         .map(|h| (h.kind.clone(), h.id.clone(), h.title.clone()))
         .collect();
-    match alo_ai::run_agent(&config, &request, &ground, &today_utc()).await {
+    // The user's mail folders the agent may move a message into — real names
+    // only, so it can't propose a folder that does not exist (internal roles
+    // like Snoozed/Scheduled are excluded; Archive/Trash have their own tools).
+    let folders = movable_folder_names(&account).await;
+    match alo_ai::run_agent(&config, &request, &ground, &today_utc(), &folders).await {
         Ok(AgentDecision::Answer(answer)) => Ok(Json(json!({
             "answer": answer, "action": Value::Null,
             "reason": Value::Null, "sources": sources_json
@@ -155,6 +159,7 @@ pub async fn agent_execute(
         "draft_email" => execute_draft_email(&account, &args, &state).await,
         "draft_reply" => execute_draft_reply(&account, &args, &state).await,
         "send_email" => execute_send(&account, &args, &state).await,
+        "move_to_folder" => execute_move_to_folder(&account, &args).await,
         // Unreachable given the allowlist check, but the match stays total.
         _ => Err(Problem::with(StatusCode::BAD_REQUEST, "unknown tool")),
     }
@@ -226,24 +231,76 @@ async fn execute_move_to_role(
 ) -> Result<Json<Value>, Problem> {
     let msg = message_id_arg(args)?;
     let dest = ensure_role_mailbox(account, role, name).await?;
+    relocate_message(account, &msg, &dest).await?;
+    Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
+}
+
+/// Move an email into one of the user's named folders. Unlike the role moves,
+/// the destination is resolved by name among the account's existing folders and
+/// is never created — a folder the user did not name back is a clean error, not
+/// a new empty folder from a typo.
+async fn execute_move_to_folder(account: &Account, args: &Value) -> Result<Json<Value>, Problem> {
+    let msg = message_id_arg(args)?;
+    let wanted = args.get("folder").and_then(Value::as_str).unwrap_or("").trim();
+    if wanted.is_empty() {
+        return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "a folder name is required"));
+    }
+    let dest = movable_folders(account)
+        .await?
+        .into_iter()
+        .find(|m| m.name.eq_ignore_ascii_case(wanted))
+        .map(|m| MailboxId::new(m.id.as_str()))
+        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "no folder by that name"))?;
+    relocate_message(account, &msg, &dest).await?;
+    Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
+}
+
+/// Add `msg` to `dest`, then take it out of the "still visible" origins (Inbox,
+/// Archive) other than `dest` itself, so a moved message lives only in its new
+/// home. Skipping `dest` by id keeps a move *into* the Inbox or Archive from
+/// removing what it just added. Removals are best-effort: if the message was not
+/// in an origin, the move still stands.
+async fn relocate_message(account: &Account, msg: &MessageId, dest: &MailboxId) -> Result<(), Problem> {
     account
         .acc
-        .add_to_mailbox(&msg, &dest)
+        .add_to_mailbox(msg, dest)
         .await
         .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not move the email"))?;
-    // Remove it from the "still visible" origins other than the destination; if it
-    // was not in one, the move still stands (best-effort, like the add above).
     for origin in ["inbox", "archive"] {
-        if origin == role {
-            continue;
-        }
         if let Ok(Some(box_id)) = account.acc.mailbox_by_role(origin).await {
-            match account.acc.remove_from_mailbox(&msg, &box_id).await {
+            if box_id.as_str() == dest.as_str() {
+                continue;
+            }
+            match account.acc.remove_from_mailbox(msg, &box_id).await {
                 Ok(()) | Err(_) => {}
             }
         }
     }
-    Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
+    Ok(())
+}
+
+/// The account's folders that a message may be moved into: every mailbox except
+/// the internal, non-user-facing roles (Snoozed, Scheduled).
+async fn movable_folders(account: &Account) -> Result<Vec<alo_store::Mailbox>, Problem> {
+    let boxes = account
+        .acc
+        .mailboxes(Page::first(MAX_PAGE))
+        .await
+        .map_err(|_| Problem::server_error())?;
+    Ok(boxes
+        .into_iter()
+        .filter(|m| !matches!(m.role.as_deref(), Some("snoozed" | "scheduled")))
+        .collect())
+}
+
+/// Just the names of [`movable_folders`], for grounding the agent's proposal.
+/// Best-effort: a lookup failure yields no folders (the agent then declines a
+/// move rather than guessing), never an error on the propose path.
+async fn movable_folder_names(account: &Account) -> Vec<String> {
+    movable_folders(account)
+        .await
+        .map(|v| v.into_iter().map(|m| m.name).collect())
+        .unwrap_or_default()
 }
 
 /// Snooze an email until a chosen time: hide it from the Inbox into Snoozed; the
