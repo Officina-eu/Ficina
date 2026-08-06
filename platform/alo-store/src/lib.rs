@@ -37,6 +37,7 @@ pub mod settings;
 pub mod share;
 pub mod signup;
 pub mod site_model;
+pub mod site_pages;
 pub mod sites;
 pub mod snooze;
 pub mod spaces;
@@ -63,7 +64,7 @@ pub use error::{Result, StoreError};
 pub use id::{
     AttachmentId, BaseFieldId, BaseRecordId, BaseTableId, BaseViewId, BlobId, CalendarId,
     CategoryId, CommentId, ContactId, DriveNodeId, EventId, GroupId, LabelId, MailboxId, MessageId,
-    ProjectId, SiteId, SpaceId, SubtaskId, TaskId, TenantId, ThreadId, UserId,
+    ProjectId, SiteId, SitePageId, SpaceId, SubtaskId, TaskId, TenantId, ThreadId, UserId,
 };
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
@@ -81,6 +82,7 @@ pub use search::SearchHit;
 pub use share::{ShareCreated, ShareTarget};
 pub use signup::PendingSignup;
 pub use site_model::{SECTIONS_SCHEMA_VERSION, Section, SectionSchemaError, SectionsEnvelope};
+pub use site_pages::{SitePage, validate_page_slug};
 pub use sites::{Site, SiteStatus, validate_subdomain};
 pub use spaces::{Space, SpaceMember, SpaceRole};
 pub use store::{CATEGORY_KEYWORD_PREFIX, SEEN, Store, TenantStore, category_keyword};

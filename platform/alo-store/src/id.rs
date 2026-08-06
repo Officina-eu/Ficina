@@ -197,6 +197,10 @@ opaque_id!(
     /// A tenant's website built with alo Sites (ADR 0036).
     SiteId
 );
+opaque_id!(
+    /// One page of an alo Sites website.
+    SitePageId
+);
 
 #[cfg(test)]
 mod tests {

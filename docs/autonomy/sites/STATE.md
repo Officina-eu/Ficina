@@ -114,3 +114,46 @@ Human-action inbox (things the loop must not do itself):
   - CHANGELOG untouched: schema foundation only, no user-visible behaviour.
 - **Next:** S1.04 (site_pages migration + store, sections validated through
   this module on every write).
+
+## S1.04 — site_pages migration + store module (2026-08-06)
+
+- **Shipped:** migration `0056_site_pages.sql` (tenant-scoped `site_pages`,
+  composite FK cascading tenants → sites → pages, per-site slug unique index,
+  partial unique index enforcing one home page per site, and a CHECK that
+  only the home page may hold the empty slug); new `SitePageId`;
+  `platform/alo-store/src/site_pages.rs` on the account door —
+  `create_site_page` (appends at end of nav order, empty sections envelope,
+  200-pages-per-site cap) / `site_pages` / `site_page` / `set_page_title` /
+  `set_page_slug` / `set_page_seo` (trim, blank-clears, 200/500 char caps) /
+  `set_page_sections` (the schema write gate: `SectionsEnvelope::from_value`
+  from S1.03, canonical serialization stored) / `set_home_page` (transactional
+  demote+promote; demoting a home at the empty slug is a named Conflict) /
+  `reorder_site_pages` (full-permutation rewrite in a transaction) /
+  `delete_site_page`. Slug rules: `[a-z0-9-]{1,80}`, no edge hyphens,
+  reserved public paths (`blog`, `f`, `feed`, `rss`, `atom`, `sitemap`,
+  `robots`, `healthz`, `assets`, `static`) rejected; empty slug is the home
+  page's spelling, DB-enforced so the rule holds under concurrency. All
+  constraint violations map to named `Conflict`s, never a raw 23xxx error.
+- **Verified:** `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-store
+  --all-targets` zero warnings; full `cargo test -p alo-store` green on the
+  local docker Postgres (82 unit incl. 5 new slug/SEO rule tests; isolation
+  suite 22 incl. the new
+  `site_pages_scope_by_tenant_and_site_with_slug_and_home_rules` — outsider
+  tenant cleanly denied on all ten paths, same-tenant cross-SITE addressing
+  denied, per-site slug reuse allowed, home-flag flip + empty-slug demote
+  conflict, sections gate accept/reject, reorder permutation checks, delete
+  frees slug, site delete cascades pages). Manual pass: `\d site_pages` in
+  psql shows the PK, both unique indexes, the CHECK, and the cascade FK
+  exactly as designed.
+- **Cuts/flags:**
+  - `sections` is returned as stored (opaque `Value`) on read — typed
+    read-side handling with skip-with-log tolerance is the renderer's job
+    (S1.06), per the design note; the write gate guarantees whatever is on
+    disk passed the schema.
+  - No route/UI surface yet (S1.10/S1.11) — store + tests only, so the
+    wire-verify gate doesn't apply; CHANGELOG untouched (no user-visible
+    behaviour).
+  - Page cap decision: `MAX_PAGES_PER_SITE = 200` (not in the queue text;
+    bounded input everywhere — revisit with quotas if it ever binds).
+- **Next:** S1.05 (theme model: palette+typography presets + logo/favicon
+  blob refs).

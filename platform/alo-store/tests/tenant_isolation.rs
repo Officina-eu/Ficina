@@ -1138,6 +1138,219 @@ async fn sites_scope_by_tenant_and_subdomains_are_globally_unique() {
     assert_not_found(a.delete_site(&reclaimed).await);
 }
 
+/// Site pages (ADR 0036): pages scope by (tenant, site) — an outsider tenant
+/// gets the clean denial on every path, a page cannot be addressed through a
+/// different site of the same tenant, slugs are unique per site (not
+/// globally), the home-page rules hold (one home; empty slug only on home),
+/// the sections write gate rejects off-schema JSON, and deleting a site
+/// cascades to its pages.
+#[tokio::test]
+async fn site_pages_scope_by_tenant_and_site_with_slug_and_home_rules() {
+    use serde_json::json;
+
+    let store = common::test_store().await;
+    let t1 = store.create_tenant("pages-t1").await.unwrap();
+    let ua = store
+        .for_tenant(t1.clone())
+        .create_user("a@pages.test")
+        .await
+        .unwrap();
+    let a = store.for_account(t1, ua);
+    let t2 = store.create_tenant("pages-t2").await.unwrap();
+    let ub = store
+        .for_tenant(t2.clone())
+        .create_user("b@pages.test")
+        .await
+        .unwrap();
+    let b = store.for_account(t2, ub);
+
+    // Unique per test run: the compose Postgres is shared across runs and the
+    // subdomain namespace is global by design.
+    let unique = |tag: &str| {
+        format!(
+            "{tag}-{}x",
+            alo_store::SiteId::generate()
+                .as_str()
+                .to_lowercase()
+                .replace('_', "-")
+        )
+    };
+    let site = a.create_site("Acme", &unique("pg")).await.unwrap();
+
+    // The home page lives at the empty slug; ordinary pages append in order.
+    let home = a.create_site_page(&site, "Home", "", true).await.unwrap();
+    let about = a
+        .create_site_page(&site, "About", "about", false)
+        .await
+        .unwrap();
+    let contact = a
+        .create_site_page(&site, "Contact", "contact", false)
+        .await
+        .unwrap();
+    let pages = a.site_pages(&site).await.unwrap();
+    assert_eq!(
+        pages.iter().map(|p| p.nav_order).collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    let got = a.site_page(&site, &home).await.unwrap().unwrap();
+    assert!(got.is_home && got.slug.is_empty());
+    // A new page starts with the empty current-version envelope.
+    assert_eq!(got.sections, json!({"schema_version": 1, "sections": []}));
+
+    // Slug rules on write: duplicates (per site), a second home, empty slug
+    // on a non-home page, reserved public paths, and malformed slugs all get
+    // a clean Conflict — never a row, never a 500.
+    let conflict = |result: Result<alo_store::SitePageId, StoreError>| match result {
+        Err(StoreError::Conflict(_)) => {}
+        other => panic!("expected Conflict, got {other:?}"),
+    };
+    conflict(a.create_site_page(&site, "Dup", "about", false).await);
+    conflict(a.create_site_page(&site, "Second home", "", true).await);
+    conflict(a.create_site_page(&site, "No slug", "", false).await);
+    for bad in ["blog", "f", "-bad", "Bad", "a b"] {
+        conflict(a.create_site_page(&site, "X", bad, false).await);
+    }
+    // Emptying a non-home slug trips the CHECK, mapped to a Conflict.
+    match a.set_page_slug(&site, &about, "").await {
+        Err(StoreError::Conflict(_)) => {}
+        other => panic!("expected Conflict, got {other:?}"),
+    }
+
+    // The sections write gate: schema-valid JSON persists (canonically),
+    // off-schema and future-version JSON never reach the row.
+    let hero = json!({
+        "schema_version": 1,
+        "sections": [{"type": "hero", "heading": "Welcome"}]
+    });
+    a.set_page_sections(&site, &home, hero.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        a.site_page(&site, &home).await.unwrap().unwrap().sections,
+        hero
+    );
+    for bad in [
+        json!({"schema_version": 1, "sections": [{"type": "carousel"}]}),
+        json!({"schema_version": 2, "sections": []}),
+        json!({"sections": []}),
+    ] {
+        match a.set_page_sections(&site, &home, bad).await {
+            Err(StoreError::Conflict(_)) => {}
+            other => panic!("expected schema Conflict, got {other:?}"),
+        }
+    }
+
+    // SEO overrides: set, then blank clears.
+    a.set_page_seo(&site, &about, Some("About Acme"), Some("What we do."))
+        .await
+        .unwrap();
+    let got = a.site_page(&site, &about).await.unwrap().unwrap();
+    assert_eq!(got.seo_title.as_deref(), Some("About Acme"));
+    a.set_page_seo(&site, &about, Some("  "), None)
+        .await
+        .unwrap();
+    let got = a.site_page(&site, &about).await.unwrap().unwrap();
+    assert!(got.seo_title.is_none() && got.seo_description.is_none());
+
+    // Moving the home flag: the current home sits at the empty slug, so it
+    // must get a real slug first — then the flip demotes it atomically.
+    match a.set_home_page(&site, &about).await {
+        Err(StoreError::Conflict(_)) => {}
+        other => panic!("expected Conflict (home has empty slug), got {other:?}"),
+    }
+    a.set_page_slug(&site, &home, "welcome").await.unwrap();
+    a.set_home_page(&site, &about).await.unwrap();
+    let pages = a.site_pages(&site).await.unwrap();
+    assert_eq!(
+        pages
+            .iter()
+            .filter(|p| p.is_home)
+            .map(|p| p.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![about.as_str()]
+    );
+
+    // Nav reorder is a full permutation — anything else is a Conflict.
+    a.reorder_site_pages(&site, &[contact.clone(), home.clone(), about.clone()])
+        .await
+        .unwrap();
+    let ordered: Vec<String> = a
+        .site_pages(&site)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id.as_str().to_owned())
+        .collect();
+    assert_eq!(
+        ordered,
+        vec![
+            contact.as_str().to_owned(),
+            home.as_str().to_owned(),
+            about.as_str().to_owned()
+        ]
+    );
+    for bad_order in [
+        vec![home.clone(), about.clone()],               // missing a page
+        vec![home.clone(), home.clone(), about.clone()], // duplicate
+        vec![
+            home.clone(),
+            about.clone(),
+            alo_store::SitePageId::generate(),
+        ], // stranger
+    ] {
+        match a.reorder_site_pages(&site, &bad_order).await {
+            Err(StoreError::Conflict(_)) => {}
+            other => panic!("expected Conflict, got {other:?}"),
+        }
+    }
+
+    // An outsider tenant gets the clean denial on every path — never data,
+    // never an internal error — and nothing they tried changed A's rows.
+    assert!(b.site_page(&site, &home).await.unwrap().is_none());
+    assert!(b.site_pages(&site).await.unwrap().is_empty());
+    assert_not_found(
+        b.create_site_page(&site, "Intruder", "intruder", false)
+            .await,
+    );
+    assert_not_found(b.set_page_title(&site, &home, "hijacked").await);
+    assert_not_found(b.set_page_slug(&site, &home, "hijacked").await);
+    assert_not_found(b.set_page_seo(&site, &home, Some("x"), None).await);
+    assert_not_found(
+        b.set_page_sections(&site, &home, json!({"schema_version": 1, "sections": []}))
+            .await,
+    );
+    assert_not_found(b.set_home_page(&site, &home).await);
+    assert_not_found(
+        b.reorder_site_pages(&site, std::slice::from_ref(&home))
+            .await,
+    );
+    assert_not_found(b.delete_site_page(&site, &home).await);
+    let got = a.site_page(&site, &home).await.unwrap().unwrap();
+    assert_eq!(got.title, "Home");
+    assert_eq!(got.slug, "welcome");
+    assert_eq!(got.sections, hero);
+
+    // Pages also scope by site within the same tenant: another site of A's
+    // cannot address them, and slugs are only unique per site.
+    let site2 = a.create_site("Beta", &unique("pg")).await.unwrap();
+    assert!(a.site_page(&site2, &about).await.unwrap().is_none());
+    assert_not_found(a.set_page_title(&site2, &about, "cross-site").await);
+    assert_not_found(a.delete_site_page(&site2, &about).await);
+    a.create_site_page(&site2, "About", "about", false)
+        .await
+        .unwrap();
+
+    // Deleting a page frees its slug; deleting the site cascades the rest.
+    a.delete_site_page(&site, &contact).await.unwrap();
+    assert!(a.site_page(&site, &contact).await.unwrap().is_none());
+    a.create_site_page(&site, "Contact again", "contact", false)
+        .await
+        .unwrap();
+    a.delete_site(&site).await.unwrap();
+    assert!(a.site_pages(&site).await.unwrap().is_empty());
+    assert!(a.site_page(&site, &about).await.unwrap().is_none());
+}
+
 /// Drive (ADR 0027): a node's access follows its location. Personal files are
 /// private to their owner; Space files are readable by members and writable by
 /// editors+; moving a file re-scopes its access; and nothing — a node, its
