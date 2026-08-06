@@ -9,6 +9,24 @@ import { Check, ChevronLeft, Download, MoreHorizontal, Pencil, X } from "lucide-
 // Univer's own UI + engine. Framework-agnostic: it mounts into a plain DOM
 // container we hand it, so we drive it from an effect rather than as JSX.
 import { createUniver, LocaleType, merge, defaultTheme } from "@univerjs/presets";
+import type { IBorderData, IRange, IStyleData } from "@univerjs/core";
+import {
+  ALL_IMPLEMENTED_FUNCTIONS_SET,
+  FUNCTION_NAMES_ARRAY,
+  FUNCTION_NAMES_COMPATIBILITY,
+  FUNCTION_NAMES_CUBE,
+  FUNCTION_NAMES_DATABASE,
+  FUNCTION_NAMES_DATE,
+  FUNCTION_NAMES_ENGINEERING,
+  FUNCTION_NAMES_FINANCIAL,
+  FUNCTION_NAMES_INFORMATION,
+  FUNCTION_NAMES_LOGICAL,
+  FUNCTION_NAMES_LOOKUP,
+  FUNCTION_NAMES_MATH,
+  FUNCTION_NAMES_STATISTICAL,
+  FUNCTION_NAMES_TEXT,
+  FUNCTION_NAMES_WEB,
+} from "@univerjs/engine-formula";
 import { UniverSheetsCorePreset } from "@univerjs/presets/preset-sheets-core";
 import sheetsCoreEnUS from "@univerjs/presets/preset-sheets-core/locales/en-US";
 import { UniverSheetsSortPreset } from "@univerjs/presets/preset-sheets-sort";
@@ -17,22 +35,129 @@ import { UniverSheetsFilterPreset } from "@univerjs/presets/preset-sheets-filter
 import sheetsFilterEnUS from "@univerjs/presets/preset-sheets-filter/locales/en-US";
 import { UniverSheetsFindReplacePreset } from "@univerjs/presets/preset-sheets-find-replace";
 import sheetsFindReplaceEnUS from "@univerjs/presets/preset-sheets-find-replace/locales/en-US";
+import { UniverSheetsConditionalFormattingPreset } from "@univerjs/presets/preset-sheets-conditional-formatting";
+import sheetsConditionalFormattingEnUS from "@univerjs/presets/preset-sheets-conditional-formatting/locales/en-US";
+import { UniverSheetsDataValidationPreset } from "@univerjs/presets/preset-sheets-data-validation";
+import sheetsDataValidationEnUS from "@univerjs/presets/preset-sheets-data-validation/locales/en-US";
+import { UniverSheetsDrawingPreset } from "@univerjs/presets/preset-sheets-drawing";
+import sheetsDrawingEnUS from "@univerjs/presets/preset-sheets-drawing/locales/en-US";
+import { UniverSheetsHyperLinkPreset } from "@univerjs/presets/preset-sheets-hyper-link";
+import sheetsHyperLinkEnUS from "@univerjs/presets/preset-sheets-hyper-link/locales/en-US";
+import { UniverSheetsNotePreset } from "@univerjs/presets/preset-sheets-note";
+import sheetsNoteEnUS from "@univerjs/presets/preset-sheets-note/locales/en-US";
+import { UniverSheetsTablePreset } from "@univerjs/presets/preset-sheets-table";
+import sheetsTableEnUS from "@univerjs/presets/preset-sheets-table/locales/en-US";
+import { UniverSheetsThreadCommentPreset } from "@univerjs/presets/preset-sheets-thread-comment";
+import sheetsThreadCommentEnUS from "@univerjs/presets/preset-sheets-thread-comment/locales/en-US";
 import "@univerjs/presets/lib/styles/preset-sheets-core.css";
 import "@univerjs/presets/lib/styles/preset-sheets-sort.css";
 import "@univerjs/presets/lib/styles/preset-sheets-filter.css";
 import "@univerjs/presets/lib/styles/preset-sheets-find-replace.css";
+import "@univerjs/presets/lib/styles/preset-sheets-conditional-formatting.css";
+import "@univerjs/presets/lib/styles/preset-sheets-data-validation.css";
+import "@univerjs/presets/lib/styles/preset-sheets-drawing.css";
+import "@univerjs/presets/lib/styles/preset-sheets-hyper-link.css";
+import "@univerjs/presets/lib/styles/preset-sheets-note.css";
+import "@univerjs/presets/lib/styles/preset-sheets-table.css";
+import "@univerjs/presets/lib/styles/preset-sheets-thread-comment.css";
 
 import { strings } from "../i18n";
 import { useJmapClient } from "../jmap";
 import { Menu, Spinner } from "../ds";
 import { saveBlob } from "./parts";
 import { univerSnapshotToXlsx } from "./exportOffice";
-import { SheetRibbon, type SheetActions } from "./SheetRibbon";
+import { SheetRibbon, type BorderKind, type FormulaCategory, type SheetActions, type SheetSelectionFormatting } from "./SheetRibbon";
 import styles from "./SheetEditor.module.css";
+
+// Keep Univer's engine chrome aligned with alo's terracotta brand. Univer uses
+// `primary` for selections/focus and `blue` directly in a few legacy menus and
+// sheet controls, so both palettes intentionally point to the same scale.
+const ALO_ORANGE = {
+  50: "#fceee9",
+  100: "#f8d6cc",
+  200: "#f1bdad",
+  300: "#eca18b",
+  400: "#ea8368",
+  500: "#e76f51",
+  600: "#d65b3e",
+  700: "#b84a32",
+  800: "#8f3a28",
+  900: "#6f2b1e",
+};
+const ALO_SHEET_THEME = {
+  ...defaultTheme,
+  primary: ALO_ORANGE,
+  blue: ALO_ORANGE,
+  orange: ALO_ORANGE,
+};
+const STYLE_STATE_PRESETS = [
+  { key: "normal", size: 11, bold: false },
+  { key: "h1", size: 20, bold: true },
+  { key: "h2", size: 16, bold: true },
+  { key: "h3", size: 14, bold: true },
+  { key: "h4", size: 12, bold: true },
+  { key: "title", size: 28, bold: true },
+  { key: "subtitle", size: 15, bold: false },
+] as const;
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 type SaveState = "idle" | "saving" | "saved";
+
+type BorderRangeReader = { getRange: () => IRange };
+type BorderSheetReader = { getRange: (row: number, column: number) => { getCellStyleData: (type?: "row" | "col" | "cell") => IStyleData | null } };
+
+function detectBorderKind(range: BorderRangeReader, worksheet: BorderSheetReader): BorderKind | null {
+  const selected = range.getRange();
+  const rows = selected.endRow - selected.startRow + 1;
+  const columns = selected.endColumn - selected.startColumn + 1;
+  if (rows <= 0 || columns <= 0 || rows * columns > 10_000) return null;
+  const borders: IBorderData[][] = Array.from({ length: rows }, (_row, r) =>
+    Array.from({ length: columns }, (_column, c) => worksheet.getRange(selected.startRow + r, selected.startColumn + c).getCellStyleData("cell")?.bd ?? {}),
+  );
+  const has = (row: number, column: number, edge: "t" | "r" | "b" | "l") => borders[row]?.[column]?.[edge] != null;
+  const every = (test: (row: number, column: number) => boolean) => borders.every((row, r) => row.every((_cell, c) => test(r, c)));
+  const bd = borders[0]?.[0];
+  if (bd?.tl_br != null) return "diag-down";
+  if (bd?.bl_tr != null) return "diag-up";
+  if (every((r, c) => has(r, c, "t") && has(r, c, "r") && has(r, c, "b") && has(r, c, "l"))) return "all";
+  const top = Array.from({ length: columns }, (_, c) => has(0, c, "t")).every(Boolean);
+  const bottom = Array.from({ length: columns }, (_, c) => has(rows - 1, c, "b")).every(Boolean);
+  const left = Array.from({ length: rows }, (_, r) => has(r, 0, "l")).every(Boolean);
+  const right = Array.from({ length: rows }, (_, r) => has(r, columns - 1, "r")).every(Boolean);
+  const horizontal = rows > 1 && Array.from({ length: rows - 1 }, (_, r) => Array.from({ length: columns }, (_unused, c) => has(r, c, "b") || has(r + 1, c, "t")).every(Boolean)).every(Boolean);
+  const vertical = columns > 1 && Array.from({ length: columns - 1 }, (_, c) => Array.from({ length: rows }, (_unused, r) => has(r, c, "r") || has(r, c + 1, "l")).every(Boolean)).every(Boolean);
+  if (top && bottom && left && right) return "outer";
+  if (horizontal && vertical) return "inside";
+  if (top) return "top";
+  if (bottom) return "bottom";
+  if (left) return "left";
+  if (right) return "right";
+  if (horizontal) return "horizontal";
+  if (vertical) return "vertical";
+  return null;
+}
+
+function supportedFunctions(values: object): string[] {
+  return Object.values(values).filter((name): name is string => typeof name === "string" && ALL_IMPLEMENTED_FUNCTIONS_SET.has(name)).sort();
+}
+
+const FORMULA_CATEGORIES: FormulaCategory[] = [
+  { key: "financial", label: strings.sheetFormulaFinancial, functions: supportedFunctions(FUNCTION_NAMES_FINANCIAL) },
+  { key: "date", label: strings.sheetFormulaDateTime, functions: supportedFunctions(FUNCTION_NAMES_DATE) },
+  { key: "math", label: strings.sheetFormulaMathTrig, functions: supportedFunctions(FUNCTION_NAMES_MATH) },
+  { key: "statistical", label: strings.sheetFormulaStatistical, functions: supportedFunctions(FUNCTION_NAMES_STATISTICAL) },
+  { key: "lookup", label: strings.sheetFormulaLookup, functions: supportedFunctions(FUNCTION_NAMES_LOOKUP) },
+  { key: "database", label: strings.sheetFormulaDatabase, functions: supportedFunctions(FUNCTION_NAMES_DATABASE) },
+  { key: "text", label: strings.sheetFormulaText, functions: supportedFunctions(FUNCTION_NAMES_TEXT) },
+  { key: "logical", label: strings.sheetFormulaLogical, functions: supportedFunctions(FUNCTION_NAMES_LOGICAL) },
+  { key: "information", label: strings.sheetFormulaInformation, functions: supportedFunctions(FUNCTION_NAMES_INFORMATION) },
+  { key: "engineering", label: strings.sheetFormulaEngineering, functions: supportedFunctions(FUNCTION_NAMES_ENGINEERING) },
+  { key: "cube", label: strings.sheetFormulaCube, functions: supportedFunctions(FUNCTION_NAMES_CUBE) },
+  { key: "compatibility", label: strings.sheetFormulaCompatibility, functions: supportedFunctions(FUNCTION_NAMES_COMPATIBILITY) },
+  { key: "web", label: strings.sheetFormulaWeb, functions: supportedFunctions(FUNCTION_NAMES_WEB) },
+  { key: "array", label: strings.sheetFormulaArray, functions: supportedFunctions(FUNCTION_NAMES_ARRAY) },
+].filter((category) => category.functions.length > 0);
 
 /** A Univer workbook snapshot — an opaque JSON object we persist verbatim. */
 type Snapshot = Record<string, unknown>;
@@ -54,6 +179,8 @@ export function SheetEditor({
   const [initial, setInitial] = useState<Snapshot | null>(null);
   const [ready, setReady] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [activeBorder, setActiveBorder] = useState<BorderKind | null>(null);
+  const [selectionFormatting, setSelectionFormatting] = useState<SheetSelectionFormatting>({ activeKeys: [], fontFamily: null, fontSize: null, numberPattern: null });
   // Editable sheet name (persisted via driveRename); the grid filename tracks it.
   const [sheetName, setSheetName] = useState(name);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -82,9 +209,16 @@ export function SheetEditor({
           sheetsSortEnUS,
           sheetsFilterEnUS,
           sheetsFindReplaceEnUS,
+          sheetsConditionalFormattingEnUS,
+          sheetsDataValidationEnUS,
+          sheetsDrawingEnUS,
+          sheetsHyperLinkEnUS,
+          sheetsNoteEnUS,
+          sheetsTableEnUS,
+          sheetsThreadCommentEnUS,
         ),
       },
-      theme: defaultTheme,
+      theme: ALO_SHEET_THEME,
       // Hide Univer's built-in toolbar — our own ribbon (SheetRibbon) replaces
       // it. Keep the formula bar and grid. Extra presets power the ribbon's
       // Data/Editing tools (sort, filter, find & replace).
@@ -93,15 +227,67 @@ export function SheetEditor({
         UniverSheetsSortPreset(),
         UniverSheetsFilterPreset(),
         UniverSheetsFindReplacePreset(),
+        UniverSheetsConditionalFormattingPreset(),
+        UniverSheetsDataValidationPreset(),
+        UniverSheetsDrawingPreset(),
+        UniverSheetsHyperLinkPreset(),
+        UniverSheetsNotePreset(),
+        UniverSheetsTablePreset(),
+        UniverSheetsThreadCommentPreset(),
       ],
     });
     apiRef.current = univerAPI;
     // An empty object → a blank default workbook; a stored snapshot → that book.
-    univerAPI.createWorkbook(Object.keys(initial).length > 0 ? initial : {});
+    const workbook = univerAPI.createWorkbook(Object.keys(initial).length > 0 ? initial : {});
+    const updateSelectionFormatting = () => {
+      const selected = workbook.getActiveRange();
+      const sheet = workbook.getActiveSheet();
+      if (selected === null || sheet === null) {
+        setActiveBorder(null);
+        setSelectionFormatting({ activeKeys: [], fontFamily: null, fontSize: null, numberPattern: null });
+        return;
+      }
+      setActiveBorder(detectBorderKind(selected, sheet));
+      const selectedRange = selected.getRange();
+      const style = sheet.getRange(selectedRange.startRow, selectedRange.startColumn).getCellStyleData("cell") ?? {};
+      const activeKeys: string[] = [];
+      if (style.bl === 1) activeKeys.push("bold");
+      if (style.it === 1) activeKeys.push("italic");
+      if (style.ul?.s === 1) activeKeys.push("underline");
+      if (style.st?.s === 1) activeKeys.push("strike");
+      if (style.cl !== undefined && style.cl !== null) activeKeys.push("font-color");
+      if (style.bg !== undefined && style.bg !== null) activeKeys.push("fill-color");
+      const horizontalValue = selected.getHorizontalAlignment();
+      const horizontal = horizontalValue === "normal" ? "right" : horizontalValue;
+      if (horizontal === "left" || horizontal === "center" || horizontal === "right") activeKeys.push(`align-${horizontal}`);
+      const vertical = selected.getVerticalAlignment();
+      if (vertical === "top" || vertical === "middle" || vertical === "bottom") activeKeys.push(`valign-${vertical}`);
+      const wrap = selected.getWrapStrategy();
+      if (wrap === univerAPI.Enum.WrapStrategy.OVERFLOW) activeKeys.push("wrap-overflow");
+      if (wrap === univerAPI.Enum.WrapStrategy.WRAP) activeKeys.push("wrap-wrap");
+      if (wrap === univerAPI.Enum.WrapStrategy.CLIP) activeKeys.push("wrap-clip");
+      if (selected.isPartOfMerge()) activeKeys.push("merge-all");
+      if (style.tr?.v === 1) activeKeys.push("rotation-vertical");
+      else activeKeys.push(`rotation-${style.tr?.a ?? 0}`);
+      const fontFamily = selected.getFontFamily();
+      const fontSize = selected.getFontSize();
+      const preset = STYLE_STATE_PRESETS.find((candidate) => candidate.size === fontSize && candidate.bold === (style.bl === 1));
+      if (preset !== undefined) activeKeys.push(`style-${preset.key}`);
+      const pattern = style.n?.pattern ?? null;
+      if (pattern === "0.00%") activeKeys.push("number-percent");
+      if (pattern === "€ #,##0.00") activeKeys.push("number-currency");
+      if (pattern === "#,##0") activeKeys.push("number-comma");
+      setSelectionFormatting({ activeKeys, fontFamily, fontSize, numberPattern: pattern });
+    };
+    const selectionSubscription = workbook.onSelectionChange(updateSelectionFormatting);
+    const commandSubscription = workbook.onCommandExecuted(updateSelectionFormatting);
+    updateSelectionFormatting();
     lastSaved.current = snapshotJson(univerAPI);
     disposeRef.current = () => univerAPI.dispose();
     setReady(true);
     return () => {
+      selectionSubscription.dispose();
+      commandSubscription.dispose();
       disposeRef.current?.();
       apiRef.current = null;
       disposeRef.current = null;
@@ -146,8 +332,8 @@ export function SheetEditor({
     const ws = () => wb()?.getActiveSheet() ?? null;
     const range = () => wb()?.getActiveRange() ?? null;
     return {
-      exec: (id) => {
-        void apiRef.current?.executeCommand(id);
+      exec: (id, params) => {
+        void apiRef.current?.executeCommand(id, params);
       },
       setFontFamily: (family) => {
         range()?.setFontFamily(family);
@@ -170,27 +356,73 @@ export function SheetEditor({
         const api = apiRef.current;
         if (r === null || api === null || api === undefined) return;
         const BT = api.Enum.BorderType;
-        const BS = api.Enum.BorderStyleTypes;
-        const type = kind === "all" ? BT.ALL : kind === "outer" ? BT.OUTSIDE : BT.NONE;
-        r.setBorder(type, BS.THIN);
+        const types = {
+          all: BT.ALL,
+          outer: BT.OUTSIDE,
+          inside: BT.INSIDE,
+          top: BT.TOP,
+          bottom: BT.BOTTOM,
+          left: BT.LEFT,
+          right: BT.RIGHT,
+          horizontal: BT.HORIZONTAL,
+          vertical: BT.VERTICAL,
+          none: BT.NONE,
+          "diag-down": BT.TLBR,
+          // Univer 0.25.1 exposes BLTR as "bl_tr", while its border command
+          // looks for "bltr". Pass the spelling consumed by the command.
+          "diag-up": "bltr" as (typeof BT)[keyof typeof BT],
+          "diag-down-center": BT.TLBC_TLMR,
+          "diag-down-both": BT.TLBR_TLBC_TLMR,
+          "diag-up-center": BT.MLTR_BCTR,
+        } satisfies Record<Parameters<SheetActions["setBorder"]>[0], (typeof BT)[keyof typeof BT]>;
+        const type = types[kind];
+        // Border tools are exclusive in our ribbon: choosing a new position
+        // replaces the previous border configuration on the selection instead
+        // of accumulating another edge. Keep this to position commands only;
+        // Univer's style/colour commands also apply stale positions.
+        void (async () => {
+          await api.executeCommand("sheet.command.set-border-position", { value: BT.NONE });
+          if (kind !== "none") {
+            await api.executeCommand("sheet.command.set-border-position", { value: type });
+          }
+        })();
       },
-      setRotation: (degrees) => {
-        range()?.setTextRotation(degrees);
+      setRotation: (rotation) => {
+        const r = range();
+        if (r === null) return;
+        // The 0.25.1 runtime accepts a string to enable stacked vertical text,
+        // although the public Facade declaration only exposes numeric angles.
+        (r.setTextRotation as (value: number | string) => unknown)(rotation);
       },
       align: (a) => {
         const r = range();
-        // Univer's facade type omits 'right', but its runtime maps left/center/right.
-        if (r !== null) (r.setHorizontalAlignment as (v: string) => unknown)(a);
+        if (r === null) return;
+        // Univer 0.25.1's Facade uses the misleading value `normal` for RIGHT.
+        // Passing `right` throws at runtime even though the API docs describe it
+        // as right alignment. Keep this compatibility detail behind SheetActions.
+        r.setHorizontalAlignment(a === "right" ? "normal" : a);
       },
       valign: (a) => {
         range()?.setVerticalAlignment(a);
       },
-      toggleWrap: () => {
+      setWrapMode: (mode) => {
         const r = range();
-        if (r !== null) r.setWrap(!r.getWrap());
+        const api = apiRef.current;
+        if (r === null || api === null) return;
+        const strategies = {
+          overflow: api.Enum.WrapStrategy.OVERFLOW,
+          wrap: api.Enum.WrapStrategy.WRAP,
+          clip: api.Enum.WrapStrategy.CLIP,
+        };
+        r.setWrapStrategy(strategies[mode]);
       },
-      merge: () => {
-        range()?.merge();
+      mergeCells: (mode) => {
+        const r = range();
+        if (r === null) return;
+        if (mode === "all") r.merge();
+        else if (mode === "across") r.mergeAcross();
+        else if (mode === "vertical") r.mergeVertically();
+        else r.breakApart();
       },
       setNumberFormat: (pattern) => {
         range()?.setNumberFormat(pattern);
@@ -354,7 +586,7 @@ export function SheetEditor({
           ]}
         />
       </header>
-      <SheetRibbon actions={actions} disabled={!ready} />
+      <SheetRibbon actions={actions} disabled={!ready} formulaCategories={FORMULA_CATEGORIES} activeBorder={activeBorder} selectionFormatting={selectionFormatting} />
       <div className={styles.body}>
         {!ready && (
           <div className={styles.center}>

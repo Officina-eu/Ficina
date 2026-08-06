@@ -6,6 +6,12 @@ contracts.
 
 ## Unreleased
 
+- **alo Sheet ribbon: borders, rotation, wrapping, merge, and cell styles.** The
+  Home ribbon now covers cell **borders**, **text rotation**, **wrapping**
+  (overflow / wrap / clip), **merging** (all, across, vertically, unmerge), and a
+  **cell styles** gallery (Default, Heading 1–3, and more) — the everyday
+  formatting an Excel hand expects, all on alo's own ribbon.
+
 - **alo Sheet is a complete Excel replacement.** You can now create a spreadsheet
   (**New → Sheet**), edit it, **open a real `.xlsx`** — which imports straight into
   alo Sheet, no third-party editor — and **download any sheet back as `.xlsx`**
