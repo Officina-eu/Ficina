@@ -12,6 +12,7 @@ pub mod account_imap;
 pub mod account_sieve;
 pub mod audit;
 pub mod base;
+pub mod billing_customers;
 pub mod blob;
 pub mod calendar;
 pub mod changes;
@@ -50,6 +51,7 @@ pub use account::AccountStore;
 pub use account_imap::{ImapEntry, ImapMailbox, ImapSearchRow};
 pub use account_sieve::{OutboundAction, SieveDelivery, SieveScriptMeta};
 pub use base::{Base, BaseField, BaseRecord, BaseTable, BaseView};
+pub use billing_customers::{Customer, NewCustomer};
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;
 pub use blob::{BlobStore, ShareStream};
@@ -62,9 +64,10 @@ pub use document::{Document, DocumentSummary};
 pub use drive::{DriveLocation, DriveNode, DriveVersion, NewDriveFile};
 pub use error::{Result, StoreError};
 pub use id::{
-    AttachmentId, BaseFieldId, BaseRecordId, BaseTableId, BaseViewId, BlobId, CalendarId,
-    CategoryId, CommentId, ContactId, DriveNodeId, EventId, GroupId, LabelId, MailboxId, MessageId,
-    ProjectId, SiteId, SitePageId, SpaceId, SubtaskId, TaskId, TenantId, ThreadId, UserId,
+    AttachmentId, BaseFieldId, BaseRecordId, BaseTableId, BaseViewId, BillingCustomerId, BlobId,
+    CalendarId, CategoryId, CommentId, ContactId, DriveNodeId, EventId, GroupId, LabelId,
+    MailboxId, MessageId, ProjectId, SiteId, SitePageId, SpaceId, SubtaskId, TaskId, TenantId,
+    ThreadId, UserId,
 };
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,

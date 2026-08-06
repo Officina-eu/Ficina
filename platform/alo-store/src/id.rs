@@ -201,6 +201,11 @@ opaque_id!(
     /// One page of an alo Sites website.
     SitePageId
 );
+opaque_id!(
+    /// A billing customer — the company or person a tenant invoices
+    /// (alo Billing, ADR 0035).
+    BillingCustomerId
+);
 
 #[cfg(test)]
 mod tests {

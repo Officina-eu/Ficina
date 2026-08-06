@@ -96,3 +96,61 @@ Flagged for a human: the `/billing` Caddyfile prefix and the rustfmt
 divergence, both in the inbox above.
 
 Next item: B1.02 (migration + store for `billing_customers`).
+
+## 2026-08-06 — B1.02 billing customers (migration + store)
+
+Shipped the first billing table and its store module:
+
+- **Migration `0100_billing_customers.sql`** — the first migration in the
+  business track's `01xx` block (sites continues in `00xx`). Tenant-scoped,
+  `PRIMARY KEY (tenant_id, id)`, `REFERENCES tenants(id) ON DELETE CASCADE`,
+  a named FK `billing_customers_contact_fk` to `contacts(id)` with
+  `ON DELETE SET NULL` (deleting an address-book contact unlinks, it never
+  destroys billing history), and defence-in-depth CHECKs on name/country/
+  currency/terms that the store already enforces in Rust.
+- **`platform/alo-store/src/billing_customers.rs`** — `NewCustomer` (the
+  writable shape, with EU defaults: `EUR`, 30-day terms), `Customer` (the
+  stored record), and the CRUD on `AccountStore`:
+  `create_billing_customer`, `billing_customers(include_archived)`,
+  `billing_customer`, `update_billing_customer`,
+  `set_billing_customer_archived`. One `normalize()` runs for both create and
+  update, so a field cannot be stored two ways depending on the door: name
+  trimmed and bounded, country/currency uppercased (shape-checked, not
+  list-checked — see the cut below), email shape-checked, VAT id compacted
+  (whitespace/dots/hyphens stripped, uppercased) and left `None` for B2C.
+- **No delete**: archiving is the only removal, per the design note — an
+  issued invoice must always be able to name its customer. Re-archiving keeps
+  the original `archived_at`; archived rows sort after active ones.
+
+Two decisions worth recording:
+
+- **`StoreError::Validation(String)` added** (`error.rs`). The billing error
+  map needs `422 fixable input` distinct from `409 conflicts with state`, and
+  the store had only `Conflict` for both. Every existing `StoreError` match in
+  `alo-jmap` has a catch-all arm, so this is additive; the arm that maps it to
+  `422` lands with the routes in B1.05.
+- **`archived_at TIMESTAMPTZ` rather than the boolean `archived` flag** the
+  design note sketched: same semantics, and it answers "since when" for free.
+  Folded into the note at the B1.27 as-built pass.
+
+Verified: `SQLX_OFFLINE=true cargo clippy --workspace --all-targets` clean
+(no warnings), `cargo test -p alo-store` fully green against the local
+Postgres (`alo-pg`), including the new suites — 9 pure unit tests over the
+normalisation rules and `tests/billing_customers_tenancy.rs`:
+`billing_customers_round_trip_and_never_cross_tenant` (the mandatory
+wrong-tenant proof: tenant B gets `None`/empty/`NotFound` on read, list,
+update, and archive, A's row is unchanged after every attempt, an id that
+never existed gets the *same* answer as another tenant's id, and
+`delete_tenant` purges the rows — checked by reading the table directly) and
+`a_customer_can_only_link_a_contact_of_its_own_tenant`. Schema confirmed in
+the live dev database with `\d billing_customers`. No new routes, so no wire
+verification applies to this item; nothing user-visible changed, so no
+CHANGELOG line (the first one lands with B1.05's routes).
+
+Cuts: country and currency are validated by **shape** (two/three ASCII
+letters, uppercased), not against a list of assigned ISO codes — a stale list
+blocks a real customer, and the codes that actually matter are pinned by the
+VAT rules (B1.03) and the FX table (B1.21). Recorded here rather than
+silently.
+
+Next item: B1.03 (VAT-id format validation wired into customer create/update).
