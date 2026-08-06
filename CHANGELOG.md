@@ -41,6 +41,13 @@ contracts.
   If no AI model is set up yet (an admin configures one), you still get the
   matching files/tasks/email, just without the written answer. ADR 0029.
 
+- **You see exactly what Ask AI will do before it does it.** Every action the
+  agent proposes now shows a **preview card**: a draft or reply shows the
+  recipient, subject and the full text; a move shows the target folder; a snooze
+  shows the wake time. **Sending** — the one step that can't be undone — carries
+  its own caution note and a distinct **Send** button. Nothing runs until you
+  press Approve. ADR 0034.
+
 - **Ask AI can tidy your inbox — with your approval.** Beyond answering, **Ask AI**
   can now act on your email: ask it to "archive the Acme newsletter", "delete the
   spam from billing", "snooze the invoice until Monday 9am", "flag the contract",

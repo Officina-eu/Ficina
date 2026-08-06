@@ -97,6 +97,13 @@
   color: var(--text-secondary);
   margin: 0 0 var(--space-2);
 }
+/* A proposed agent action (ADR 0034) is rendered by AgentActionCard; the
+   confirmation shown after it runs stays here. */
+.actionDone {
+  font-size: var(--text-sm);
+  color: var(--success, #16a34a);
+  margin: 0 0 var(--space-2);
+}
 .answerSourcesLabel {
   font-size: var(--text-xs);
   text-transform: uppercase;
