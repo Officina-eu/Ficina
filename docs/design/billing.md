@@ -43,6 +43,35 @@ extractor, registered in `server.rs`):
 | `POST /billing/invoices/{id}/issue` | assign number, freeze (B1.10) |
 | `POST /billing/invoices/{id}/void` | cancel an issued document, keeping its number (B1.10) |
 | `POST /billing/invoices/{id}/credit-note` | create the crediting invoice (B1.10) |
+
+As-built (B1.10), for the invoice routes specifically:
+
+- **The header and the line set travel in one body.** `lines` is an ordinary
+  field of the invoice body on both `POST` and `PATCH`, replacing the whole set
+  in the order sent; absent, it leaves the stored lines alone. A draft editor
+  saves the document it is looking at, not a patch stream. A body that states
+  only `lines` deliberately does **not** touch the header — replaying the stored
+  header would re-resolve the customer, and a draft whose customer was archived
+  afterwards could then never have its lines edited again.
+- **Money is only ever read.** Every response carries server-computed `totals`
+  (net, gross, and the VAT breakdown per rate) and a per-line `netCents`; there
+  is no writable total anywhere in the surface. There is no per-line VAT field,
+  because VAT is rounded once per rate subtotal and a per-line column would not
+  add up to the document's own.
+- **`overdue` is derived on read** (`Invoice::is_overdue`) from the status and
+  the frozen due date, never stored — a stored flag would be wrong every
+  midnight — and judged against the server's date, never one a client sends.
+- **The `status` filter is strict** (`422` on an unrecognised value), unlike the
+  forgiving boolean query flags: a filter that silently widened to "everything"
+  would show a bookkeeper drafts among their issued documents.
+- **`GET /billing/invoices/{id}` also answers `creditNotes`** — the summaries of
+  what credits this document, drafts included: the ledger of a corrected
+  invoice, and the read the issued view needs.
+- **Lifecycle transitions are their own `POST`s**, never fields on the `PATCH`,
+  so issuing (which assigns a legal number and freezes the document) can never
+  happen because an editor submitted a stale form.
+- **`status`, `number`, `issueDate` and `dueDate` are not writable** by any
+  request; like any unknown field they are ignored.
 | `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17, B1.23) |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) |
 | `GET/POST /billing/quotes`, `POST /billing/quotes/{id}/accept` | quote lifecycle → draft invoice (B1.11, B1.12) |
@@ -189,6 +218,8 @@ route edge to the existing `Problem` shape. The full map:
 | Crediting a void invoice (already cancelled in full) | `Conflict` | `409` |
 | Crediting a credit note | `Conflict` | `409` |
 | Moving a credit note off its original's customer or currency | `Validation` | `422` |
+| Creating an invoice without naming a customer (`customerId` absent or blank) | — (route edge) | `422` |
+| Listing with a `status` filter that is not one of the four states | — (route edge) | `422` |
 | Payment amount ≤ 0, or recorded against a draft | `Validation` | `422` |
 | Invalid quote transition (e.g. `declined` → `accepted`) | `Conflict` | `409` |
 | Sequence row contention beyond the tx retry | `Db` | `503` |

@@ -883,3 +883,193 @@ working tree"). It was already pushed when this was noticed, and rewriting
 pushed history is forbidden by the loop's safety rails, so the commit stands
 and the gap is recorded here instead. The authorship itself is correct (the
 repository owner, as configured).
+
+---
+
+## 2026-08-06 — B1.10 the invoice routes, and the arc on the wire
+
+The door the web module (B1.13–B1.15) and the billing agent (B1.25) both come
+through. Seven routes over the document that B1.06–B1.09 built, and the first
+CHANGELOG line the wave has earned. Shipped:
+
+- **`products/mail/alo-jmap/src/billing_invoices.rs`** — `GET/POST
+  /billing/invoices`, `GET/PATCH/DELETE /billing/invoices/{id}`, and `POST
+  …/issue`, `…/void`, `…/credit-note`, registered in `server.rs` under the
+  existing `/billing` prefix.
+- **`Invoice::is_overdue(today)`** in the store — the one definition of overdue
+  (issued, and past the due date it was frozen with), so the list surface here,
+  the overdue view (B1.19) and the dunning drafts (B1.26) cannot drift apart.
+- **`billing::iso_date`** alongside `iso` — a billing date is a **day**, not an
+  instant. Giving an issue date a time and a zone invites a client to shift it
+  across midnight, and the date is the one thing on the document a tax
+  authority reads together with the number.
+
+Decisions, all recorded as as-built in `docs/design/billing.md` § Routes:
+
+- **The header and the line set travel in one body.** `lines` is an ordinary
+  field on both `POST` and `PATCH`, replacing the whole set in the order sent;
+  absent, it leaves the stored lines alone. A draft editor saves the document
+  it is looking at, not a patch stream — which is also the store's own model.
+- **A body stating only `lines` does not touch the header.** Replaying the
+  stored header would re-resolve the customer through `normalize_invoice`,
+  which refuses an archived one; a draft whose customer was archived after it
+  was raised would then be unable to have its lines edited at all — a dead end
+  with no way out but deleting it. `states_header()` is that guard.
+- **Money is only ever read.** Every response carries server-computed `totals`
+  and a per-line `netCents`, and there is no writable total anywhere in the
+  surface. No per-line VAT field either: VAT is rounded once per rate subtotal
+  (B1.06), so a per-line column would not add up to the document's own and a
+  client would render a document that disagrees with itself.
+- **`overdue` is derived on read, and judged against the server's date.** Not a
+  value a client may send: whether a document is late is a fact about the
+  tenant's ledger, not about the reader's clock, and a browser with a wrong
+  date must not be able to clear its own overdue list.
+- **The `status` filter is strict — `422` on anything but the four states.**
+  Deliberately unlike the forgiving boolean flags in `billing.rs`: a filter
+  that silently widened to "everything" on a typo would show a bookkeeper
+  drafts among their issued documents, which is the one list that must never be
+  approximate.
+- **Lines are validated before either write.** `billing_line_totals` (pure) runs
+  first, so a typo in the last line cannot leave an empty draft behind on
+  `POST`, nor a new header with the old lines on `PATCH`.
+- **One check lives at the edge: `customerId` must be stated.** Which customer
+  a document is raised for is not a field rule the store can own, and letting
+  an absent id fall through would answer "no such customer" (`404`) to a
+  request that never named one. Everything else is the store's.
+- **Lifecycle transitions are their own `POST`s**, never fields on the `PATCH`,
+  and `status`/`number`/`issueDate`/`dueDate` are not writable by any request.
+- **`GET …/{id}` also answers `creditNotes`** — the ledger of a corrected
+  invoice, drafts included, which the issued view (B1.15) needs.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings); `cargo test -p alo-store -p alo-jmap`
+fully green against local Postgres (exit 0 across every suite);
+`rustfmt --edition 2024 --check` clean on all four touched/added Rust files.
+
+The item's gate is `products/mail/alo-jmap/tests/billing_invoice_http.rs`
+(5 tests, all passing on the first run):
+
+- **`the_draft_to_issue_to_credit_arc_runs_on_the_wire`** — the done-when,
+  through the real router. A draft with three lines across two VAT rates,
+  including a fractional quantity (1.5 h) and a price whose VAT lands on a half
+  cent, comes back at net 26 747 / VAT 4 917 / gross 31 664 with the breakdown
+  per rate in rate order — figures that only come out right if the server
+  rounds once per rate. Then: a header-only `PATCH` leaves the lines and the
+  totals alone; a lines-only `PATCH` replaces the set (including a negative
+  discount line) and keeps the note; issuing assigns `INV-2026-00001`, today's
+  date and today+14; all four write verbs then answer `409` naming the state
+  and nothing moves; the credit note mirrors the lines with quantities negated
+  and totals exactly negated; the original names it in `creditNotes`; issuing
+  it draws `INV-2026-00002` from the **same** series; net, VAT and gross of the
+  pair each sum to zero; the status filter partitions the three documents; a
+  draft is deleted and a `404` afterwards, while the issued original is voided
+  and keeps its number.
+- `a_refused_request_writes_nothing_and_says_what_is_wrong` — a body naming no
+  customer is a `422` about the field (never the `404` an unresolvable id
+  gets); an unknown customer is a `404`; four kinds of bad line are each `422`
+  with **no draft left behind**; `19.99` in a cents field is a `400` that never
+  quotes the body; an empty document cannot be issued; a draft can be neither
+  voided nor credited; a bad line in a `PATCH` leaves both the stored header
+  and the stored lines as they were; three unrecognised status filters are
+  `422` while a blank one is simply no filter.
+- `every_route_needs_a_token_and_an_id_that_exists` — all eight route/verb
+  pairs answer `401` without a token (the guard runs before anything is looked
+  up, so an unauthenticated caller learns nothing about which ids exist) and
+  `404` with one for an id that was never issued.
+- `only_an_issued_document_past_its_date_is_flagged_overdue` — the past is
+  planted with SQL, since the store refuses to backdate an issue (B1.08), so
+  the flag is tested against the **stored** document: `true` on both the single
+  read and the list, `false` again once voided without the due date moving, and
+  `false` for a document due *today* (the customer has the whole day).
+- **`another_tenants_document_is_invisible_and_untouchable_on_every_route`** —
+  the mandatory wrong-tenant proof. A's lists never mention B's document on any
+  filter and never leak its reference; all seven verbs on B's id answer A with
+  `404` — never `409`, which would confirm the id exists *and* leak its state —
+  and no refusal echoes what it refused; A cannot raise a document against B's
+  customer either; B's document is unchanged afterwards and **B's next issue is
+  still `…-00002`**, so A's refused attempts consumed none of B's numbers; and
+  the denial is re-proved through A's store handle directly, past the routes.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenant `wireco`), full transcript:
+
+```
+GET   /billing/invoices                    (no token)                -> 401
+POST  /billing/invoices                    (no token)                -> 401
+POST  /billing/invoices/x/issue            (no token)                -> 401
+POST  /billing/invoices/x/credit-note      (no token)                -> 401
+GET   /billing/invoices/no-such-id                                   -> 404
+POST  /billing/invoices                    {}                        -> 422  "customerId is required to raise a document"
+GET   /billing/invoices?status=sent                                  -> 422  "status must be one of draft, issued, paid, void"
+POST  /billing/customers                   Acme GmbH, DE             -> 200
+POST  /billing/invoices                    3 lines, 2 rates          -> 200  draft, number null, EUR, terms 14, overdue false
+                                                                            net 26747 / VAT 4917 / gross 31664; per-rate [700: 5000/350, 2100: 21747/4567]
+                                                                            line nets [18750, 2997, 5000]
+POST  /billing/invoices                    line description "  "     -> 422  "line 1: description must not be empty"
+POST  /billing/invoices                    unitPriceCents 19.99      -> 400  "malformed request body"
+GET   /billing/invoices                                              -> 200  1 (the refusals wrote nothing)
+PATCH /billing/invoices/{id}               {note}                    -> 200  totals unchanged
+PATCH /billing/invoices/{id}               {lines: 2, incl discount} -> 200  net 22500 / VAT 4725 / gross 27225; reference + note kept
+POST  /billing/invoices/{id}/issue                                   -> 200  INV-2026-00001, issue 2026-08-06, due 2026-08-20, overdue false
+PATCH /billing/invoices/{id}               {reference}               -> 409  "an invoice can only be changed while it is a draft; this one is issued"
+DELETE/billing/invoices/{id}                                         -> 409  same
+POST  /billing/invoices/{id}/issue         (again)                   -> 409  "an invoice can only be issued while it is a draft; …"
+POST  /billing/invoices/{id}/credit-note                             -> 200  draft, creditNote true, credits {id}, qtys [-2000, 1000], gross -27225
+GET   /billing/invoices/{id}                                         -> 200  creditNotes [(draft, -27225)]
+POST  /billing/invoices/{cn}/issue                                   -> 200  INV-2026-00002, issued
+GET   /billing/invoices/{id} + /{cn}                                 -> 200  27225 + -27225 = 0
+POST  /billing/invoices                    {customerId} only         -> 200  an empty draft
+POST  /billing/invoices/{empty}/issue                                -> 422  "an invoice with no lines cannot be issued; add a line first"
+GET   /billing/invoices                                              -> 200  3
+GET   /billing/invoices?status=draft                                 -> 200  [the empty draft]
+GET   /billing/invoices?status=issued                                -> 200  [00002 -27225, 00001 27225], both overdue false
+GET   /billing/invoices?status=paid                                  -> 200  []
+GET   /billing/invoices?status=            (blank = no filter)       -> 200  3
+DELETE/billing/invoices/{empty}                                      -> 200
+GET   /billing/invoices/{empty}                                      -> 404
+POST  /billing/invoices/{id}/void                                    -> 200  void, number INV-2026-00001 kept
+POST  /billing/invoices/{id}/void          (again)                   -> 409  "only an issued invoice can be voided; this one is void"
+POST  /billing/invoices/{id}/credit-note   (a void doc)              -> 409  "a void invoice has already been cancelled in full; …"
+UPDATE billing_invoices SET due_date = CURRENT_DATE - 3   (psql)
+GET   /billing/invoices/{cn}                                         -> 200  issued, due 2026-08-03, overdue TRUE
+GET   /billing/invoices?status=issued                                -> 200  INV-2026-00002 overdue TRUE
+```
+
+Real rows read back with `psql` afterwards: two documents for that tenant
+(`INV-2026-00001` void, `INV-2026-00002` issued and flagged a credit note with
+its `credits_invoice_id` set), four line rows whose `qty_milli` mirror exactly
+(`2000/-1000` against `-2000/1000`) with `unit_price_cents` of `pg_typeof`
+**bigint**, and **one** `billing_sequences` row at `next_value` 3 — two numbers
+drawn, and the discarded draft left no hole.
+
+Cuts and flags:
+
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  The production Caddyfile must add it at the next deploy or every billing
+  route returns the SPA. The loop does not touch `deploy/`. (Raised at B1.05;
+  flagged again at B1.27.)
+- **No `If-Match`/`ETag` on the draft `PATCH`.** Two people editing one draft
+  at the same instant still lose an edit at the route layer — the store's row
+  lock keeps each *write* coherent and stops an edit landing on a document that
+  was issued meanwhile (that race is refused `409`), but it cannot merge two
+  editors' intentions. Concurrency control for the whole surface is worth doing
+  once, not per module; noted for the B1.27 wave review.
+- **No line-totals preview route.** `AccountStore::billing_line_totals` is used
+  here only to validate before writing. B1.14 asks for live totals in the
+  editor and gets them from the `PATCH` response, which is the stored truth; a
+  separate preview endpoint would be a second answer to the same question.
+- **No `overdue=1` list filter.** The queue asked for the flag *computed*, and
+  it is, on every entry; a filter belongs with the overdue view B1.19 builds,
+  where "unpaid" also stops meaning "not `paid`".
+- **A create answers `200`, not `201`** — unchanged from B1.05, and revisited
+  for the whole surface at once or not at all.
+- **No web UI** — B1.13–B1.15 own that; nothing in `web/` was touched, so no
+  i18n strings were added.
+- **Formatting note.** `rustfmt` follows `mod` declarations, so running it on
+  `lib.rs` reformats the whole crate; seven unrelated files it touched were
+  reverted, and `lib.rs` keeps its pre-existing module order with only the
+  additive `pub mod billing_invoices;` line.
+
+Next item: B1.11 (`billing_quotes` + lines — the same line model, shared where
+clean, with the draft/sent/accepted/declined/expired lifecycle and its
+allowed-transition tests).

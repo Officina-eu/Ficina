@@ -20,6 +20,7 @@ pub mod autoconfig;
 pub mod base;
 pub mod billing;
 pub mod billing_customers;
+pub mod billing_invoices;
 pub mod billing_products;
 pub mod blob;
 pub mod calendar;

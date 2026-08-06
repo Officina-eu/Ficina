@@ -6,6 +6,24 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: invoices, from draft to issued to credited.** The document
+  itself is now live on the server. You raise a **draft** for a customer — lines
+  with a description, a quantity, a unit price and a VAT rate — and the server
+  works out the net, the VAT per rate, and the gross, every time, in whole
+  cents; nothing about what a document is worth is ever computed in the browser
+  or sent in by a client. A draft is yours to change or discard. **Issuing** it
+  is the moment it becomes a legal document: it takes the next number in your
+  unbroken series (`INV-2026-00001`), is stamped with the day it was issued and
+  the day it is due from the payment terms it was raised with, and is frozen —
+  an issued invoice is never edited afterwards. From there you either **void**
+  it (it keeps its number and stops being owed, so your series stays gapless) or
+  **credit** it: one click raises a mirrored credit note, drawing on the same
+  series, that you can trim to a partial credit before issuing. The two
+  documents together sum to exactly zero, so a corrected invoice reconciles
+  against the customer's copy to the cent. The invoice list can be filtered by
+  status and flags anything past its due date as **overdue**. The screens for
+  all of this arrive shortly (`/billing/invoices`; ADR 0035).
+
 - **alo Billing: your customers and your price list, over the API.** The first
   working part of alo Billing is live on the server: a tenant-wide list of the
   companies you invoice — address, country, VAT id, payment terms, currency,

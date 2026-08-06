@@ -309,6 +309,26 @@ pub struct Invoice {
     pub updated_at: OffsetDateTime,
 }
 
+impl Invoice {
+    /// Whether the document is **overdue** as of `today`: issued, still owed,
+    /// and past the due date it was stamped with.
+    ///
+    /// Derived, never stored — a stored flag would be wrong every midnight,
+    /// and the two facts it is derived from (status and due date) are frozen
+    /// on the document already. It lives here rather than at the route edge so
+    /// the list surface, the overdue view (B1.19) and the dunning drafts
+    /// (B1.26) all answer from one definition.
+    ///
+    /// A `draft` has no due date, a `void` one is owed by nobody, and a `paid`
+    /// one is settled; none of them is ever overdue. Partial payments arrive
+    /// with B1.19 and will narrow `Issued` further — a partially-paid document
+    /// past its date is still overdue for the remainder, so this predicate
+    /// keeps its shape.
+    pub fn is_overdue(&self, today: Date) -> bool {
+        matches!(self.status, InvoiceStatus::Issued) && self.due_date.is_some_and(|due| due < today)
+    }
+}
+
 /// An invoice as a list entry: the header and what it is worth, without the
 /// lines. The totals are computed, never read from a column.
 #[derive(Debug, Clone)]
@@ -1246,6 +1266,57 @@ mod tests {
             void.contains("void") && void.contains("cancelled"),
             "{void}"
         );
+    }
+
+    /// A header in a given state, for the overdue predicate: everything else
+    /// about a document is irrelevant to it.
+    fn dated(status: InvoiceStatus, due: Option<Date>) -> Invoice {
+        Invoice {
+            id: BillingInvoiceId::new("inv"),
+            customer_id: BillingCustomerId::new("cust"),
+            status,
+            currency: "EUR".to_owned(),
+            number: Some("INV-2026-00001".to_owned()),
+            issue_date: due,
+            due_date: due,
+            payment_terms_days: 14,
+            is_credit_note: false,
+            credits_invoice_id: None,
+            reference: String::new(),
+            note: String::new(),
+            created_by: "u".to_owned(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn only_an_issued_document_past_its_date_is_overdue() {
+        let today = Date::from_calendar_date(2026, time::Month::August, 6)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let day_before = today
+            .previous_day()
+            .unwrap_or_else(|| panic!("no yesterday"));
+        let day_after = today.next_day().unwrap_or_else(|| panic!("no tomorrow"));
+
+        assert!(dated(InvoiceStatus::Issued, Some(day_before)).is_overdue(today));
+        // Due *today* is not yet late: the customer has the whole day.
+        assert!(!dated(InvoiceStatus::Issued, Some(today)).is_overdue(today));
+        assert!(!dated(InvoiceStatus::Issued, Some(day_after)).is_overdue(today));
+        // No due date at all (a draft's shape) is never overdue, whatever the
+        // status column says.
+        assert!(!dated(InvoiceStatus::Issued, None).is_overdue(today));
+        // Settled, cancelled, or never a document: none of them is owed.
+        for other in [
+            InvoiceStatus::Draft,
+            InvoiceStatus::Paid,
+            InvoiceStatus::Void,
+        ] {
+            assert!(
+                !dated(other, Some(day_before)).is_overdue(today),
+                "{other:?} is not owed and cannot be overdue"
+            );
+        }
     }
 
     #[test]

@@ -15,10 +15,10 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, agent, ai, api, autoconfig, base, billing_customers, billing_products, blob, calendar,
-    carddav, contacts, delegates, docs, drive, filters, flagdue, imap_import_route, push,
-    reset_route, schedule, security, session, settings, share, signup_route, snooze, spaces, tasks,
-    unsubscribe, wopi, workspace_search,
+    admin, agent, ai, api, autoconfig, base, billing_customers, billing_invoices, billing_products,
+    blob, calendar, carddav, contacts, delegates, docs, drive, filters, flagdue, imap_import_route,
+    push, reset_route, schedule, security, session, settings, share, signup_route, snooze, spaces,
+    tasks, unsubscribe, wopi, workspace_search,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -228,6 +228,33 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/billing/products/{id}/archive",
             post(billing_products::archive_product),
+        )
+        // Invoices (B1.10). The lifecycle transitions are their own POSTs, not
+        // fields on the PATCH: issuing assigns a legal number and freezes the
+        // document, so it can never happen because an editor sent a stale
+        // form. DELETE is draft-only — an issued document is voided, keeping
+        // its number so the series stays gapless.
+        .route(
+            "/billing/invoices",
+            get(billing_invoices::list_invoices).post(billing_invoices::create_invoice),
+        )
+        .route(
+            "/billing/invoices/{id}",
+            get(billing_invoices::get_invoice)
+                .patch(billing_invoices::update_invoice)
+                .delete(billing_invoices::delete_invoice),
+        )
+        .route(
+            "/billing/invoices/{id}/issue",
+            post(billing_invoices::issue_invoice),
+        )
+        .route(
+            "/billing/invoices/{id}/void",
+            post(billing_invoices::void_invoice),
+        )
+        .route(
+            "/billing/invoices/{id}/credit-note",
+            post(billing_invoices::create_credit_note),
         )
         // Drive — the file tree (ADR 0027). Static paths before /nodes/{id}.
         .route("/drive/list", get(drive::list))
