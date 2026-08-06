@@ -15,7 +15,7 @@ use crate::error::Problem;
 use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
-    admin, ai, api, autoconfig, base, blob, calendar, carddav, contacts, delegates, docs, drive,
+    admin, agent, ai, api, autoconfig, base, blob, calendar, carddav, contacts, delegates, docs, drive,
     filters, flagdue, imap_import_route, push, reset_route, schedule, security, session, settings,
     share, signup_route, snooze, spaces, tasks, unsubscribe, wopi, workspace_search,
 };
@@ -71,6 +71,16 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/ai/compose",
             post(ai::compose).layer(DefaultBodyLimit::max(ai::MAX_SUMMARIZE_BYTES)),
+        )
+        // "Ask alo" agent (ADR 0034): answer OR propose one action; a separate,
+        // approval-gated route is the only one that executes.
+        .route(
+            "/ai/agent",
+            post(agent::agent).layer(DefaultBodyLimit::max(ai::MAX_ASK_BYTES)),
+        )
+        .route(
+            "/ai/agent/execute",
+            post(agent::agent_execute).layer(DefaultBodyLimit::max(ai::MAX_ASK_BYTES)),
         )
         // Snooze: hide conversations until a chosen time (a background sweeper wakes them).
         .route("/snooze", post(snooze::snooze))

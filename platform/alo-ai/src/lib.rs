@@ -17,6 +17,11 @@ use serde::{Deserialize, Serialize};
 pub mod egress;
 use egress::{is_blocked_ip, split_authority};
 
+mod agent;
+pub use agent::{
+    agent_messages, parse_decision, run_agent, AgentDecision, ProposedAction, AGENT_TOOLS,
+};
+
 /// Per-tenant backend configuration (admin-set, ADR 0011).
 #[derive(Debug, Clone)]
 pub struct AiConfig {
@@ -334,7 +339,7 @@ pub async fn suggest_replies(
 /// One chat-completions round-trip to the configured backend, returning the
 /// assistant's text. Shared by [`improve`] and [`summarize`]; enforces the
 /// enabled/configured gates and the egress policy, and never logs content.
-async fn chat(
+pub(crate) async fn chat(
     config: &AiConfig,
     messages: &[ChatMessage],
     temperature: f32,
@@ -417,7 +422,7 @@ answer, say you could not find it in their workspace — never invent files, peo
 that are not in the sources. Return only the answer — no preamble or heading.";
 
 /// Renders the retrieved sources into the grounding block the model reads.
-fn render_sources(sources: &[WorkspaceSource]) -> String {
+pub(crate) fn render_sources(sources: &[WorkspaceSource]) -> String {
     let mut out = String::new();
     for source in sources {
         let kind = match source.kind.as_str() {

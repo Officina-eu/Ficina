@@ -13,6 +13,7 @@
 //! IdP.
 
 pub mod admin;
+pub mod agent;
 pub mod ai;
 pub mod api;
 pub mod autoconfig;
