@@ -1,0 +1,202 @@
+# Design note — alo Billing (customers, products, quotes, invoices, payments)
+
+Status: building · 2026-08 · ADR 0035 · Business track wave B1
+
+alo Billing is the first Work OS module: the quote → invoice → payment
+arc for EU SMEs, with legal sequential numbering and EN 16931
+e-invoicing as the wedge. It is built from scratch on the tenant-scoped
+store, money is integer cents everywhere, and every total is computed
+server-side. This note records the surface, data model, error map,
+tenancy, and the numbering decision before the first migration lands;
+it is updated to as-built at the B1 wave review (B1.27).
+
+## Surface
+
+- **Inputs:** authenticated workspace users driving `/billing/*` routes
+  on `alo-jmap` — customer and product CRUD, quote and invoice draft
+  CRUD, the issue and credit-note actions, payment recording, the VAT
+  report, and the PDF/e-invoice renderings. The billing agent
+  (ADR 0034, item B1.25) is a second caller of the same store
+  functions, never of a parallel code path.
+- **Outputs:** JSON resources with server-computed totals; a printable
+  HTML document and its PDF rendering; Factur-X (CII) and XRechnung
+  (UBL 2.1) XML for issued invoices; CSV for the VAT summary; and mail
+  **drafts** (never sends) when an invoice or reminder goes to a
+  customer.
+- **Who calls it:** `web/src/billing` (the module UI, B1.13–B1.16)
+  calls `alo-jmap`; the `alo-ai` billing module produces
+  propose-then-approve envelopes that `alo-jmap` executes; nothing
+  external calls billing directly in B1 (Peppol is a later item and
+  goes through a certified access point, not our own endpoint).
+
+### Routes
+
+All under the authenticated `alo-jmap` router, following the existing
+action-route convention (typed `Problem` errors, `authenticate`
+extractor, registered in `server.rs`):
+
+| Route | Purpose |
+|---|---|
+| `GET/POST /billing/customers`, `GET/PATCH/POST /billing/customers/{id}[/archive]` | customer CRUD (B1.05) |
+| `GET/POST /billing/products`, `GET/PATCH/POST /billing/products/{id}[/archive]` | price-list CRUD (B1.05) |
+| `GET/POST /billing/invoices`, `GET/PATCH /billing/invoices/{id}` | draft CRUD + list with status filter (B1.10) |
+| `POST /billing/invoices/{id}/issue` | assign number, freeze (B1.10) |
+| `POST /billing/invoices/{id}/credit-note` | create the crediting invoice (B1.10) |
+| `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17, B1.23) |
+| `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) |
+| `GET/POST /billing/quotes`, `POST /billing/quotes/{id}/accept` | quote lifecycle → draft invoice (B1.11, B1.12) |
+| `GET/POST /billing/payments` | record full/partial payments (B1.19) |
+| `GET /billing/reports/vat?from&to` | VAT summary + CSV (B1.20) |
+
+`/billing` is a **new top-level route prefix**: the production Caddyfile
+needs it added at the next deploy. That is a human action recorded in
+`docs/autonomy/STATE.md`, never a change the loop makes to `deploy/`.
+
+## Data model
+
+New `billing_*` store modules in `platform/alo-store` (one file per
+responsibility, mirroring `tasks.rs` / `calendar.rs`). Every table
+carries `tenant_id`, ids are `opaque_id!` newtypes, timestamps are
+`timestamptz`, and **money is `i64` integer cents** with VAT rates in
+**basis points** (`i32`, 2100 = 21 %). No floating point appears in any
+column, struct field, or computation anywhere in this module.
+
+- **`billing_customers`** — display name, address lines, postal code,
+  city, country (ISO 3166-1 alpha-2), VAT id (nullable — B2C customers
+  have none), email, payment terms in days, default currency
+  (ISO 4217), optional link to an existing `contacts` row, archived
+  flag. Archive rather than delete: an issued invoice must always be
+  able to name its customer.
+- **`billing_products`** — name, unit, unit price cents, VAT rate bp,
+  active flag. A price-list *source* for lines, not a foreign key the
+  line depends on — see the line snapshot rule below.
+- **`billing_invoices`** — customer ref, status
+  `draft | issued | paid | void`, currency, optional number (NULL while
+  draft), issue date, due date, payment terms snapshot, credit-note
+  type flag with a nullable `credits_invoice_id` self-reference, and
+  the stored FX rate snapshot for multi-currency (B1.21).
+- **`billing_invoice_lines`** — invoice ref, line order, description,
+  quantity in **milli-units** (`i64`; 1.5 h = 1500), unit price cents,
+  VAT rate bp. Lines **snapshot** the product's description, price, and
+  rate at the moment they are added; later edits to the price list
+  never rewrite an existing document. This is the whole reason a line
+  does not simply join to `billing_products`.
+- **`billing_quotes`** + **`billing_quote_lines`** — the same line
+  model (shared code where it stays clean, not a forced abstraction),
+  lifecycle `draft | sent | accepted | declined | expired`, valid-until
+  date, and a link from the invoice created on acceptance back to the
+  quote.
+- **`billing_payments`** — invoice ref, date, amount cents, method,
+  reference. Invoice paid-state is **derived** from the sum of its
+  payments against its gross total, never stored as an independently
+  writable field that could disagree with the ledger.
+- **`billing_sequences`** — `(tenant_id, kind, year, next_value)`, the
+  row-locked counter behind legal numbering (below).
+
+### Totals
+
+Totals are a **pure function** over lines (B1.06), never a stored
+column the client can influence:
+
+```
+line_net   = round_half_up(qty_milli × unit_price_cents / 1000)
+net        = Σ line_net
+vat_by_rate[r] = round_half_up(Σ line_net where rate = r × r / 10_000)
+gross      = net + Σ vat_by_rate
+```
+
+Rounding is half-up at the **VAT-rate subtotal**, not per line — the EN
+16931 / VAT-directive convention — and the property test asserts that
+line sums always reconcile to the returned totals for randomly
+generated documents. The client renders what the API returns; the web
+layer never computes money (B1.14).
+
+## Errors
+
+Store errors are `StoreError` variants (`thiserror`), mapped at the
+route edge to the existing `Problem` shape. The full map:
+
+| Condition | Store | HTTP |
+|---|---|---|
+| Unauthenticated request | — | `401` |
+| Customer/product/invoice id absent **or owned by another tenant** | `NotFound` | `404` |
+| Malformed VAT id for the customer's country | `Validation` | `422` |
+| Negative quantity, negative unit price, unknown currency, VAT rate outside 0–10000 bp | `Validation` | `422` |
+| Editing lines on a non-draft invoice | `Conflict` | `409` |
+| Issuing an already-issued invoice | `Conflict` | `409` |
+| Crediting a draft (never-issued) invoice | `Conflict` | `409` |
+| Payment amount ≤ 0, or recorded against a draft | `Validation` | `422` |
+| Invalid quote transition (e.g. `declined` → `accepted`) | `Conflict` | `409` |
+| Sequence row contention beyond the tx retry | `Db` | `503` |
+
+The wrong-tenant case deliberately returns the **same `404`** as a
+truly absent id: there is no existence oracle across tenants, matching
+the `StoreError::NotFound` doctrine already documented in
+`platform/alo-store/src/error.rs`.
+
+## Tenancy
+
+Every billing table carries `tenant_id`, and every read and write goes
+through `Store::for_account(tenant, user)` — the `AccountStore` door
+that bakes `(tenant, user)` into the query rather than accepting a
+tenant argument a caller could get wrong. No billing function takes a
+`TenantId` parameter; the handle is the scope.
+
+Concretely:
+
+- Every `SELECT`, `UPDATE`, and `DELETE` includes `tenant_id = $1` from
+  the handle, never from request input.
+- Foreign keys are validated **within the tenant**: attaching a
+  customer to an invoice re-checks that the customer id resolves under
+  the same handle, so a guessed id from another tenant is a `404`, not
+  a cross-tenant link.
+- The numbering sequence is keyed by tenant, so two tenants issuing
+  concurrently never share a counter.
+- **Every B1 storage item ships a wrong-tenant test** (mandatory per
+  CLAUDE.md and LOOP.md): tenant A reaching tenant B's customer,
+  product, invoice, quote, and payment each gets a clean denial —
+  proven by a test, not asserted in prose.
+
+## Numbering — the decision
+
+**Chosen:** a per-tenant row in `billing_sequences`, selected
+`FOR UPDATE` **inside the same transaction** that writes the invoice
+number, issue date, and frozen status. Format `INV-YYYY-NNNNN`, the
+counter resetting per year, credit notes drawing from the same sequence
+so the ledger stays continuous.
+
+**Rejected: a Postgres `SEQUENCE` / `nextval()`.** Sequences are
+deliberately non-transactional — a rolled-back or failed transaction
+**burns** the number it drew, leaving a permanent gap. Gapless
+numbering is a legal requirement for invoices across the EU
+(§14 UStG in DE, and the equivalent in FR/BE/NL), so the very property
+that makes `nextval()` fast and contention-free is the property that
+makes it unusable here. Row locking serialises issuance per tenant,
+which is correct and cheap at SME volume; B1.08's concurrency test
+asserts across 100 iterations that two parallel issues never share or
+skip a number.
+
+Drafts stay **unnumbered** (`number IS NULL`) precisely so an abandoned
+draft cannot consume a number, and issuing is the only transition that
+assigns one.
+
+## Out of scope for B1
+
+Deliberate cuts, each a decision rather than an omission:
+
+- **Payroll and tax filing** — excluded by ADR 0035; we export, we do
+  not file.
+- **Peppol network membership** — B1 sends via a certified access
+  point; obtaining our own AP account is a human action logged in
+  STATE.md, not loop work.
+- **Live PSD2 bank feeds** — reconciliation arrives in B4 from imported
+  statements (CAMT.053/MT940/CSV); no licensed aggregator in B1.
+- **Payment links / PSP integration** and **recurring invoices** — both
+  explicitly B2 in `docs/features.md`.
+- **Customer self-service portal** — tagged `[B+]`, post-traction.
+- **Automatic sending of any email** — B1.18 and B1.26 create Drafts
+  the user approves, consistent with the ADR 0034 agent send rules and
+  the loop's absolute no-real-email rail.
+- **Live AI model calls in the loop** — the billing agent (B1.25) is
+  verified structurally: routes exist, guards return 401/422, executors
+  run against the local DB. Model wiring is a human step.
