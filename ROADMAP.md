@@ -320,6 +320,20 @@ Slices, in order — each shippable and wire-verified alone:
 Later waves (post-traction, unordered): manufacturing-lite, POS, subscriptions,
 e-signature (eIDAS), marketing sends, storefront, DATEV/PSD2 integrations.
 
+## Sites track — alo Sites, the AI-native website builder (ADR 0036) ⇄ parallel to the Business track
+
+Second autonomous loop (office PC): a no-code, **AI-first** website builder —
+"describe your business" → full draft site → conversational preview-then-
+approve editing. V1 = marketing site + blog (written in alo Docs) + forms,
+published to a subdomain instantly **and** connectable to custom domains.
+Section-JSON model, static Rust rendering, a separate public `alo-sites`
+service, privacy-first analytics. Queue: `docs/autonomy/sites/QUEUE.md`
+(items S1.01–S1.32).
+
+### Exit gate — Sites v1 done when:
+
+- [ ] A real business site (Axon Group or aloworld itself) is generated from a description, edited, published on a custom domain, receives a form submission that lands in the owner's inbox, and publishes one blog post written in alo Docs — with analytics counting the visit and storing no personal data
+
 ---
 
 When every box in a phase is checked, mark the phase header — DONE and record

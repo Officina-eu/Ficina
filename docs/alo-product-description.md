@@ -53,6 +53,8 @@ alo is built against each of those failures:
 | B5 | **alo Inventory** | Product catalog, suppliers, purchase and sales orders, multi-location stock with full move history, reorder rules. |
 | B6 | **alo HR** | Employee records, leave management, org chart, recruitment-lite, one approvals inbox. Payroll *calculation* is a permanent non-goal — data exports to local providers instead. |
 
+**alo Sites (ADR 0036)** — the AI-native no-code website builder, in parallel with the Business track: "describe your business" generates a complete draft site; section-based editing with preview-then-approve AI changes; blog written in alo Docs; forms that feed CRM; static Rust rendering; instant subdomains **and** custom domains with automatic TLS; privacy-first, cookie-free analytics. Completes the SME bundle — domain → email → website → leads → invoices — in one sovereign place.
+
 ## 4. What we build vs. what we integrate
 
 The rule: **build where we differentiate, integrate the commodity, operate the rest as sealed containers.** Our repositories stay Rust + TypeScript only.
@@ -208,7 +210,7 @@ Written down because scope creep killed most of our predecessors. alo will **not
 
 ## 15. Open decisions
 
-Tracked here until closed: final name (alo vs Atelier — EUIPO search pending); exact open-core boundary (which control-plane components stay proprietary); CLA tooling; hosting partner (Hetzner vs OVH vs Scaleway); pricing tiers; second developer hire (target: Phase 2 start); Peppol access point — integrate a certified AP vs. become one (ADR 0035, decide during Wave B1); EU PSP for invoice payment links. *(Closed — Collabora vs OnlyOffice as docs engine: resolved by **ADR 0033**, which removes Collabora in favour of native editors on embedded open engines.)*
+Tracked here until closed: final name (alo vs Atelier — EUIPO search pending); exact open-core boundary (which control-plane components stay proprietary); CLA tooling; hosting partner (Hetzner vs OVH vs Scaleway); pricing tiers; second developer hire (target: Phase 2 start); Peppol access point — integrate a certified AP vs. become one (ADR 0035, decide during Wave B1); EU PSP for invoice payment links; the public sites domain for alo Sites subdomain publishing (e.g. alosites.com — ADR 0036, purchase pending). *(Closed — Collabora vs OnlyOffice as docs engine: resolved by **ADR 0033**, which removes Collabora in favour of native editors on embedded open engines.)*
 
 ## 16. Positioning in one line
 

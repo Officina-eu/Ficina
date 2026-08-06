@@ -9,12 +9,14 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\run-loop.ps1 -RepoPath "C:\dev\Ficina"
 param(
   [string]$RepoPath = "C:\dev\Ficina",
+  [string]$Track = "business",   # business | sites (LOOP.md Tracks table)
   [int]$MaxIterations = 500      # hard backstop against runaway loops
 )
 $ErrorActionPreference = "Continue"
 Set-Location $RepoPath
 
-$prompt = "Read docs/autonomy/LOOP.md and execute exactly ONE iteration of the loop, then exit."
+$StateFile = if ($Track -eq "sites") { "docs/autonomy/sites/STATE.md" } else { "docs/autonomy/STATE.md" }
+$prompt = "Read docs/autonomy/LOOP.md and execute exactly ONE iteration of the loop for track '$Track', then exit."
 
 for ($i = 1; $i -le $MaxIterations; $i++) {
   Write-Host ("=" * 60)
@@ -22,7 +24,7 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
 
   git pull --rebase origin main 2>&1 | Out-Null
 
-  $state = Get-Content "docs/autonomy/STATE.md" -Raw -ErrorAction SilentlyContinue
+  $state = Get-Content $StateFile -Raw -ErrorAction SilentlyContinue
   if ($state -match "LOOP COMPLETE") { Write-Host "[loop] queue complete - stopping."; break }
   if ($state -match "LOOP HALT")     { Write-Host "[loop] halted by the agent - fix the reason in STATE.md, remove the marker, restart."; break }
 

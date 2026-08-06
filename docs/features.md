@@ -461,6 +461,30 @@ EU models, suggest-only where the EU AI Act calls a use high-risk.
 
 ---
 
+## alo Sites — the AI-native website builder (ADR 0036)
+
+Tags: **[S1]** = v1 (site + blog + forms + both domain modes) · **[S2]** =
+fast-follow · **[S+]** = later. Built by the Sites track loop
+(`docs/autonomy/sites/QUEUE.md`).
+
+- [S1] ★ **AI builds the first draft**: "tell me about your business" → a complete site — pages, sections, real copy — then you edit; every AI change is a preview-then-approve diff (ADR 0034 pattern)
+- [S1] Section-based editor: add/reorder/remove typed sections (hero, features, text+image, gallery, testimonials, pricing, team, FAQ, CTA, contact form, nav, footer), each edited by a simple form — no pixel canvas
+- [S1] Themes: palette + typography presets, logo + favicon (from Drive), one token-driven stylesheet
+- [S1] ★ Static Rust rendering: fast, secure, SEO-correct HTML with near-zero JS — no WordPress attack surface
+- [S1] Publish flow with immutable page snapshots (rollback later); live at `<name>.<sites-domain>` instantly
+- [S1] ★ Custom domains: TXT-token verification + Caddy on-demand TLS, reusing the mail DNS-onboarding flow
+- [S1] Contact forms: tenant-stored submissions, rate-limited + honeypot, internal-mail notification; CSV export; CRM-lead creation when B2 lands
+- [S1] ★ Blog written in **alo Docs** — the existing editor publishes to the site (BlockNote→HTML renderer), with index page + RSS
+- [S1] SEO: per-page titles/descriptions, OG tags, sitemap.xml, robots, canonical
+- [S1] ★ Privacy-first analytics: daily aggregate visits + referrer domains, no IPs, no cookies, no consent banner — proven by tests
+- [S1] ★ AI copy tools per section: rewrite, tone, shorten/lengthen — propose-then-approve
+- [S2] ★ Whole-site AI translation (multilingual EU sites in one click) with language switcher
+- [S2] Version history + rollback UI; scheduled publishing; password-protected pages
+- [S2] Image handling: crop/focus, AI alt-text, responsive srcset
+- [S+] Simple catalog storefront (order-by-form, no checkout); booking-page section (ties to Agenda); custom-code blocks (sandboxed); template gallery
+
+---
+
 ## Deliberately absent
 
 No tracking pixels, no ad surface, no engagement mechanics, no consumer free tier, no dark-pattern storage nags. On the business side: **no payroll calculation, no tax filing, no bank connections built from scratch** (ADR 0035 — export/integrate instead). Every absence here is a sales argument; see Non-goals in the product doc for the build-side list.

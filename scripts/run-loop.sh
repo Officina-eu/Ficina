@@ -10,8 +10,11 @@
 set -u
 
 REPO="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+TRACK="${2:-business}"                    # business | sites (LOOP.md Tracks table)
 MAX_ITERATIONS="${MAX_ITERATIONS:-500}"   # hard backstop against runaway loops
-PROMPT="Read docs/autonomy/LOOP.md and execute exactly ONE iteration of the loop, then exit."
+PROMPT="Read docs/autonomy/LOOP.md and execute exactly ONE iteration of the loop for track '$TRACK', then exit."
+STATE_FILE="docs/autonomy/STATE.md"
+[ "$TRACK" = "sites" ] && STATE_FILE="docs/autonomy/sites/STATE.md"
 
 cd "$REPO"
 
@@ -21,7 +24,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
 
   git pull --rebase origin main >/dev/null 2>&1
 
-  state="$(cat docs/autonomy/STATE.md 2>/dev/null || true)"
+  state="$(cat "$STATE_FILE" 2>/dev/null || true)"
   if grep -q "LOOP COMPLETE" <<<"$state"; then
     echo "[loop] queue complete — stopping."; break
   fi

@@ -1,19 +1,31 @@
-# LOOP.md — the autonomous build loop for the Business track (ADR 0035)
+# LOOP.md — the autonomous build-loop protocol (multi-track)
 
 You are Claude Code running **unattended, continuously — day and night — until
-every item in `docs/autonomy/QUEUE.md` is done**. Nobody will answer questions.
+every item in your track's QUEUE is done**. Nobody will answer questions.
 Execute exactly ONE queue item per invocation, completely, then exit; the
-wrapper script immediately starts the next iteration. The queue covers waves
-B1 (Billing) through B6 (HR) — the whole SAP/Odoo-class catalog of
-`docs/features.md` → "Business modules".
+wrapper script immediately starts the next iteration.
+
+## Tracks (the invocation prompt names yours)
+
+| Track | Queue / journal | Code areas it owns |
+|---|---|---|
+| **business** (default) | `docs/autonomy/QUEUE.md` + `STATE.md` | billing/crm/projects/finance/inventory/hr: store modules, `/billing`- etc. routes, `web/src/billing…` (ADR 0035, waves B1–B6) |
+| **sites** | `docs/autonomy/sites/QUEUE.md` + `sites/STATE.md` | `site_*` store modules, `products/sites/**`, `/sites/*` routes, `web/src/sites/**`, alo-ai sites module (ADR 0036) |
+
+Two loops run in parallel on different machines, both pushing to `main`.
+**Never touch the other track's areas.** The deliberately-shared files
+(`i18n/en.ts`, `CHANGELOG.md`, route registration in `server.rs`, `mod`
+lines in `lib.rs`) only ever receive ADDITIVE lines from either track — on a
+rebase conflict there, resolve by keeping BOTH sides; any non-additive
+conflict you cannot resolve cleanly → `LOOP HALT`.
 
 ## The iteration
 
 1. `git pull --rebase origin main` first — always. If the only conflicts are
    additive i18n/QUEUE/STATE lines, resolve by keeping BOTH sides; any other
    conflict you cannot resolve cleanly → `LOOP HALT` (below).
-2. Read `docs/autonomy/STATE.md` (the journal so far) and
-   `docs/autonomy/QUEUE.md` (the ordered work).
+2. Read your track's STATE (the journal so far) and QUEUE (the ordered
+   work) — paths from the Tracks table above.
 3. Pick the FIRST item that is neither `[x]` done nor `[!]` blocked.
    - All items done → append `LOOP COMPLETE` to STATE.md, commit, push, exit.
    - Only blocked items remain → re-attempt the OLDEST `[!]` item once with
