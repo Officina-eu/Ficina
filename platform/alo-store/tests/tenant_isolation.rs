@@ -927,10 +927,22 @@ async fn deleting_a_tenant_purges_its_tasks() {
         a.task_comments(&task).await.unwrap().is_empty(),
         "comments purged too"
     );
-    assert!(
-        a.task_projects().await.unwrap().is_empty(),
-        "the tenant's task projects are purged too"
-    );
+    // Read the rows directly rather than through `task_projects()`: that list
+    // call first *ensures* the caller's personal project exists, and a write
+    // for a tenant that no longer exists is a foreign-key error, not an empty
+    // list. The claim under test is about the stored rows.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&common::database_url())
+        .await
+        .unwrap();
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM task_projects WHERE tenant_id = $1")
+            .bind(t.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0, "the tenant's task projects are purged too");
 }
 
 /// Spaces (ADR 0026): a Space and its membership are reachable only by members;
