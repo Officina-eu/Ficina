@@ -26,13 +26,15 @@ s = re.sub(
 open(compose, "w", encoding="utf-8").write(s)
 
 c = open(caddyfile, encoding="utf-8").read()
-# Drop the @control matcher + its handle block (and the comment above it).
+# Drop the control-plane comment, then EVERY @control matcher + handle block —
+# the Caddyfile carries one per site host, and hosts are added over time (the
+# old single-block regex silently missed the newer hosts' blocks).
+c = re.sub(r"\n\t# The multi-tenant control plane.*?(?=\n\t@control)", "", c, flags=re.S)
 c = re.sub(
-    r"\n\t# The multi-tenant control plane.*?\n\t@control path /control/\*\n"
+    r"\n\t@control path /control/\*\n"
     r"\thandle @control \{\n\t\treverse_proxy alo-control:8090\n\t\}\n",
     "\n",
     c,
-    flags=re.S,
 )
 open(caddyfile, "w", encoding="utf-8").write(c)
 
