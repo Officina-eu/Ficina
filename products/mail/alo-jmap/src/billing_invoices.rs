@@ -7,13 +7,11 @@
 //! the store, every write answered with the stored record, `PATCH` as a merge
 //! onto it — and adds four that belong to a document carrying money.
 //!
-//! - **The client never computes money.** `totals` on every response are the
-//!   server's, derived from the lines on each read
-//!   ([`alo_store::billing_totals`]); there is no writable total anywhere in
-//!   this surface, so no request can influence what a document is worth except
-//!   by changing its lines. Each line also carries its own `netCents` for the
-//!   same reason: a draft editor renders the server's arithmetic rather than
-//!   repeating it in JavaScript and disagreeing in the third decimal.
+//! - **The client never computes money.** The lines and `totals` of every
+//!   response are built by [`crate::billing_document`], which quotes share, so
+//!   the two surfaces can never report a line — or a total — in two shapes;
+//!   there is no writable total anywhere here, so no request can influence what
+//!   a document is worth except by changing its lines.
 //! - **The header and the lines are one body.** A draft editor saves the
 //!   document it is looking at, not a patch stream, so `lines` is an ordinary
 //!   field of the invoice body and replaces the whole set in the order sent.
@@ -38,26 +36,17 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use time::{Date, OffsetDateTime};
+use time::Date;
 
 use alo_store::billing_invoices::{
     Invoice, InvoiceDocument, InvoiceStatus, InvoiceSummary, NewInvoice,
 };
-use alo_store::billing_totals::Totals;
-use alo_store::{AccountStore, BillingCustomerId, BillingInvoiceId, Line, NewLine};
+use alo_store::{AccountStore, BillingCustomerId, BillingInvoiceId, BillingQuoteId, NewLine};
 
 use crate::billing::{iso, iso_date, map_store_err, parse_body};
+use crate::billing_document::{LineBody, today, with_body, with_totals};
 use crate::error::Problem;
 use crate::state::{AppState, authenticate};
-
-/// The day the `overdue` flag is judged against: the server's own date.
-///
-/// Deliberately not a value a client may send. Whether a document is late is a
-/// fact about the tenant's ledger, not about the reader's clock, and a browser
-/// with a wrong date must not be able to clear its own overdue list.
-fn today() -> Date {
-    OffsetDateTime::now_utc().date()
-}
 
 /// The header of a document as JSON, with the derived `overdue` flag.
 ///
@@ -77,6 +66,7 @@ fn invoice_json(i: &Invoice, today: Date) -> Value {
         "overdue": i.is_overdue(today),
         "creditNote": i.is_credit_note,
         "creditsInvoiceId": i.credits_invoice_id.as_ref().map(BillingInvoiceId::as_str),
+        "quoteId": i.quote_id.as_ref().map(BillingQuoteId::as_str),
         "reference": i.reference,
         "note": i.note,
         "createdBy": i.created_by,
@@ -85,58 +75,18 @@ fn invoice_json(i: &Invoice, today: Date) -> Value {
     })
 }
 
-/// A line as JSON, including the net it contributes. VAT is deliberately not a
-/// per-line figure: it is rounded once per rate subtotal
-/// ([`alo_store::billing_totals`]), so a per-line VAT column would not add up
-/// to the document's own.
-fn line_json(l: &Line) -> Value {
-    json!({
-        "id": l.id.as_str(),
-        "description": l.description,
-        "unit": l.unit,
-        "qtyMilli": l.qty_milli,
-        "unitPriceCents": l.unit_price_cents,
-        "vatRateBp": l.vat_rate_bp,
-        "netCents": l.net_cents(),
-    })
-}
-
-/// The money of a document: net, the VAT breakdown per rate, and gross — all
-/// integer cents, all computed from the lines.
-fn totals_json(t: &Totals) -> Value {
-    json!({
-        "netCents": t.net_cents,
-        "vatCents": t.vat_cents,
-        "grossCents": t.gross_cents,
-        "vatByRate": t.vat_by_rate.iter().map(|s| json!({
-            "rateBp": s.rate_bp,
-            "netCents": s.net_cents,
-            "vatCents": s.vat_cents,
-        })).collect::<Vec<_>>(),
-    })
-}
-
 /// A whole document: header, lines in print order, totals.
-fn document_json(d: &InvoiceDocument, today: Date) -> Value {
-    let mut value = invoice_json(&d.invoice, today);
-    let object = value.as_object_mut();
-    if let Some(object) = object {
-        object.insert(
-            "lines".to_owned(),
-            Value::Array(d.lines.iter().map(line_json).collect()),
-        );
-        object.insert("totals".to_owned(), totals_json(&d.totals));
-    }
-    value
+///
+/// `pub(crate)` because accepting a quote answers with the invoice it raised
+/// ([`crate::billing_quotes`]), and that invoice must read exactly as it does
+/// on its own routes.
+pub(crate) fn document_json(d: &InvoiceDocument, today: Date) -> Value {
+    with_body(invoice_json(&d.invoice, today), &d.lines, &d.totals)
 }
 
 /// A list entry: the header and what it is worth, without the lines.
 fn summary_json(s: &InvoiceSummary, today: Date) -> Value {
-    let mut value = invoice_json(&s.invoice, today);
-    if let Some(object) = value.as_object_mut() {
-        object.insert("totals".to_owned(), totals_json(&s.totals));
-    }
-    value
+    with_totals(invoice_json(&s.invoice, today), &s.totals)
 }
 
 /// The stored header as writable input — the base a `PATCH` merges onto.
@@ -152,37 +102,6 @@ fn editable(i: &Invoice) -> NewInvoice {
         payment_terms_days: Some(i.payment_terms_days),
         reference: i.reference.clone(),
         note: i.note.clone(),
-    }
-}
-
-/// One line as sent by a client. Every field is optional and defaults to the
-/// blank line, so the store owns what "valid" means — an absent description is
-/// an empty one and comes back as the store's own `422`, in the same words the
-/// billing agent (B1.25) gets when it calls the store directly.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LineBody {
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    unit: String,
-    #[serde(default)]
-    qty_milli: i64,
-    #[serde(default)]
-    unit_price_cents: i64,
-    #[serde(default)]
-    vat_rate_bp: i32,
-}
-
-impl LineBody {
-    fn into_line(self) -> NewLine {
-        NewLine {
-            description: self.description,
-            unit: self.unit,
-            qty_milli: self.qty_milli,
-            unit_price_cents: self.unit_price_cents,
-            vat_rate_bp: self.vat_rate_bp,
-        }
     }
 }
 
@@ -250,8 +169,7 @@ impl InvoiceBody {
 
     /// The line set the body asks for, if it states one.
     fn lines(self) -> Option<Vec<NewLine>> {
-        self.lines
-            .map(|lines| lines.into_iter().map(LineBody::into_line).collect())
+        self.lines.map(LineBody::into_lines)
     }
 }
 
@@ -615,7 +533,10 @@ mod tests {
     }
 
     #[test]
-    fn lines_arrive_in_the_order_they_were_sent() {
+    fn a_line_set_reaches_the_store_as_it_was_sent() {
+        // The line body itself is `billing_document`'s, and tested there; what
+        // matters here is that an invoice body hands the whole set over in
+        // order, and that an absent `lines` is not an empty one.
         let lines = body(json!({ "lines": [
             { "description": "Consulting", "unit": "hour", "qtyMilli": 1500,
               "unitPriceCents": 12_500, "vatRateBp": 2100 },
@@ -625,21 +546,14 @@ mod tests {
         .unwrap_or_else(|| panic!("lines missing"));
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].description, "Consulting");
-        assert_eq!(lines[0].qty_milli, 1500);
-        assert_eq!(lines[0].vat_rate_bp, 2100);
-        // An omitted field is the blank line's value, not a stored one — a
-        // line set is always sent whole.
-        assert_eq!(lines[1].unit, "");
         assert_eq!(lines[1].qty_milli, -1000);
-        assert_eq!(lines[1].vat_rate_bp, 0);
+        assert!(body(json!({})).lines().is_none());
     }
 
     #[test]
     fn money_with_a_decimal_point_is_refused_never_rounded() {
         for bad in [
             json!({ "lines": [{ "description": "X", "unitPriceCents": 19.99 }] }),
-            json!({ "lines": [{ "description": "X", "qtyMilli": 1.5 }] }),
-            json!({ "lines": [{ "description": "X", "vatRateBp": "2100" }] }),
             json!({ "paymentTermsDays": "30" }),
         ] {
             assert!(

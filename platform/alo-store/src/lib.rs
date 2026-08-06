@@ -63,7 +63,9 @@ pub use billing_customers::{Customer, NewCustomer};
 pub use billing_invoices::{Invoice, InvoiceDocument, InvoiceStatus, InvoiceSummary, NewInvoice};
 pub use billing_line::{Line, NewLine};
 pub use billing_products::{NewProduct, Product};
-pub use billing_quotes::{NewQuote, Quote, QuoteDocument, QuoteStatus, QuoteSummary};
+pub use billing_quotes::{
+    NewQuote, Quote, QuoteAcceptance, QuoteDocument, QuoteStatus, QuoteSummary,
+};
 pub use billing_sequence::{
     INVOICE_NUMBER_PREFIX, INVOICE_SEQUENCE_KIND, QUOTE_NUMBER_PREFIX, QUOTE_SEQUENCE_KIND,
     document_number,

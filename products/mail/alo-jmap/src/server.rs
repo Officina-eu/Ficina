@@ -16,9 +16,9 @@ use crate::push::PushHub;
 use crate::state::{AppState, Limits};
 use crate::{
     admin, agent, ai, api, autoconfig, base, billing_customers, billing_invoices, billing_products,
-    blob, calendar, carddav, contacts, delegates, docs, drive, filters, flagdue, imap_import_route,
-    push, reset_route, schedule, security, session, settings, share, signup_route, snooze, spaces,
-    tasks, unsubscribe, wopi, workspace_search,
+    billing_quotes, blob, calendar, carddav, contacts, delegates, docs, drive, filters, flagdue,
+    imap_import_route, push, reset_route, schedule, security, session, settings, share,
+    signup_route, snooze, spaces, tasks, unsubscribe, wopi, workspace_search,
 };
 
 /// Builds the JMAP router over the given state. The OpenID Connect /
@@ -255,6 +255,36 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/billing/invoices/{id}/credit-note",
             post(billing_invoices::create_credit_note),
+        )
+        // Quotes (B1.12) — the offer that precedes an invoice, with the same
+        // shape: draft CRUD, a strict status filter, and every transition its
+        // own POST. Accepting is the one that answers two documents: it closes
+        // the offer and raises the draft invoice for it in one transaction.
+        .route(
+            "/billing/quotes",
+            get(billing_quotes::list_quotes).post(billing_quotes::create_quote),
+        )
+        .route(
+            "/billing/quotes/{id}",
+            get(billing_quotes::get_quote)
+                .patch(billing_quotes::update_quote)
+                .delete(billing_quotes::delete_quote),
+        )
+        .route(
+            "/billing/quotes/{id}/send",
+            post(billing_quotes::send_quote),
+        )
+        .route(
+            "/billing/quotes/{id}/accept",
+            post(billing_quotes::accept_quote),
+        )
+        .route(
+            "/billing/quotes/{id}/decline",
+            post(billing_quotes::decline_quote),
+        )
+        .route(
+            "/billing/quotes/{id}/expire",
+            post(billing_quotes::expire_quote),
         )
         // Drive — the file tree (ADR 0027). Static paths before /nodes/{id}.
         .route("/drive/list", get(drive::list))

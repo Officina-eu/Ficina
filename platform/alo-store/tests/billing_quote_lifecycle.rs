@@ -223,7 +223,9 @@ async fn an_open_offer_can_be_answered_exactly_once_and_each_way() {
     // Each closing state, reached from `sent`, on a document of its own.
     let accepted_id = drafted(&a, &customer).await;
     a.send_billing_quote(&accepted_id).await.unwrap();
-    let accepted = a.accept_billing_quote(&accepted_id).await.unwrap();
+    // Acceptance also raises the draft invoice for the offer (B1.12); the
+    // document it produces is proved in `billing_quote_to_invoice`.
+    let accepted = a.accept_billing_quote(&accepted_id).await.unwrap().quote;
     assert_eq!(accepted.quote.status, QuoteStatus::Accepted);
 
     let declined_id = drafted(&a, &customer).await;
@@ -345,7 +347,7 @@ async fn a_lapsed_offer_is_readable_as_lapsed_and_may_still_be_honoured() {
 
     // Honouring it a few days late is the tenant's decision to make: the store
     // refuses on state, never on a date it read for itself.
-    let accepted = a.accept_billing_quote(&id).await.unwrap();
+    let accepted = a.accept_billing_quote(&id).await.unwrap().quote;
     assert_eq!(accepted.quote.status, QuoteStatus::Accepted);
     assert!(!accepted.quote.is_expired(today));
 }

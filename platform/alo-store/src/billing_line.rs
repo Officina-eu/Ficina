@@ -348,6 +348,24 @@ impl LineRow {
 }
 
 impl Line {
+    /// This line as a writable line, unchanged — the copy an accepted quote
+    /// puts on its invoice draft ([`crate::billing_quotes`]).
+    ///
+    /// It is already normalised: it was validated on the way in, and the rules
+    /// are the same on both documents (that is the point of this module), so a
+    /// copy can never fail a check the original passed. Copying the *frozen*
+    /// values is the whole contract — a price that moved since the offer was
+    /// made must not follow the customer onto the invoice.
+    pub(crate) fn copied(&self) -> NormalizedLine {
+        NormalizedLine {
+            description: self.description.clone(),
+            unit: self.unit.clone(),
+            qty_milli: self.qty_milli,
+            unit_price_cents: self.unit_price_cents,
+            vat_rate_bp: self.vat_rate_bp,
+        }
+    }
+
     /// This line as a writable line with its quantity negated — the mirror a
     /// credit note is built from ([`crate::billing_invoices`]).
     ///
@@ -603,6 +621,29 @@ mod tests {
             .qty_milli,
             QTY_MAX_MILLI
         );
+    }
+
+    #[test]
+    fn copying_a_line_changes_nothing_about_it() {
+        // The copy an accepted quote makes onto its invoice draft: the same
+        // words, the same frozen price and rate, the same quantity — a copy,
+        // not a re-pricing.
+        let line = Line {
+            id: BillingLineId::generate(),
+            line_order: 2,
+            description: "Consulting".to_owned(),
+            unit: "hour".to_owned(),
+            qty_milli: -1_500,
+            unit_price_cents: 12_000,
+            vat_rate_bp: 2100,
+        };
+        let copy = line.copied();
+        assert_eq!(copy.description, line.description);
+        assert_eq!(copy.unit, line.unit);
+        assert_eq!(copy.qty_milli, -1_500, "a discount line copies as one");
+        assert_eq!(copy.unit_price_cents, 12_000);
+        assert_eq!(copy.vat_rate_bp, 2100);
+        assert_eq!(copy.figures().qty_milli, line.figures().qty_milli);
     }
 
     #[test]

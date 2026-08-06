@@ -1190,3 +1190,155 @@ Cuts and flags:
 
 Next item: B1.12 (accept-quote → draft invoice copying the lines, linked back
 to the quote, store + HTTP, wire-verified).
+
+## 2026-08-06 — B1.12 an accepted offer becomes the invoice for it
+
+Shipped: **acceptance and the invoice are one act**, plus the whole
+`/billing/quotes` HTTP surface the acceptance needed to be reachable at all.
+
+- **Migration `0106_billing_quote_invoice_link.sql`** — `billing_invoices.quote_id`
+  (nullable), a composite FK `(tenant_id, quote_id) → billing_quotes` so even a
+  bug in a `WHERE` clause cannot link across tenants, a CHECK that a credit note
+  never carries one (it credits an invoice, not an offer), and a **unique**
+  partial index `(tenant_id, quote_id)`: one invoice per accepted offer, ever.
+  The column lives on the invoice — the newer document, which knows its own
+  origin — rather than on a quote that is frozen the moment it is sent. `NO
+  ACTION` on the FK, deliberately: only a draft quote is ever deleted and a
+  draft was never accepted, so nothing linked can vanish; `CASCADE` would have
+  been actively wrong (it would delete an invoice), and `NO ACTION` is checked
+  after the whole cascade, so dropping a tenant still works.
+- **Store** — `accept_billing_quote` now takes the quote's row lock, checks the
+  transition, raises the draft invoice (`insert_invoice_from_quote`, in
+  `billing_invoices.rs`, which is the one file that writes that table), copies
+  every line through the shared `Line::copied`, and *then* writes the closing
+  transition — all in one transaction, returning `QuoteAcceptance { quote,
+  invoice_id }`. `billing_invoice_for_quote` is the read back.
+- **HTTP** — new `billing_quotes.rs` (nine routes: list/create/get/patch/delete
+  + send/accept/decline/expire) and a new `billing_document.rs` holding the JSON
+  shapes an invoice and a quote share (line, totals, the document body, the
+  request line body, the server's `today()`); `billing_invoices.rs` was rewired
+  onto it, so the two surfaces cannot drift into two shapes for one line.
+
+Decisions worth keeping:
+
+- **Either the offer closes and its invoice exists, or nothing happened.** Two
+  separate calls would leave two unrepairable states: an accepted quote with
+  nothing to bill it by (acceptance is terminal — no retry could finish the
+  job), or a draft invoice for an offer still shown as open. One transaction
+  under the quote's lock also means a decline racing an acceptance either lands
+  first (and the acceptance is refused) or waits.
+- **What is copied, and what is not.** Customer, currency, the customer's own
+  reference, and every line unchanged at the price it was offered at, in the
+  offer's order — so the totals agree to the cent, VAT breakdown included. Not
+  the **note** (a quote's note states the terms of an *offer*, which is untrue
+  of a bill) and not the payment terms, which a quote does not carry at all: the
+  days an offer stands and the days a bill is owed in are different facts, so
+  the customer's current terms are snapshotted as any new invoice's are.
+- **The customer is copied, not re-resolved**, so an offer to a customer
+  archived since it was sent can still be honoured — exactly as a credit note
+  can still be raised for one. Raising a *new* quote for them stays refused.
+- **The invoice is a draft.** What was offered is what will be billed, but when,
+  and whether in one go, is the tenant's decision; the legal number comes only
+  from the ordinary `/issue`, which is also what keeps the invoice series
+  untouched by an offer nobody accepted.
+- **`POST /billing/quotes/{id}/accept` answers two documents** (`quote` and
+  `invoice`), rendered by the invoice surface's own serializer, so a client
+  never has to ask whether one was raised. `GET /billing/quotes/{id}` answers
+  `invoiceId` (null unless accepted) — the link B1.15 follows.
+
+How it was verified — `cargo fmt`, `SQLX_OFFLINE=true cargo clippy -p alo-store
+-p alo-jmap --all-targets` clean (zero warnings), `cargo test -p alo-store -p
+alo-jmap` fully green against the local docker Postgres (109 + 164 unit tests
+and every integration suite, exit 0). Two new suites, both passing on the first
+run:
+
+- `platform/alo-store/tests/billing_quote_to_invoice.rs` (4) — the done-when
+  (an editable draft, hand-computed totals equal to the offer's including the
+  per-rate breakdown, every line copied in order with an id of its own, the
+  discount line copied as a discount, header copied where the offer decided it
+  and current where it said nothing, the link readable from both ends, then the
+  draft edited and issued as `INV-2026-00001` while the offer's own lines stay
+  as they were); billed **once and only when accepted** (draft/declined/expired
+  quotes raise nothing, a second acceptance is refused and raises no second
+  document, and deleting the draft invoice leaves the offer accepted); an offer
+  to a since-archived customer still honoured while a new offer to them is
+  still refused; and the wrong-tenant proof — B cannot accept A's offer, no
+  invoice row exists after the refusal, and B cannot read, edit, issue or
+  delete the invoice A's acceptance produced.
+- `products/mail/alo-jmap/tests/billing_quote_http.rs` (6) — the same arc
+  through the real router, plus the frozen-document refusals, the strict status
+  filter, all nine routes `401` without a token and `404` with one for an id
+  that was never raised, the lapse flag planted with SQL (readable as lapsed
+  while still `sent`, and still acceptable), and the mandatory wrong-tenant
+  pass over every route (always `404`, never `409` — which would confirm the id
+  exists and leak its state — with no refusal echoing the reference it refused,
+  and B's number series untouched by A's attempts).
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenant `wireq112`), full
+transcript:
+
+```
+GET/POST/PATCH/DELETE /billing/quotes[/x][/send|accept|decline|expire]
+                                       (no token, 9 routes)   -> 401
+POST   /billing/customers                                     -> 200 (EUR, 30-day terms)
+POST   /billing/quotes    3 lines, 2 rates, 1 discount        -> 200 draft, number=null
+       totals: net 84 247 / VAT 17 333 / gross 101 580
+               [{900: net 2 997, vat 270}, {2100: net 81 250, vat 17 063}]
+POST   /billing/quotes/{id}/send                              -> 200 QUO-2026-00001
+       sentDate=2026-08-06 validUntil=2026-08-20 expired=false
+PATCH  /billing/quotes/{id}            (now frozen)           -> 409 "…only…while it is a draft; this one is sent"
+DELETE /billing/quotes/{id}            (now frozen)           -> 409 same
+POST   /billing/quotes/{id}/send       (again)                -> 409 "…cannot become sent while it is sent; from sent it can only become accepted or declined or expired"
+POST   /billing/quotes/{id}/accept                            -> 200 TWO documents
+       quote  : status=accepted decidedDate=2026-08-06 number=QUO-2026-00001
+       invoice: status=draft number=null quoteId=<the quote>
+                currency=EUR paymentTermsDays=30 reference=RFQ-2026-88 note=""
+       totals : IDENTICAL to the quote's, per rate and in total
+       lines  : IDENTICAL values, same order (incl. the -1 000 discount)
+POST   /billing/quotes/{id}/accept     (again)                -> 409 "…it is closed and cannot change again"
+GET    /billing/quotes/{id}                                   -> 200 invoiceId=<the invoice>
+GET    /billing/invoices/{id}                                 -> 200 quoteId=<the quote>
+POST   /billing/invoices/{id}/issue                           -> 200 INV-2026-00001
+       issueDate=2026-08-06 dueDate=2026-09-05 quoteId kept, gross 101 580
+POST   /billing/quotes                 (no customerId)        -> 422 "customerId is required to raise a quote"
+POST   /billing/quotes                 (unknown customer)     -> 404
+POST   /billing/quotes                 (19.99 in a cents field) -> 400 "malformed request body"
+POST   /billing/quotes/{empty}/send                           -> 422 "a quote with no lines cannot be sent…"
+POST   /billing/quotes/{draft}/accept                         -> 409 "…from draft it can only become sent"
+PATCH  /billing/quotes/{draft}         validDays=400          -> 422 "…between 0 and 365 days"
+GET    /billing/quotes?status=issued                          -> 422 "status must be one of draft, sent, accepted, declined, expired"
+GET    /billing/quotes/nope                                   -> 404 "no such quote"
+DELETE /billing/quotes/{draft}                                -> 200
+POST   /billing/quotes/{id}/decline                           -> 200 declined, decidedDate stamped, NO invoice in the body
+POST   /billing/quotes/{id}/expire                            -> 200 expired, decidedDate stamped
+GET    /billing/quotes/{declined|expired}                     -> 200 invoiceId=null (neither was billed)
+GET    /billing/quotes                                        -> [QUO-…-00003 expired, …00002 declined, …00001 accepted]
+GET    /billing/invoices                                      -> [INV-2026-00001 issued, from QUO-2026-00001, 101 580]
+```
+
+The database was read directly afterwards: `billing_invoices.quote_id` is
+present with the unique partial index `billing_invoices_from_quote`, the
+composite FK to `billing_quotes`, and the credit-note CHECK — and every stored
+invoice with an origin joins to exactly one accepted quote.
+
+Cuts and flags:
+
+- **No UI, no i18n** — B1.13–B1.15 own the screens; this item deliberately ends
+  at the wire. No user-facing strings were added.
+- **No `POST /billing/quotes/{id}/duplicate` or revision chain.** "Quote v2" is
+  still a new quote (flagged in B1.11, unchanged).
+- **Partial invoicing of one offer is not possible**: the unique index means one
+  invoice per accepted quote. Deliberate — a caller that wants to bill an offer
+  in stages edits the draft or raises further invoices by hand, and "bill 40 %
+  now" is a milestone feature, not a property of acceptance. Flagged rather than
+  invented.
+- **The invoice's `quoteId` is not writable by any request** and is not part of
+  `NewInvoice`; it is stamped by acceptance and kept through issue.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged from B1.05/B1.10: the production Caddyfile must add it at the next
+  deploy. The loop does not touch `deploy/`. The new routes are all under that
+  one prefix, so nothing further is needed.
+
+Next item: B1.13 (web: the Billing module skeleton — rail entry, `/billing`
+routes, customer and product list pages with create/edit dialogs, i18n en).

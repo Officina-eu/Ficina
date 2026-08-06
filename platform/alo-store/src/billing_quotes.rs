@@ -46,14 +46,16 @@ use time::{Date, Duration, OffsetDateTime};
 
 use crate::account::AccountStore;
 use crate::billing_field::{bounded, currency};
-use crate::billing_invoices::{INVOICE_NOTE_MAX_CHARS, INVOICE_REFERENCE_MAX_CHARS};
-use crate::billing_line::{FiguresRow, Line, NewLine, QUOTE_LINES, group_figures};
+use crate::billing_invoices::{
+    INVOICE_NOTE_MAX_CHARS, INVOICE_REFERENCE_MAX_CHARS, InvoiceFromQuote,
+};
+use crate::billing_line::{FiguresRow, INVOICE_LINES, Line, NewLine, QUOTE_LINES, group_figures};
 use crate::billing_sequence::{
     QUOTE_NUMBER_PREFIX, QUOTE_SEQUENCE_KIND, document_number, draw_next,
 };
 use crate::billing_totals::{LineFigures, Totals, totals};
 use crate::error::{Result, StoreError};
-use crate::id::{BillingCustomerId, BillingQuoteId};
+use crate::id::{BillingCustomerId, BillingInvoiceId, BillingQuoteId};
 
 /// How long an offer stands when the caller states nothing — a month, the
 /// common European B2B habit.
@@ -324,6 +326,20 @@ pub struct QuoteDocument {
     pub totals: Totals,
 }
 
+/// What accepting an offer produces: the closed quote, and the id of the draft
+/// invoice raised from it in the same transaction.
+///
+/// Two values rather than one because they are two documents, and a caller that
+/// only wanted to record the answer still gets the invoice's id — there is no
+/// second call that could tell it which document its acceptance created.
+#[derive(Debug, Clone)]
+pub struct QuoteAcceptance {
+    /// The quote, now `accepted` and stamped with the day it was decided.
+    pub quote: QuoteDocument,
+    /// The draft invoice carrying a copy of the offer's lines.
+    pub invoice_id: BillingInvoiceId,
+}
+
 /// The header, validated and with the customer's defaults resolved.
 #[derive(Debug)]
 struct NormalizedQuote {
@@ -336,10 +352,18 @@ struct NormalizedQuote {
 
 /// What a locking read hands back: the stored facts a write decides against,
 /// with the status already parsed.
+///
+/// It reads more than the status because acceptance copies the offer onto an
+/// invoice draft under the same lock, and what it copies must be the row as it
+/// stood when the transition was allowed — not a second read that a concurrent
+/// writer could have moved.
 #[derive(Debug)]
 struct LockedQuote {
     status: QuoteStatus,
     valid_days: i32,
+    customer_id: String,
+    currency: String,
+    reference: String,
 }
 
 impl AccountStore {
@@ -386,7 +410,7 @@ impl AccountStore {
         id: &BillingQuoteId,
     ) -> Result<LockedQuote> {
         let row: Option<LockedRow> = sqlx::query_as(
-            "SELECT status, valid_days FROM billing_quotes \
+            "SELECT status, valid_days, customer_id, currency, reference FROM billing_quotes \
              WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(self.tenant.as_str())
@@ -398,6 +422,9 @@ impl AccountStore {
         Ok(LockedQuote {
             status: parse_stored_status(&row.status)?,
             valid_days: row.valid_days,
+            customer_id: row.customer_id,
+            currency: row.currency,
+            reference: row.reference,
         })
     }
 
@@ -723,15 +750,39 @@ impl AccountStore {
         self.billing_quote(id).await?.ok_or(StoreError::NotFound)
     }
 
-    /// Closes an open offer, stamping the day it was decided.
+    /// Writes the closing transition inside `tx`, stamping the day it was
+    /// decided. The caller has already taken the quote's lock and checked the
+    /// transition.
     ///
-    /// One private path for all three closing transitions: they differ only in
-    /// the state they write, and writing them through one statement is what
-    /// keeps `decided_date` and `status` in step (the table's CHECK insists
-    /// they are, so a second path would be a second chance to disagree).
+    /// One statement for all three closing transitions: they differ only in the
+    /// state they write, and writing them through one place is what keeps
+    /// `decided_date` and `status` in step (the table's CHECK insists they are,
+    /// so a second path would be a second chance to disagree).
     ///
     /// The decision date is the database's `CURRENT_DATE`, read inside the same
     /// transaction as the write and never supplied by the caller.
+    async fn write_close(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: &BillingQuoteId,
+        to: QuoteStatus,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE billing_quotes SET status = $3, decided_date = CURRENT_DATE, \
+                 updated_at = now() \
+             WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id.as_str())
+        .bind(to.as_str())
+        .execute(&mut **tx)
+        .await
+        .map_err(StoreError::Db)?;
+        Ok(())
+    }
+
+    /// Closes an open offer with nothing else to do — declining and expiring.
+    /// Acceptance takes its own path, because it also raises a document.
     async fn close_billing_quote(
         &self,
         id: &BillingQuoteId,
@@ -742,36 +793,87 @@ impl AccountStore {
             .await?
             .status
             .ensure_transition(to)?;
-        sqlx::query(
-            "UPDATE billing_quotes SET status = $3, decided_date = CURRENT_DATE, \
-                 updated_at = now() \
-             WHERE tenant_id = $1 AND id = $2",
-        )
-        .bind(self.tenant.as_str())
-        .bind(id.as_str())
-        .bind(to.as_str())
-        .execute(&mut *tx)
-        .await
-        .map_err(StoreError::Db)?;
+        self.write_close(&mut tx, id, to).await?;
         tx.commit().await.map_err(StoreError::Db)?;
 
         self.billing_quote(id).await?.ok_or(StoreError::NotFound)
     }
 
-    /// Accepts a **sent** quote: the customer took the offer.
+    /// Accepts a **sent** quote — the customer took the offer — and raises the
+    /// **draft invoice** for it in the same transaction: the same customer,
+    /// currency and customer reference, and a copy of every line, in the
+    /// original's order, at the prices the offer was made at.
     ///
-    /// B1.12 hangs the draft invoice off this transition; today it records the
-    /// answer and the day it came. A lapsed offer (past its validity, still
-    /// `sent`) can still be accepted on purpose — honouring an offer a few days
-    /// late is a decision the tenant is entitled to make, and the store refuses
-    /// on **state**, never on a date it read.
+    /// **Acceptance and the draft are one act.** Either the offer closes and
+    /// its invoice exists, or nothing happened: a quote recorded as accepted
+    /// with no document to bill it, or a draft invoice for an offer still shown
+    /// as open, would each be a state a user has no way to repair (acceptance
+    /// is terminal, so no retry could finish the job). The quote's row lock is
+    /// held across the whole thing, so a decline racing this acceptance either
+    /// lands first — and the acceptance is refused — or waits.
+    ///
+    /// The invoice is a **draft**, deliberately. What was offered is what will
+    /// be billed, but *when* and *whether it is billed in one go* are the
+    /// tenant's decisions; it is issued through the ordinary
+    /// [`AccountStore::issue_billing_invoice`], which is what draws the legal
+    /// number. Its totals equal the accepted quote's to the cent, because the
+    /// lines are the same lines and the arithmetic is the one in
+    /// [`crate::billing_totals`].
+    ///
+    /// A lapsed offer (past its validity, still `sent`) can still be accepted
+    /// on purpose — honouring an offer a few days late is a decision the tenant
+    /// is entitled to make, and the store refuses on **state**, never on a date
+    /// it read. What is copied and what is not is documented on
+    /// [`AccountStore::insert_invoice_from_quote`].
     ///
     /// # Errors
     /// [`StoreError::NotFound`] when the quote is absent or another tenant's;
     /// [`StoreError::Conflict`] when it is not an open offer;
     /// [`StoreError::Db`] on failure.
-    pub async fn accept_billing_quote(&self, id: &BillingQuoteId) -> Result<QuoteDocument> {
-        self.close_billing_quote(id, QuoteStatus::Accepted).await
+    pub async fn accept_billing_quote(&self, id: &BillingQuoteId) -> Result<QuoteAcceptance> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        let locked = self.lock_quote(&mut tx, id).await?;
+        locked.status.ensure_transition(QuoteStatus::Accepted)?;
+
+        let invoice_id = self
+            .insert_invoice_from_quote(
+                &mut tx,
+                &InvoiceFromQuote {
+                    quote_id: id.as_str(),
+                    customer_id: &locked.customer_id,
+                    currency: &locked.currency,
+                    reference: &locked.reference,
+                },
+            )
+            .await?;
+
+        // The copy: the same descriptions, units, quantities, prices and rates,
+        // in the same print order, read under the lock that froze them when the
+        // offer was sent. A sent quote always has at least one line (an empty
+        // one cannot be sent), so the draft is never a document that says
+        // nothing.
+        let source = QUOTE_LINES
+            .read(&mut *tx, self.tenant.as_str(), id.as_str())
+            .await?;
+        for line in &source {
+            INVOICE_LINES
+                .write(
+                    &mut tx,
+                    self.tenant.as_str(),
+                    invoice_id.as_str(),
+                    line.line_order,
+                    &line.copied(),
+                )
+                .await?;
+        }
+
+        self.write_close(&mut tx, id, QuoteStatus::Accepted).await?;
+        tx.commit().await.map_err(StoreError::Db)?;
+
+        Ok(QuoteAcceptance {
+            quote: self.billing_quote(id).await?.ok_or(StoreError::NotFound)?,
+            invoice_id,
+        })
     }
 
     /// Declines a **sent** quote: the customer turned the offer down, or the
@@ -805,6 +907,9 @@ impl AccountStore {
 struct LockedRow {
     status: String,
     valid_days: i32,
+    customer_id: String,
+    currency: String,
+    reference: String,
 }
 
 #[derive(sqlx::FromRow)]

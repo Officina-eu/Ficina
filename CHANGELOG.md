@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: an accepted quote becomes the invoice for it.** Marking an
+  offer as accepted now also raises the **draft invoice** for it, in one move:
+  every line copied at the price it was offered at, in the same order, worth
+  exactly what the customer agreed to — down to the VAT per rate. The draft is
+  an ordinary draft, so you can add the line you forgot before issuing it, and
+  issuing it takes the next number in your invoice series as always. The two
+  documents point at each other: the invoice names the quote it came from, and
+  the quote names the invoice it produced. An offer that was declined or that
+  lapsed is never billed, an offer can only be accepted once, and the whole
+  thing is a single step — you will never find an accepted quote with nothing
+  to bill it by. The quote surface itself is now live over the API
+  (`/billing/quotes`), with the screens to follow (ADR 0035).
+
 - **alo Billing: quotes, the offer before the invoice.** You can now draft a
   quote for a customer with exactly the same lines an invoice takes, and the
   server totals it the same way, to the cent. A draft is yours to change or

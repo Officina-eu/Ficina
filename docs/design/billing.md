@@ -74,7 +74,7 @@ As-built (B1.10), for the invoice routes specifically:
   request; like any unknown field they are ignored.
 | `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17, B1.23) |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) |
-| `GET/POST /billing/quotes`, `POST /billing/quotes/{id}/accept` | quote lifecycle → draft invoice (B1.11, B1.12) |
+| `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
 | `GET/POST /billing/payments` | record full/partial payments (B1.19) |
 | `GET /billing/reports/vat?from&to` | VAT summary + CSV (B1.20) |
 
@@ -194,6 +194,32 @@ column, struct field, or computation anywhere in this module.
   is deliberately **no background sweep**, and acceptance refuses on
   *state*, never on a date — honouring a lapsed offer a few days late is
   a decision the tenant is entitled to make.
+  As-built (B1.12): **accepting an offer and raising the invoice for it
+  are one act**, in one transaction under the quote's row lock, and
+  `accept_billing_quote` answers with both (`QuoteAcceptance`). Either
+  the offer closes and its draft invoice exists or nothing happened: an
+  accepted quote with nothing to bill it by would be unrepairable,
+  because acceptance is terminal and no retry could finish the job. The
+  link is `billing_invoices.quote_id` (migration 0106) — on the newer
+  document, which knows its own origin, rather than on a quote that is
+  frozen the moment it is sent — with a composite foreign key to the
+  same tenant and a **unique** partial index: one invoice per accepted
+  offer, ever, so "the invoice raised from this quote" is a single row.
+  A credit note may never carry one (CHECK), since it credits an
+  invoice, not an offer.
+  What the invoice copies: the customer, the currency and the customer's
+  reference, plus every line unchanged at the price it was offered at,
+  in the offer's order (`Line::copied`) — so the totals agree to the
+  cent, including the VAT breakdown per rate. What it does not: the
+  **note** (a quote's note states the terms of an *offer*, which is
+  untrue of a bill) and the **payment terms**, which a quote does not
+  carry and are taken from the customer as any new invoice's are. The
+  customer is copied, not re-resolved, so an offer to a customer
+  archived since it was sent can still be honoured — as a credit note
+  can still be raised for one — while raising a *new* quote for them
+  stays refused. The invoice is a **draft**: what was offered is what
+  will be billed, but when, and whether in one go, is the tenant's
+  decision, and the legal number comes only from `/issue`.
 - **`billing_payments`** — invoice ref, date, amount cents, method,
   reference. Invoice paid-state is **derived** from the sum of its
   payments against its gross total, never stored as an independently
@@ -257,6 +283,9 @@ route edge to the existing `Problem` shape. The full map:
 | Editing, replacing the lines of, or deleting a non-draft quote | `Conflict` | `409` |
 | Sending a quote with no lines | `Validation` | `422` |
 | Quote validity outside 0–365 days | `Validation` | `422` |
+| Accepting a quote that is not an open offer (draft, or already answered) | `Conflict` | `409` |
+| Creating a quote without naming a customer (`customerId` absent or blank) | — (route edge) | `422` |
+| Listing quotes with a `status` filter that is not one of the five states | — (route edge) | `422` |
 | Sequence row contention beyond the tx retry | `Db` | `503` |
 
 The wrong-tenant case deliberately returns the **same `404`** as a
