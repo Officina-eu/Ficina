@@ -1,7 +1,9 @@
 # sites/STATE.md — Sites-track loop journal (append-only; newest at the bottom)
 
 One entry per iteration: item id, what shipped, how verified, cuts/flags,
-next item. Control markers: `LOOP COMPLETE`, `LOOP HALT: <reason>`.
+next item. The end-of-queue / emergency-stop control markers the wrapper
+watches for are defined in LOOP.md — never write those exact phrases here
+except to actually fire them.
 
 Human-action inbox (things the loop must not do itself):
 
