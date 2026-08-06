@@ -1,4 +1,7 @@
-// The line grid of a document — what is being billed, one row at a time.
+// The line grid of a billing document — what is being billed or offered, one
+// row at a time. The same grid serves an invoice and a quote: the lines of the
+// two are the same object, and a quote that showed its money differently from
+// the invoice it becomes would be a quote nobody could trust.
 //
 // Every row is text (`lineRows.ts` owns turning it into a line); the only
 // number this file renders is the server's own: the `net` column is the net
@@ -48,7 +51,7 @@ interface Props {
   nextKey: () => string;
 }
 
-export function InvoiceLines({
+export function DocumentLines({
   rows,
   products,
   savedLines,

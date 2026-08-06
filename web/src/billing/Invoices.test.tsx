@@ -167,6 +167,14 @@ function lastWrite(): Call | undefined {
   return calls.filter((c) => c.method !== "GET").at(-1);
 }
 
+/** Answers the confirmation dialog. Its confirm button carries the same label
+ *  as the action that opened it, and it is rendered after the page, so the
+ *  last one is the dialog's. */
+function press(label: string) {
+  const buttons = screen.getAllByRole("button", { name: label });
+  fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
+}
+
 beforeEach(() => {
   calls.length = 0;
   replies = [];
@@ -368,5 +376,168 @@ describe("the draft editor", () => {
     const table = screen.getByRole("table");
     expect(within(table).getByText("1.5")).toBeTruthy();
     expect(within(table).getByText("21%")).toBeTruthy();
+  });
+});
+
+describe("the lifecycle actions", () => {
+  test("issuing says what it will do, spends nothing until confirmed, and freezes", async () => {
+    reply("/billing/invoices/inv-1", "GET", { invoice: DRAFT, creditNotes: [] });
+    ui("/billing/invoices/inv-1");
+    await screen.findByText("€226.88");
+
+    fireEvent.click(screen.getByRole("button", { name: strings.billingIssue }));
+    // The warning the item exists for: a number is spent and the document
+    // freezes. It is the dialog's own words, not a paraphrase in the test.
+    expect(await screen.findByText(strings.billingIssueConfirm)).toBeTruthy();
+
+    // Backing out writes nothing at all: no number is consumed by looking.
+    fireEvent.click(screen.getByRole("button", { name: strings.dialogCancel }));
+    await waitFor(() => expect(screen.queryByText(strings.billingIssueConfirm)).toBeNull());
+    expect(lastWrite()).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: strings.billingIssue }));
+    await screen.findByText(strings.billingIssueConfirm);
+    reply("/billing/invoices/inv-1/issue", "POST", { invoice: { ...ISSUED, id: "inv-1" } });
+    press(strings.billingIssue);
+
+    await waitFor(() => expect(lastWrite()).toBeTruthy());
+    const write = lastWrite();
+    expect(write?.method).toBe("POST");
+    expect(write?.url).toContain("/billing/invoices/inv-1/issue");
+    // A transition carries no input: what the document becomes is the route,
+    // never a field a stale form could have sent.
+    expect(write?.body).toBeUndefined();
+
+    // The document the server answered with, not an optimistic guess.
+    expect(await screen.findByText("INV-2026-00007")).toBeTruthy();
+    expect(screen.getByText(strings.billingFrozenNotice)).toBeTruthy();
+    expect(screen.queryByLabelText(strings.billingColQty)).toBeNull();
+    expect(screen.queryByRole("button", { name: strings.billingIssue })).toBeNull();
+  });
+
+  test("each state offers only its own transitions", async () => {
+    reply("/billing/invoices/inv-1", "GET", { invoice: DRAFT, creditNotes: [] });
+    ui("/billing/invoices/inv-1");
+    await screen.findByText("€226.88");
+    expect(screen.getByRole("button", { name: strings.billingIssue })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: strings.billingVoid })).toBeNull();
+    expect(screen.queryByRole("button", { name: strings.billingCreditNoteAction })).toBeNull();
+    cleanup();
+
+    reply("/billing/invoices/inv-2", "GET", { invoice: ISSUED, creditNotes: [] });
+    ui("/billing/invoices/inv-2");
+    await screen.findByText(strings.billingFrozenNotice);
+    expect(screen.getByRole("button", { name: strings.billingVoid })).toBeTruthy();
+    expect(screen.getByRole("button", { name: strings.billingCreditNoteAction })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: strings.billingIssue })).toBeNull();
+    cleanup();
+
+    // A void document is finished: it offers nothing, rather than buttons the
+    // store would refuse.
+    reply("/billing/invoices/inv-3", "GET", {
+      invoice: { ...ISSUED, id: "inv-3", status: "void", overdue: false },
+      creditNotes: [],
+    });
+    ui("/billing/invoices/inv-3");
+    expect(await screen.findByText(strings.billingVoidNotice)).toBeTruthy();
+    for (const label of [strings.billingIssue, strings.billingVoid, strings.billingCreditNoteAction]) {
+      expect(screen.queryByRole("button", { name: label })).toBeNull();
+    }
+  });
+
+  test("a transition waits for the draft it would freeze to be saved", async () => {
+    reply("/billing/invoices/inv-1", "GET", { invoice: DRAFT, creditNotes: [] });
+    ui("/billing/invoices/inv-1");
+    await screen.findByText("€226.88");
+
+    // A row that cannot become a line keeps the draft unsent for good — and
+    // issuing then would freeze a document that is not the one on screen.
+    fireEvent.click(screen.getByRole("button", { name: strings.billingAddLine }));
+    fireEvent.change(screen.getAllByLabelText(strings.billingColUnitPrice)[1] as HTMLElement, {
+      target: { value: "50" },
+    });
+
+    expect(await screen.findByText(strings.billingActionsWaitForSave)).toBeTruthy();
+    const issue = screen.getByRole("button", { name: strings.billingIssue });
+    expect((issue as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(issue);
+    // Long enough that a debounce would have fired twice over.
+    await new Promise((done) => setTimeout(done, 1500));
+    expect(screen.queryByText(strings.billingIssueConfirm)).toBeNull();
+    expect(lastWrite()).toBeUndefined();
+  });
+
+  test("a credit note is raised as a draft, and the screen lands on it", async () => {
+    reply("/billing/invoices/inv-2", "GET", { invoice: ISSUED, creditNotes: [] });
+    ui("/billing/invoices/inv-2");
+    await screen.findByText(strings.billingFrozenNotice);
+
+    fireEvent.click(screen.getByRole("button", { name: strings.billingCreditNoteAction }));
+    expect(await screen.findByText(strings.billingCreditNoteConfirm)).toBeTruthy();
+    const credit = {
+      ...DRAFT,
+      id: "inv-9",
+      creditNote: true,
+      creditsInvoiceId: "inv-2",
+      lines: [{ ...(DRAFT.lines[0] as object), qtyMilli: -1500, netCents: -18750 }],
+      totals: {
+        netCents: -18750,
+        vatCents: -3938,
+        grossCents: -22688,
+        vatByRate: [{ rateBp: 2100, netCents: -18750, vatCents: -3938 }],
+      },
+    };
+    reply("/billing/invoices/inv-2/credit-note", "POST", { invoice: credit });
+    reply("/billing/invoices/inv-9", "GET", { invoice: credit, creditNotes: [] });
+    press(strings.billingCreditNoteAction);
+
+    // The mirror it made is what needs editing, so that is where we end up:
+    // an editable draft, marked as a credit note, worth the negative of the
+    // original — every figure of it the server's.
+    expect(await screen.findByText("-€226.88")).toBeTruthy();
+    expect(screen.getByText(strings.billingCreditNote)).toBeTruthy();
+    expect(screen.getByLabelText(strings.billingColQty)).toBeTruthy();
+    expect(screen.getByRole("button", { name: strings.billingCreditsInvoice })).toBeTruthy();
+  });
+
+  test("voiding keeps the number and says the document is worth nothing", async () => {
+    reply("/billing/invoices/inv-2", "GET", { invoice: ISSUED, creditNotes: [] });
+    ui("/billing/invoices/inv-2");
+    await screen.findByText(strings.billingFrozenNotice);
+
+    fireEvent.click(screen.getByRole("button", { name: strings.billingVoid }));
+    expect(await screen.findByText(strings.billingVoidConfirm)).toBeTruthy();
+    reply("/billing/invoices/inv-2/void", "POST", {
+      invoice: { ...ISSUED, status: "void", overdue: false },
+    });
+    press(strings.billingVoid);
+
+    expect(await screen.findByText(strings.billingVoidNotice)).toBeTruthy();
+    // The number stays: a number that vanished is a hole in the series.
+    expect(screen.getByText("INV-2026-00007")).toBeTruthy();
+    expect(screen.getByText(strings.billingStatusVoid)).toBeTruthy();
+  });
+
+  test("a refused transition is reported in the server's own words", async () => {
+    reply("/billing/invoices/inv-1", "GET", { invoice: DRAFT, creditNotes: [] });
+    ui("/billing/invoices/inv-1");
+    await screen.findByText("€226.88");
+
+    fireEvent.click(screen.getByRole("button", { name: strings.billingIssue }));
+    await screen.findByText(strings.billingIssueConfirm);
+    reply(
+      "/billing/invoices/inv-1/issue",
+      "POST",
+      { detail: "an invoice with no lines cannot be issued" },
+      422,
+    );
+    press(strings.billingIssue);
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "an invoice with no lines cannot be issued",
+    );
+    // Still a draft, still editable: a refusal changes nothing.
+    expect(screen.getByLabelText(strings.billingColQty)).toBeTruthy();
   });
 });

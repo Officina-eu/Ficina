@@ -15,12 +15,17 @@ import { CustomersView } from "./CustomersView";
 import { InvoiceEditor } from "./InvoiceEditor";
 import { InvoicesView } from "./InvoicesView";
 import { ProductsView } from "./ProductsView";
+import { QuoteEditor } from "./QuoteEditor";
+import { QuotesView } from "./QuotesView";
 import styles from "./BillingModule.module.css";
 
-/** The tabs, in the order a tenant works in them: what you send out, then who
- *  you send it to, then what it is made of. */
+/** The tabs: the documents that are the point of the module, then the offers
+ *  that become them, then who they are made out to, then what they are made
+ *  of. Invoices stay first — and stay what `/billing` lands on — because they
+ *  are what a tenant opens billing to look at. */
 const TABS = [
   { path: "invoices", label: () => strings.billingInvoices },
+  { path: "quotes", label: () => strings.billingQuotes },
   { path: "customers", label: () => strings.billingCustomers },
   { path: "products", label: () => strings.billingProducts },
 ] as const;
@@ -49,6 +54,11 @@ export function BillingModule() {
           <Route index element={<InvoicesView />} />
           <Route path="new" element={<InvoiceEditor />} />
           <Route path=":id" element={<InvoiceEditor />} />
+        </Route>
+        <Route path="quotes">
+          <Route index element={<QuotesView />} />
+          <Route path="new" element={<QuoteEditor />} />
+          <Route path=":id" element={<QuoteEditor />} />
         </Route>
         <Route path="customers" element={<CustomersView />} />
         <Route path="products" element={<ProductsView />} />

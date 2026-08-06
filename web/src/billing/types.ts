@@ -173,3 +173,62 @@ export interface InvoiceDraft {
   note?: string;
   lines?: LineDraft[];
 }
+
+/**
+ * Where an offer is in its life. Only a `draft` is editable; `sent` carries a
+ * number and is frozen, and the last three are decisions that closed it
+ * (`docs/design/billing.md`).
+ *
+ * `expired` here is the *status* — somebody stopped chasing the offer — which
+ * is not the same thing as `BillingQuoteSummary.expired`, the computed flag
+ * saying the validity date has passed. A lapsed offer can still be accepted.
+ */
+export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired";
+
+/** A quote as a list entry: the header and what it is worth, no lines. */
+export interface BillingQuoteSummary {
+  id: string;
+  customerId: string;
+  status: QuoteStatus;
+  /** ISO 4217, uppercase — snapshotted from the customer when raised. */
+  currency: string;
+  /** The offer's number, or `null` while it is still a draft. */
+  number: string | null;
+  /** `YYYY-MM-DD`, or `null` while the offer has not been sent. */
+  sentDate: string | null;
+  validUntil: string | null;
+  /** How long the offer stands from the day it is sent. */
+  validDays: number;
+  /** The day the offer was answered, or `null` while it is open. */
+  decidedDate: string | null;
+  /** Computed by the server against its own date: the validity has passed.
+   *  Never stored — a stored flag would be wrong every midnight. */
+  expired: boolean;
+  /** The customer's own reference (their RFQ number); empty when none. */
+  reference: string;
+  note: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  totals: DocumentTotals;
+}
+
+/** A whole quote: the header, its lines in print order, and its totals. */
+export interface BillingQuote extends BillingQuoteSummary {
+  lines: DocumentLine[];
+}
+
+/**
+ * The writable parts of a quote; absent means "leave as it is".
+ *
+ * As on an invoice there is no `status`, `number`, `sentDate`, `validUntil` or
+ * `decidedDate`: those move only through the lifecycle routes.
+ */
+export interface QuoteDraft {
+  customerId?: string;
+  currency?: string;
+  validDays?: number;
+  reference?: string;
+  note?: string;
+  lines?: LineDraft[];
+}

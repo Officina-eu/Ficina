@@ -6,6 +6,25 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: issue an invoice, and quote for the work first.** A draft
+  invoice now has an **Issue** button. It asks first, and says exactly what it
+  is about to do: take the next number in your series, date the document, and
+  freeze it for good. After that the invoice is a record — correct it with a
+  **credit note**, which raises a draft mirroring every line for you to trim
+  down to a partial credit, or **void** one nobody has seen (it keeps its
+  number, because a number that vanished is a hole in your books). Nothing is
+  emailed to anyone yet.
+  **Quotes** are the same screen, one step earlier: raise a draft for a
+  customer, put the same kind of lines on it, and mark it **sent** — which
+  takes a quote number of its own and freezes the prices you offered. When the
+  customer says yes, **Accepted** closes the offer and hands you a draft
+  invoice with the identical lines at the identical prices, ready to issue;
+  **Declined** and **Give up on it** close it without business. An offer past
+  its date is flagged, not blocked — honouring one a few days late is your
+  call. Every document says where it came from and what it became, so a quote,
+  its invoice and any credit note are one click from each other. Printing and
+  PDFs come next (ADR 0035).
+
 - **alo Billing: your invoices, on screen.** Billing now opens on the
   **invoice list** — number, customer, dates, what it is worth — with a chip
   for where each document stands (draft, issued, paid, void) and a plain red

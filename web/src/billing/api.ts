@@ -20,10 +20,14 @@ import type {
   BillingInvoice,
   BillingInvoiceSummary,
   BillingProduct,
+  BillingQuote,
+  BillingQuoteSummary,
   CustomerDraft,
   InvoiceDraft,
   InvoiceStatus,
   ProductDraft,
+  QuoteDraft,
+  QuoteStatus,
 } from "./types";
 
 type AuthorizedFetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -57,7 +61,8 @@ export function billingMessage(error: unknown, fallback: string): string {
   return error instanceof BillingError && error.detail !== null ? error.detail : fallback;
 }
 
-/** The tenant's customers and price list. One instance per auth context. */
+/** The tenant's billing records — customers, price list, invoices and quotes —
+ *  and the lifecycle transitions over them. One instance per auth context. */
 export class BillingApi {
   readonly #fetch: AuthorizedFetch;
 
@@ -178,8 +183,116 @@ export class BillingApi {
     );
   }
 
+  /**
+   * Issues a draft: the server assigns the next number of the tenant's series,
+   * stamps the issue and due dates from its own clock, and freezes the
+   * document. Not idempotent — a second call answers `409`, so a client that
+   * retried after a timeout reads what happened instead of spending a second
+   * number on one invoice.
+   */
+  issueInvoice(id: string): Promise<BillingInvoice> {
+    return this.#act<{ invoice: BillingInvoice }>(
+      `/billing/invoices/${encodeURIComponent(id)}/issue`,
+    ).then((r) => r.invoice);
+  }
+
+  /** Cancels an issued invoice. It keeps its number and stays readable — a
+   *  document the customer already holds is corrected with a credit note. */
+  voidInvoice(id: string): Promise<BillingInvoice> {
+    return this.#act<{ invoice: BillingInvoice }>(
+      `/billing/invoices/${encodeURIComponent(id)}/void`,
+    ).then((r) => r.invoice);
+  }
+
+  /** Raises a **draft** credit note mirroring every line of an issued or paid
+   *  invoice. Editing it down before issuing is how a partial credit is made. */
+  createCreditNote(id: string): Promise<BillingInvoice> {
+    return this.#act<{ invoice: BillingInvoice }>(
+      `/billing/invoices/${encodeURIComponent(id)}/credit-note`,
+    ).then((r) => r.invoice);
+  }
+
+  /** The tenant's quotes, newest first, each with its totals and computed
+   *  `expired` flag but without its lines. An unknown `status` is a `422`. */
+  quotes(status?: QuoteStatus): Promise<BillingQuoteSummary[]> {
+    const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+    return this.#read<{ quotes?: BillingQuoteSummary[] }>(`/billing/quotes${query}`).then(
+      (r) => r.quotes ?? [],
+    );
+  }
+
+  /** One whole offer — header, lines, totals — and the id of the draft invoice
+   *  its acceptance raised (`null` for every offer that was not accepted). */
+  quote(id: string): Promise<{ quote: BillingQuote; invoiceId: string | null }> {
+    return this.#read<{ quote: BillingQuote; invoiceId?: string | null }>(
+      `/billing/quotes/${encodeURIComponent(id)}`,
+    ).then((r) => ({ quote: r.quote, invoiceId: r.invoiceId ?? null }));
+  }
+
+  /** Raises a **draft** offer. Only `customerId` is required; the currency and
+   *  the validity fall back to the customer's and the server's defaults. */
+  createQuote(draft: QuoteDraft): Promise<BillingQuote> {
+    return this.#write<{ quote: BillingQuote }>("POST", "/billing/quotes", draft).then(
+      (r) => r.quote,
+    );
+  }
+
+  /** Saves a draft offer, with the same merge rules as an invoice. */
+  updateQuote(id: string, draft: QuoteDraft): Promise<BillingQuote> {
+    return this.#write<{ quote: BillingQuote }>(
+      "PATCH",
+      `/billing/quotes/${encodeURIComponent(id)}`,
+      draft,
+    ).then((r) => r.quote);
+  }
+
+  /** Discards a **draft** offer, which was never made to anybody. */
+  async deleteQuote(id: string): Promise<void> {
+    await this.#json<unknown>(
+      await this.#send(`/billing/quotes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    );
+  }
+
+  /** Records that the offer was made: the server assigns its number, stamps
+   *  the send date and the day it stands until, and freezes the content. It
+   *  sends no email — the mail draft is B1.18's. */
+  sendQuote(id: string): Promise<BillingQuote> {
+    return this.#act<{ quote: BillingQuote }>(
+      `/billing/quotes/${encodeURIComponent(id)}/send`,
+    ).then((r) => r.quote);
+  }
+
+  /** The customer took the offer. One server transaction closes the quote and
+   *  raises the draft invoice for it, so both documents come back. */
+  acceptQuote(id: string): Promise<{ quote: BillingQuote; invoice: BillingInvoice }> {
+    return this.#act<{ quote: BillingQuote; invoice: BillingInvoice }>(
+      `/billing/quotes/${encodeURIComponent(id)}/accept`,
+    );
+  }
+
+  /** The offer was turned down, or withdrawn. Terminal: a change of mind is a
+   *  new quote. */
+  declineQuote(id: string): Promise<BillingQuote> {
+    return this.#act<{ quote: BillingQuote }>(
+      `/billing/quotes/${encodeURIComponent(id)}/decline`,
+    ).then((r) => r.quote);
+  }
+
+  /** The offer lapsed without an answer and somebody stopped chasing it. */
+  expireQuote(id: string): Promise<BillingQuote> {
+    return this.#act<{ quote: BillingQuote }>(
+      `/billing/quotes/${encodeURIComponent(id)}/expire`,
+    ).then((r) => r.quote);
+  }
+
   async #read<T>(path: string): Promise<T> {
     return this.#json<T>(await this.#send(path, { method: "GET" }));
+  }
+
+  /** A lifecycle transition: a `POST` that carries no input at all. What the
+   *  document becomes is the route, never a field a stale form could send. */
+  async #act<T>(path: string): Promise<T> {
+    return this.#json<T>(await this.#send(path, { method: "POST" }));
   }
 
   async #write<T>(method: string, path: string, body: unknown): Promise<T> {

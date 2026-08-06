@@ -58,6 +58,40 @@ methods on `JmapClient`: billing is plain REST, with none of JMAP's
 session or method-call envelope, and it changes for different reasons.
 It shares the auth layer's `authorizedFetch`, so there is one session.
 
+The tabs as built are `invoices` (also what `/billing` lands on),
+`quotes`, `customers`, `products`.
+
+### Documents on screen — as-built (B1.14, B1.15)
+
+An invoice and a quote are the same document with different words on
+it, so they are **one screen**, not two that look alike:
+`documentDraft.ts` holds the form and the autosave loop,
+`DocumentEditor.tsx` renders it, `DocumentLines.tsx` is the line grid,
+and `InvoiceEditor` / `QuoteEditor` supply only what differs — the
+words, the two dates, the state chips, and the transitions.
+
+Three rules on top of the module's own:
+
+- **A transition acts on the stored document, so it waits for the
+  form.** While the draft holds edits the server has not stored, every
+  lifecycle button is disabled and says why. Firing one then would
+  freeze a document that is not the one on screen, and the keystrokes
+  since the last save would be lost inside a document nobody can edit
+  again. A row that cannot become a line keeps this true indefinitely,
+  which is correct.
+- **Every transition asks first, and the dialog states what it does to
+  the document** — spends the next number of the series and freezes it,
+  closes the offer for good — rather than asking whether the user is
+  sure. Each is irreversible on a legal document.
+- **A transition request carries no body.** What a document becomes is
+  the route, never a field a stale form could have sent.
+
+Where a transition answers with a *different* document — accepting a
+quote, raising a credit note — the screen goes to that document, because
+it is the one that now needs work. Both directions of each link are on
+the record: an invoice names the quote it came from and the invoice it
+credits; a quote names the invoice it became.
+
 ### Routes
 
 All under the authenticated `alo-jmap` router, following the existing

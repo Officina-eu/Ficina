@@ -1622,6 +1622,81 @@ export const en = {
     "Delete this draft? It carries no number, so nothing is left behind — and nothing can be recovered.",
   billingFrozenNotice:
     "This document carries a number and can no longer be changed. Correct it with a credit note.",
+
+  // Lifecycle (B1.15). Every one of these actions is irreversible on a legal
+  // document, so the confirmation says what it will DO — spends a number,
+  // freezes the prices, closes the offer — rather than asking whether the
+  // person is sure. None of them promises an email: nothing is sent to anyone
+  // until B1.18.
+  billingActionFailed: "That did not go through. Check your connection and try again.",
+  billingActionsWaitForSave: "These wait until your last change has been saved.",
+  billingIssue: "Issue",
+  billingIssueTitle: "Issue this invoice?",
+  billingIssueConfirm:
+    "Issuing takes the next number in your series, dates the document and freezes it. It can never be changed again — a mistake afterwards is corrected with a credit note. Nothing is emailed to the customer.",
+  billingVoid: "Void",
+  billingVoidTitle: "Void this invoice?",
+  billingVoidConfirm:
+    "A void invoice keeps its number and stays readable, but is worth nothing. Void one nobody has seen; if the customer already holds this document, raise a credit note instead.",
+  billingVoidNotice: "This invoice has been voided. It keeps its number and is worth nothing.",
+  billingCreditNoteAction: "Credit note",
+  billingCreditNoteTitle: "Raise a credit note?",
+  billingCreditNoteConfirm:
+    "This raises a draft credit note mirroring every line of this invoice. Edit it down for a partial credit, then issue it like any other document.",
+  billingCreditsInvoice: "The invoice this credits",
+  billingFromQuote: "The quote this came from",
+
+  // Quotes (B1.15): the same document as an invoice until somebody says yes,
+  // and deliberately the same words wherever the two screens agree.
+  billingQuotes: "Quotes",
+  billingNewQuote: "New quote",
+  billingSearchQuotes: "Search by number, customer or reference…",
+  billingNoQuotesTitle: "No quotes yet",
+  billingNoQuotesBody:
+    "Offer a customer a price. When they accept, the quote becomes a draft invoice with the same lines.",
+  billingQuoteStatusSent: "Sent",
+  billingQuoteStatusAccepted: "Accepted",
+  billingQuoteStatusDeclined: "Declined",
+  billingQuoteStatusExpired: "Expired",
+  /** The computed flag: the validity date has passed. Worded apart from the
+   *  "Expired" status, which is somebody's decision to stop chasing it. */
+  billingQuoteLapsed: "Past its date",
+  // "Sent on", not "Sent", for the same reason the invoice list says "Issue
+  // date": a column header that reads the same as the status chip under it
+  // makes a list of documents ambiguous at a glance.
+  billingColSentDate: "Sent on",
+  billingColValidUntil: "Valid until",
+  billingDraftQuote: "Draft quote",
+  billingBackToQuotes: "All quotes",
+  billingQuoteGone: "This quote no longer exists.",
+  billingQuoteCustomerHint: "Their currency is copied onto the offer.",
+  billingCreateQuoteHint: "The draft is raised first; then you add what you are offering.",
+  billingFieldSentDate: "Sent on",
+  billingFieldValidUntil: "Valid until",
+  billingValidForDays: (days: number) => `Stands for ${days} days from the day it is sent.`,
+  billingDeleteQuoteDraft: "Delete draft",
+  billingDeleteQuoteDraftConfirm:
+    "Delete this draft? It carries no number and was never made to anybody — and nothing can be recovered.",
+  billingQuoteSentNotice:
+    "This offer has been sent and can no longer be changed. If the price moves, make a new quote.",
+  billingQuoteClosedNotice: "This offer is closed and can no longer be changed.",
+  billingSendQuote: "Mark as sent",
+  billingSendQuoteTitle: "Send this quote?",
+  billingSendQuoteConfirm:
+    "This takes the next quote number, dates the offer and freezes its prices, so what the customer holds cannot change under them. Nothing is emailed — send it yourself and record it here.",
+  billingAcceptQuote: "Accepted",
+  billingAcceptQuoteTitle: "The customer accepted?",
+  billingAcceptQuoteConfirm:
+    "This closes the offer and raises a draft invoice with the same lines at the same prices. Nothing is issued yet — you will land on the draft.",
+  billingDeclineQuote: "Declined",
+  billingDeclineQuoteTitle: "The customer declined?",
+  billingDeclineQuoteConfirm:
+    "The offer closes for good and stays readable. A change of mind is a new quote, not a reopened one.",
+  billingExpireQuote: "Give up on it",
+  billingExpireQuoteTitle: "Stop chasing this offer?",
+  billingExpireQuoteConfirm:
+    "The offer closes as expired, with today as the day you stopped chasing it. It cannot be answered afterwards.",
+  billingQuoteInvoice: "The invoice this became",
 } as const;
 
 /** Every string key in the catalog. */

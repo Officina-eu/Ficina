@@ -7,7 +7,7 @@
 // So the chip a row shows is derived from the pair, never from `status` alone.
 import { cx } from "../ds";
 import { strings } from "../i18n";
-import type { BillingInvoiceSummary, InvoiceStatus } from "./types";
+import type { BillingInvoiceSummary, BillingQuoteSummary, InvoiceStatus, QuoteStatus } from "./types";
 import styles from "./BillingModule.module.css";
 
 /** The visual weight of a chip. Named after what it means, not its colour, so
@@ -60,6 +60,59 @@ export function DocumentChips({ invoice }: { invoice: BillingInvoiceSummary }) {
       {invoice.creditNote && <StatusChip tone="warn" label={strings.billingCreditNote} />}
       <StatusChip tone={statusTone(invoice.status)} label={statusLabel(invoice.status)} />
       {invoice.overdue && <StatusChip tone="warn" label={strings.billingStatusOverdue} />}
+    </>
+  );
+}
+
+/** What to call a quote's state. */
+export function quoteStatusLabel(status: QuoteStatus): string {
+  switch (status) {
+    case "draft":
+      return strings.billingStatusDraft;
+    case "sent":
+      return strings.billingQuoteStatusSent;
+    case "accepted":
+      return strings.billingQuoteStatusAccepted;
+    case "declined":
+      return strings.billingQuoteStatusDeclined;
+    case "expired":
+      return strings.billingQuoteStatusExpired;
+    default:
+      return status;
+  }
+}
+
+/** How loudly an offer's state reads: an open one is the one to look at, a
+ *  won one is good, and the two that closed without business are greyed. */
+export function quoteStatusTone(status: QuoteStatus): ChipTone {
+  switch (status) {
+    case "sent":
+      return "info";
+    case "accepted":
+      return "good";
+    case "declined":
+    case "expired":
+      return "muted";
+    default:
+      return "neutral";
+  }
+}
+
+/**
+ * The chips one offer wears: what it is, then whether it has lapsed.
+ *
+ * "Lapsed" is the server's computed `expired` flag — the validity date has
+ * passed — and it is deliberately worded differently from the `expired`
+ * *status*, which is somebody's decision to stop chasing the offer. Only an
+ * open offer can lapse; on a closed one the flag says nothing a reader needs.
+ */
+export function QuoteChips({ quote }: { quote: BillingQuoteSummary }) {
+  return (
+    <>
+      <StatusChip tone={quoteStatusTone(quote.status)} label={quoteStatusLabel(quote.status)} />
+      {quote.status === "sent" && quote.expired && (
+        <StatusChip tone="warn" label={strings.billingQuoteLapsed} />
+      )}
     </>
   );
 }

@@ -1658,3 +1658,193 @@ Cuts and flags:
 Next item: B1.15 (web: the issue flow with its confirm dialog, the read-only
 issued view, the credit-note button, and the quote pages mirroring invoices
 including accept → invoice).
+
+---
+
+## 2026-08-07 — B1.15 the issue flow, credit notes, and the quote screens
+
+The lifecycle a document has is now something a person can drive. Two new
+screens, three new buttons on the invoice, and — the part worth reading — the
+two editors became **one** editor.
+
+- **`documentDraft.ts`** (new) — the form behind any billing document: load,
+  adopt, the edit state, and the autosave loop (one request in flight, an edit
+  mid-save goes round again, only the header fields that actually changed are
+  sent). Lifted verbatim out of `InvoiceEditor`.
+- **`DocumentEditor.tsx`** (new) — the shell both editors render: header
+  fields, line grid, totals, save indicator, create bar, and the read-only
+  rendering of a numbered document. What varies is passed in — the words, the
+  two dates, the chips, the transitions, the relations.
+- **`DocumentActions.tsx`** (new) — the transitions, each behind a dialog that
+  says what it does to the document.
+- **`InvoiceLines.tsx` → `DocumentLines.tsx`** — the grid was already generic;
+  only its name said "invoice", and a quote's lines are the same object.
+- **`pickers.ts`** (new) — the customers and the price list, loaded once per
+  screen instead of once per editor.
+- **`QuotesView.tsx` / `QuoteEditor.tsx`** (new), the `quotes` tab and its
+  routes, `QuoteChips` in `status.tsx`, the quote types, and eleven new client
+  methods (`issueInvoice`, `voidInvoice`, `createCreditNote`, the seven quote
+  ones) — plus `#act`, a `POST` that carries no body at all.
+- 40 new `billing*` keys in `i18n/en.ts` (fr/nl at B1.27, as scheduled).
+
+`InvoiceEditor` went from 457 lines to 211, all of them about what an invoice
+is; `QuoteEditor` is 190 and is not a copy of it. Had the quote screen been
+written as a sibling, the wave would carry two autosave loops and two
+definitions of "only send what changed" — and B1.19's payments would have to
+fix both.
+
+Decisions worth recording, all now as-built in `docs/design/billing.md`:
+
+- **A transition waits for the form.** Every lifecycle button is disabled, with
+  a line saying why, while the draft holds edits the server has not stored.
+  This was found by reading the diff cold, not by a test failing: a transition
+  acts on the **stored** document, so firing one mid-autosave would freeze a
+  document that is not the one on screen and lose the keystrokes since the last
+  save *inside a document nobody can edit again*. A row that cannot become a
+  line keeps the buttons disabled indefinitely, which is correct — a document
+  whose editor holds an unsendable line is not one to issue.
+- **The dialog states what the action does, never "are you sure".** Issuing
+  "takes the next number in your series, dates the document and freezes it…";
+  sending a quote "takes the next quote number… so what the customer holds
+  cannot change under them". Each of these is irreversible on a legal document,
+  and the item's own done-when asked for exactly this sentence.
+- **A transition request carries no body**, asserted on the wire and in the
+  tests. What a document becomes is the route, never a field a stale form could
+  send.
+- **Where a transition answers with a different document, the screen goes
+  there.** Accepting a quote lands on the draft invoice; raising a credit note
+  lands on the credit note. Both are the document that now needs work. Both
+  directions of every link are on the record (an invoice names the quote it
+  came from and the invoice it credits; a quote names the invoice it became).
+- **"Past its date" ≠ "Expired".** The computed `expired` flag and the
+  `expired` status are different facts, so they are different words. A lapsed
+  offer still offers Accept — the store refuses on state, never on a date, and
+  this screen must not lock a door the store leaves open.
+- **Invoices stay the first tab and stay what `/billing` lands on**, with
+  quotes second. B1.13/B1.14 recorded why; a new tab is not a reason to
+  relitigate it.
+- **"Sent on", not "Sent", as the quote list's date column** — the same reason
+  the invoice list says "Issue date": a header that reads like the chip under
+  it makes a list ambiguous at a glance. Caught by a test finding two "Sent"s.
+
+Verified. `npx tsc --noEmit` clean on both tsconfigs, `npx eslint . --max-warnings 0`
+clean across the whole app, `npm run test` green — **144 tests in 20 files, 28
+of them new** — and `npm run build` clean for the workspace **and** for
+`ALO_PRODUCT=mail`, whose bundle was probed and contains no billing route, no
+billing component and no billing CSS (only the shared string catalogue, as
+before this item).
+
+The new tests are the item's gate, all through the real router, the real module
+routes, the real client and the real shared shell over one recording `fetch`:
+
+- `Invoices.test.tsx` (+6) — issuing shows the dialog's **own words**, writes
+  nothing when the dialog is cancelled, sends a bodiless `POST …/issue`, and
+  then renders the server's frozen document (number, notice, no inputs, no
+  Issue button); each status offers only its own transitions and a void
+  document offers none; a credit note lands on the editable mirror, marked as a
+  credit note, worth `-€226.88` — the server's figure — and naming the invoice
+  it credits; voiding keeps the number; a refused transition is shown in the
+  server's words with the draft still editable; and the new guard: with a row
+  that cannot become a line, the Issue button is disabled, clicking it opens no
+  dialog and, 1.5 s later (two debounces), nothing has been written.
+- `Quotes.test.tsx` (new, 11) — the list shows the server's number, customer,
+  gross and dates and flags what has lapsed without calling it Expired; the
+  status filter goes to the server; a draft is raised with `{customerId}` and
+  nothing else; a typed quantity leaves as `qtyMilli` and the totals rendered
+  are the server's even when they do not match the lines; only the changed
+  header field is sent; each state offers only its own transitions and a closed
+  offer none; sending is cancellable and then bodiless and freezing; **accepting
+  posts to `…/accept` and really lands on the draft invoice `inv-9`** (the GET
+  for it is in the recorded calls), which names the quote it came from — and
+  that link goes back to the accepted offer; declining closes it keeping its
+  number; an accepted offer names the invoice it became; a refusal is shown in
+  the server's words.
+
+Wire-verified against the **local** backend (docker `alo-pg`, the debug
+`alo-jmap` on `127.0.0.1:8080`, fresh tenant `wireb115`). Every one of the
+seven new routes `401`s without a token. The arc, abbreviated:
+
+```
+POST   /billing/invoices {customerId}                 -> 200 draft, number null
+PATCH  /billing/invoices/{id} {lines:[…]}             -> 200 net 18 750
+POST   /billing/invoices/{id}/issue                   -> 200 INV-2026-00001
+                                          issueDate 2026-08-06, dueDate 2026-08-20
+PATCH  /billing/invoices/{id}                         -> 409 "…only…while it is a draft; this one is issued"
+DELETE /billing/invoices/{id}                         -> 409 same
+POST   /billing/invoices/{id}/issue   (again)         -> 409 "…can only be issued while it is a draft"
+POST   /billing/invoices/{id}/credit-note             -> 200 draft, creditNote=true,
+                                          creditsInvoiceId={id}, every qty negated
+GET    /billing/invoices/{original}                   -> 200 creditNotes:[the draft]
+POST   /billing/invoices/{credit}/issue               -> 200 INV-2026-00002  (one series)
+POST   /billing/invoices/{other}/issue                -> 200 INV-2026-00003
+POST   /billing/invoices/{other}/void                 -> 200 void, number kept
+POST   /billing/invoices/{other}/void  (again)        -> 409 "only an issued invoice can be voided"
+
+POST   /billing/quotes {customerId}                   -> 200 draft
+PATCH  /billing/quotes/{id} {lines:[2, incl. a -1 discount]} -> 200
+POST   /billing/quotes/{id}/send                      -> 200 QUO-2026-00001
+                                          sentDate 2026-08-06, validUntil 2026-09-05
+PATCH  /billing/quotes/{id} / DELETE                  -> 409 "…this one is sent"
+POST   /billing/quotes/{id}/send      (again)         -> 409 "…from sent it can only become
+                                          accepted or declined or expired"
+POST   /billing/quotes/{id}/accept                    -> 200 TWO documents; invoice is a
+                                          draft with the same lines and totals
+POST   /billing/quotes/{id}/accept    (again)         -> 409 "…it is closed and cannot change again"
+GET    /billing/quotes/{id}                           -> 200 invoiceId={the invoice}
+GET    /billing/invoices/{that}                       -> 200 quoteId={the quote}
+POST   /billing/quotes/{empty}/send                   -> 422 "a quote with no lines cannot be sent"
+POST   /billing/quotes/{sent}/decline | /expire       -> 200 decidedDate stamped
+POST   /billing/quotes/{declined}/accept              -> 409 "…while it is declined; it is closed"
+GET    /billing/quotes?status=accepted                -> 200 1;  ?status=bogus -> 422
+```
+
+Read back from the database afterwards: three invoices on **one** gapless
+series (`INV-2026-00001` issued, `-00002` the credit note, `-00003` void), the
+accepted quote's invoice still a numberless draft whose lines sum to 17 750 —
+exactly the offer, discount included — three quotes on their own series, and
+both counters at 4. The two series are separate rows (`invoice`, `quote`) of
+`billing_sequences`, as B1.08/B1.11 designed.
+
+Then through the **Vite dev server** (the browser's actual path, not curl at
+the API): `/billing`, `/billing/quotes`, `/billing/quotes/new`,
+`/billing/quotes/{id}` and `/billing/invoices/{id}` all serve the SPA shell on
+an HTML navigation — deep links survive a reload — while the same paths as XHR
+proxy to the API (`?status=accepted` 200, `?status=bogus` 422, a bodiless
+`POST …/accept` without a token 401). No `vite.config.ts` change was needed:
+`/billing` has been in `API_PATHS` since B1.13 and the new routes are under it.
+
+Cuts and flags:
+
+- **No browser click-path was exercised** (unchanged from B1.13/B1.14: there is
+  no headless browser in this environment). The item's done-when asks for a
+  manual click-path; that remains a **human step**. What stands in for it is
+  above: 28 component tests driving the real screens through their real
+  routers, the full curl arc, the database read back, and the dev-server pass.
+- **A quote's validity is not editable on the document** — shown, not typed,
+  exactly as the payment term is on an invoice (B1.14's recorded cut). The API
+  takes `validDays`; making it a text box wants the same rule "what this
+  document is denominated in is not a text box" already settled for currency.
+  Additive to add later.
+- **No `paid` transition anywhere**, because there is no payment yet: B1.19
+  owns `billing_payments` and the derived paid state. The `paid` status is
+  handled everywhere it can appear (a paid invoice offers a credit note and not
+  a void), which is what the store already allows.
+- **The credit-note screen offers no "credit the rest" arithmetic.** A partial
+  credit is made by editing the mirror down, as the store models it; nothing
+  totals up what has already been credited, because the over-credit guard is
+  the same derived-state machinery B1.19 builds (flagged at B1.09, unchanged).
+- **Server refusals are English** (flagged for human review at B1.13, still
+  open, and now visible in one more place: a refused transition).
+- **Honest note:** one of ~13 full `npm run test` runs printed
+  `Errors  1 error` alongside 144 passing tests, with no failing test and no
+  message identifying it; twelve further runs were clean and it did not
+  reproduce. Recorded rather than swept up — if it returns, it is a real
+  unhandled rejection to chase, most likely a request settling after unmount.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged from B1.05/B1.10/B1.12/B1.13/B1.14: the production Caddyfile must
+  add it at the next deploy, or every billing XHR gets the SPA. This item adds
+  no new prefix.
+
+Next item: B1.16 (the invoice/quote HTML print view — a branded document with
+addresses, lines, VAT breakdown, payment terms and bank details, print-optimised
+to a correct A4 page, which is also the PDF source).
