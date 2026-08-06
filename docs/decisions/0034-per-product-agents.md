@@ -17,9 +17,12 @@ bag of buttons and one generic search box.
 
 **Every alo product/module has a dedicated agent** — a specialized AI assistant
 scoped to that product, with a tool set for that product's actions, all under the
-same trust and isolation rules. The cross-workspace **"Ask alo" orchestrator**
-(ADR 0029) sits above them and routes a request to the right product agent(s),
-composing an answer across them.
+same trust and isolation rules. Above them, **"Ask alo" is itself the top-level
+agent** (evolving the ADR 0029 cross-workspace search): you ask it in plain
+language and it **answers *and acts* across products**, running multi-step tasks by
+orchestrating the product agents — the universal command bar for the whole
+workspace ("summarise the Acme thread and draft a reply", "block two hours
+tomorrow and email the team"). It is no longer just a search box.
 
 | Agent | Owns (examples) |
 |---|---|
@@ -30,7 +33,7 @@ composing an answer across them.
 | **Sheet agent** | formulas from intent, analysis, clean/transform data, chart-from-intent |
 | **Drive agent** | find & organise files, summarise a document, extract from attachments |
 | **Chat agent(s)** | first-class chat participants — @mentionable, reply/react (features.md → Chat) |
-| **"Ask alo" orchestrator** | cross-product search + routing to the agents above (ADR 0029) |
+| **"Ask alo" — the top-level agent** | ask in plain language to answer AND act across products; runs multi-step tasks by orchestrating the product agents; the universal workspace command bar (evolves ADR 0029) |
 
 ### Inherited, non-negotiable principles
 

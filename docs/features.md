@@ -20,7 +20,7 @@ propose/approve UI); each agent is a thin, product-scoped tool set + prompt.
 - [L] ★ **Mail agent** — triage, summarize a thread, draft / smart-reply, extract tasks, "why flagged" *(largely built)*
 - [L] ★ **Tasks agent** — propose action items, "what's on my plate", prioritise *(built, ADR 0023)*
 - [L] ★ **Docs agent** — write / edit / clean-paste / inline-diff, agent mode *(built, ADR 0029/0031)*
-- [2] ★ **"Ask alo" orchestrator** — cross-product cited search + routing to the agents below *(search + doc AI built; routing is the growth)*
+- [2] ★ **"Ask alo" — the top-level agent** — not just search: a workspace-wide agent you ask in plain language to **answer AND act** across products ("summarise the Acme thread and draft a reply", "block two hours tomorrow and email the team"), running multi-step tasks by orchestrating the product agents below — cited, propose-then-approve, access-scoped. The universal command bar for the whole workspace *(cross-product cited search + doc AI built today; acting/orchestration is the growth)*
 - [2] ★ **Agenda (Calendar) agent** — find times, schedule, summarize the day/week, prep a meeting, propose events from mail
 - [2] ★ **Sheet agent** — formulas from intent, analysis, clean/transform data, chart-from-intent
 - [2] ★ **Drive agent** — find & organise files, summarize a document, extract from attachments
