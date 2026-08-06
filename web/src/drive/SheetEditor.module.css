@@ -24,41 +24,62 @@
   background: var(--bg-raised);
   color: var(--text-primary);
 }
-.name {
+/* Editable sheet name — reads as text until focused. */
+.nameInput {
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
   font-size: var(--text-base);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: transparent;
+  max-width: 40ch;
+  min-width: 8ch;
+  font-family: inherit;
 }
-.actions {
-  margin-left: auto;
-  display: flex;
+.nameInput:hover {
+  background: var(--bg-raised);
+}
+.nameInput:focus {
+  outline: none;
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+}
+/* Saved / saving indicator. */
+.saved {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 5px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
-.download {
+.savedIcon {
+  color: var(--success, #16a34a);
+}
+/* Pushes the right-hand controls to the far edge. */
+.grow {
+  flex: 1;
+}
+/* Export button — a clean bordered action. */
+.export {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 6px 12px;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
+  font-weight: 500;
   color: var(--text-secondary);
   border: 1px solid var(--border-default);
   background: var(--bg-surface);
 }
-.download:hover {
+.export:hover {
   background: var(--bg-raised);
   color: var(--text-primary);
 }
-.download:disabled {
+.export:disabled {
   opacity: 0.5;
   cursor: default;
-}
-.save {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  min-width: 60px;
-  text-align: right;
 }
 .body {
   flex: 1;
