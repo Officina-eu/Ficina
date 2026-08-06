@@ -22,6 +22,7 @@ import { strings } from "../i18n";
 import { useJmapClient, type AgentAnswerDto, type SearchHitDto } from "../jmap";
 import { surface } from "../product";
 import { Spinner } from "../ds";
+import { AgentActionCard } from "./AgentActionCard";
 import styles from "./SearchOverlay.module.css";
 
 type ExecState = "idle" | "running" | "done" | "error";
@@ -192,25 +193,12 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
             {answer.answer && <p className={styles.answerText}>{answer.answer}</p>}
             {/* A proposed action — the agent never acts without this approval. */}
             {answer.action && (
-              <div className={styles.action}>
-                <div className={styles.actionSay}>
-                  <Sparkles size={15} className={styles.askIcon} />
-                  <span>{answer.action.say || strings.agentProposedAction}</span>
-                </div>
-                <div className={styles.actionButtons}>
-                  <button
-                    type="button"
-                    className={styles.approve}
-                    onClick={approve}
-                    disabled={exec === "running"}
-                  >
-                    {exec === "running" ? <Spinner size={14} /> : strings.agentApprove}
-                  </button>
-                  <button type="button" className={styles.discard} onClick={discard}>
-                    {strings.agentDiscard}
-                  </button>
-                </div>
-              </div>
+              <AgentActionCard
+                action={answer.action}
+                running={exec === "running"}
+                onApprove={approve}
+                onDiscard={discard}
+              />
             )}
             {exec === "done" && <p className={styles.actionDone}>{strings.agentDone}</p>}
             {exec === "error" && <p className={styles.answerNote}>{strings.agentFailed}</p>}
