@@ -105,6 +105,57 @@
 .numberSelect:disabled {
   opacity: 0.5;
 }
+/* Small text button (row/column ops, clear contents). */
+.textBtn {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  white-space: nowrap;
+}
+.textBtn:hover:not(:disabled) {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.textBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* Colour picker button — the icon sits above a thin swatch of the chosen colour. */
+.colorBtn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  gap: 1px;
+}
+.colorBtn:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.colorInput {
+  width: 18px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.colorInput::-webkit-color-swatch {
+  border: 1px solid var(--border-default);
+  border-radius: 2px;
+}
 /* Honest empty state for tabs not yet built. */
 .soon {
   padding: 14px var(--space-4);

@@ -119,7 +119,9 @@ export function SheetEditor({
   // Ribbon → engine bridge. The ribbon is pure UI; these implement its actions
   // against Univer's facade (the one place that touches the engine).
   const actions = useMemo<SheetActions>(() => {
-    const range = () => apiRef.current?.getActiveWorkbook()?.getActiveRange() ?? null;
+    const wb = () => apiRef.current?.getActiveWorkbook() ?? null;
+    const ws = () => wb()?.getActiveSheet() ?? null;
+    const range = () => wb()?.getActiveRange() ?? null;
     return {
       exec: (id) => {
         void apiRef.current?.executeCommand(id);
@@ -130,10 +132,27 @@ export function SheetEditor({
       setFontSize: (size) => {
         range()?.setFontSize(size);
       },
+      adjustFontSize: (delta) => {
+        const r = range();
+        if (r !== null) r.setFontSize(Math.max(1, (r.getFontSize() ?? 11) + delta));
+      },
+      setFontColor: (hex) => {
+        range()?.setFontColor(hex);
+      },
+      setFillColor: (hex) => {
+        range()?.setBackgroundColor(hex);
+      },
       align: (a) => {
         const r = range();
         // Univer's facade type omits 'right', but its runtime maps left/center/right.
         if (r !== null) (r.setHorizontalAlignment as (v: string) => unknown)(a);
+      },
+      valign: (a) => {
+        range()?.setVerticalAlignment(a);
+      },
+      toggleWrap: () => {
+        const r = range();
+        if (r !== null) r.setWrap(!r.getWrap());
       },
       merge: () => {
         range()?.merge();
@@ -141,11 +160,56 @@ export function SheetEditor({
       setNumberFormat: (pattern) => {
         range()?.setNumberFormat(pattern);
       },
+      insertRow: (where) => {
+        const r = range();
+        const sheet = ws();
+        if (r !== null && sheet !== null) {
+          const i = r.getRow();
+          if (where === "before") sheet.insertRowBefore(i);
+          else sheet.insertRowAfter(i);
+        }
+      },
+      insertColumn: (where) => {
+        const r = range();
+        const sheet = ws();
+        if (r !== null && sheet !== null) {
+          const i = r.getColumn();
+          if (where === "before") sheet.insertColumnBefore(i);
+          else sheet.insertColumnAfter(i);
+        }
+      },
+      deleteRow: () => {
+        const r = range();
+        const sheet = ws();
+        if (r !== null && sheet !== null) sheet.deleteRows(r.getRow(), 1);
+      },
+      deleteColumn: () => {
+        const r = range();
+        const sheet = ws();
+        if (r !== null && sheet !== null) sheet.deleteColumns(r.getColumn(), 1);
+      },
+      clearContents: () => {
+        range()?.clearContent();
+      },
+      clearFormats: () => {
+        range()?.clearFormat();
+      },
+      freezeAtSelection: () => {
+        const r = range();
+        const sheet = ws();
+        if (r !== null && sheet !== null) {
+          sheet.setFrozenRows(r.getRow());
+          sheet.setFrozenColumns(r.getColumn());
+        }
+      },
+      unfreeze: () => {
+        ws()?.cancelFreeze();
+      },
       undo: () => {
-        void apiRef.current?.getActiveWorkbook()?.undo();
+        void wb()?.undo();
       },
       redo: () => {
-        void apiRef.current?.getActiveWorkbook()?.redo();
+        void wb()?.redo();
       },
     };
   }, []);
