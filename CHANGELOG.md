@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing has a home in the workspace.** A **Billing** entry now sits in
+  the rail (in alo workplace only — the standalone mail app is unchanged), with
+  the two lists everything else is built from: your **customers** and your
+  **price list**. Add a customer with their address, VAT id, invoice email,
+  payment terms and currency, and the server tells you straight away if a VAT
+  id does not add up. Add the things you sell once — name, unit, price, VAT
+  rate — and pick them later instead of retyping them. Type a price the way you
+  normally would (`1 234,56` or `1,234.56`, both work); what is stored is exact
+  whole cents, and nothing about money is ever worked out in the browser.
+  Neither list has a delete: you **archive** an entry, so it leaves the pickers
+  while every document already raised still names it, and "show archived"
+  brings it back into view. Invoices, quotes and the rest of the screens
+  follow (ADR 0035).
+
 - **alo Billing: an accepted quote becomes the invoice for it.** Marking an
   offer as accepted now also raises the **draft invoice** for it, in one move:
   every line copied at the price it was offered at, in the same order, worth

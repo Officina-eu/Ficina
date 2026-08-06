@@ -7,9 +7,10 @@
 // `../authoring`). alomails ships the `mail` surface instead and deletes this
 // file together with those areas — nothing else in the web app references them.
 import { Suspense, lazy } from "react";
-import { Building2, Code2, HardDrive, MessagesSquare, Sigma, Video } from "lucide-react";
+import { Building2, Code2, HardDrive, MessagesSquare, Receipt, Sigma, Video } from "lucide-react";
 
 import { strings } from "../i18n";
+import { BillingModule } from "../billing";
 import { ControlConsole } from "../control";
 import { DriveModule } from "../drive";
 import type { ComposeInsert, ProductModule, ProductSurface } from "./types";
@@ -46,6 +47,16 @@ const suiteModules: ProductModule[] = [
     Icon: HardDrive,
     enabled: true,
     element: () => <DriveModule />,
+  },
+  // Billing is a workspace module only (ADR 0035): the business suite is what
+  // aloworkplace.com sells, and it has no place in the standalone mail app.
+  {
+    id: "billing",
+    path: "/billing",
+    label: strings.moduleBilling,
+    Icon: Receipt,
+    enabled: true,
+    element: () => <BillingModule />,
   },
   { id: "chat", path: "/chat", label: strings.moduleChat, Icon: MessagesSquare, enabled: false },
   { id: "meet", path: "/meet", label: strings.moduleMeet, Icon: Video, enabled: false },

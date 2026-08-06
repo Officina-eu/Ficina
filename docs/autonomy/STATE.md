@@ -1342,3 +1342,151 @@ Cuts and flags:
 
 Next item: B1.13 (web: the Billing module skeleton — rail entry, `/billing`
 routes, customer and product list pages with create/edit dialogs, i18n en).
+
+---
+
+## 2026-08-06 — B1.13 the Billing module, on screen for the first time
+
+Fourteen items of server work became something a person can use. Shipped
+`web/src/billing` — a rail module of the **workspace product only**
+(`product/workplace.tsx`; alomails is deliberately untouched, and a build with
+`ALO_PRODUCT=mail` was checked to contain no billing code at all) mounted at
+`/billing/*` with a tab per record type:
+
+- **`BillingModule.tsx`** — header, the `customers` / `products` tabs, nested
+  routes, and `/billing` landing on customers. Later items add a tab, never a
+  second navigation idea.
+- **`CustomersView.tsx` / `ProductsView.tsx`** — the two lists: search,
+  "show archived", a create action, a row that opens its record, and an
+  archive/restore action per row. Neither list has a delete, because the store
+  has none: archiving is the only removal.
+- **`CustomerDialog.tsx` / `ProductDialog.tsx`** — the create/edit forms.
+- **`api.ts`** — the `/billing` client, **its own small class rather than more
+  methods on `JmapClient`**: billing is plain REST with none of JMAP's session,
+  capabilities or method-call envelope, `client.ts` is already 2 300 lines of
+  mail, and the two change for entirely different reasons. It takes the auth
+  layer's `authorizedFetch`, so there is still exactly one session.
+- **`money.ts`** — the one place typing becomes money (below).
+- **`types.ts`**, **`parts.tsx`** (the toolbar/empty/error/dialog chrome both
+  pages share, so customers and the price list cannot drift into two
+  different-looking screens), **`BillingModule.module.css`**, **`index.ts`**.
+
+Plus: `moduleBilling` and 60 `billing*` keys in `i18n/en.ts` (fr/nl at B1.27,
+as the queue schedules), the `Receipt` rail entry, and `/billing` added to the
+Vite dev proxy's `API_PATHS` — without that line the dev server answers billing
+XHRs with its own index.html and nothing works in `npm run dev`.
+
+Three decisions worth keeping:
+
+- **No validation lives in the client**, exactly as B1.05 decided for the route
+  layer. A form sends what was typed; a `422` is shown **in the server's own
+  words**, next to a form that stays open holding everything the user entered,
+  so it can be fixed in place. The store authors those messages to name the
+  broken rule and never to echo stored data, which is what makes them safe to
+  display. The single client-side refusal is text that is not a number at all.
+- **No money is computed in the browser** (law 2 of the design note).
+  `money.ts` does one conversion in each direction: a typed decimal into whole
+  hundredths — cents for a price, basis points for a rate, one function because
+  they are the same arithmetic — and back. The parse rule is
+  locale-independent, because a Dutch user with an English UI still types Dutch
+  numbers: with both separators the last one is the decimal (`1.234,56` and
+  `1,234.56` are both 123456); with one, followed by one or two digits, it is
+  the decimal; otherwise it is grouping and the integer part must really be
+  grouped in threes (`1.500` is 150000, `1.2345` is refused rather than read as
+  a number nobody typed). A third decimal is refused, never rounded away. The
+  cents are assembled from the two integer halves rather than parsed as a
+  float, so a price never depends on whether `1.15 * 100` lands on 115.
+- **An edit sends only the fields that changed.** The surface is
+  last-writer-wins (B1.05: no `ETag` yet), so writing back every field would
+  make a one-field edit clobber a colleague's concurrent one. A cleared text
+  box sends an explicit `null` — the door B1.05's `absent_or_null` opened, and
+  the only way a VAT id ever comes off a customer.
+
+Verified. `npx tsc --noEmit` clean, `npx eslint src --max-warnings 0` clean
+across the whole app (not only the new files), `npm run test` green — 104 tests
+in 17 files, 22 of them new — and `npm run build` clean for both the workspace
+and the `ALO_PRODUCT=mail` product.
+
+The new tests are the item's real gate, since a type checker cannot see wiring:
+
+- `money.test.ts` (15) pins every parse rule including the refusals: both
+  notations, the mixed-separator forms, grouping vs decimal, spreadsheet
+  spaces, the sign (kept, because the *store* owns the rule that refuses a
+  negative price — the client must not hold a second definition of valid),
+  the float trap (`1.15` → 115, `8.29` → 829), a value too large to stay an
+  exact integer, and a round trip through the editable form for every shape.
+- `BillingModule.test.tsx` (7) renders the real views with the real client over
+  one recording `fetch`: a list shows what the API answered and asks for
+  `includeArchived=1` when the toggle goes on; a create sends `{name, country}`
+  and nothing else, so the server's own defaults still apply; clearing the VAT
+  id sends `{"vatId": null}` on a `PATCH` to the right id; a `422` puts the
+  server's sentence in an `alert` with the form still holding what was typed;
+  a price typed `1 234,56` and a rate typed `5,5` leave as `unitPriceCents:
+  123456` and `vatRateBp: 550`; and a price of "twelve fifty" is never sent at
+  all.
+
+Wire-verified against the **local** backend through the **Vite dev server** —
+the browser's actual path, not curl straight at the API: docker `alo-pg`, the
+debug `alo-jmap` on `127.0.0.1:8080`, a fresh tenant `wireb113`, a real PKCE
+token, and every call made to `localhost:5173`:
+
+```
+GET  /billing, /billing/customers, /billing/products  (Accept: text/html)
+                                                   -> 200 Vite SPA shell (deep links reload)
+GET  /billing/customers          (no token)        -> 401 missing or invalid bearer token
+POST /billing/products           (no token)        -> 401 same
+GET  /billing/customers                            -> 200 0 rows
+POST /billing/customers   "  Nordwind Handel GmbH  ", de, " de 811.907-980 ", 14d, eur
+                                                   -> 200 'Nordwind Handel GmbH' DE DE811907980 EUR 14d
+POST /billing/customers   vatId DE811907981        -> 422 "the check digit of this DE VAT id
+                                                          does not match; check for a typo"
+PATCH/billing/customers/{id} {city, paymentTermsDays}  -> 200 city+terms changed, vatId kept
+PATCH/billing/customers/{id} {"vatId":null}        -> 200 vatId null
+POST /billing/customers/{id}/archive true          -> 200 archived
+GET  /billing/customers                            -> 200 0 rows
+GET  /billing/customers?includeArchived=1          -> 200 2 rows
+POST /billing/customers/{id}/archive false         -> 200 restored
+GET  /billing/customers/no-such-id                 -> 404 "no such customer"
+POST /billing/products    (price "1 234,56", rate "5,5" as the dialog parses them)
+                                                   -> 200 unitPriceCents=123456 vatRateBp=550
+POST /billing/products    19.99 in a cents field   -> 400 "malformed request body"
+PATCH/billing/products/{id} {"unitPriceCents":13000}   -> 200 price changed, name+rate intact
+POST /billing/products/{id}/archive true/false     -> 200 archived, then restored
+GET  /billing/products / ?includeArchived=1        -> 200 0 rows / 1 row
+```
+
+One observation from that transcript, recorded rather than acted on: a create
+with a blank name **and** no country answers about the country first, because
+that is the order `normalize()` checks fields in. Correct, just worth knowing
+when reading a refusal.
+
+Cuts and flags:
+
+- **No browser click-path was exercised.** There is no headless browser in this
+  environment, so "it renders and the buttons work" is proven by the component
+  tests above (real views, real client, real parsing, fake network) plus the
+  wire transcript through the dev server — not by clicking. B1.15's done-when
+  asks for a manual click-path; that is a human step and is flagged here.
+- **No contact link on a customer.** `contactId` exists in the API and the
+  type, but picking an address-book contact needs a contact picker that is not
+  this item's; the field is simply not on the form yet.
+- **No tenant currency setting, so the price list shows a bare amount** (no
+  symbol). A price list is quoted in the tenant's own currency, and nothing
+  stores that yet; inventing "EUR" in the UI would be stating a fact we do not
+  have. The customer list shows its own currency code per row.
+- **Country and currency are free-text boxes**, not pickers — the store
+  validates them by shape rather than against an ISO list (B1.02's recorded
+  cut), and a picker would need exactly the list that cut refused to invent.
+- **Server refusals are English.** The `422` detail comes from the store, which
+  is not translated; the fr/nl pass at B1.27 covers the module's own strings
+  but cannot cover those. **Flagged for human review**: either the store starts
+  returning a machine-readable rule code the client translates (a contract
+  change, additive), or refusals stay English. Not a decision to slip in
+  quietly under a UI item.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged from B1.05/B1.10/B1.12: the production Caddyfile must add it at the
+  next deploy, or every billing XHR gets the SPA. `vite.config.ts` (dev only,
+  not `deploy/`) now has it.
+
+Next item: B1.14 (web: the invoice list with status chips and overdue
+highlighting, plus the draft editor with live totals from the server).

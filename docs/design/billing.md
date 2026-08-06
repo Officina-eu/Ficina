@@ -29,6 +29,35 @@ it is updated to as-built at the B1 wave review (B1.27).
   external calls billing directly in B1 (Peppol is a later item and
   goes through a certified access point, not our own endpoint).
 
+### Web surface — as-built (B1.13)
+
+`web/src/billing` is a rail module of the **workspace product only**
+(`product/workplace.tsx`), mounted at `/billing/*` with a tab per record
+type: `customers` and `products`, and `/billing` redirecting to the
+first. Later items add tabs (invoices, quotes), never a second
+navigation idea.
+
+Three rules the module holds itself to, so the screens can never become
+a second, weaker definition of billing:
+
+- **No validation in the client.** A form sends what was typed; a `422`
+  is shown in the server's own words next to the form, which stays open
+  and keeps everything the user entered. The only client-side refusal is
+  text that is not a number at all (`money.ts`), because turning typing
+  into integer cents is inherently the client's job.
+- **No money is computed in the browser.** `money.ts` parses one typed
+  decimal into hundredths (cents, or basis points for a rate) and
+  formats one back; every total comes from the API.
+- **An edit sends only the fields that changed.** The surface is
+  last-writer-wins (no `ETag` yet), so a field nobody touched is not
+  written. A cleared text box sends `null`, which is how a VAT id comes
+  off a customer.
+
+`web/src/billing/api.ts` is a small client of its own rather than more
+methods on `JmapClient`: billing is plain REST, with none of JMAP's
+session or method-call envelope, and it changes for different reasons.
+It shares the auth layer's `authorizedFetch`, so there is one session.
+
 ### Routes
 
 All under the authenticated `alo-jmap` router, following the existing
