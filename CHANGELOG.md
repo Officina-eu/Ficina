@@ -36,12 +36,14 @@ contracts.
   matching files/tasks/email, just without the written answer. ADR 0029.
 
 - **Ask AI can tidy your inbox — with your approval.** Beyond answering, **Ask AI**
-  can now act on your email: ask it to "archive the Acme newsletter", "flag the
-  invoice from billing", or "mark the release note as read", and it finds the
-  message you mean and shows you the single action it proposes. Nothing happens
-  until you press **Approve** — then it archives, flags/unflags, or marks
-  read/unread that one email. It only ever touches your own mailbox, and it will
-  say so plainly when it can't do what you asked yet. ADR 0034.
+  can now act on your email: ask it to "archive the Acme newsletter", "delete the
+  spam from billing", "snooze the invoice until Monday 9am", "flag the contract",
+  or "mark the release note as read", and it finds the message you mean and shows
+  you the single action it proposes. Nothing happens until you press **Approve** —
+  then it archives, moves to Trash, snoozes (the email slips out of the inbox and
+  comes back at the time you chose), flags/unflags, or marks read/unread that one
+  email. It only ever touches your own mailbox, and it will say so plainly when it
+  can't do what you asked yet. ADR 0034.
 
 - **Workspace search (files, tasks + email content).** A search box in the left
   rail (or **Ctrl/Cmd-K** anywhere) searches across your **files, tasks and

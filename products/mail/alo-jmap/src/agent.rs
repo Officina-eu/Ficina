@@ -10,7 +10,7 @@
 //! can never act outside the caller's own permissions.
 
 use alo_ai::{AgentDecision, AiConfig, InferenceError, WorkspaceSource};
-use alo_store::{CalendarEvent, EventId, MailboxId, MessageId, NewTask, Page, MAX_PAGE};
+use alo_store::{CalendarEvent, EventId, MailboxId, MessageId, NewTask};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::{body::Bytes, Json};
@@ -149,7 +149,9 @@ pub async fn agent_execute(
         "create_event" => execute_create_event(&account, &args).await,
         "mark_read" => execute_set_keyword(&account, &args, "$seen", "read").await,
         "flag_email" => execute_set_keyword(&account, &args, "$flagged", "flagged").await,
-        "archive_email" => execute_archive(&account, &args).await,
+        "archive_email" => execute_move_to_role(&account, &args, "archive", "Archive").await,
+        "trash_email" => execute_move_to_role(&account, &args, "trash", "Trash").await,
+        "snooze_email" => execute_snooze(&account, &args).await,
         // Unreachable given the allowlist check, but the match stays total.
         _ => Err(Problem::with(StatusCode::BAD_REQUEST, "unknown tool")),
     }
@@ -207,43 +209,76 @@ async fn execute_set_keyword(
     Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
 }
 
-/// Archive an email: add it to Archive and take it out of the Inbox.
-async fn execute_archive(account: &Account, args: &Value) -> Result<Json<Value>, Problem> {
+/// Move an email into a standard role mailbox (Archive or Trash) and take it out
+/// of the places it would otherwise still show — the Inbox, and (when trashing)
+/// the Archive — so it lives only in its new home. The destination mailbox is
+/// created on first use, the same on-demand idiom every other standard role uses
+/// (Inbox, Drafts, Snoozed, Scheduled): a first move on an account that never had
+/// the folder should succeed, not fail.
+async fn execute_move_to_role(
+    account: &Account,
+    args: &Value,
+    role: &str,
+    name: &str,
+) -> Result<Json<Value>, Problem> {
     let msg = message_id_arg(args)?;
-    let boxes = account
-        .acc
-        .mailboxes(Page::first(MAX_PAGE))
-        .await
-        .map_err(|_| Problem::server_error())?;
-    let by_role = |role: &str| {
-        boxes
-            .iter()
-            .find(|m| m.role.as_deref() == Some(role))
-            .map(|m| MailboxId::new(m.id.as_str()))
-    };
-    // Get-or-create the Archive mailbox, the same on-demand idiom every other
-    // standard role uses (Inbox, Drafts, Snoozed, Scheduled) — a first archive on
-    // an account that never had the folder should succeed, not fail.
-    let archive = match by_role("archive") {
-        Some(id) => id,
-        None => account
-            .acc
-            .create_mailbox(None, "Archive", Some("archive"))
-            .await
-            .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not archive the email"))?,
-    };
+    let dest = ensure_role_mailbox(account, role, name).await?;
     account
         .acc
-        .add_to_mailbox(&msg, &archive)
+        .add_to_mailbox(&msg, &dest)
         .await
-        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not archive the email"))?;
-    // Take it out of the Inbox; if it was not there, the archive still stands.
-    if let Some(inbox) = by_role("inbox") {
-        match account.acc.remove_from_mailbox(&msg, &inbox).await {
-            Ok(()) | Err(_) => {}
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not move the email"))?;
+    // Remove it from the "still visible" origins other than the destination; if it
+    // was not in one, the move still stands (best-effort, like the add above).
+    for origin in ["inbox", "archive"] {
+        if origin == role {
+            continue;
+        }
+        if let Ok(Some(box_id)) = account.acc.mailbox_by_role(origin).await {
+            match account.acc.remove_from_mailbox(&msg, &box_id).await {
+                Ok(()) | Err(_) => {}
+            }
         }
     }
     Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
+}
+
+/// Snooze an email until a chosen time: hide it from the Inbox into Snoozed; the
+/// store's sweeper returns it to the Inbox (unread) once the wake time passes.
+async fn execute_snooze(account: &Account, args: &Value) -> Result<Json<Value>, Problem> {
+    let msg = message_id_arg(args)?;
+    let epoch = args
+        .get("until")
+        .and_then(Value::as_str)
+        .and_then(|s| parse_wake_time(s, time::OffsetDateTime::now_utc()))
+        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "a future RFC 3339 wake time is required"))?;
+    // Snooze hides the message from the Inbox, so that is the mailbox to move it
+    // out of; ensure it exists for the rare account that has none yet.
+    let inbox = ensure_role_mailbox(account, "inbox", "Inbox").await?;
+    account
+        .acc
+        .snooze(std::slice::from_ref(&msg), &inbox, epoch)
+        .await
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not snooze the email"))?;
+    Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
+}
+
+/// Get-or-create the account's mailbox for a standard `role` (creating it with
+/// `name` on first use). Every standard role is provisioned on demand.
+async fn ensure_role_mailbox(account: &Account, role: &str, name: &str) -> Result<MailboxId, Problem> {
+    if let Some(id) = account
+        .acc
+        .mailbox_by_role(role)
+        .await
+        .map_err(|_| Problem::server_error())?
+    {
+        return Ok(id);
+    }
+    account
+        .acc
+        .create_mailbox(None, name, Some(role))
+        .await
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not move the email"))
 }
 
 /// Create a task from approved args, on the caller's personal project. Reuses the
@@ -363,6 +398,14 @@ fn parse_rfc3339(s: &str) -> Option<time::OffsetDateTime> {
         .map(|t| t.to_offset(time::UtcOffset::UTC))
 }
 
+/// Parse an RFC 3339 wake time and require it to be strictly after `now`,
+/// returning its Unix-second epoch. `None` if malformed or not in the future — a
+/// past wake time would un-snooze the message immediately, so it is rejected.
+fn parse_wake_time(s: &str, now: time::OffsetDateTime) -> Option<i64> {
+    let until = parse_rfc3339(s)?;
+    (until > now).then(|| until.unix_timestamp())
+}
+
 /// The current UTC date as `YYYY-MM-DD`, given to the agent so it can resolve
 /// relative dates ("tomorrow") into absolute ones.
 fn today_utc() -> String {
@@ -388,7 +431,7 @@ fn parse_due(s: &str) -> Option<time::OffsetDateTime> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::{parse_due, parse_rfc3339, resolve_email_source};
+    use super::{parse_due, parse_rfc3339, parse_wake_time, resolve_email_source};
 
     #[test]
     fn resolves_an_email_source_number_to_its_message_id() {
@@ -423,6 +466,17 @@ mod tests {
         assert_eq!(z.hour(), 14);
         assert!(parse_rfc3339("2026-08-07").is_none()); // date only, not a datetime
         assert!(parse_rfc3339("not-a-time").is_none());
+    }
+
+    #[test]
+    fn wake_time_must_be_a_future_rfc3339() {
+        let now = parse_rfc3339("2026-08-06T12:00:00Z").unwrap();
+        // A future time yields its epoch; the same instant or a past one is rejected.
+        let future = parse_wake_time("2026-08-07T09:00:00Z", now).unwrap();
+        assert_eq!(future, parse_rfc3339("2026-08-07T09:00:00Z").unwrap().unix_timestamp());
+        assert!(parse_wake_time("2026-08-06T12:00:00Z", now).is_none()); // now, not future
+        assert!(parse_wake_time("2026-08-05T09:00:00Z", now).is_none()); // in the past
+        assert!(parse_wake_time("not-a-time", now).is_none()); // malformed
     }
 
     #[test]
