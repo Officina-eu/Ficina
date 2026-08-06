@@ -13,7 +13,12 @@ import {
   type ComponentProps,
 } from "react";
 import { Sparkles, X } from "lucide-react";
-import { useCreateBlockNote } from "@blocknote/react";
+import {
+  useCreateBlockNote,
+  SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
+} from "@blocknote/react";
+import { filterSuggestionItems } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
@@ -21,6 +26,7 @@ import "@blocknote/mantine/style.css";
 import { strings } from "../i18n";
 import { useJmapClient } from "../jmap";
 import { Spinner } from "../ds";
+import { docSchema } from "./docBlocks";
 import styles from "./DocEditor.module.css";
 
 type SaveState = "idle" | "saving" | "saved";
@@ -38,7 +44,7 @@ export function DocEditor({
   onClose: () => void;
 }) {
   const client = useJmapClient();
-  const editor = useCreateBlockNote();
+  const editor = useCreateBlockNote({ schema: docSchema });
   const [ready, setReady] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const pending = useRef<unknown[] | null>(null);
@@ -170,7 +176,41 @@ export function DocEditor({
             <Spinner size={22} />
           </div>
         ) : (
-          <BlockNoteView editor={editorProp} onChange={onChange} />
+          <BlockNoteView editor={editorProp} onChange={onChange} slashMenu={false}>
+            <SuggestionMenuController
+              triggerCharacter="/"
+              getItems={async (query) =>
+                filterSuggestionItems(
+                  [
+                    // Cast at the boundary: exactOptionalPropertyTypes makes even
+                    // the default editor fail this generic's constraint — a
+                    // BlockNote/tsconfig mismatch, not an unsafe conversion.
+                    ...getDefaultReactSlashMenuItems(
+                      editor as unknown as Parameters<typeof getDefaultReactSlashMenuItems>[0],
+                    ),
+                    {
+                      title: strings.docEquation,
+                      subtext: strings.docEquationHint,
+                      aliases: ["equation", "formula", "math", "latex", "katex"],
+                      group: strings.docBlockGroupAdvanced,
+                      icon: <span aria-hidden>Σ</span>,
+                      onItemClick: () => {
+                        const ref = editor.getTextCursorPosition().block;
+                        editor.insertBlocks(
+                          [{ type: "equation" }] as unknown as Parameters<
+                            typeof editor.insertBlocks
+                          >[0],
+                          ref,
+                          "after",
+                        );
+                      },
+                    },
+                  ],
+                  query,
+                )
+              }
+            />
+          </BlockNoteView>
         )}
       </div>
 

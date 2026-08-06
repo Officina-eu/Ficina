@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- **Equations in documents.** In an alo Doc, type `/equation` (or `/formula`,
+  `/math`) to add a math formula written in LaTeX — `E = mc^2`, `\frac{a}{b}`,
+  and so on — rendered cleanly on the page. Click a formula to edit it. Code
+  blocks are already there via `/code`.
+
 - **AI in documents — propose, then approve.** In an alo Doc, **Ask AI** lets you
   tell the AI what to write or change ("draft an intro about…", "summarise this").
   The AI comes back with a **proposal you review** — nothing is added to your
