@@ -18,6 +18,15 @@ Set-Location $RepoPath
 $StateFile = if ($Track -eq "sites") { "docs/autonomy/sites/STATE.md" } else { "docs/autonomy/STATE.md" }
 $prompt = "Read docs/autonomy/LOOP.md and execute exactly ONE iteration of the loop for track '$Track', then exit."
 
+# Resolve the claude CLI: PATH first, else the newest VSCode-extension binary.
+$claude = (Get-Command claude -ErrorAction SilentlyContinue).Source
+if (-not $claude) {
+  $claude = Get-ChildItem "$env:USERPROFILE\.vscode\extensions\anthropic.claude-code-*\resources\native-binary\claude.exe" -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+}
+if (-not $claude) { Write-Host "[loop] claude CLI not found - npm install -g @anthropic-ai/claude-code"; exit 1 }
+Write-Host "[loop] using claude at $claude"
+
 for ($i = 1; $i -le $MaxIterations; $i++) {
   Write-Host ("=" * 60)
   Write-Host "[loop] iteration $i  $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
@@ -30,7 +39,7 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
 
   # One iteration. --dangerously-skip-permissions is required for unattended
   # runs; the hard safety rails live in LOOP.md and the repo's deny rules.
-  claude -p $prompt --dangerously-skip-permissions
+  & $claude -p $prompt --dangerously-skip-permissions
   $code = $LASTEXITCODE
 
   if ($code -ne 0) {
