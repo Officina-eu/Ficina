@@ -139,7 +139,7 @@ list views over the same data, personal and team. ADRs 0021–0023.
 - [L] File sharing into Drive (one storage, not a parallel one — SharePoint's original sin)
 - [L] Powerful search across full history — ★ no paywalled memory, ever (Slack's most-hated limit)
 - [L] Guest access for externals, per-channel
-- [2] ★ **Agent-native chat** (the AI-native differentiator, à la Sila) — AI agents are first-class participants in channels/DMs with their own avatars/indicators, can be @mentioned, and reply/react in-thread under the **propose-then-approve** trust model (never silent action); a browseable agent directory with usage. EU-only inference per the model strategy.
+- [2] ★ **Agent-native chat** (the AI-native differentiator, à la Sila) — the per-product agents (ADR 0034) are first-class participants in channels/DMs with their own avatars/indicators. @mention an agent and it **talks back in-thread AND takes actions in its product**: the Mail agent drafts/sends, the Sheet agent updates a range, the Agenda agent books a slot, the Docs agent edits — every *action* still **proposed then approved** (never silent), **access-scoped** to the asking user (even in shared/cross-org channels), cited/auditable. Chat becomes the shared human+agent command surface. Browseable agent directory with usage. EU-only inference.
 - [2] ★ AI/natural-language search **and** notifications — "notify me when the Acme deal is mentioned", "where did we decide the price?" — over full history, no paywalled memory.
 - [2] Expiring messages and time-limited groupchats (ephemeral conversations that clean themselves up), à la Sila.
 - [2] Reminders ("remind me about this message tomorrow"), saved items

@@ -40,6 +40,22 @@ composing an answer across them.
   already can; every read/write stays tenant-scoped. An agent cannot widen access.
 - **EU-only inference**, source-cited — per the model/licensing strategy.
 
+## Agents live in chat, too
+
+Beyond each product's in-module surface, agents are **first-class participants in
+team chat** (features.md → Chat, agent-native). @mention an agent in a channel or
+DM and it **converses** in-thread *and* **takes actions** in its product: the Mail
+agent drafts and — on approval — sends; the Sheet agent updates a range; the
+Agenda agent books a slot; the Docs agent edits a doc. Chat is the shared
+**human + agent command surface** — the same thin product agent powers both the
+in-module assistant and the chat participant, so there is no second agent to build.
+
+The guarantees do not relax in chat: an action is still **proposed and approved**
+(the agent posts what it will do; a human confirms), still **access-scoped** to the
+person who asked (an agent in a shared/cross-org channel acts only within the
+asking user's own permissions and tenant), and still cited/auditable. Autonomous
+reactions/replies are allowed; autonomous *actions* are not — those wait for a tap.
+
 ## Consequences
 
 - **One framework, many thin agents.** There is a single shared agent framework —
