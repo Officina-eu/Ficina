@@ -4,7 +4,7 @@
 // edits auto-save a new version. Univer is heavy, so DriveModule code-splits this
 // out — it loads only when a sheet is opened.
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Download, X } from "lucide-react";
 
 // Univer's own UI + engine. Framework-agnostic: it mounts into a plain DOM
 // container we hand it, so we drive it from an effect rather than as JSX.
@@ -16,7 +16,11 @@ import "@univerjs/presets/lib/styles/preset-sheets-core.css";
 import { strings } from "../i18n";
 import { useJmapClient } from "../jmap";
 import { Spinner } from "../ds";
+import { saveBlob } from "./parts";
+import { univerSnapshotToXlsx } from "./exportOffice";
 import styles from "./SheetEditor.module.css";
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 type SaveState = "idle" | "saving" | "saved";
 
@@ -106,6 +110,19 @@ export function SheetEditor({
     onClose();
   }
 
+  /** Export the live workbook as a real `.xlsx` and download it (ADR 0033) — the
+   *  round-trip that lets an alo Sheet leave as a genuine Excel file. */
+  function downloadXlsx() {
+    const api = apiRef.current;
+    if (api === null) return;
+    const json = snapshotJson(api);
+    if (json === "") return;
+    const bytes = univerSnapshotToXlsx(
+      JSON.parse(json) as Parameters<typeof univerSnapshotToXlsx>[0],
+    );
+    saveBlob(new Blob([bytes as BlobPart], { type: XLSX_MIME }), `${name}.xlsx`);
+  }
+
   return (
     <div className={styles.overlay}>
       <header className={styles.head}>
@@ -113,9 +130,22 @@ export function SheetEditor({
           <X size={18} />
         </button>
         <span className={styles.name}>{name}</span>
-        <span className={styles.save}>
-          {saveState === "saving" ? strings.docSaving : saveState === "saved" ? strings.docSaved : ""}
-        </span>
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.download}
+            onClick={downloadXlsx}
+            disabled={!ready}
+            aria-label={strings.sheetDownloadXlsx}
+            title={strings.sheetDownloadXlsx}
+          >
+            <Download size={16} />
+            <span>{strings.sheetDownloadXlsxShort}</span>
+          </button>
+          <span className={styles.save}>
+            {saveState === "saving" ? strings.docSaving : saveState === "saved" ? strings.docSaved : ""}
+          </span>
+        </div>
       </header>
       <div className={styles.body}>
         {!ready && (

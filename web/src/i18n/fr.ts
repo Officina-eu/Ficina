@@ -939,6 +939,8 @@ export const fr: Partial<Catalog> = {
   driveImporting: (name: string): string => `Importation de ${name}…`,
   driveImportNote: "Nous l’ouvrons en tant que alo Sheet. La mise en forme peut différer — votre fichier d’origine reste dans Drive, inchangé.",
   driveImportFailed: (name: string): string => `Impossible d’importer ${name}. Vous pouvez toujours télécharger l’original.`,
+  sheetDownloadXlsx: "Télécharger en Excel (.xlsx)",
+  sheetDownloadXlsxShort: "Excel",
   docShare: "Partager",
   docInsert: "Insérer",
   insertEquation: "Équation",

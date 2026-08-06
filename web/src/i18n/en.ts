@@ -1221,6 +1221,8 @@ export const en = {
   driveImporting: (name: string): string => `Importing ${name}…`,
   driveImportNote: "We’re opening this as an alo Sheet. Some formatting may differ — your original file stays in Drive, unchanged.",
   driveImportFailed: (name: string): string => `Couldn’t import ${name}. You can still download the original.`,
+  sheetDownloadXlsx: "Download as Excel (.xlsx)",
+  sheetDownloadXlsxShort: "Excel",
   officeUnavailable: "This document couldn’t be opened for editing. Try again, or download it.",
   moduleSearch: "Search",
   searchPlaceholder: "Search files, tasks and email…",

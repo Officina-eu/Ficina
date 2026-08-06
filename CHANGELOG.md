@@ -6,12 +6,14 @@ contracts.
 
 ## Unreleased
 
-- **Excel files open natively.** Opening a real `.xlsx` in Drive now imports it
-  straight into an **alo Sheet** — no third-party editor. Cell values, numbers,
-  and multiple sheets carry over (best-effort: complex styling and charts may
-  not). Your original file stays in Drive, unchanged, so nothing is lost. This
-  is the first step of moving every document type onto alo's own editors
-  (ADR 0033).
+- **alo Sheet is a complete Excel replacement.** You can now create a spreadsheet
+  (**New → Sheet**), edit it, **open a real `.xlsx`** — which imports straight into
+  alo Sheet, no third-party editor — and **download any sheet back as `.xlsx`**
+  (a button in the sheet toolbar) to send a genuine Excel file to anyone. Values,
+  numbers, and multiple sheets round-trip; complex styling and charts are
+  best-effort. Imports never touch your original file — it stays in Drive. The
+  redundant "New → Excel" (Collabora) entry is gone; "Sheet" is the one way to
+  make a spreadsheet. First format fully moved onto alo's own editors (ADR 0033).
 
 - **Equations in documents.** In an alo Doc, type `/equation` (or `/formula`,
   `/math`) to add a math formula written in LaTeX — `E = mc^2`, `\frac{a}{b}`,

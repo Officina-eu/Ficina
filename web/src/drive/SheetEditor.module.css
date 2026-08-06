@@ -29,8 +29,32 @@
   color: var(--text-primary);
   font-size: var(--text-base);
 }
-.save {
+.actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+.download:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.download:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.save {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
   min-width: 60px;

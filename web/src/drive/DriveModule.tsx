@@ -415,8 +415,10 @@ export function DriveModule() {
                   items={[
                     { key: "doc", label: strings.driveKindDoc, icon: <FileText size={15} />, onClick: () => void newDoc() },
                     { key: "sheet", label: strings.driveKindSheet, icon: <Sheet size={15} />, onClick: () => void newSheet() },
+                    // Spreadsheets are alo Sheet only now (ADR 0033): "Sheet"
+                    // creates one, and it exports to .xlsx. Word/Slides stay on
+                    // Collabora until their native stages land.
                     { key: "word", label: strings.driveKindWord, icon: <FileType size={15} />, onClick: () => void newOffice("docx"), divider: true },
-                    { key: "excel", label: strings.driveKindExcel, icon: <Sheet size={15} />, onClick: () => void newOffice("xlsx") },
                     { key: "slides", label: strings.driveKindSlides, icon: <Presentation size={15} />, onClick: () => void newOffice("pptx") },
                     { key: "folder", label: strings.driveKindFolder, icon: <FolderPlus size={15} />, onClick: () => void newFolder(), divider: true },
                   ]}
