@@ -59,7 +59,10 @@ conflict you cannot resolve cleanly → `LOOP HALT`.
 7. Mark the item `[x]` in QUEUE.md. Append one STATE.md entry: item id, what
    shipped, how verified, cuts/flags, next item id.
 8. Commit (conventional message + the Co-Authored-By line), `git push origin
-   main`. **Never leave uncommitted work, never skip the push.**
+   main`. **Never leave uncommitted work, never skip the push.** If the push
+   is rejected (the other track pushed first), `git pull --rebase` (keep-both
+   on the additive shared files) and push again — retry up to three times,
+   then `LOOP HALT` rather than leave the item unpushed.
 9. Exit. The wrapper starts the next iteration.
 
 ## If stuck
