@@ -10,7 +10,7 @@ Do not touch billing/crm/business areas — that's the Mac's track.
 
 ## Wave S1 — site + blog + forms + both domain modes
 
-- [ ] S1.01 Design note `docs/design/sites.md`: data model (sites, pages, sections JSON versioning, themes, posts, forms, domains), render pipeline, the two-service boundary (edit API in alo-jmap vs public `alo-sites`), form flow, analytics privacy model, tenancy, out-of-scope. Done when: implement-skill's four blocks + the rejected alternative for the section model are written.
+- [x] S1.01 Design note `docs/design/sites.md`: data model (sites, pages, sections JSON versioning, themes, posts, forms, domains), render pipeline, the two-service boundary (edit API in alo-jmap vs public `alo-sites`), form flow, analytics privacy model, tenancy, out-of-scope. Done when: implement-skill's four blocks + the rejected alternative for the section model are written.
 - [ ] S1.02 Migration + store: `sites` (name, subdomain globally-unique + reserved-word list, status draft/live, theme JSON, created/updated) tenant-scoped CRUD + wrong-tenant tests + subdomain validation (dns-safe, 3–40 chars).
 - [ ] S1.03 Section schema v1 as typed Rust (serde) in a `site_model` module: nav, hero, features, text_image, gallery, testimonials, pricing, team, faq, cta, contact_form, footer — each with typed props + a `schema_version` envelope; exhaustive serde round-trip tests + golden fixture JSON per section.
 - [ ] S1.04 Migration + store: `site_pages` (slug, title, ordered sections JSON validated against S1.03, SEO meta, nav order, home flag) CRUD + slug rules + wrong-tenant tests.
