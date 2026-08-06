@@ -1490,3 +1490,171 @@ Cuts and flags:
 
 Next item: B1.14 (web: the invoice list with status chips and overdue
 highlighting, plus the draft editor with live totals from the server).
+
+---
+
+## 2026-08-07 — B1.14 the invoice list and the draft editor
+
+The documents themselves are now on screen. `web/src/billing` gained a
+`invoices` tab (first, ahead of customers and the price list — documents are
+what the module is *for*, and `/billing` now lands there), a list, and an
+editor:
+
+- **`InvoicesView.tsx`** — number, customer, issue and due dates, state chips
+  and the total. Two things it deliberately does not do: it never adds
+  anything up (the gross in the last column is `totals.grossCents` off the
+  list entry) and it never decides what is late (`overdue` is the server's,
+  computed against the server's date — a browser with a wrong clock cannot
+  clear or invent an overdue invoice). The status filter is the **server's**
+  `?status=`, not a filter over the loaded page: a bookkeeper asking for
+  issued documents must get the tenant's issued documents, not the issued ones
+  out of the first screenful.
+- **`InvoiceEditor.tsx`** — one document. `new` raises a draft for the picked
+  customer (that is all the store needs; currency and payment term are read
+  from the customer and snapshotted), then the same screen becomes the editor
+  for the saved draft.
+- **`InvoiceLines.tsx`** + **`lineRows.ts`** — the line grid and, separately,
+  the pure model behind it: which typed row becomes which integers, and when
+  the whole set must not be sent at all. Kept apart from the rendering because
+  it is where a wrong invoice would be written, and it is unit-tested on its
+  own.
+- **`TotalsPanel.tsx`**, **`status.tsx`**, **`dates.ts`** — the money block,
+  the state chips, and the one place a calendar day becomes readable.
+
+Four decisions worth recording.
+
+- **The totals on screen are always a server response.** The draft **saves
+  itself** 700 ms after typing stops, and the document that comes back is what
+  the totals panel and the per-line nets render. Between a keystroke and that
+  response the figures are the previous ones — dimmed, with a line saying so —
+  because the alternative is a browser computing money, which this module does
+  not do. That is also why a draft is raised *before* it is lined: without a
+  document id there is nothing to ask the server what the lines come to.
+- **The save is a loop, not a queue.** One request may be in flight at a time;
+  an edit that lands mid-save bumps a counter, and the save loop goes round
+  again with the newest form instead of racing it. A save that finishes into a
+  changed form never reports "saved".
+- **A row that is not yet a line holds the save.** The API replaces the whole
+  line set in one write, so a set that quietly left the offending row out would
+  *delete* the line it stands for. A wholly untouched row (added, then
+  abandoned) is dropped; anything with a keystroke in it must become a line,
+  and the row says which field is stopping it. This is the only client-side
+  refusal, alongside "that is not a number" — every other rule stays the
+  store's.
+- **Quantities take no grouping separator.** `money.ts` now parses any fixed
+  scale (`parseScaled`), with hundredths for money and **milli-units** for a
+  quantity. `1.500` as an amount is unambiguously fifteen hundred, but as a
+  quantity it is one-and-a-half as often as it is fifteen hundred, and `0.125`
+  hours has to stay writable — so a quantity reads every separator as the
+  decimal point and refuses a grouped integer part. A document is never billed
+  a thousand times what someone typed.
+
+**The wire found a real defect, and it was fixed before the item closed.** The
+first cut of the editor sent the whole header on every autosave. Against the
+local backend that turned out to make a draft *uneditable* for ever if its
+customer was archived after the document was raised: restating `customerId`
+sends the document back through the store's customer check, which answers
+`422 the customer is archived`. The editor now sends **only the header fields
+that changed** (the module's own stated rule, B1.13), always with the line set.
+Both paths are now proven on the wire, and pinned by a test.
+
+Verified. `npx tsc --noEmit` clean on both tsconfigs, `npx eslint . --max-warnings 0`
+clean across the whole app, `npm run test` green (127 tests in 19 files, 23 of
+them new), `npm run build` clean for the workspace **and** for
+`ALO_PRODUCT=mail`.
+
+The new tests are the item's real gate:
+
+- `lineRows.test.ts` (8) — a stored line round-trips without a figure moving; a
+  picked price-list item is a snapshot (price and rate copied, the typed
+  quantity kept); a line nobody gave a number to bills **once**, and one nobody
+  priced is free; each row reports its first problem in field order; the set
+  drops untouched rows, keeps the order of the rest, and refuses to be sent
+  while one row is not a line.
+- `Invoices.test.tsx` (10) — the real router, the real module routes, the real
+  client, one recording `fetch`: the list shows the server's number, customer
+  and gross and marks what is late; the status filter goes to the server; a
+  draft is raised with `{customerId}` and nothing else; a typed `2` leaves as
+  `qtyMilli: 2000` and a typed `1 234,56` as `unitPriceCents: 123456`; the
+  totals rendered after a save are the server's **even when they do not match
+  the lines** (the response says `99999`, the screen says €999.99); a changed
+  reference is sent alone, without `customerId`; a row without a description
+  produces no request at all and says why; picking a price-list item sends the
+  copied price, rate and a quantity of one; a `422` lands in an `alert` in the
+  server's own words with the form intact; and an issued document offers no
+  inputs, no add-line and no delete, with its figures formatted from the
+  document rather than from a form.
+- `money.test.ts` (+5) — the quantity scale: three decimals in either
+  notation, a separator never read as grouping, the refusals, the round trip,
+  and the reading format.
+
+Wire-verified against the **local** backend (docker `alo-pg`, the debug
+`alo-jmap` on `127.0.0.1:8080`, fresh tenant `wireb114`, real password-grant
+token). Every request below is byte-for-byte what these screens send:
+
+```
+GET   /billing/invoices, /billing/invoices/{id}   (no token)  -> 401
+POST  /billing/customers, /billing/products                   -> 200 (the editor's two pickers)
+POST  /billing/invoices  {"customerId"}    ← "Create draft"    -> 200 status=draft number=null
+                                              lines=[] totals={0,0,0,[]} currency=EUR terms=14
+PATCH /billing/invoices/{id} {"lines":[2 lines, 2 rates]} ← autosave
+                                              -> 200 lines: Consulting 1500×12500 net 18750
+                                                            Travel     1000× 4990 net  4990
+                                                 totals: net 23 740 / VAT 4 287 / gross 28 027
+                                                 vatByRate [{700: net 4 990, vat 349},
+                                                            {2100: net 18 750, vat 3 938}]
+GET   /billing/invoices                                       -> 200 summary carries totals,
+                                                 overdue, creditNote, currency — and NO lines
+GET   /billing/invoices?status=draft                          -> 200
+GET   /billing/invoices?status=issued                         -> 200 0 rows
+GET   /billing/invoices?status=bogus                          -> 422
+GET   /billing/invoices/{id}                                  -> 200 {invoice(+lines), creditNotes:[]}
+POST  /billing/invoices/{id}/issue                            -> 200 INV-2026-00001
+                                                 issueDate=2026-08-06 dueDate=2026-08-20
+PATCH /billing/invoices/{id}  (now issued)                    -> 409 "an invoice can only be
+                                                 changed while it is a draft; this one is issued"
+DELETE/billing/invoices/{draft}                               -> 200, then GET -> 404
+POST  /billing/invoices {lines:[{description:""}]}            -> 422 "line 1: description must not be empty"
+
+  the archived-customer path, before and after the fix:
+PATCH /billing/invoices/{id} {customerId, reference, note, lines}   (customer archived
+                                                 after the draft was raised) -> 422
+PATCH /billing/invoices/{id} {"lines":[…]}        (same document)  -> 200   ← what ships
+POST  /billing/invoices {"customerId": <archived>}                 -> 422 (still refused,
+                                                 which is correct: that is a new document)
+```
+
+Cuts and flags:
+
+- **No browser click-path was exercised.** No headless browser in this
+  environment (unchanged from B1.13). "It renders and the buttons work" is
+  proven by the component tests above — real router, real views, real client,
+  real line model, fake network — plus the wire transcript. B1.15's done-when
+  asks for a manual click-path; that remains a human step.
+- **Issuing, voiding, crediting and printing are not in this item** (B1.15,
+  B1.16). A document that carries a number therefore renders as a frozen
+  record: the editor shows it read-only with the reason, rather than offering
+  edits the store would refuse. The routes exist and are wire-verified above;
+  only the buttons are missing.
+- **The currency and the payment term are not editable on the document.** Both
+  are snapshotted from the customer when the draft is raised; the API can take
+  them, but "what this document is denominated in" is not a text box, and
+  changing it after lines exist wants a rule the design note has not written.
+  Both are shown, the term as the due-date hint.
+- **The line set is rewritten whole on every save**, so stored line ids change
+  each time. Harmless today (row identity is the editor's own, and the per-line
+  net is paired by print order), but worth knowing when B1.19 attaches anything
+  to a line.
+- **A save never merges**: last writer wins, as everywhere in this module
+  (no `ETag` yet, B1.05). Two people in the same draft will overwrite each
+  other's lines, which is a document-locking decision, not a UI one.
+- **Server refusals are English** (unchanged from B1.13, flagged for human
+  review there and still open).
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged from B1.05/B1.10/B1.12/B1.13: the production Caddyfile must add it
+  at the next deploy, or every billing XHR gets the SPA. No new prefix in this
+  item.
+
+Next item: B1.15 (web: the issue flow with its confirm dialog, the read-only
+issued view, the credit-note button, and the quote pages mirroring invoices
+including accept → invoice).

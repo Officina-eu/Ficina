@@ -3,7 +3,15 @@
 // refuse, since a refusal is what stops a guessed price being stored.
 import { describe, expect, it } from "vitest";
 
-import { formatAmount, formatRate, hundredthsToInput, parseHundredths } from "./money";
+import {
+  formatAmount,
+  formatQty,
+  formatRate,
+  hundredthsToInput,
+  milliToInput,
+  parseHundredths,
+  parseMilli,
+} from "./money";
 
 describe("parseHundredths", () => {
   it("reads a plain amount in either notation", () => {
@@ -102,5 +110,52 @@ describe("formatRate", () => {
     expect(formatRate(2100, "en")).toBe("21%");
     expect(formatRate(0, "en")).toBe("0%");
     expect(formatRate(550, "en")).toBe("5.5%");
+  });
+});
+
+describe("parseMilli", () => {
+  it("reads a quantity to three decimals in either notation", () => {
+    expect(parseMilli("2")).toBe(2000);
+    expect(parseMilli("1.5")).toBe(1500);
+    expect(parseMilli("1,5")).toBe(1500);
+    expect(parseMilli("0.125")).toBe(125);
+    expect(parseMilli("0,25")).toBe(250);
+    expect(parseMilli("-1")).toBe(-1000);
+  });
+
+  it("reads a separator as the decimal point, never as grouping", () => {
+    // The one place the quantity rule differs from the money rule: "1.500"
+    // pieces is one and a half, and a document must never bill a thousand
+    // times what was typed because two conventions collided.
+    expect(parseMilli("1.500")).toBe(1500);
+    expect(parseMilli("1,500")).toBe(1500);
+    expect(parseMilli("1500")).toBe(1500000);
+    expect(parseMilli("1.234.567")).toBeNull();
+  });
+
+  it("refuses what it cannot read exactly", () => {
+    expect(parseMilli("1.2345")).toBeNull();
+    expect(parseMilli("two")).toBeNull();
+    expect(parseMilli("")).toBeNull();
+    expect(parseMilli("1..5")).toBeNull();
+  });
+
+  it("round-trips through the editable form", () => {
+    for (const value of [0, 1000, 1500, 125, 1005, -2500]) {
+      expect(parseMilli(milliToInput(value))).toBe(value);
+    }
+    expect(milliToInput(0)).toBe("0");
+    expect(milliToInput(1500)).toBe("1.5");
+    expect(milliToInput(125)).toBe("0.125");
+    expect(milliToInput(1005)).toBe("1.005");
+  });
+});
+
+describe("formatQty", () => {
+  it("shows only the decimals a quantity has", () => {
+    expect(formatQty(2000, "en")).toBe("2");
+    expect(formatQty(1500, "en")).toBe("1.5");
+    expect(formatQty(125, "en")).toBe("0.125");
+    expect(formatQty(-1000, "en")).toBe("-1");
   });
 });

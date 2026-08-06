@@ -6,6 +6,25 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: your invoices, on screen.** Billing now opens on the
+  **invoice list** — number, customer, dates, what it is worth — with a chip
+  for where each document stands (draft, issued, paid, void) and a plain red
+  row for anything **overdue**, judged by the server's date and not your
+  browser's. Filter by status, or search by number, customer or their own
+  reference. **New invoice** raises a draft for the customer you pick, and the
+  **draft editor** is where you fill it in: add lines by hand or pick them
+  straight from your price list (which copies the price and VAT rate as they
+  are today, so changing your price list never rewrites a document). Quantities
+  take three decimals — half an hour is `0.5`, a third of a kilo is `0.333` —
+  and prices take whichever notation you normally type. The draft **saves
+  itself** a moment after you stop typing, and the net, the VAT per rate and
+  the total you see are the ones the server sent back; while an edit is still
+  on its way they dim rather than pretend. A line without a description holds
+  the save instead of quietly disappearing from the document. A draft can be
+  deleted (it carries no number, so nothing is left behind); a document that
+  has been issued shows as a frozen record. Issuing, credit notes and printing
+  come next (ADR 0035).
+
 - **alo Billing has a home in the workspace.** A **Billing** entry now sits in
   the rail (in alo workplace only — the standalone mail app is unchanged), with
   the two lists everything else is built from: your **customers** and your

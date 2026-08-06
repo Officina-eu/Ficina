@@ -1,20 +1,26 @@
 // The Billing module (alo Billing, ADR 0035, wave B1) — the workspace surface
-// over the `/billing` API. This is the skeleton the rest of the wave hangs
-// from: a header, a tab per record type, and a nested route each, so an
-// invoice list and a quote list (B1.14–B1.15) are new tabs rather than a new
-// navigation idea.
+// over the `/billing` API: a header, a tab per record type, and a nested route
+// each. Documents come first, because they are what the module is for; the
+// customers and the price list are what a document is assembled from.
 //
 // It is mounted at `/billing/*` by the product surface, so every path below is
-// relative and a deep link (`/billing/products`) survives a page reload.
+// relative and a deep link (`/billing/invoices/{id}`) survives a page reload.
+// The document routes are nested under one `invoices` parent rather than
+// spelled out as two flat paths, so that a relative `..` from the editor lands
+// on the list instead of on the module root.
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { strings } from "../i18n";
 import { CustomersView } from "./CustomersView";
+import { InvoiceEditor } from "./InvoiceEditor";
+import { InvoicesView } from "./InvoicesView";
 import { ProductsView } from "./ProductsView";
 import styles from "./BillingModule.module.css";
 
-/** The tabs, in the order a tenant meets them: who you bill, then what for. */
+/** The tabs, in the order a tenant works in them: what you send out, then who
+ *  you send it to, then what it is made of. */
 const TABS = [
+  { path: "invoices", label: () => strings.billingInvoices },
   { path: "customers", label: () => strings.billingCustomers },
   { path: "products", label: () => strings.billingProducts },
 ] as const;
@@ -38,11 +44,16 @@ export function BillingModule() {
       </header>
 
       <Routes>
-        <Route index element={<Navigate to="customers" replace />} />
+        <Route index element={<Navigate to="invoices" replace />} />
+        <Route path="invoices">
+          <Route index element={<InvoicesView />} />
+          <Route path="new" element={<InvoiceEditor />} />
+          <Route path=":id" element={<InvoiceEditor />} />
+        </Route>
         <Route path="customers" element={<CustomersView />} />
         <Route path="products" element={<ProductsView />} />
         {/* An unknown billing path is a stale link, not an error page. */}
-        <Route path="*" element={<Navigate to="customers" replace />} />
+        <Route path="*" element={<Navigate to="invoices" replace />} />
       </Routes>
     </div>
   );

@@ -17,8 +17,12 @@ import { useAuth } from "../auth";
 import { API_BASE } from "../platform/runtime";
 import type {
   BillingCustomer,
+  BillingInvoice,
+  BillingInvoiceSummary,
   BillingProduct,
   CustomerDraft,
+  InvoiceDraft,
+  InvoiceStatus,
   ProductDraft,
 } from "./types";
 
@@ -127,6 +131,51 @@ export class BillingApi {
       `/billing/products/${encodeURIComponent(id)}/archive`,
       { archived },
     ).then((r) => r.product);
+  }
+
+  /** The tenant's invoices, newest first, each with its totals and computed
+   *  `overdue` flag but without its lines. `status` narrows the list on the
+   *  server — an unknown value is a `422` there, never a silently wider list. */
+  invoices(status?: InvoiceStatus): Promise<BillingInvoiceSummary[]> {
+    const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+    return this.#read<{ invoices?: BillingInvoiceSummary[] }>(`/billing/invoices${query}`).then(
+      (r) => r.invoices ?? [],
+    );
+  }
+
+  /** One whole document — header, lines, totals — with the credit notes raised
+   *  against it (empty for an uncredited document, and for a credit note). */
+  invoice(id: string): Promise<{ invoice: BillingInvoice; creditNotes: BillingInvoiceSummary[] }> {
+    return this.#read<{ invoice: BillingInvoice; creditNotes?: BillingInvoiceSummary[] }>(
+      `/billing/invoices/${encodeURIComponent(id)}`,
+    ).then((r) => ({ invoice: r.invoice, creditNotes: r.creditNotes ?? [] }));
+  }
+
+  /** Raises a **draft**. Only `customerId` is required; an absent currency or
+   *  payment term takes the customer's own and is then snapshotted. */
+  createInvoice(draft: InvoiceDraft): Promise<BillingInvoice> {
+    return this.#write<{ invoice: BillingInvoice }>("POST", "/billing/invoices", draft).then(
+      (r) => r.invoice,
+    );
+  }
+
+  /** Saves a draft: the stated header fields merge onto the stored ones, and
+   *  `lines` replaces the whole set in the order sent. Answers the stored
+   *  document, whose `totals` are the only totals the editor ever shows. */
+  updateInvoice(id: string, draft: InvoiceDraft): Promise<BillingInvoice> {
+    return this.#write<{ invoice: BillingInvoice }>(
+      "PATCH",
+      `/billing/invoices/${encodeURIComponent(id)}`,
+      draft,
+    ).then((r) => r.invoice);
+  }
+
+  /** Discards a **draft**. The only document that is ever removed: it never
+   *  consumed a number, so abandoning it leaves no hole in the series. */
+  async deleteInvoice(id: string): Promise<void> {
+    await this.#json<unknown>(
+      await this.#send(`/billing/invoices/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    );
   }
 
   async #read<T>(path: string): Promise<T> {
