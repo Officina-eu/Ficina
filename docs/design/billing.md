@@ -41,6 +41,7 @@ extractor, registered in `server.rs`):
 | `GET/POST /billing/products`, `GET/PATCH/POST /billing/products/{id}[/archive]` | price-list CRUD (B1.05) |
 | `GET/POST /billing/invoices`, `GET/PATCH/DELETE /billing/invoices/{id}` | draft CRUD + list with status filter (B1.10); `DELETE` is draft-only, an issued document is voided instead |
 | `POST /billing/invoices/{id}/issue` | assign number, freeze (B1.10) |
+| `POST /billing/invoices/{id}/void` | cancel an issued document, keeping its number (B1.10) |
 | `POST /billing/invoices/{id}/credit-note` | create the crediting invoice (B1.10) |
 | `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17, B1.23) |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) |
@@ -164,6 +165,8 @@ route edge to the existing `Problem` shape. The full map:
 | Editing lines **or the header** of a non-draft invoice | `Conflict` | `409` |
 | Deleting a non-draft invoice (it is voided, never deleted) | `Conflict` | `409` |
 | Issuing an already-issued invoice | `Conflict` | `409` |
+| Issuing an invoice with no lines | `Validation` | `422` |
+| Voiding anything but an issued invoice | `Conflict` | `409` |
 | Crediting a draft (never-issued) invoice | `Conflict` | `409` |
 | Payment amount ≤ 0, or recorded against a draft | `Validation` | `422` |
 | Invalid quote transition (e.g. `declined` → `accepted`) | `Conflict` | `409` |
@@ -219,6 +222,40 @@ skip a number.
 Drafts stay **unnumbered** (`number IS NULL`) precisely so an abandoned
 draft cannot consume a number, and issuing is the only transition that
 assigns one.
+
+### As-built (B1.08)
+
+- The row is `(tenant_id, kind, year) → next_value`, created on first
+  use at 2 (handing out 1) by the same upsert that advances it, so a
+  never-used series has no row at all. `kind` is shape-checked rather
+  than list-checked: quotes (B1.11) add a row, never a migration.
+  The upsert holds the counter's row lock until the issuing transaction
+  ends, which is the `FOR UPDATE` this section promised, in one
+  statement.
+- **The issue date is the database's `CURRENT_DATE`, read inside the
+  issuing transaction — not a caller-supplied date.** A series whose
+  numbers ascend while their dates do not is not gapless in any sense a
+  tax authority accepts, and backdating is how that happens. The due
+  date is that day plus the terms already snapshotted on the document.
+  *Flagged for human review:* bookkeepers do sometimes need to issue
+  "as of" an earlier day (a month-end run done on the 3rd). Offering it
+  needs a rule that keeps number order and date order together — its own
+  queue item, not a quiet parameter.
+- **An invoice with no lines cannot be issued** (`Validation`, `422`).
+  It would be worth nothing and would spend a number of a legally
+  unbroken series on a document that says nothing.
+- **Voiding** is available only from `issued`: a draft is deleted (it
+  took no number), a void document is already void, and a **paid** one
+  is corrected with a credit note (B1.09), not cancelled by fiat. A
+  voided document keeps its number, dates and lines — that is what keeps
+  the series unbroken — and stays readable. Voiding suits a document
+  that never left the building; one the customer already holds should be
+  credited instead, so both parties' copies still reconcile. The store
+  cannot tell those apart, so it allows the transition and says so.
+- Issuing takes the **document's** lock before the **counter's**, in
+  that order on every path, so concurrent issues queue instead of
+  deadlocking, and a save that raced an issue is refused rather than
+  landing on a numbered document.
 
 ## Out of scope for B1
 

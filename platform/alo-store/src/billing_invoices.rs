@@ -2,13 +2,20 @@
 //! reached through the account door like [`crate::billing_customers`].
 //!
 //! An invoice is not a row that gets edited forever: it is a **draft** until
-//! it is issued, and issuing (B1.08) draws the next number from the tenant's
-//! gapless sequence, stamps the dates and freezes the content. This module
-//! owns the draft — creating it, replacing its header, replacing its line set,
-//! deleting it while it is still nothing — and reading a document back with
-//! its totals. The status column already carries the full lifecycle so nothing
-//! about the shape of the table changes when issuing arrives; the only status
-//! this module can write is `draft`.
+//! it is issued, and issuing draws the next number from the tenant's gapless
+//! sequence ([`crate::billing_sequence`]), stamps the dates and freezes the
+//! content. This module owns the document's whole life — creating the draft,
+//! replacing its header, replacing its line set, deleting it while it is still
+//! nothing, issuing it, and voiding an issued one — and reading a document
+//! back with its totals.
+//!
+//! **Issuing is the only transition that assigns a number, and it never lies
+//! about the date.** The issue date is the day the store issued it, read from
+//! the database's own clock inside the issuing transaction — not a date the
+//! caller supplies. A number series whose numbers ascend while their dates do
+//! not is not a gapless series in any sense a tax authority accepts, and
+//! backdating is exactly how that happens; the due date follows from the terms
+//! snapshotted on the document.
 //!
 //! **A document that is no longer a draft is frozen.** Every write here takes
 //! the row's lock and re-reads its status inside the same transaction before
@@ -40,11 +47,14 @@
 
 use std::collections::HashMap;
 
-use time::{Date, OffsetDateTime};
+use time::{Date, Duration, OffsetDateTime};
 
 use crate::account::AccountStore;
 use crate::billing_field::{bounded, currency, payment_terms_days};
 use crate::billing_line::{Line, NewLine, NormalizedLine, normalize_lines};
+use crate::billing_sequence::{
+    INVOICE_NUMBER_PREFIX, INVOICE_SEQUENCE_KIND, document_number, draw_next,
+};
 use crate::billing_totals::{LineFigures, Totals, totals};
 use crate::error::{Result, StoreError};
 use crate::id::{BillingCustomerId, BillingInvoiceId, BillingLineId};
@@ -130,6 +140,44 @@ impl InvoiceStatus {
         }
         Err(StoreError::Conflict(format!(
             "an invoice can only be changed while it is a draft; this one is {}",
+            self.as_str()
+        )))
+    }
+
+    /// The guard issuing runs: only a draft can be issued.
+    ///
+    /// Re-issuing is refused rather than being a no-op, because the two
+    /// answers mean different things to a caller that retried after a timeout:
+    /// this one says "it already has a number", and the document it names
+    /// carries that number.
+    ///
+    /// # Errors
+    /// [`StoreError::Conflict`] naming the status that refused (`409`).
+    pub fn ensure_issuable(self) -> Result<()> {
+        if self.is_draft() {
+            return Ok(());
+        }
+        Err(StoreError::Conflict(format!(
+            "an invoice can only be issued while it is a draft; this one is {}",
+            self.as_str()
+        )))
+    }
+
+    /// The guard voiding runs: only an issued document can be voided.
+    ///
+    /// A draft is deleted instead (it never consumed a number), a void one is
+    /// already void, and a **paid** one is not cancelled by fiat — money
+    /// changed hands, so it is corrected with a credit note (B1.09) that
+    /// leaves both documents standing.
+    ///
+    /// # Errors
+    /// [`StoreError::Conflict`] naming the status that refused (`409`).
+    pub fn ensure_voidable(self) -> Result<()> {
+        if matches!(self, Self::Issued) {
+            return Ok(());
+        }
+        Err(StoreError::Conflict(format!(
+            "only an issued invoice can be voided; this one is {}",
             self.as_str()
         )))
     }
@@ -609,6 +657,135 @@ impl AccountStore {
             .map_err(StoreError::Db)?;
         tx.commit().await.map_err(StoreError::Db)?;
         Ok(())
+    }
+
+    /// Issues a **draft** invoice: draws the next number from this tenant's
+    /// gapless series, stamps the issue and due dates, and freezes the
+    /// document. This is the only transition that assigns a number, and it is
+    /// irreversible — an issued document is corrected by voiding it or by
+    /// crediting it (B1.09), never by being edited back into a draft.
+    ///
+    /// Everything happens in **one transaction**: the document's row lock is
+    /// taken first (so a save that raced this issue is refused rather than
+    /// applied afterwards), then the counter's row lock. Both locks are taken
+    /// in that order by every issue, so concurrent issues queue instead of
+    /// deadlocking, and if anything below fails the number is given back —
+    /// which is the entire reason the counter is a row and not a Postgres
+    /// `SEQUENCE` (see [`crate::billing_sequence`]).
+    ///
+    /// The issue date is **today according to the database**, read inside the
+    /// same transaction rather than taken from the caller: the series' numbers
+    /// must ascend together with their dates, and a caller-supplied date is
+    /// how that stops being true. The due date is that day plus the payment
+    /// terms already snapshotted on the document.
+    ///
+    /// An invoice with no lines is refused. It would be worth nothing, and
+    /// issuing it would spend a number of a legally unbroken series on a
+    /// document that says nothing — a mistake worth reporting rather than
+    /// obeying.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when the invoice is absent or another
+    /// tenant's; [`StoreError::Conflict`] when it is not a draft;
+    /// [`StoreError::Validation`] when it has no lines;
+    /// [`StoreError::Db`] on failure.
+    pub async fn issue_billing_invoice(&self, id: &BillingInvoiceId) -> Result<InvoiceDocument> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        self.lock_invoice_status(&mut tx, id)
+            .await?
+            .ensure_issuable()?;
+
+        // Read under the lock: the terms this document was raised with (never
+        // the customer's current ones) and whether it says anything at all.
+        let (terms, lines): (i32, i64) = sqlx::query_as(
+            "SELECT i.payment_terms_days, \
+                 (SELECT count(*) FROM billing_invoice_lines l \
+                  WHERE l.tenant_id = i.tenant_id AND l.invoice_id = i.id) \
+             FROM billing_invoices i WHERE i.tenant_id = $1 AND i.id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id.as_str())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+        if lines == 0 {
+            return Err(StoreError::Validation(
+                "an invoice with no lines cannot be issued; add a line first".to_owned(),
+            ));
+        }
+
+        // One clock for the whole transaction, and the same clock the row's
+        // own timestamps use.
+        let today: Date = sqlx::query_scalar("SELECT CURRENT_DATE")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(StoreError::Db)?;
+        let due = today
+            .checked_add(Duration::days(i64::from(terms)))
+            .ok_or_else(|| {
+                StoreError::Validation(
+                    "the payment terms put the due date outside the supported range".to_owned(),
+                )
+            })?;
+        let drawn = draw_next(
+            &mut tx,
+            self.tenant.as_str(),
+            INVOICE_SEQUENCE_KIND,
+            today.year(),
+        )
+        .await?;
+        let number = document_number(INVOICE_NUMBER_PREFIX, today.year(), drawn);
+
+        sqlx::query(
+            "UPDATE billing_invoices \
+                SET status = 'issued', number = $3, issue_date = $4, due_date = $5, \
+                    updated_at = now() \
+             WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id.as_str())
+        .bind(&number)
+        .bind(today)
+        .bind(due)
+        .execute(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+        tx.commit().await.map_err(StoreError::Db)?;
+
+        self.billing_invoice(id).await?.ok_or(StoreError::NotFound)
+    }
+
+    /// Voids an **issued** invoice: it keeps its number, its dates and its
+    /// lines, and stops being owed. Nothing is deleted — the series stays
+    /// gapless precisely because a cancelled document remains in it, readable,
+    /// marked as cancelled.
+    ///
+    /// Voiding suits a document that never left the building. One the customer
+    /// already holds is corrected with a credit note (B1.09) instead, so that
+    /// both parties' copies still reconcile; the store cannot know which case
+    /// it is looking at, so it allows the transition and says so here.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when the invoice is absent or another
+    /// tenant's; [`StoreError::Conflict`] when it is not issued (a draft is
+    /// deleted, a paid document is credited); [`StoreError::Db`] on failure.
+    pub async fn void_billing_invoice(&self, id: &BillingInvoiceId) -> Result<InvoiceDocument> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        self.lock_invoice_status(&mut tx, id)
+            .await?
+            .ensure_voidable()?;
+        sqlx::query(
+            "UPDATE billing_invoices SET status = 'void', updated_at = now() \
+             WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+        tx.commit().await.map_err(StoreError::Db)?;
+
+        self.billing_invoice(id).await?.ok_or(StoreError::NotFound)
     }
 
     /// What a line set **would** total, without writing anything — the same

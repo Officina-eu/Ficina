@@ -17,6 +17,7 @@ pub mod billing_field;
 pub mod billing_invoices;
 pub mod billing_line;
 pub mod billing_products;
+pub mod billing_sequence;
 pub mod billing_totals;
 pub mod blob;
 pub mod calendar;
@@ -61,6 +62,7 @@ pub use billing_customers::{Customer, NewCustomer};
 pub use billing_invoices::{Invoice, InvoiceDocument, InvoiceStatus, InvoiceSummary, NewInvoice};
 pub use billing_line::{Line, NewLine};
 pub use billing_products::{NewProduct, Product};
+pub use billing_sequence::{INVOICE_NUMBER_PREFIX, INVOICE_SEQUENCE_KIND, document_number};
 pub use billing_totals::{LineFigures, Totals, VatSubtotal};
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;

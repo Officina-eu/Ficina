@@ -602,3 +602,131 @@ Cuts and flags:
 Next item: B1.08 (the issue flow — per-tenant gapless sequence, `INV-YYYY-
 NNNNN`, row-locked in the issuing transaction, with the 100-iteration
 concurrency test).
+
+---
+
+## 2026-08-06 — B1.08 the issue flow and legally gapless numbering
+
+A draft becomes a legal document. Shipped:
+
+- **Migration `0103_billing_sequences.sql`** — `(tenant_id, kind, year) →
+  next_value`, the counter behind the numbering. `kind` is **shape**-checked
+  (`^[a-z_]{1,32}$`) rather than list-checked, so quotes (B1.11) drawing their
+  own series is a new row and never a schema change; `year` is bounded to
+  2000–9999 and `next_value` to ≥ 2, which is definitionally true once a row
+  exists (the row is created at 2 by the draw that takes 1). Cascades with the
+  tenant.
+- **`platform/alo-store/src/billing_sequence.rs`** (new) — the series and the
+  printed form of a number, in their own file because they change for a
+  different reason than the invoice does: credit notes (B1.09) and quotes
+  (B1.11) draw from here too. `document_number()` prints
+  `INV-YYYY-NNNNN`; `draw_next()` is one upsert that both creates the series
+  on first use and advances it, holding the counter's row lock until the
+  issuing transaction ends.
+- **`AccountStore::issue_billing_invoice`** — one transaction: lock the
+  document, refuse anything but a draft (`Conflict`), refuse an empty one
+  (`Validation`), read the database's own `CURRENT_DATE`, draw the number,
+  write number + issue date + due date + `issued`, commit, and return the
+  frozen document with its totals.
+- **`AccountStore::void_billing_invoice`** — the exit B1.07 deferred to this
+  item: `issued → void`, keeping the number, the dates and the lines.
+- `InvoiceStatus::ensure_issuable` / `ensure_voidable` alongside the existing
+  `ensure_editable`, so each refusal names both the transition and the status
+  that refused it instead of one generic message.
+
+Three decisions, all recorded as as-built in `docs/design/billing.md`:
+
+- **The issue date is the database's today, not a caller's date.** A series
+  whose numbers ascend while their dates do not is not gapless in any sense a
+  tax authority accepts. Flagged below.
+- **An invoice with no lines cannot be issued** — `Validation` (422), not
+  `Conflict`, because the caller fixes it by adding a line. It would spend a
+  number of a legally unbroken series on a document that says nothing.
+- **Voiding is `issued`-only.** A draft is deleted (it took no number), a paid
+  document is corrected with a credit note (B1.09), and a void one is already
+  void. The design note now records that a document the customer already holds
+  should be credited rather than voided — the store cannot tell the two cases
+  apart, so it allows the transition and says so rather than guessing.
+- **Lock order is document, then counter, on every path**, so concurrent
+  issues queue instead of deadlocking.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings); `cargo test -p alo-store` fully green
+against local Postgres — 148 unit tests (4 new over the number format: the
+padding, the sixth digit past 99 999 rather than a wrapped duplicate, the
+lexicographic sort that padding buys, the four-digit year) and every
+integration suite; `cargo test -p alo-jmap` green as well, since the store API
+moved underneath it. `rustfmt --edition 2024 --check` clean on all three
+touched/added Rust files (`lib.rs` was left alone but for its two additive
+lines — the pre-existing divergence in the inbox above is untouched).
+
+The item's gate is `tests/billing_invoice_issue.rs` (8 tests):
+
+- **`a_hundred_parallel_issues_never_share_or_skip_a_number`** — 100 drafts,
+  100 issues fired at once at one tenant's series, and the resulting numbers
+  compared against the exact set `INV-YYYY-00001..00100`: sharing a number
+  would be two legal documents with one number, skipping one would be a hole a
+  tax inspection reads as a deleted invoice, and both fail this test. The
+  counter is then read back (101) and the distinct numbers counted straight
+  from the table. Green on three consecutive runs.
+- **The test was proved non-vacuous by a negative control**: `draw_next` was
+  temporarily replaced with the naive read-then-write (no lock, two
+  statements), and the concurrency test failed immediately; the real upsert was
+  then restored and re-run. A concurrency test that has never been seen to fail
+  is not evidence.
+- **`a_rolled_back_draw_gives_its_number_back`** — the property `nextval()`
+  cannot provide, and the whole reason the counter is a row: the same upsert is
+  run in a transaction that then rolls back, the counter is proven gone, and a
+  real invoice then takes the number the failed attempt had drawn.
+- `an_invoice_with_no_lines_never_consumes_a_number` — the refusal is a
+  `Validation`, the counter row is never even created, the next real document
+  is still number 1, and the same invoice issues cleanly once it has a line.
+- `each_tenant_and_each_year_counts_alone` — two tenants both issue number 1
+  (correct: the series is per tenant), and a seeded previous-year row at 900 is
+  neither read nor moved by this year's issue.
+- **The wrong-tenant proof**, `another_tenant_can_neither_issue_nor_void_nor_
+  learn_the_state` — tenant B gets `NotFound`, never `Conflict`, from issue and
+  void on both a draft and an issued document of A's (a `Conflict` would have
+  confirmed the id exists *and* what state it is in); a ghost id gets the
+  identical answer; A's documents are unchanged down to `updated_at`; **A's
+  counter is unmoved by B's attempts**; and B can issue their own document of
+  the same shape, so the denial is about ownership rather than the operation.
+- `issuing_numbers_dates_and_freezes_the_document` and
+  `voiding_keeps_the_number_…` pin the rest: dates from the database's clock,
+  the due date at issue + terms, the document unchanged by issuing (same
+  lines, same totals), every write path and a second issue refused afterwards,
+  a voided document keeping number/dates/lines and not releasing its number
+  back to the series.
+- `a_save_that_races_the_real_issue_loses_cleanly` re-proves B1.07's race
+  against the **real** issuing transaction rather than a planted marker:
+  whichever won the lock, the stored document is coherent and the loser wrote
+  nothing.
+
+Schema confirmed on the live local database (`\d billing_sequences`): the
+three CHECKs, the composite primary key and the tenant cascade are on the
+table as written.
+
+Cuts and flags:
+
+- **FLAGGED FOR HUMAN REVIEW (compliance-adjacent): no backdated issuing.**
+  Issuing stamps the database's today. Bookkeepers do sometimes need to issue
+  "as of" an earlier day (a month-end run done on the 3rd), and the strict
+  reading of the gapless-numbering rules is what is implemented here: numbers
+  and dates must ascend together. Offering backdating needs a rule that keeps
+  those two orders consistent (a cut-off window, or a per-year series that
+  refuses a date earlier than the last issued one) — that is its own queue
+  item, not a quiet parameter on this one.
+- **A voided document carries no reason.** A reason column is a real
+  requirement in some jurisdictions' audit trails, but it belongs with the
+  cross-cutting audit log (B2.13) rather than as a lone free-text column here.
+- **No routes** (B1.10 owns `/billing/invoices`, including `POST …/issue` and
+  the `POST …/void` now added to the design note's surface table), so no curl
+  transcript applies to this item, and nothing user-visible changed — still no
+  CHANGELOG line. The first one lands with B1.10.
+- **Contention is a plain row lock, with no retry or timeout tuning.** At SME
+  volume the issuing transaction is sub-millisecond; the design note's `503`
+  row for contention beyond a retry stays a route-layer concern for B1.10.
+
+Next item: B1.09 (credit notes — a negative document referencing an issued
+original, drawing from the same series, whose ledger with the original sums to
+zero).
