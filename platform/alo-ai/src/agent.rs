@@ -15,7 +15,7 @@ use crate::{chat, render_sources, AiConfig, ChatMessage, InferenceError, Workspa
 /// (or approved) tool against this allowlist and owns the actual execution.
 /// First slice: create a task. Adding a tool → describe it in [`AGENT_SYSTEM`]
 /// and wire its validation + execution in the jmap agent handler.
-pub const AGENT_TOOLS: &[&str] = &["create_task"];
+pub const AGENT_TOOLS: &[&str] = &["create_task", "create_event"];
 
 /// One action the agent proposes. `args` is validated tool-by-tool at the
 /// execution boundary — never trusted here.
@@ -47,7 +47,8 @@ For each request you do EXACTLY ONE of two things, and you reply with a SINGLE J
 2) PROPOSE ONE ACTION for the user to approve: {\"kind\":\"action\",\"say\":\"<one short sentence describing what you will do>\",\"action\":{\"tool\":\"<tool>\",\"args\":{...}}}. You NEVER perform the action yourself — you only propose it; the user approves it.\n\
 Available tools:\n\
 - create_task: create a to-do for the user. args: {\"title\": string (required), \"due\": string in \"YYYY-MM-DD\" (optional), \"notes\": string (optional)}.\n\
-Resolve any relative date (today, tomorrow, next Friday) against the current date given below into an absolute YYYY-MM-DD. \
+- create_event: schedule a calendar event. args: {\"title\": string (required), \"start\": string RFC 3339 datetime e.g. \"2026-08-07T14:00:00Z\" (required), \"end\": string RFC 3339 (optional; defaults to one hour after start), \"location\": string (optional), \"notes\": string (optional)}.\n\
+Resolve any relative date or time (today, tomorrow 3pm, next Friday) against the current date given below into an absolute value (YYYY-MM-DD for a task due, RFC 3339 UTC for an event). \
 If the request needs an action no tool covers, ANSWER instead and say you cannot do that yet. Write the answer/say text in the user's language. Output ONLY the JSON object — no markdown, no code fences, no preamble.";
 
 /// The chat messages for one agent turn. Pure and exported so the prompt is

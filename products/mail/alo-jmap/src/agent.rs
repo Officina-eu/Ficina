@@ -10,11 +10,12 @@
 //! can never act outside the caller's own permissions.
 
 use alo_ai::{AgentDecision, AiConfig, InferenceError, WorkspaceSource};
-use alo_store::NewTask;
+use alo_store::{CalendarEvent, EventId, NewTask};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::{body::Bytes, Json};
 use serde_json::{json, Value};
+use time::format_description::well_known::Rfc3339;
 
 use crate::ai::MAX_ASK_BYTES;
 use crate::error::Problem;
@@ -135,6 +136,7 @@ pub async fn agent_execute(
     }
     match tool {
         "create_task" => execute_create_task(&account, &args).await,
+        "create_event" => execute_create_event(&account, &args).await,
         // Unreachable given the allowlist check, but the match stays total.
         _ => Err(Problem::with(StatusCode::BAD_REQUEST, "unknown tool")),
     }
@@ -186,6 +188,77 @@ async fn execute_create_task(account: &Account, args: &Value) -> Result<Json<Val
     })))
 }
 
+/// Schedule a calendar event from approved args, on the caller's personal
+/// calendar. Reuses the same tenant-scoped `create_event` the `/calendar/events`
+/// route uses (which checks edit permission on the calendar) — no new path.
+async fn execute_create_event(account: &Account, args: &Value) -> Result<Json<Value>, Problem> {
+    let title = args
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    if title.is_empty() {
+        return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "title required"));
+    }
+    let starts_at = args
+        .get("start")
+        .and_then(Value::as_str)
+        .and_then(parse_rfc3339)
+        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "a valid RFC 3339 start is required"))?;
+    // End defaults to one hour after start; a given end before start is ignored.
+    let ends_at = args
+        .get("end")
+        .and_then(Value::as_str)
+        .and_then(parse_rfc3339)
+        .filter(|e| *e >= starts_at)
+        .unwrap_or_else(|| starts_at + time::Duration::hours(1));
+    let clean = |k: &str| {
+        args.get(k)
+            .and_then(Value::as_str)
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+    };
+
+    let calendar_id = account
+        .acc
+        .ensure_personal_calendar()
+        .await
+        .map_err(|_| Problem::server_error())?;
+    let event = CalendarEvent {
+        id: EventId::generate(),
+        calendar_id,
+        summary: title.clone(),
+        description: clean("notes"),
+        location: clean("location"),
+        starts_at,
+        ends_at,
+        all_day: false,
+        recurrence: None,
+        attendees: Vec::new(),
+        exdates: Vec::new(),
+        recurrence_id: None,
+        reminder_minutes: None,
+        attendee_status: Vec::new(),
+    };
+    let id = account
+        .acc
+        .create_event(&event)
+        .await
+        .map_err(|_| Problem::server_error())?;
+    Ok(Json(json!({
+        "ok": true,
+        "result": { "kind": "event", "id": id.as_str(), "title": title }
+    })))
+}
+
+/// Parse an RFC 3339 datetime to UTC, or `None` if malformed.
+fn parse_rfc3339(s: &str) -> Option<time::OffsetDateTime> {
+    time::OffsetDateTime::parse(s.trim(), &Rfc3339)
+        .ok()
+        .map(|t| t.to_offset(time::UtcOffset::UTC))
+}
+
 /// The current UTC date as `YYYY-MM-DD`, given to the agent so it can resolve
 /// relative dates ("tomorrow") into absolute ones.
 fn today_utc() -> String {
@@ -211,7 +284,19 @@ fn parse_due(s: &str) -> Option<time::OffsetDateTime> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::parse_due;
+    use super::{parse_due, parse_rfc3339};
+
+    #[test]
+    fn parses_rfc3339_to_utc() {
+        let t = parse_rfc3339("2026-08-07T14:30:00Z").unwrap();
+        assert_eq!(t.hour(), 14);
+        assert_eq!(t.minute(), 30);
+        // An offset time normalises to UTC.
+        let z = parse_rfc3339("2026-08-07T16:30:00+02:00").unwrap();
+        assert_eq!(z.hour(), 14);
+        assert!(parse_rfc3339("2026-08-07").is_none()); // date only, not a datetime
+        assert!(parse_rfc3339("not-a-time").is_none());
+    }
 
     #[test]
     fn parses_iso_date_to_utc_midnight() {
