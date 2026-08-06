@@ -1,0 +1,116 @@
+# QUEUE.md — Business track work queue (ADR 0035, all waves B1–B6)
+
+Ordered. The loop (LOOP.md) takes the first item that is not `[x]` or `[!]`.
+One item = one iteration = one commit+push. "Done when" is the acceptance
+gate on top of the standard gates (clippy/tests/tsc/eslint/wrong-tenant/wire).
+Detail source: `docs/features.md` → Business modules. Do not reorder; do not
+invent items — a discovered prerequisite becomes part of the current item if
+small, or a `[!]` note for the human if large.
+
+## Wave B1 — alo Billing (Quotes & Invoices, EU e-invoicing)
+
+- [ ] B1.01 Design note `docs/design/billing.md`: surface (routes), data model (customers, products, quotes, invoices, lines, payments), error map, tenancy, numbering approach, out-of-scope. Done when: the note answers the implement-skill's four blocks and names the rejected alternative for numbering.
+- [ ] B1.02 Migration + store: `billing_customers` (name, address fields, country, VAT id, email, payment terms days, currency, linked contact id nullable) with tenant-scoped CRUD on AccountStore + unit tests + wrong-tenant test. Done when: tests prove create/read/update/list/archive and cross-tenant denial.
+- [ ] B1.03 VAT-id format validation (VIES checksum-style per-country patterns, pure fn, unit-tested) wired into customer create/update; invalid → typed error. Done when: valid DE/FR/NL/BE/PL ids pass, malformed fail, empty allowed (B2C).
+- [ ] B1.04 Migration + store: `billing_products` (name, unit, unit price cents, VAT rate bp, active) CRUD + tests incl. wrong-tenant. Done when: same bar as B1.02.
+- [ ] B1.05 HTTP: `/billing/customers` + `/billing/products` CRUD routes (auth, Problem errors, validation) + wire-verify with curl against local backend (create→list→update→archive, 401 without token, 422 bad VAT id). Done when: the curl transcript in STATE.md shows all codes.
+- [ ] B1.06 Migration + store: `billing_invoices` + `billing_invoice_lines` (description, qty milli-units, unit price cents, VAT rate bp, line order); status enum draft/issued/paid/void; server-side totals fn (net, VAT per rate, gross) as pure code with property tests (line sums always equal totals; no float anywhere). Done when: property tests + wrong-tenant pass.
+- [ ] B1.07 Store: draft-invoice lifecycle — create/update lines while draft only; typed error editing a non-draft. Done when: tests prove immutability after issue-marker set.
+- [ ] B1.08 Store: ISSUE flow — per-tenant gapless sequence (`billing_sequences` row-locked in the same tx), number format `INV-YYYY-NNNNN`, issue sets number+issue date+due date and freezes the invoice. Concurrency test: two parallel issues never share or skip a number. Done when: the concurrency test passes 100 iterations.
+- [ ] B1.09 Store: credit notes — negative invoice referencing original (same numbering sequence, type flag); original must be issued; totals mirror. + tests. Done when: crediting a draft fails typed; ledger of original+credit sums to zero.
+- [ ] B1.10 HTTP: `/billing/invoices` routes — CRUD drafts, POST issue, POST credit-note, list with status filter + overdue computed. Wire-verify the full arc: draft→issue (number assigned)→credit. Done when: transcript in STATE.md.
+- [ ] B1.11 Migration + store: `billing_quotes` + lines (same line model, shared code where clean); lifecycle draft/sent/accepted/declined/expired with allowed-transition tests. Done when: invalid transitions fail typed.
+- [ ] B1.12 Store+HTTP: accept-quote → creates a draft invoice copying lines (link back to quote); wire-verified. Done when: accepted quote yields an editable draft invoice with identical totals.
+- [ ] B1.13 Web: Billing module skeleton — rail entry (workspace surface only), routes `/billing`, list pages for customers + products with create/edit dialogs, i18n en. Done when: build clean; CRUD works against local backend in the browser-facing API (curl-verifiable endpoints already proven).
+- [ ] B1.14 Web: invoice list (status chips, overdue highlight) + draft editor (customer picker, line rows with product picker or free text, live totals from server response — the client never computes money). Done when: tsc/eslint/build clean; totals shown come from the API.
+- [ ] B1.15 Web: issue flow UI (confirm dialog shows "this assigns number and freezes"), issued view read-only, credit-note button; quote pages mirroring invoices incl. accept→invoice. Done when: build clean; STATE.md notes the manual click-path exercised against local backend.
+- [ ] B1.16 Invoice/quote HTML print view: a clean branded document (tenant name/logo placeholder, addresses, lines, VAT breakdown, payment terms, bank details from tenant settings) rendered as a print-optimised page (this is also the PDF source). Done when: print CSS yields a correct one-page A4 in headless Chrome check.
+- [ ] B1.17 Server-side PDF: render the print view to PDF via headless chromium in a build-time-pinned container OR a pure-Rust HTML-to-PDF path — design decision recorded in billing.md first; endpoint `GET /billing/invoices/:id/pdf`. Done when: curl saves a valid PDF (magic bytes + non-trivial size) for an issued invoice; 404 foreign-tenant.
+- [ ] B1.18 Send via alo Mail: POST `/billing/invoices/:id/send` drafts an email to the customer with the PDF attached using the existing draft machinery (never auto-sends; lands in user Drafts for review, consistent with agent send rules). Done when: the draft with attachment exists in Drafts, wire-verified.
+- [ ] B1.19 Payments: `billing_payments` (invoice id, date, amount cents, method, reference) + partial payments; invoice derived state paid/partially-paid; overdue view (issued+due<today+unpaid). + tests + routes + UI list. Done when: partial then full payment flips states correctly on the wire.
+- [ ] B1.20 VAT summary per period: store query aggregating issued invoices by VAT rate for a date range + `/billing/reports/vat?from&to` + CSV export + minimal UI. Done when: a seeded quarter reproduces hand-computed totals exactly.
+- [ ] B1.21 Multi-currency: currency on customer/invoice, ECB reference-rate table (manual seed + daily-rate import format parser, no external calls in the loop), stored rate snapshot at issue. Done when: a EUR-tenant invoice in USD stores rate + EUR equivalents; VAT report converts correctly.
+- [ ] B1.22 ★ Factur-X: generate EN 16931 (profile EN 16931) CII XML from an issued invoice, embed into the PDF as PDF/A-3 attachment; golden-file tests against the official sample set. Done when: our XML validates against the EN 16931 schematron in the test suite.
+- [ ] B1.23 ★ XRechnung: UBL 2.1 output for the same invoice model (`GET .../xrechnung.xml`), validated by the XRechnung schematron in tests. Done when: schematron-clean for the golden invoices.
+- [ ] B1.24 E-invoice receiving: parse inbound Factur-X/XRechnung (from an uploaded file first) into a `billing_bills` record (supplier, lines, totals, due) for approval; malformed → typed 422. Done when: the official samples import; totals match.
+- [ ] B1.25 ★ Billing agent tools (ADR 0034): `create_invoice_draft`, `quote_to_invoice`, `draft_payment_reminder` in the agent allowlist + executors reusing B1 store fns; propose-then-approve; source-resolution for "invoice X" by number; structural wire-verify (no model calls). Done when: execute paths verified with curl like the Mail agent's were.
+- [ ] B1.26 Dunning (manual): reminder email drafts per overdue invoice (template with days-overdue), one click from the overdue view → Drafts. Done when: draft content correct on the wire.
+- [ ] B1.27 Wave review: fr/nl translations for all billing strings; CHANGELOG sweep; docs/design/billing.md updated to as-built; ROADMAP B1 boxes ticked; note remaining human items (Peppol AP account, Caddyfile prefix, deploy). Done when: no [B1] feature in features.md is silently missing — each is shipped or listed as a cut with a reason.
+
+## Wave B2 — alo CRM (+ billing extensions)
+
+- [ ] B2.01 Design note `docs/design/crm.md` (deals model, thread-linking approach, pipeline stages, tenancy) same bar as B1.01.
+- [ ] B2.02 Migration + store: `crm_pipelines` (per-team, default seeded) + `crm_stages` (ordered, win/loss flags) + CRUD + tests incl. wrong-tenant.
+- [ ] B2.03 Migration + store: `crm_deals` (title, customer/contact link, value cents, currency, expected close, stage, owner, source, lost reason nullable) + stage-move with history rows + tests.
+- [ ] B2.04 HTTP `/crm/*` routes for pipelines/stages/deals + wire transcript.
+- [ ] B2.05 ★ Deal↔mail linking: store table deal_threads; suggest-by-domain (pure fn over message from-addrs) requiring user confirm; routes; tests prove another tenant's thread can never be linked.
+- [ ] B2.06 Activities on a deal: notes + next-step (creates a real Task via existing tasks store, linked); shows due in deal. Tests + routes.
+- [ ] B2.07 Web: pipeline kanban (reuse Tasks board interaction), deal drawer (value, stage, activities, linked threads with open-in-mail), list view + filters. Build clean; manual path in STATE.md.
+- [ ] B2.08 Win/loss: closing flow (won → optional link to create quote/invoice B1; lost → reason picker), simple per-pipeline value-by-stage report + CSV.
+- [ ] B2.09 CSV/Excel lead import with mapping preview + dedupe by email domain; import report. Wire-verified with a fixture file.
+- [ ] B2.10 ★ CRM agent tools: `create_deal` (incl. from thread source), `move_deal_stage`, `draft_followup` — allowlist + executors + structural verify.
+- [ ] B2.11 Billing extension — recurring invoices: schedule table, due-run creates DRAFTS (never auto-issues), UI badge; time-based test with injected clock.
+- [ ] B2.12 Billing extension — SEPA pain.001 export for approved bills (from B1.24) with schema-valid XML golden tests.
+- [ ] B2.13 Audit log (cross-cutting): append-only record of create/update/status events for billing+crm entities, `GET /audit?entity=`, UI tab on records. Tests: every mutating route writes exactly one entry.
+- [ ] B2.14 Wave review: fr/nl, CHANGELOG, design docs as-built, features.md [B2] reconciliation.
+
+## Wave B3 — alo Projects & Timesheets
+
+- [ ] B3.01 Design note `docs/design/projects.md` (client-project typing over existing task projects, time model, approval, rates).
+- [ ] B3.02 Store: client-project extension (customer link, budget hours/cents, hourly rate) on existing task projects + tests.
+- [ ] B3.03 Migration + store: `time_entries` (user, project, task nullable, started/minutes, billable, note, rate snapshot cents) + CRUD + tests incl. wrong-tenant.
+- [ ] B3.04 Timer routes: start/stop (one running per user, stop writes entry) + manual entry + weekly list; wire transcript.
+- [ ] B3.05 Approval: weekly submit → manager approve/reject; approved entries lock (edit → typed error). Tests for the lock.
+- [ ] B3.06 ★ Billable → invoice: select approved unbilled entries for a customer → invoice draft lines (B1), entries marked billed with invoice link; unbilled view. Wire-verified arc.
+- [ ] B3.07 Web: timer widget in shell (workspace surface), timesheet week grid, project budget bar, approvals inbox page for managers.
+- [ ] B3.08 Project profitability report (hours×rates vs budget) + CSV.
+- [ ] B3.09 Milestones + template projects (create-from-template copying boards/milestones).
+- [ ] B3.10 ★ Projects agent tools: `log_time` (draft), `project_status_summary` (answer from sources), `draft_timesheet_from_calendar` (drafts entries from Agenda events for approval) — structural verify.
+- [ ] B3.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B3] reconciliation.
+
+## Wave B4 — alo Finance (Expenses & Accounting core)
+
+- [ ] B4.01 Design note `docs/design/finance.md` — CoA model, journal invariants, posting rules per document type, reconciliation model, period locking. The debits==credits invariant stated as a property test plan.
+- [ ] B4.02 Migration + store: chart of accounts (code, name, type asset/liability/equity/income/expense, EU-SME default seed per tenant) + CRUD (custom accounts) + tests.
+- [ ] B4.03 Migration + store: journal (`fin_entries` + `fin_postings`; every entry balanced, enforced in code + DB CHECK on sum via trigger-free design — reject unbalanced in the tx) + property tests (random documents → always balanced).
+- [ ] B4.04 Auto-posting: issued invoice → AR/revenue/VAT postings; payment → bank/AR; credit note reverses. Golden tests for each document type against hand-written entries.
+- [ ] B4.05 Migration + store: expenses (category→account map, project link, method, receipt file in Drive, status submit/approve/reimburse) + approval flow + tests.
+- [ ] B4.06 ★ Receipt capture: upload → parse structured fields (vendor, date, amounts, VAT) — pure extraction with pluggable backend; loop verifies with the deterministic parser (regex/heuristics) on fixture receipts; AI backend flagged for human wiring. Human-confirm screen data path built.
+- [ ] B4.07 Mileage claims (per-km rate table per tenant, entry → expense).
+- [ ] B4.08 Bank import: CAMT.053 + MT940 parsers (golden files from public samples) + CSV mapping wizard model → `bank_lines` staged for reconciliation. Malformed files → typed errors, partial-import report.
+- [ ] B4.09 ★ Reconciliation: suggestion engine (exact amount+reference match, then windowed heuristics, per-tenant learned rules table), confirm → payment/expense postings; unmatched → manual match UI model. Tests: suggestion precision on fixture set, no cross-tenant leakage.
+- [ ] B4.10 Fiscal periods + soft close (postings before lock date → typed error; admin unlock audited).
+- [ ] B4.11 Reports: P&L, balance sheet, aged receivables/payables, VAT-return figures — store queries + routes + CSV; golden tests on a seeded year.
+- [ ] B4.12 Accountant role: scoped access (finance read + journal write only, no mail/files) via Spaces/roles; tests prove the scope.
+- [ ] B4.13 Web: finance module — expenses flow, bank import + reconciliation screen, CoA editor, reports pages.
+- [ ] B4.14 ★ Finance agent tools: `categorise_transactions` (draft), `vat_summary` (answer), `flag_anomalies` (answer with citations) — structural verify.
+- [ ] B4.15 Wave review: fr/nl, CHANGELOG, design as-built, features [B4] reconciliation.
+
+## Wave B5 — alo Inventory (Purchasing, Stock, Orders)
+
+- [ ] B5.01 Design note `docs/design/inventory.md` — product/stock/move model (moves-only, no in-place quantity edits), locations, PO/SO state machines.
+- [ ] B5.02 Migration + store: product catalog upgrade (SKU, barcode, stocked-vs-service, purchase price, photos via Drive) building on B1.04 + tests.
+- [ ] B5.03 Suppliers (+ per-supplier price/lead time) + tests.
+- [ ] B5.04 Locations + stock moves (`inv_moves`: from/to/qty/reason/ref; on-hand = sum, cached per location with consistency test) + adjustments with reason codes.
+- [ ] B5.05 Purchase orders: draft→sent→received (receiving writes moves + creates bill draft, three-way-lite link) + state tests + routes.
+- [ ] B5.06 Sales orders: order→delivery note (moves out)→invoice draft (B1) + routes + arc wire-verified.
+- [ ] B5.07 Reorder rules (min/target per product/location) + shortage query feeding agent proposals.
+- [ ] B5.08 Stocktake: count sheet snapshot → variance list → adjustment batch.
+- [ ] B5.09 Web: inventory module — catalog, stock by location, PO/SO flows, barcode scan input (camera → keyboard-wedge fallback).
+- [ ] B5.10 ★ Inventory agent tools: `reorder_proposals` (draft POs), `stock_answer` — structural verify.
+- [ ] B5.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B5] reconciliation.
+
+## Wave B6 — alo HR
+
+- [ ] B6.01 Design note `docs/design/hr.md` — employee model, leave policies/balances, approvals, recruitment pipeline; explicit EU AI Act posture (screening = suggest-only + logged human decision).
+- [ ] B6.02 Migration + store: employees (person data, role, team, manager→org chart, linked user account nullable, documents via Drive HR-scope) + tests incl. access scoping (HR role only).
+- [ ] B6.03 Leave: policies (annual/sick/unpaid, accrual per year), request→approve flow, balance math property-tested, team absence feed into Agenda.
+- [ ] B6.04 Public-holiday calendars per country (seed data + per-tenant selection) affecting balance math.
+- [ ] B6.05 Onboarding/offboarding checklists (template → instance per employee, ties to admin account creation as manual steps).
+- [ ] B6.06 Recruitment-lite: openings + applicant pipeline board (CV file, notes, stages) on the shared board pattern.
+- [ ] B6.07 Approvals inbox: one manager view unifying leave/expenses/timesheets (B3/B4 hooks) with counts.
+- [ ] B6.08 Web: HR module — directory + org chart, leave request/approve, absence calendar, recruitment board.
+- [ ] B6.09 ★ HR agent tools: `who_is_off` (answer), `draft_letter_from_template` (draft) — screening explicitly absent per design note; structural verify.
+- [ ] B6.10 Payroll export: per-period CSV of salary-relevant data (no calculation) with a per-country column mapping config.
+- [ ] B6.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B6] reconciliation.
+- [ ] B6.12 FINAL: cross-module integration pass — the "one point" arcs wire-verified end-to-end on local: quote→invoice→payment→ledger; deal→won→invoice; hours→invoice; PO→receive→bill→reconcile; leave→Agenda. STATE.md closes with the full arc transcript. Then `LOOP COMPLETE`.
