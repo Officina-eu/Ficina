@@ -51,7 +51,13 @@ const API_PATHS = [
 // user page navigation — proxy them straight through with no SPA bypass.
 const COLLABORA_PATHS = ["/wopi", "/hosting", "/browser", "/cool", "/lool"];
 
-const base = { target: DEV_API, changeOrigin: true, secure: true, ws: true };
+// TLS verification of the proxy target is ON by default. Behind a corporate
+// TLS-inspecting proxy (whose root CA Node doesn't trust), the handshake to the
+// live server fails with "unable to verify the first certificate" and every API
+// call 500s. Set VITE_DEV_INSECURE_TLS=1 to skip verification for the dev proxy
+// only — never a production concern, this file configures the dev server alone.
+const DEV_INSECURE_TLS = process.env.VITE_DEV_INSECURE_TLS === "1";
+const base = { target: DEV_API, changeOrigin: true, secure: !DEV_INSECURE_TLS, ws: true };
 
 // The Office editor loads entirely from the real backend host (see OFFICE_HOST /
 // OfficeEditor), so the only Collabora path the app itself fetches is the WOPI
