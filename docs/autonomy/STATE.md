@@ -24,6 +24,20 @@ deploys, Caddyfile prefixes, Peppol account, AI-provider keys):
 
 ---
 
+## 2026-08-06 — note before B1.02: migration numbering across the two tracks
+
+A first attempt at B1.02 was started and then aborted (the checkout was being
+renamed from the retired "Ficina" name to `alo-workplace`); nothing was
+committed and B1.02 is untouched in the queue. One observation from that
+attempt is worth keeping, because it prevents a real collision:
+
+**The business track mints migrations in the `01xx` block; the sites track
+continues in `00xx`.** The two loops run on different machines and cannot see
+each other's uncommitted work, so picking "the next number after the highest
+one I can see" makes both tracks eventually choose the same version — and two
+different migrations sharing a version is a broken schema, not a merge
+conflict. Sites is at `0056`; business starts at `0100`.
+
 marathon preflight from the Mac, 2026-08-06 — toolchain and push access verified.
 
 ## 2026-08-06 — baseline (pre-B1.01): the suite was not green on unix
