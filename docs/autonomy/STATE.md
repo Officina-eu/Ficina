@@ -875,3 +875,11 @@ Cuts and flags:
 Next item: B1.10 (the `/billing/invoices` HTTP routes — draft CRUD, issue,
 void, credit-note, status-filtered list with overdue computed, and the
 draft→issue→credit arc wire-verified with curl).
+
+*Correction, same iteration:* commit `0364163` went out **without** the
+`Co-Authored-By: Claude …` trailer every other loop commit carries — the
+transparency record of which agent made the change (CLAUDE.md, "one agent per
+working tree"). It was already pushed when this was noticed, and rewriting
+pushed history is forbidden by the loop's safety rails, so the commit stands
+and the gap is recorded here instead. The authorship itself is correct (the
+repository owner, as configured).
