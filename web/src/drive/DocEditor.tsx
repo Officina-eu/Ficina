@@ -160,21 +160,39 @@ export function DocEditor({
           <X size={18} />
         </button>
         <span className={styles.name}>{name}</span>
-        <button
-          type="button"
-          className={styles.aiBtn}
-          onClick={() => setAiOpen((o) => !o)}
-          aria-pressed={aiOpen}
-        >
-          <Sparkles size={15} />
-          {strings.docAskAi}
-        </button>
         <span className={styles.save}>
           {saveState === "saving" ? strings.docSaving : saveState === "saved" ? strings.docSaved : ""}
         </span>
       </header>
-      {aiOpen && (
-        <div className={styles.aiBar}>
+      <div className={styles.body}>
+        {!ready ? (
+          <div className={styles.center}>
+            <Spinner size={22} />
+          </div>
+        ) : (
+          <BlockNoteView editor={editorProp} onChange={onChange} />
+        )}
+      </div>
+
+      {/* AI: a compact, centred dock at the bottom — a button until opened, then
+          a half-width composer with the proposal shown above it. */}
+      <div className={styles.aiDock}>
+        {proposal !== null && (
+          <div className={styles.aiPanel}>
+            <div className={styles.aiPanelLabel}>{strings.docAiProposalLabel}</div>
+            <div className={styles.aiProposal}>{proposal}</div>
+            <div className={styles.aiActions}>
+              <button type="button" className={styles.aiInsert} onClick={() => void insertProposal()}>
+                {strings.docAiInsert}
+              </button>
+              <button type="button" className={styles.aiDiscard} onClick={discardProposal}>
+                {strings.docAiDiscard}
+              </button>
+            </div>
+          </div>
+        )}
+        {aiError && <p className={styles.aiErr}>{strings.docAiUnavailable}</p>}
+        {aiOpen ? (
           <div className={styles.aiInputRow}>
             <Sparkles size={16} className={styles.aiIcon} />
             <input
@@ -185,6 +203,7 @@ export function DocEditor({
               onChange={(e) => setInstruction(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void propose();
+                else if (e.key === "Escape") setAiOpen(false);
               }}
             />
             <button
@@ -195,31 +214,15 @@ export function DocEditor({
             >
               {proposing ? <Spinner size={14} /> : strings.docAiPropose}
             </button>
-          </div>
-          {aiError && <p className={styles.aiErr}>{strings.docAiUnavailable}</p>}
-          {proposal !== null && (
-            <div className={styles.aiPanel}>
-              <div className={styles.aiPanelLabel}>{strings.docAiProposalLabel}</div>
-              <div className={styles.aiProposal}>{proposal}</div>
-              <div className={styles.aiActions}>
-                <button type="button" className={styles.aiInsert} onClick={() => void insertProposal()}>
-                  {strings.docAiInsert}
-                </button>
-                <button type="button" className={styles.aiDiscard} onClick={discardProposal}>
-                  {strings.docAiDiscard}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-      <div className={styles.body}>
-        {!ready ? (
-          <div className={styles.center}>
-            <Spinner size={22} />
+            <button type="button" className={styles.aiClose} onClick={() => setAiOpen(false)} aria-label={strings.close}>
+              <X size={16} />
+            </button>
           </div>
         ) : (
-          <BlockNoteView editor={editorProp} onChange={onChange} />
+          <button type="button" className={styles.aiFab} onClick={() => setAiOpen(true)}>
+            <Sparkles size={16} />
+            {strings.docAskAi}
+          </button>
         )}
       </div>
     </div>

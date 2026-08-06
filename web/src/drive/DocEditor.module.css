@@ -36,35 +36,59 @@
   min-width: 60px;
   text-align: right;
 }
-.aiBtn {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--accent-fg, var(--text-secondary));
-  border: 1px solid var(--border-default);
-}
-.aiBtn:hover,
-.aiBtn[aria-pressed="true"] {
-  background: var(--bg-raised);
-  color: var(--text-primary);
-}
-.aiBar {
-  border-bottom: 1px solid var(--border-subtle);
-  padding: var(--space-3) var(--space-4);
-  background: color-mix(in srgb, var(--accent, var(--text-primary)) 4%, var(--bg-surface));
+/* AI: a floating dock — centred, half-width, at the bottom of the editor. */
+.aiDock {
+  position: absolute;
+  bottom: var(--space-5);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, 92%);
+  z-index: 5;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  align-items: stretch;
 }
+/* Collapsed: a centred pill. */
+.aiFab {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent, var(--text-primary));
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+}
+.aiFab:hover {
+  background: var(--bg-raised);
+  border-color: var(--border-strong);
+}
+/* Open: the composer as a rounded, elevated bar. */
 .aiInputRow {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  padding: 8px 10px 8px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+}
+.aiClose {
+  display: inline-flex;
+  color: var(--text-tertiary);
+  border-radius: 6px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+.aiClose:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
 }
 .aiIcon {
   color: var(--accent, var(--text-secondary));
@@ -103,9 +127,13 @@
 }
 .aiPanel {
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--bg-surface);
   overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+.aiErr {
+  text-align: center;
 }
 .aiPanelLabel {
   padding: 6px var(--space-3);
