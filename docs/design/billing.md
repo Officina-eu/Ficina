@@ -39,7 +39,7 @@ extractor, registered in `server.rs`):
 |---|---|
 | `GET/POST /billing/customers`, `GET/PATCH/POST /billing/customers/{id}[/archive]` | customer CRUD (B1.05) |
 | `GET/POST /billing/products`, `GET/PATCH/POST /billing/products/{id}[/archive]` | price-list CRUD (B1.05) |
-| `GET/POST /billing/invoices`, `GET/PATCH /billing/invoices/{id}` | draft CRUD + list with status filter (B1.10) |
+| `GET/POST /billing/invoices`, `GET/PATCH/DELETE /billing/invoices/{id}` | draft CRUD + list with status filter (B1.10); `DELETE` is draft-only, an issued document is voided instead |
 | `POST /billing/invoices/{id}/issue` | assign number, freeze (B1.10) |
 | `POST /billing/invoices/{id}/credit-note` | create the crediting invoice (B1.10) |
 | `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17, B1.23) |
@@ -88,6 +88,13 @@ column, struct field, or computation anywhere in this module.
   well as in Rust: a draft is exactly a document with no number and no
   dates, so an abandoned draft can never consume a number, and
   `(tenant_id, number)` is unique.
+  As-built (B1.07): the draft-only rule is enforced on **every** write —
+  header, lines and deletion — by re-reading the status under the row's
+  `FOR UPDATE` lock inside the same transaction that writes, so an edit
+  that raced an issue is refused (`Conflict`) rather than applied to a
+  numbered document. The state refusal outranks any complaint about the
+  payload, and deletion is draft-only: an issued document is voided,
+  keeping its number so the sequence stays gapless.
 - **`billing_invoice_lines`** — invoice ref, line order, description,
   quantity in **milli-units** (`i64`; 1.5 h = 1500), unit price cents,
   VAT rate bp. Lines **snapshot** the product's description, price, and
@@ -154,7 +161,8 @@ route edge to the existing `Problem` shape. The full map:
 | Customer/product/invoice id absent **or owned by another tenant** | `NotFound` | `404` |
 | Malformed VAT id for the customer's country | `Validation` | `422` |
 | Negative quantity, negative unit price, unknown currency, VAT rate outside 0–10000 bp | `Validation` | `422` |
-| Editing lines on a non-draft invoice | `Conflict` | `409` |
+| Editing lines **or the header** of a non-draft invoice | `Conflict` | `409` |
+| Deleting a non-draft invoice (it is voided, never deleted) | `Conflict` | `409` |
 | Issuing an already-issued invoice | `Conflict` | `409` |
 | Crediting a draft (never-issued) invoice | `Conflict` | `409` |
 | Payment amount ≤ 0, or recorded against a draft | `Validation` | `422` |

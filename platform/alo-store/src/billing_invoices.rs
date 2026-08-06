@@ -4,10 +4,23 @@
 //! An invoice is not a row that gets edited forever: it is a **draft** until
 //! it is issued, and issuing (B1.08) draws the next number from the tenant's
 //! gapless sequence, stamps the dates and freezes the content. This module
-//! owns the draft — creating it, replacing its header, replacing its line set
-//! — and reading a document back with its totals. The status column already
-//! carries the full lifecycle so nothing about the shape of the table changes
-//! when issuing arrives; the only status this module can write is `draft`.
+//! owns the draft — creating it, replacing its header, replacing its line set,
+//! deleting it while it is still nothing — and reading a document back with
+//! its totals. The status column already carries the full lifecycle so nothing
+//! about the shape of the table changes when issuing arrives; the only status
+//! this module can write is `draft`.
+//!
+//! **A document that is no longer a draft is frozen.** Every write here takes
+//! the row's lock and re-reads its status inside the same transaction before
+//! it touches anything, so an edit that raced an issue is refused rather than
+//! applied to a numbered document — the check and the write cannot be
+//! separated by another transaction. The refusal is a
+//! [`StoreError::Conflict`] (a well-formed request that disagrees with the
+//! document's state, `409` at the route edge), never a silent no-op, and it
+//! outranks any complaint about what was sent: a frozen document refuses the
+//! edit whatever the payload says. Deletion is a draft-only act for the same
+//! reason — an issued document is voided (its number is kept so the sequence
+//! stays gapless), never deleted.
 //!
 //! **Nothing here stores money it computed.** Net, VAT and gross are derived
 //! from the lines on every read by [`crate::billing_totals`], so a total can
@@ -56,8 +69,8 @@ const LINE_COLS: &str = "id, line_order, description, unit, qty_milli, unit_pric
 ///
 /// The transitions are `draft → issued → paid` and `issued → void`; a draft is
 /// deleted rather than voided, because it never consumed a number. Only a
-/// draft is editable — the guard on that lands with the draft lifecycle
-/// (B1.07), and issuing with B1.08.
+/// draft is editable, enforced by [`InvoiceStatus::ensure_editable`] on every
+/// write path; issuing itself arrives with B1.08.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InvoiceStatus {
     /// Editable, unnumbered, not yet a legal document.
@@ -97,6 +110,43 @@ impl InvoiceStatus {
     pub fn is_draft(self) -> bool {
         matches!(self, Self::Draft)
     }
+
+    /// The guard every write path runs before it changes a document: a draft
+    /// may be edited and deleted, anything else is frozen.
+    ///
+    /// Frozen means frozen for *all* of them — an issued invoice is a legal
+    /// document that a customer, an accountant and a tax authority may already
+    /// hold, so the store refuses the write rather than rewriting history and
+    /// hoping nobody kept a copy. A `paid` document is equally frozen (it was
+    /// issued first), and so is a `void` one: voiding cancels a document, it
+    /// does not reopen it for editing.
+    ///
+    /// # Errors
+    /// [`StoreError::Conflict`] naming the status that refused, which the
+    /// route edge maps to `409`.
+    pub fn ensure_editable(self) -> Result<()> {
+        if self.is_draft() {
+            return Ok(());
+        }
+        Err(StoreError::Conflict(format!(
+            "an invoice can only be changed while it is a draft; this one is {}",
+            self.as_str()
+        )))
+    }
+}
+
+/// Turns a stored status string into a status, or reports corrupt data.
+///
+/// A status the code does not know is corrupt data, not user input: it is
+/// reported as a decode failure (detail in the source, never in the message)
+/// rather than guessed at, because guessing here would mean treating a frozen
+/// document as editable.
+fn parse_stored_status(stored: &str) -> Result<InvoiceStatus> {
+    InvoiceStatus::parse(stored).ok_or_else(|| {
+        StoreError::Db(sqlx::Error::Decode(
+            "billing_invoices.status is not a known status".into(),
+        ))
+    })
 }
 
 /// The writable header of an invoice, used for both create and update (an
@@ -241,6 +291,50 @@ impl AccountStore {
         })
     }
 
+    /// Takes the document's row lock inside `tx` and returns its status, so a
+    /// caller can decide whether it may write and then write it without any
+    /// other transaction slipping in between. Two writers to one document
+    /// serialise here; a writer that arrives after an issue sees `issued`.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when the id is absent **or another tenant's**;
+    /// [`StoreError::Db`] on failure or on a status the code does not know.
+    async fn lock_invoice_status(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: &BillingInvoiceId,
+    ) -> Result<InvoiceStatus> {
+        let stored: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM billing_invoices WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id.as_str())
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(StoreError::Db)?;
+        parse_stored_status(&stored.ok_or(StoreError::NotFound)?)
+    }
+
+    /// The status of one of this tenant's documents, without taking a lock —
+    /// the cheap pre-check that lets a write refuse a frozen document before
+    /// it does any other work. It is never the authority: every write re-reads
+    /// the status under [`AccountStore::lock_invoice_status`] before writing.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when the id is absent or another tenant's;
+    /// [`StoreError::Db`] on failure.
+    async fn invoice_status(&self, id: &BillingInvoiceId) -> Result<InvoiceStatus> {
+        let stored: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM billing_invoices WHERE tenant_id = $1 AND id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+        parse_stored_status(&stored.ok_or(StoreError::NotFound)?)
+    }
+
     /// Creates a **draft** invoice with no lines — the state a new document
     /// starts in. It carries no number and no dates by construction; only
     /// issuing (B1.08) assigns those.
@@ -369,21 +463,36 @@ impl AccountStore {
         }))
     }
 
-    /// Replaces the writable header of an invoice: customer, currency, terms,
-    /// reference and note. Status, number and dates are not writable here —
-    /// they move only through the lifecycle actions.
+    /// Replaces the writable header of a **draft** invoice: customer,
+    /// currency, terms, reference and note. Status, number and dates are not
+    /// writable here — they move only through the lifecycle actions.
+    ///
+    /// The document's status is checked before the header is even validated,
+    /// so a frozen document is told it is frozen rather than being handed a
+    /// complaint about a field it was never going to accept; it is then
+    /// re-checked under the row lock that the write itself takes.
     ///
     /// # Errors
     /// [`StoreError::NotFound`] when the invoice or the customer is not this
-    /// tenant's; [`StoreError::Validation`] as for create; [`StoreError::Db`]
+    /// tenant's; [`StoreError::Conflict`] when the invoice is no longer a
+    /// draft; [`StoreError::Validation`] as for create; [`StoreError::Db`]
     /// on failure.
     pub async fn update_billing_invoice(
         &self,
         id: &BillingInvoiceId,
         input: &NewInvoice,
     ) -> Result<()> {
+        self.invoice_status(id).await?.ensure_editable()?;
         let header = self.normalize_invoice(input).await?;
-        let done = sqlx::query(
+
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        // Authoritative: the status that matters is the one under the lock the
+        // UPDATE below writes through, not the one read a moment ago.
+        // Dropping the transaction on either error rolls it back untouched.
+        self.lock_invoice_status(&mut tx, id)
+            .await?
+            .ensure_editable()?;
+        sqlx::query(
             "UPDATE billing_invoices SET customer_id = $3, currency = $4, \
                  payment_terms_days = $5, reference = $6, note = $7, updated_at = now() \
              WHERE tenant_id = $1 AND id = $2",
@@ -395,25 +504,27 @@ impl AccountStore {
         .bind(header.payment_terms_days)
         .bind(&header.reference)
         .bind(&header.note)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(StoreError::Db)?;
-        if done.rows_affected() == 0 {
-            return Err(StoreError::NotFound);
-        }
+        tx.commit().await.map_err(StoreError::Db)?;
         Ok(())
     }
 
-    /// Replaces the whole line set of an invoice, in the caller's order, in
-    /// one transaction: either the document reads exactly as the caller sent
-    /// it or it is untouched. Line positions are assigned 0-based from that
-    /// order, so what was sent is what prints.
+    /// Replaces the whole line set of a **draft** invoice, in the caller's
+    /// order, in one transaction: either the document reads exactly as the
+    /// caller sent it or it is untouched. Line positions are assigned 0-based
+    /// from that order, so what was sent is what prints.
     ///
     /// Every line is validated **before** anything is written, so a document
-    /// is never left half-replaced by a bad line at the end.
+    /// is never left half-replaced by a bad line at the end — and the
+    /// draft-only guard runs before even that, under the same lock the
+    /// replacement writes through, so a set cannot land on a document that was
+    /// issued while it was being composed.
     ///
     /// # Errors
     /// [`StoreError::NotFound`] when the invoice is not this tenant's;
+    /// [`StoreError::Conflict`] when the invoice is no longer a draft;
     /// [`StoreError::Validation`] when the set is too long or a line breaks a
     /// field rule (the message names the line's position);
     /// [`StoreError::Db`] on failure.
@@ -422,24 +533,16 @@ impl AccountStore {
         id: &BillingInvoiceId,
         lines: &[NewLine],
     ) -> Result<()> {
-        let lines: Vec<NormalizedLine> = normalize_lines(lines)?;
-
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
         // Lock the document for the whole replacement: two editors saving at
-        // once serialise here instead of interleaving their line sets. The
-        // draft-only guard lands on this same lock in B1.07.
-        let found: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM billing_invoices WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
-        )
-        .bind(self.tenant.as_str())
-        .bind(id.as_str())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(StoreError::Db)?;
-        if found.is_none() {
-            // Dropping the transaction rolls it back; nothing was written.
-            return Err(StoreError::NotFound);
-        }
+        // once serialise here instead of interleaving their line sets, and an
+        // issue that raced this save either lost (and sees these lines) or won
+        // (and this save is refused). Dropping the transaction on any error
+        // below rolls it back; nothing was written.
+        self.lock_invoice_status(&mut tx, id)
+            .await?
+            .ensure_editable()?;
+        let lines: Vec<NormalizedLine> = normalize_lines(lines)?;
 
         sqlx::query("DELETE FROM billing_invoice_lines WHERE tenant_id = $1 AND invoice_id = $2")
             .bind(self.tenant.as_str())
@@ -483,6 +586,31 @@ impl AccountStore {
         Ok(())
     }
 
+    /// Deletes a **draft** invoice and, by cascade, its lines. This is the
+    /// only document that is ever removed: a draft never consumed a number, so
+    /// abandoning it leaves no hole in the sequence and no record anyone is
+    /// entitled to. An issued document is voided instead (B1.08+), keeping its
+    /// number and its content readable.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when the invoice is absent or another
+    /// tenant's; [`StoreError::Conflict`] when it is no longer a draft;
+    /// [`StoreError::Db`] on failure.
+    pub async fn delete_billing_invoice(&self, id: &BillingInvoiceId) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        self.lock_invoice_status(&mut tx, id)
+            .await?
+            .ensure_editable()?;
+        sqlx::query("DELETE FROM billing_invoices WHERE tenant_id = $1 AND id = $2")
+            .bind(self.tenant.as_str())
+            .bind(id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(StoreError::Db)?;
+        tx.commit().await.map_err(StoreError::Db)?;
+        Ok(())
+    }
+
     /// What a line set **would** total, without writing anything — the same
     /// arithmetic the stored document will report, so a draft editor can show
     /// live totals from the server rather than computing money in the browser.
@@ -519,16 +647,8 @@ struct InvoiceRow {
 }
 
 impl InvoiceRow {
-    /// A status the code does not know is corrupt data, not user input: it is
-    /// reported as a decode failure (detail in the source, never in the
-    /// message) rather than guessed at, because guessing here would mean
-    /// treating a frozen document as editable.
     fn into_invoice(self) -> Result<Invoice> {
-        let status = InvoiceStatus::parse(&self.status).ok_or_else(|| {
-            StoreError::Db(sqlx::Error::Decode(
-                "billing_invoices.status is not a known status".into(),
-            ))
-        })?;
+        let status = parse_stored_status(&self.status)?;
         Ok(Invoice {
             id: BillingInvoiceId::new(self.id),
             customer_id: BillingCustomerId::new(self.customer_id),
@@ -616,6 +736,45 @@ mod tests {
         for bad in ["", "Draft", "DRAFT", "sent", "cancelled", "issued "] {
             assert_eq!(InvoiceStatus::parse(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn only_a_draft_may_be_changed() {
+        assert!(
+            InvoiceStatus::Draft.ensure_editable().is_ok(),
+            "a draft is what the editor edits"
+        );
+        for frozen in [
+            InvoiceStatus::Issued,
+            InvoiceStatus::Paid,
+            InvoiceStatus::Void,
+        ] {
+            match frozen.ensure_editable() {
+                Err(StoreError::Conflict(message)) => {
+                    // The refusal says which state refused, so the UI can tell
+                    // "already issued" from "already void" without a second
+                    // round trip — and carries no other document's data.
+                    assert!(
+                        message.contains(frozen.as_str()),
+                        "{message:?} should name {frozen:?}"
+                    );
+                    assert!(message.contains("draft"), "{message:?}");
+                }
+                other => panic!("expected Conflict for {frozen:?}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_corrupt_stored_status_is_a_decode_failure_not_a_guess() {
+        // Never `Validation` (that would blame the caller) and never a
+        // silently-editable draft: the row is unreadable, and the reason stays
+        // in the error's source rather than its message.
+        match parse_stored_status("sent") {
+            Err(StoreError::Db(_)) => {}
+            other => panic!("expected a decode failure, got {other:?}"),
+        }
+        assert!(parse_stored_status("draft").is_ok());
     }
 
     #[test]

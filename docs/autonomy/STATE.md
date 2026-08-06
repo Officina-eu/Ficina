@@ -514,3 +514,91 @@ Cuts and flags:
 
 Next item: B1.07 (draft-invoice lifecycle — edits only while draft, typed
 error on a non-draft).
+
+---
+
+## 2026-08-06 — B1.07 the draft-invoice lifecycle
+
+A billing document is editable exactly while it is a draft, and from this
+item the store enforces that rather than describing it. `InvoiceStatus::
+ensure_editable` is the single rule — a draft may be changed, an `issued`,
+`paid` or `void` document may not — and all three write paths run it:
+`update_billing_invoice`, `set_billing_invoice_lines`, and the new
+`delete_billing_invoice`. The refusal is a typed `StoreError::Conflict` whose
+message names the status that refused (`409` at the route edge per the design
+note's error map), never a silent no-op.
+
+The guard sits **under the row lock, inside the writing transaction**. Every
+write now takes `SELECT status … FOR UPDATE` and re-reads the state before it
+touches anything, so a save composed against a draft that arrives while an
+issue is in flight waits for that issue and is then refused, instead of
+landing new lines on a document that has just been numbered and frozen. That
+is the whole reason the check is not a cheap pre-read: B1.08's issuing
+transaction will hold exactly this lock. `update_billing_invoice` also does a
+cheap unlocked pre-check first, purely to fix the **error precedence** — a
+frozen document is told it is frozen rather than being handed a complaint
+about a field it was never going to accept.
+
+Deletion is draft-only and complete: a draft never consumed a number, so
+abandoning it leaves no hole in the gapless sequence and no record anyone is
+entitled to; the lines go with it by cascade. An issued document is voided
+(B1.08+), keeping its number and staying readable. Deleting a document does
+not touch the customer it named.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings); `cargo test -p alo-store` green — 144
+unit tests (2 new: the editable rule over all four statuses, and the proof
+that a corrupt stored status is a decode failure rather than a guess that
+would make a frozen document editable) plus every integration suite, and
+`cargo test -p alo-jmap` green (88 unit + all suites), since the store API
+changed underneath it.
+
+The new `tests/billing_invoice_lifecycle.rs` (5 tests) is the item's proof.
+Issuing does not exist yet, so the issue marker is planted with raw SQL —
+`status`, `number`, `issue_date` and `due_date` set together, which is exactly
+the state the table's CHECK constraints define as *not a draft*. That is
+deliberate: the guard must hold against the **stored** state of the row, not
+against whatever the Rust API happened to write. The tests prove, for each of
+`issued`/`paid`/`void`: header update, line replacement (including emptying
+it) and deletion are all refused with a `Conflict` naming the status; a bad
+payload against a frozen document still gets the `Conflict`, not a validation
+complaint; and afterwards the document is unchanged down to `updated_at`, its
+number, its line rows read straight from the table, and its totals. A
+companion test shows the same calls all succeeding while the document is a
+draft — and a bad line there still being judged on its content — so the guard
+is not simply refusing everything.
+
+The race is proven, not argued: a transaction issues the document and holds
+its lock uncommitted; a `set_billing_invoice_lines` fired into that window is
+observed still waiting after 250 ms (it did not read a status the issue was
+about to change), and once the issue commits it returns `Conflict` and wrote
+nothing.
+
+Wrong-tenant proof: tenant B gets `NotFound` — never `Conflict` — for delete,
+header update and line replacement on A's document, whether A's document is
+an editable draft or a frozen issued one. `Conflict` there would have
+confirmed both that the id exists and what state it is in; a ghost id gets the
+identical answer, and B's own draft of the same shape deletes cleanly, so the
+denial is about ownership and not about the operation being unavailable. A's
+documents and their lines are intact afterwards.
+
+Cuts and flags:
+
+- **No route yet** (B1.10), so no curl transcript applies and nothing
+  user-visible changed — still no CHANGELOG line. `docs/design/billing.md` now
+  lists `DELETE /billing/invoices/{id}` as draft-only in the surface table,
+  adds the two `409` rows to the error map, and records the as-built rule.
+- **Voiding is not implemented** — it belongs with issuing (B1.08). Today
+  nothing in the Rust API can move a document off `draft`, which is why the
+  tests plant the marker in SQL.
+- **A draft referenced by a credit note cannot arise**, so delete needs no
+  guard against the self-FK: only an *issued* document can be credited
+  (B1.09), and an issued document cannot be deleted.
+- `platform/alo-store/src/lib.rs` was left untouched on purpose: running
+  `cargo fmt` re-wrapped a pre-existing over-long `use` line there, and that
+  file is shared with the sites track (additive lines only), so the churn was
+  reverted rather than pushed into a rebase conflict.
+
+Next item: B1.08 (the issue flow — per-tenant gapless sequence, `INV-YYYY-
+NNNNN`, row-locked in the issuing transaction, with the 100-iteration
+concurrency test).
