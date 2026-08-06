@@ -507,7 +507,10 @@ async fn calendar_sharing_follows_the_grant_and_never_crosses_tenants() {
 use alo_store::{NewTask, TaskEdit};
 
 fn task(title: &str) -> NewTask {
-    NewTask { title: title.to_owned(), ..Default::default() }
+    NewTask {
+        title: title.to_owned(),
+        ..Default::default()
+    }
 }
 
 #[tokio::test]
@@ -545,7 +548,11 @@ async fn tasks_scope_by_project_and_never_cross_tenant() {
     assert!(!b_projects.iter().any(|p| p.id == a_personal));
 
     // B cannot edit/move/delete A's personal task (not visible → NotFound).
-    let edit = TaskEdit { title: "hijack".to_owned(), priority: "none".to_owned(), ..Default::default() };
+    let edit = TaskEdit {
+        title: "hijack".to_owned(),
+        priority: "none".to_owned(),
+        ..Default::default()
+    };
     assert_not_found(b.update_task(&private, &edit).await);
     assert_not_found(b.move_task(&private, "done", 1.0).await);
     assert_not_found(b.delete_task(&private).await);
@@ -553,7 +560,11 @@ async fn tasks_scope_by_project_and_never_cross_tenant() {
 
     // Cross-tenant: an outsider sees nothing and can touch nothing.
     let t2 = store.create_tenant("task-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@task.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@task.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
     assert!(d.task(&private).await.unwrap().is_none());
     assert!(d.task(&shared).await.unwrap().is_none());
@@ -586,12 +597,20 @@ async fn tasks_scope_by_project_and_never_cross_tenant() {
     // Proposals (ADR 0023): scoped like tasks, and never shown as active work.
     a.create_task(
         &a_personal,
-        &NewTask { title: "maybe".to_owned(), state: Some("proposed".to_owned()), ..Default::default() },
+        &NewTask {
+            title: "maybe".to_owned(),
+            state: Some("proposed".to_owned()),
+            ..Default::default()
+        },
     )
     .await
     .unwrap();
     assert_eq!(a.task_proposals().await.unwrap().len(), 1);
-    assert_eq!(d.task_proposals().await.unwrap().len(), 0, "proposals don't cross tenants");
+    assert_eq!(
+        d.task_proposals().await.unwrap().len(),
+        0,
+        "proposals don't cross tenants"
+    );
     assert!(
         a.tasks_in_project(&a_personal)
             .await
@@ -611,7 +630,11 @@ async fn email_sourced_task_keeps_source_and_never_crosses_tenant() {
 
     // Tenant 1: A turns an email into a task (explicit path → active).
     let t1 = store.create_tenant("mailtask-t1").await.unwrap();
-    let ua = store.for_tenant(t1.clone()).create_user("a@mailtask.test").await.unwrap();
+    let ua = store
+        .for_tenant(t1.clone())
+        .create_user("a@mailtask.test")
+        .await
+        .unwrap();
     let a = store.for_account(t1.clone(), ua);
     let project = a.ensure_personal_project().await.unwrap();
     let created = a
@@ -636,7 +659,11 @@ async fn email_sourced_task_keeps_source_and_never_crosses_tenant() {
     // source id, and the "?open=" round-trip resolves through its own mail door
     // (Email/get is tenant-scoped), never tenant 1's message.
     let t2 = store.create_tenant("mailtask-t2").await.unwrap();
-    let ux = store.for_tenant(t2.clone()).create_user("x@mailtask.test").await.unwrap();
+    let ux = store
+        .for_tenant(t2.clone())
+        .create_user("x@mailtask.test")
+        .await
+        .unwrap();
     let x = store.for_account(t2, ux);
     assert!(
         x.task(&created).await.unwrap().is_none(),
@@ -661,10 +688,14 @@ async fn task_attachments_scope_by_visibility_and_never_cross_tenant() {
     // A: a private personal task with a file, and a team task with a file.
     let a_personal = a.ensure_personal_project().await.unwrap();
     let private = a.create_task(&a_personal, &task("private")).await.unwrap();
-    a.add_task_attachment(&private, "blob-1", "secret.pdf", 100).await.unwrap();
+    a.add_task_attachment(&private, "blob-1", "secret.pdf", 100)
+        .await
+        .unwrap();
     let team = a.create_task_project("Team", None).await.unwrap();
     let shared = a.create_task(&team, &task("shared")).await.unwrap();
-    a.add_task_attachment(&shared, "blob-2", "brief.pdf", 200).await.unwrap();
+    a.add_task_attachment(&shared, "blob-2", "brief.pdf", 200)
+        .await
+        .unwrap();
 
     // A sees both, on the task and in the project roll-up.
     assert_eq!(a.task_attachments(&private).await.unwrap().len(), 1);
@@ -684,7 +715,11 @@ async fn task_attachments_scope_by_visibility_and_never_cross_tenant() {
 
     // Cross-tenant: an outsider sees nothing and can attach nothing.
     let t2 = store.create_tenant("attach-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@attach.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@attach.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
     assert_not_found(d.task_attachments(&shared).await);
     assert!(d.project_files(&team).await.unwrap().is_empty());
@@ -707,7 +742,11 @@ async fn task_followers_scope_by_visibility_and_never_cross_tenant() {
     // A creates a team task → A auto-follows it.
     let team = a.create_task_project("Team", None).await.unwrap();
     let shared = a.create_task(&team, &task("shared")).await.unwrap();
-    assert_eq!(a.task_followers(&shared).await.unwrap().len(), 1, "creator auto-follows");
+    assert_eq!(
+        a.task_followers(&shared).await.unwrap().len(),
+        1,
+        "creator auto-follows"
+    );
 
     // B (co-tenant) can follow the team task, then leave.
     b.follow_task(&shared).await.unwrap();
@@ -723,7 +762,11 @@ async fn task_followers_scope_by_visibility_and_never_cross_tenant() {
 
     // Cross-tenant: an outsider sees no followers and can follow nothing.
     let t2 = store.create_tenant("follow-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@follow.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@follow.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
     assert_not_found(d.task_followers(&shared).await);
     assert_not_found(d.follow_task(&shared).await);
@@ -747,7 +790,11 @@ async fn task_dependencies_scope_by_visibility_and_never_cross_tenant() {
     let first = a.create_task(&team, &task("first")).await.unwrap();
     let second = a.create_task(&team, &task("second")).await.unwrap();
     a.add_dependency(&second, &first).await.unwrap();
-    assert_eq!(a.dependencies(&second).await.unwrap().len(), 1, "second is blocked by first");
+    assert_eq!(
+        a.dependencies(&second).await.unwrap().len(),
+        1,
+        "second is blocked by first"
+    );
     assert_eq!(a.project_dependencies(&team).await.unwrap().len(), 1);
 
     // A task cannot depend on itself.
@@ -765,9 +812,16 @@ async fn task_dependencies_scope_by_visibility_and_never_cross_tenant() {
 
     // Cross-tenant: an outsider sees no edges and can add none, in either direction.
     let t2 = store.create_tenant("dep-t2").await.unwrap();
-    let ux = store.for_tenant(t2.clone()).create_user("x@dep.test").await.unwrap();
+    let ux = store
+        .for_tenant(t2.clone())
+        .create_user("x@dep.test")
+        .await
+        .unwrap();
     let x = store.for_account(t2, ux);
-    let x_task = x.create_task(&x.ensure_personal_project().await.unwrap(), &task("x")).await.unwrap();
+    let x_task = x
+        .create_task(&x.ensure_personal_project().await.unwrap(), &task("x"))
+        .await
+        .unwrap();
     assert_not_found(x.dependencies(&second).await);
     assert!(x.project_dependencies(&team).await.unwrap().is_empty());
     assert_not_found(x.add_dependency(&second, &first).await);
@@ -782,11 +836,18 @@ async fn task_dependencies_scope_by_visibility_and_never_cross_tenant() {
 async fn task_labels_scope_by_tenant_and_task_visibility() {
     let store = common::test_store().await;
     let t1 = store.create_tenant("label-t1").await.unwrap();
-    let ua = store.for_tenant(t1.clone()).create_user("a@label.test").await.unwrap();
+    let ua = store
+        .for_tenant(t1.clone())
+        .create_user("a@label.test")
+        .await
+        .unwrap();
     let a = store.for_account(t1.clone(), ua);
     let a_personal = a.ensure_personal_project().await.unwrap();
     let the_task = a.create_task(&a_personal, &task("labelled")).await.unwrap();
-    let label = a.create_task_label("Design", Some("#4b83c4")).await.unwrap();
+    let label = a
+        .create_task_label("Design", Some("#4b83c4"))
+        .await
+        .unwrap();
     a.add_task_label(&the_task, &label).await.unwrap();
 
     assert_eq!(a.labels_for_task(&the_task).await.unwrap().len(), 1);
@@ -802,13 +863,23 @@ async fn task_labels_scope_by_tenant_and_task_visibility() {
 
     // Cross-tenant: an outsider sees no labels and can attach none.
     let t2 = store.create_tenant("label-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@label.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@label.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
-    assert!(d.task_labels().await.unwrap().is_empty(), "labels are tenant-scoped");
+    assert!(
+        d.task_labels().await.unwrap().is_empty(),
+        "labels are tenant-scoped"
+    );
     assert_not_found(d.labels_for_task(&the_task).await);
     assert_not_found(d.add_task_label(&the_task, &label).await);
     assert!(
-        d.labels_for_task_ids(&[the_task.as_str().to_owned()]).await.unwrap().is_empty(),
+        d.labels_for_task_ids(&[the_task.as_str().to_owned()])
+            .await
+            .unwrap()
+            .is_empty(),
         "the batch label stamp never crosses tenants"
     );
 }
@@ -821,11 +892,18 @@ async fn task_labels_scope_by_tenant_and_task_visibility() {
 async fn deleting_a_tenant_purges_its_tasks() {
     let store = common::test_store().await;
     let t = store.create_tenant("purge-tasks").await.unwrap();
-    let u = store.for_tenant(t.clone()).create_user("a@purge.test").await.unwrap();
+    let u = store
+        .for_tenant(t.clone())
+        .create_user("a@purge.test")
+        .await
+        .unwrap();
     let a = store.for_account(t.clone(), u);
 
     let project = a.ensure_personal_project().await.unwrap();
-    let task = a.create_task(&project, &task("keep me until purge")).await.unwrap();
+    let task = a
+        .create_task(&project, &task("keep me until purge"))
+        .await
+        .unwrap();
     a.add_subtask(&task, "a step").await.unwrap();
     a.add_task_comment(&task, "a note").await.unwrap();
     // Present before the delete.
@@ -841,8 +919,14 @@ async fn deleting_a_tenant_purges_its_tasks() {
         a.task(&task).await.unwrap().is_none(),
         "the task is purged with its tenant, not orphaned"
     );
-    assert!(a.subtasks(&task).await.unwrap().is_empty(), "subtasks purged too");
-    assert!(a.task_comments(&task).await.unwrap().is_empty(), "comments purged too");
+    assert!(
+        a.subtasks(&task).await.unwrap().is_empty(),
+        "subtasks purged too"
+    );
+    assert!(
+        a.task_comments(&task).await.unwrap().is_empty(),
+        "comments purged too"
+    );
     assert!(
         a.task_projects().await.unwrap().is_empty(),
         "the tenant's task projects are purged too"
@@ -872,8 +956,14 @@ async fn spaces_scope_by_membership_and_role_never_cross_tenant() {
     // A creates a Space → A is its manager and sees it; the files module is on.
     let space = a.create_space("Acme project").await.unwrap();
     assert_eq!(a.spaces().await.unwrap().len(), 1);
-    assert_eq!(a.space(&space).await.unwrap().unwrap().my_role, SpaceRole::Manager);
-    assert_eq!(a.space_modules(&space).await.unwrap(), vec!["files".to_owned()]);
+    assert_eq!(
+        a.space(&space).await.unwrap().unwrap().my_role,
+        SpaceRole::Manager
+    );
+    assert_eq!(
+        a.space_modules(&space).await.unwrap(),
+        vec!["files".to_owned()]
+    );
 
     // B is not a member: the Space and its membership are invisible, and B can
     // neither read members nor manage.
@@ -881,28 +971,44 @@ async fn spaces_scope_by_membership_and_role_never_cross_tenant() {
     assert!(b.spaces().await.unwrap().is_empty());
     assert_not_found(b.space_members(&space).await);
     assert_not_found(b.rename_space(&space, "hijacked").await);
-    assert_not_found(b.add_space_member(&space, &UserId::new(ua_id.clone()), SpaceRole::Viewer).await);
+    assert_not_found(
+        b.add_space_member(&space, &UserId::new(ua_id.clone()), SpaceRole::Viewer)
+            .await,
+    );
 
     // A adds B as a viewer. Now B sees the space + membership, but as a viewer
     // cannot manage — that is Forbidden (B knows it exists), not NotFound.
-    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer).await.unwrap();
-    assert_eq!(b.space(&space).await.unwrap().unwrap().my_role, SpaceRole::Viewer);
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer)
+        .await
+        .unwrap();
+    assert_eq!(
+        b.space(&space).await.unwrap().unwrap().my_role,
+        SpaceRole::Viewer
+    );
     assert_eq!(b.space_members(&space).await.unwrap().len(), 2);
     assert_forbidden(b.rename_space(&space, "nope").await);
     assert_forbidden(
-        b.add_space_member(&space, &UserId::new(uc_id.clone()), SpaceRole::Viewer).await,
+        b.add_space_member(&space, &UserId::new(uc_id.clone()), SpaceRole::Viewer)
+            .await,
     );
 
     // A promotes B to manager; B can now manage.
-    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Manager).await.unwrap();
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Manager)
+        .await
+        .unwrap();
     b.rename_space(&space, "Acme").await.unwrap();
     assert_eq!(a.space(&space).await.unwrap().unwrap().name, "Acme");
 
     // The last-manager guard: with two managers, A can be removed; the guard
     // only bites when it would leave zero managers.
-    a.remove_space_member(&space, &UserId::new(ua_id.clone())).await.unwrap();
+    a.remove_space_member(&space, &UserId::new(ua_id.clone()))
+        .await
+        .unwrap();
     // Now B is the only manager and cannot be removed or demoted.
-    match b.remove_space_member(&space, &UserId::new(ub_id.clone())).await {
+    match b
+        .remove_space_member(&space, &UserId::new(ub_id.clone()))
+        .await
+    {
         Err(StoreError::Conflict(_)) => {}
         other => panic!("expected last-manager Conflict, got {other:?}"),
     }
@@ -910,13 +1016,23 @@ async fn spaces_scope_by_membership_and_role_never_cross_tenant() {
     // Cross-tenant: an outsider sees nothing, and B cannot add a user from
     // another tenant into the space.
     let t2 = store.create_tenant("space-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@space.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@space.test")
+        .await
+        .unwrap();
     let ud_id = ud.as_str().to_owned();
     let d = store.for_account(t2, ud);
     assert!(d.space(&space).await.unwrap().is_none());
     assert_not_found(d.space_members(&space).await);
-    assert_not_found(d.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer).await);
-    match b.add_space_member(&space, &UserId::new(ud_id), SpaceRole::Viewer).await {
+    assert_not_found(
+        d.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer)
+            .await,
+    );
+    match b
+        .add_space_member(&space, &UserId::new(ud_id), SpaceRole::Viewer)
+        .await
+    {
         Err(StoreError::Conflict(_)) => {}
         other => panic!("expected cross-tenant-user Conflict, got {other:?}"),
     }
@@ -924,6 +1040,90 @@ async fn spaces_scope_by_membership_and_role_never_cross_tenant() {
     // C (still a non-member) remains fully locked out throughout.
     assert!(c.space(&space).await.unwrap().is_none());
     assert_not_found(c.space_members(&space).await);
+}
+
+/// Sites (ADR 0036): a site is tenant-scoped — an outsider addressing it gets
+/// the clean not-found denial on every path — while the subdomain namespace is
+/// deliberately global: a claim collides across tenants but reveals only
+/// taken/free, never the owner.
+#[tokio::test]
+async fn sites_scope_by_tenant_and_subdomains_are_globally_unique() {
+    let store = common::test_store().await;
+    let t1 = store.create_tenant("sites-t1").await.unwrap();
+    let ts1 = store.for_tenant(t1.clone());
+    let ua = ts1.create_user("a@sites.test").await.unwrap();
+    let uc = ts1.create_user("c@sites.test").await.unwrap();
+    let a = store.for_account(t1.clone(), ua);
+    let c = store.for_account(t1, uc);
+    let t2 = store.create_tenant("sites-t2").await.unwrap();
+    let ub = store
+        .for_tenant(t2.clone())
+        .create_user("b@sites.test")
+        .await
+        .unwrap();
+    let b = store.for_account(t2, ub);
+
+    // Unique per test run: the compose Postgres is shared across runs and the
+    // subdomain namespace is global by design.
+    let sub = format!(
+        "iso-{}x",
+        alo_store::SiteId::generate()
+            .as_str()
+            .to_lowercase()
+            .replace('_', "-")
+    );
+
+    // A creates a site; it starts as a draft with an empty theme.
+    let site = a.create_site("Acme Widgets", &sub).await.unwrap();
+    let got = a.site(&site).await.unwrap().unwrap();
+    assert_eq!(got.name, "Acme Widgets");
+    assert_eq!(got.subdomain, sub);
+    assert_eq!(got.status, alo_store::SiteStatus::Draft);
+    assert_eq!(got.theme, serde_json::json!({}));
+
+    // Sites are tenant-wide: a co-tenant user sees and can manage them.
+    assert_eq!(c.sites().await.unwrap().len(), 1);
+    c.rename_site(&site, "Acme").await.unwrap();
+    assert_eq!(a.site(&site).await.unwrap().unwrap().name, "Acme");
+
+    // An outsider tenant gets the clean denial on every path: never data,
+    // never an internal error.
+    assert!(b.site(&site).await.unwrap().is_none());
+    assert!(b.sites().await.unwrap().is_empty());
+    assert_not_found(b.rename_site(&site, "hijacked").await);
+    assert_not_found(b.set_site_subdomain(&site, "stolen-subdomain").await);
+    assert_not_found(b.delete_site(&site).await);
+    // ... and nothing they tried changed A's row.
+    assert_eq!(a.site(&site).await.unwrap().unwrap().subdomain, sub);
+
+    // The global namespace: B cannot claim A's subdomain, and the check
+    // answers taken/free only.
+    assert!(!b.subdomain_available(&sub).await.unwrap());
+    match b.create_site("Other", &sub).await {
+        Err(StoreError::Conflict(msg)) => {
+            assert!(msg.contains("taken"), "taken/free only, got: {msg}")
+        }
+        other => panic!("expected subdomain-taken Conflict, got {other:?}"),
+    }
+
+    // Validation guards the write paths: reserved and malformed claims never
+    // reach the table.
+    for bad in ["www", "smtp", "ab", "-bad", "Bad!"] {
+        match a.create_site("X", bad).await {
+            Err(StoreError::Conflict(_)) => {}
+            other => panic!("expected validation Conflict for {bad:?}, got {other:?}"),
+        }
+    }
+
+    // Deleting the site releases its subdomain for anyone — including another
+    // tenant.
+    a.delete_site(&site).await.unwrap();
+    assert!(a.site(&site).await.unwrap().is_none());
+    assert!(b.subdomain_available(&sub).await.unwrap());
+    let reclaimed = b.create_site("Reclaimed", &sub).await.unwrap();
+    // ... and B's new site is invisible to tenant 1 in turn.
+    assert!(a.site(&reclaimed).await.unwrap().is_none());
+    assert_not_found(a.delete_site(&reclaimed).await);
 }
 
 /// Drive (ADR 0027): a node's access follows its location. Personal files are
@@ -955,29 +1155,56 @@ async fn drive_nodes_scope_by_location_and_never_cross_tenant() {
         .await
         .unwrap();
     assert!(a.drive_node(&mine).await.unwrap().is_some());
-    assert_eq!(a.drive_list(&DriveLocation::Personal, None).await.unwrap().len(), 1);
-    assert!(b.drive_node(&mine).await.unwrap().is_none(), "another user's personal file is invisible");
+    assert_eq!(
+        a.drive_list(&DriveLocation::Personal, None)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        b.drive_node(&mine).await.unwrap().is_none(),
+        "another user's personal file is invisible"
+    );
     assert_not_found(b.drive_rename(&mine, "hax").await);
     // B's own personal location never shows A's file.
-    assert!(b.drive_list(&DriveLocation::Personal, None).await.unwrap().is_empty());
+    assert!(
+        b.drive_list(&DriveLocation::Personal, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     // A Space with a file. B is added as a viewer.
     let space = a.create_space("Team").await.unwrap();
     let sloc = DriveLocation::Space(space.clone());
     let folder = a.drive_create_folder(&sloc, None, "Docs").await.unwrap();
-    let shared = a.drive_create_file(&sloc, Some(&folder), &file("brief.pdf")).await.unwrap();
-    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer).await.unwrap();
+    let shared = a
+        .drive_create_file(&sloc, Some(&folder), &file("brief.pdf"))
+        .await
+        .unwrap();
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer)
+        .await
+        .unwrap();
 
     // Viewer B can read the space's files but not write them.
-    assert!(b.drive_node(&shared).await.unwrap().is_some(), "a member reads space files");
+    assert!(
+        b.drive_node(&shared).await.unwrap().is_some(),
+        "a member reads space files"
+    );
     assert_eq!(b.drive_list(&sloc, Some(&folder)).await.unwrap().len(), 1);
     assert_forbidden(b.drive_rename(&shared, "nope").await);
     assert_forbidden(b.drive_create_file(&sloc, None, &file("x")).await);
 
     // Promote B to editor → now B can write.
-    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Editor).await.unwrap();
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Editor)
+        .await
+        .unwrap();
     b.drive_rename(&shared, "brief-v2.pdf").await.unwrap();
-    assert_eq!(a.drive_node(&shared).await.unwrap().unwrap().name, "brief-v2.pdf");
+    assert_eq!(
+        a.drive_node(&shared).await.unwrap().unwrap().name,
+        "brief-v2.pdf"
+    );
 
     // Versioning: a new upload appends a version; history is kept.
     let v = a.drive_add_version(&shared, "blob-new", 20).await.unwrap();
@@ -987,20 +1214,35 @@ async fn drive_nodes_scope_by_location_and_never_cross_tenant() {
     // Move re-scopes access: move A's PERSONAL file into the Space → B (a member)
     // can now see it; move it back → B loses access.
     a.drive_move(&mine, &sloc, None).await.unwrap();
-    assert!(b.drive_node(&mine).await.unwrap().is_some(), "moving into a space grants members access");
-    a.drive_move(&mine, &DriveLocation::Personal, None).await.unwrap();
-    assert!(b.drive_node(&mine).await.unwrap().is_none(), "moving back out revokes it");
+    assert!(
+        b.drive_node(&mine).await.unwrap().is_some(),
+        "moving into a space grants members access"
+    );
+    a.drive_move(&mine, &DriveLocation::Personal, None)
+        .await
+        .unwrap();
+    assert!(
+        b.drive_node(&mine).await.unwrap().is_none(),
+        "moving back out revokes it"
+    );
 
     // Trash / restore keep scoping.
     a.drive_trash_node(&shared).await.unwrap();
-    assert!(a.drive_list(&sloc, Some(&folder)).await.unwrap().is_empty(), "trashed is hidden from listing");
+    assert!(
+        a.drive_list(&sloc, Some(&folder)).await.unwrap().is_empty(),
+        "trashed is hidden from listing"
+    );
     assert_eq!(a.drive_trash(&sloc).await.unwrap().len(), 1);
     a.drive_restore_node(&shared).await.unwrap();
     assert_eq!(a.drive_list(&sloc, Some(&folder)).await.unwrap().len(), 1);
 
     // Cross-tenant: an outsider sees nothing and can touch nothing.
     let t2 = store.create_tenant("drive-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@drive.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@drive.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
     assert!(d.drive_node(&shared).await.unwrap().is_none());
     assert!(d.drive_node(&mine).await.unwrap().is_none());
@@ -1008,7 +1250,10 @@ async fn drive_nodes_scope_by_location_and_never_cross_tenant() {
     assert_not_found(d.drive_versions(&shared).await);
     assert_not_found(d.drive_move(&shared, &DriveLocation::Personal, None).await);
     // The outsider cannot even address the Space location as their own.
-    assert_not_found(d.drive_list(&DriveLocation::Space(space.clone()), None).await);
+    assert_not_found(
+        d.drive_list(&DriveLocation::Space(space.clone()), None)
+            .await,
+    );
 }
 
 /// alo Base (ADR 0032): a Base's data is reachable only through its Drive node's
@@ -1031,7 +1276,9 @@ async fn base_data_scopes_through_its_drive_node() {
     let space = a.create_space("Team").await.unwrap();
     let sloc = DriveLocation::Space(space.clone());
     let node = a.create_base(&sloc, None, "CRM").await.unwrap();
-    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer).await.unwrap();
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Viewer)
+        .await
+        .unwrap();
 
     // The Base loads with its default table; a record can be added by A.
     let base = a.base(&node).await.unwrap().unwrap();
@@ -1039,35 +1286,63 @@ async fn base_data_scopes_through_its_drive_node() {
     let table = base.tables[0].id.clone();
     assert_eq!(base.tables[0].fields.len(), 2, "Name + Notes");
     assert_eq!(base.tables[0].records.len(), 3, "three seed rows");
-    let rec = a.base_add_record(&table, &json!({ "x": "hi" })).await.unwrap();
+    let rec = a
+        .base_add_record(&table, &json!({ "x": "hi" }))
+        .await
+        .unwrap();
 
     // Viewer B can READ the base but not write it.
-    assert!(b.base(&node).await.unwrap().is_some(), "a member reads the base");
+    assert!(
+        b.base(&node).await.unwrap().is_some(),
+        "a member reads the base"
+    );
     assert_forbidden(b.base_add_record(&table, &json!({})).await);
     assert_forbidden(b.base_update_record(&rec, &json!({})).await);
     assert_forbidden(b.base_add_field(&table, "Extra", "text", &json!({})).await);
     assert_forbidden(b.base_add_table(&node, "T2").await);
 
     // Promote B to editor → now B can write.
-    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Editor).await.unwrap();
-    b.base_update_record(&rec, &json!({ "x": "edited" })).await.unwrap();
+    a.add_space_member(&space, &UserId::new(ub_id.clone()), SpaceRole::Editor)
+        .await
+        .unwrap();
+    b.base_update_record(&rec, &json!({ "x": "edited" }))
+        .await
+        .unwrap();
 
     // A private personal Base stays private to its owner.
-    let personal = a.create_base(&DriveLocation::Personal, None, "Private").await.unwrap();
+    let personal = a
+        .create_base(&DriveLocation::Personal, None, "Private")
+        .await
+        .unwrap();
     assert!(a.base(&personal).await.unwrap().is_some());
-    assert!(b.base(&personal).await.unwrap().is_none(), "another user's personal base is invisible");
+    assert!(
+        b.base(&personal).await.unwrap().is_none(),
+        "another user's personal base is invisible"
+    );
 
     // Cross-tenant: an outsider sees nothing and can write nothing.
     let t2 = store.create_tenant("base-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@base.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@base.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
     assert!(d.base(&node).await.unwrap().is_none());
     assert_not_found(d.base_add_record(&table, &json!({})).await);
     assert_not_found(d.base_update_record(&rec, &json!({})).await);
     assert_not_found(d.base_add_table(&node, "evil").await);
     // A bad field type / view kind is refused (Conflict), not a silent accept.
-    assert!(a.base_add_field(&table, "F", "not-a-type", &json!({})).await.is_err());
-    assert!(a.base_add_view(&table, "not-a-kind", "V", &json!({})).await.is_err());
+    assert!(
+        a.base_add_field(&table, "F", "not-a-type", &json!({}))
+            .await
+            .is_err()
+    );
+    assert!(
+        a.base_add_view(&table, "not-a-kind", "V", &json!({}))
+            .await
+            .is_err()
+    );
 }
 
 /// Workspace search (ADR 0029): only surfaces what the caller can already see —
@@ -1088,7 +1363,12 @@ async fn workspace_search_only_returns_visible_items() {
     a.drive_create_file(
         &DriveLocation::Personal,
         None,
-        &NewDriveFile { name: "Acme brief".to_owned(), blob_id: "x".to_owned(), size: 1, ..Default::default() },
+        &NewDriveFile {
+            name: "Acme brief".to_owned(),
+            blob_id: "x".to_owned(),
+            size: 1,
+            ..Default::default()
+        },
     )
     .await
     .unwrap();
@@ -1097,13 +1377,23 @@ async fn workspace_search_only_returns_visible_items() {
 
     // A finds both; B (same tenant, non-owner) finds neither (private).
     assert_eq!(a.workspace_search("acme", 20).await.unwrap().len(), 2);
-    assert!(b.workspace_search("acme", 20).await.unwrap().is_empty(), "another user's private items");
+    assert!(
+        b.workspace_search("acme", 20).await.unwrap().is_empty(),
+        "another user's private items"
+    );
 
     // Cross-tenant: an outsider finds nothing.
     let t2 = store.create_tenant("srch-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@srch.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@srch.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
-    assert!(d.workspace_search("acme", 20).await.unwrap().is_empty(), "never across tenants");
+    assert!(
+        d.workspace_search("acme", 20).await.unwrap().is_empty(),
+        "never across tenants"
+    );
 
     // An empty query is empty, not everything.
     assert!(a.workspace_search("   ", 20).await.unwrap().is_empty());
@@ -1134,11 +1424,21 @@ async fn workspace_search_finds_own_mail_by_body_only() {
 
     // A co-tenant who doesn't own the mailbox sees nothing; nor does another
     // tenant. Mail is per-user (Law 1).
-    assert!(b.workspace_search("flamingo", 20).await.unwrap().is_empty(), "another user's mail");
+    assert!(
+        b.workspace_search("flamingo", 20).await.unwrap().is_empty(),
+        "another user's mail"
+    );
     let t2 = store.create_tenant("srchm-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@srchm.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@srchm.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
-    assert!(d.workspace_search("flamingo", 20).await.unwrap().is_empty(), "never across tenants");
+    assert!(
+        d.workspace_search("flamingo", 20).await.unwrap().is_empty(),
+        "never across tenants"
+    );
 }
 
 /// Workspace search — Drive files match by CONTENT, not just name: a plain-text
@@ -1159,7 +1459,10 @@ async fn workspace_search_finds_drive_files_by_content() {
     // A text file whose NAME ("notes.txt") does not contain the term, but whose
     // BODY does.
     let txt = a
-        .put_blob(Bytes::from_static(b"the migration plan is due friday"), Some("text/plain"))
+        .put_blob(
+            Bytes::from_static(b"the migration plan is due friday"),
+            Some("text/plain"),
+        )
         .await
         .unwrap();
     a.drive_create_file(
@@ -1179,7 +1482,10 @@ async fn workspace_search_finds_drive_files_by_content() {
 
     // An alo Doc (BlockNote JSON) with a distinctive word only in its text run.
     let doc_json = br#"[{"type":"paragraph","content":[{"type":"text","text":"secret pangolin roadmap","styles":{}}]}]"#;
-    let dblob = a.put_blob(Bytes::from_static(doc_json), Some("application/json")).await.unwrap();
+    let dblob = a
+        .put_blob(Bytes::from_static(doc_json), Some("application/json"))
+        .await
+        .unwrap();
     a.drive_create_file(
         &DriveLocation::Personal,
         None,
@@ -1204,11 +1510,24 @@ async fn workspace_search_finds_drive_files_by_content() {
 
     // A co-tenant who doesn't own these personal files sees nothing; neither
     // does another tenant.
-    assert!(b.workspace_search("migration", 20).await.unwrap().is_empty(), "another user's private file");
+    assert!(
+        b.workspace_search("migration", 20)
+            .await
+            .unwrap()
+            .is_empty(),
+        "another user's private file"
+    );
     let t2 = store.create_tenant("srchc-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@srchc.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@srchc.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
-    assert!(d.workspace_search("pangolin", 20).await.unwrap().is_empty(), "never across tenants");
+    assert!(
+        d.workspace_search("pangolin", 20).await.unwrap().is_empty(),
+        "never across tenants"
+    );
 }
 
 /// AI retrieval reduces a natural-language question to keywords, so it matches
@@ -1228,26 +1547,49 @@ async fn workspace_search_terms_matches_question_keywords() {
     a.drive_create_file(
         &DriveLocation::Personal,
         None,
-        &NewDriveFile { name: "Acme proposal.docx".to_owned(), blob_id: "x".to_owned(), size: 1, ..Default::default() },
+        &NewDriveFile {
+            name: "Acme proposal.docx".to_owned(),
+            blob_id: "x".to_owned(),
+            size: 1,
+            ..Default::default()
+        },
     )
     .await
     .unwrap();
     let proj = a.ensure_personal_project().await.unwrap();
-    a.create_task(&proj, &task("Acme kickoff meeting")).await.unwrap();
+    a.create_task(&proj, &task("Acme kickoff meeting"))
+        .await
+        .unwrap();
 
     // The literal question is not a substring of either title, but its keyword
     // "acme" is — keyword retrieval finds both.
     let q = "what do I have about the Acme proposal?";
-    assert!(a.workspace_search(q, 20).await.unwrap().is_empty(), "literal search misses");
-    assert_eq!(a.workspace_search_terms(q, 20).await.unwrap().len(), 2, "keyword search finds both");
+    assert!(
+        a.workspace_search(q, 20).await.unwrap().is_empty(),
+        "literal search misses"
+    );
+    assert_eq!(
+        a.workspace_search_terms(q, 20).await.unwrap().len(),
+        2,
+        "keyword search finds both"
+    );
 
     // Still access-scoped: another user and another tenant get nothing.
     assert!(b.workspace_search_terms(q, 20).await.unwrap().is_empty());
     let t2 = store.create_tenant("kw-t2").await.unwrap();
-    let ud = store.for_tenant(t2.clone()).create_user("d@kw.test").await.unwrap();
+    let ud = store
+        .for_tenant(t2.clone())
+        .create_user("d@kw.test")
+        .await
+        .unwrap();
     let d = store.for_account(t2, ud);
     assert!(d.workspace_search_terms(q, 20).await.unwrap().is_empty());
 
     // An all-stopword question falls back cleanly (no keywords → no crash).
-    assert!(a.workspace_search_terms("what is this?", 20).await.unwrap().is_empty());
+    assert!(
+        a.workspace_search_terms("what is this?", 20)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

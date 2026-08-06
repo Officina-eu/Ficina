@@ -193,6 +193,10 @@ opaque_id!(
     /// A saved view over a Base table.
     BaseViewId
 );
+opaque_id!(
+    /// A tenant's website built with alo Sites (ADR 0036).
+    SiteId
+);
 
 #[cfg(test)]
 mod tests {

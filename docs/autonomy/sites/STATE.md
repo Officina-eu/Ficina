@@ -34,3 +34,41 @@ Human-action inbox (things the loop must not do itself):
   the rejected alternative required by the queue's done-criterion.
 - **Cuts/flags:** none. CHANGELOG untouched (no behaviour change).
 - **Next:** S1.02 (sites migration + store + wrong-tenant tests).
+
+## S1.02 — sites migration + store module (2026-08-06)
+
+- **Shipped:** migration `0055_sites.sql` (tenant-scoped `sites` table,
+  tenant-cascade FK, and the one deliberate global surface: a cross-tenant
+  unique index on `subdomain`); new `SiteId`; `platform/alo-store/src/sites.rs`
+  on the account door — `create_site` / `sites` / `site` / `rename_site` /
+  `set_site_subdomain` / `delete_site` / `subdomain_available`, with subdomain
+  validation (DNS-safe `[a-z0-9-]{3,40}`, no edge hyphens, ~80-word reserved
+  list covering infrastructure/mail/identity/brand labels) and a
+  `SiteStatus` draft/live enum. Unique-violation on the subdomain index maps
+  to `Conflict("subdomain is already taken")` — taken/free only, never owner.
+- **Verified:** `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-store
+  --all-targets` zero warnings; full `cargo test -p alo-store` green against
+  the local docker Postgres (migration really applied — `\d sites` shows the
+  table, PK, global unique index, cascade FK, and rows from the test run).
+  New tests: 5 unit tests on validation/status tokens (incl. one asserting
+  every reserved-list entry passes the syntax rules — caught dead-weight
+  `mx`), plus `sites_scope_by_tenant_and_subdomains_are_globally_unique` in
+  the isolation suite: outsider tenant gets clean `NotFound` on every path,
+  co-tenant user shares the sites, cross-tenant claim collides with a
+  taken-only message, delete releases the subdomain.
+- **Cuts/flags:**
+  - No theme setter yet — the column ships with `'{}'` default; a raw
+    unvalidated write surface would predate the typed theme model, so the
+    setter lands with S1.05.
+  - No status setter — `live` is the publish flow's to flip (S1.08).
+  - Drive-by fix (out of item scope but blocking the mandatory gate): the
+    pre-existing isolation test `deleting_a_tenant_purges_its_tasks` was
+    red on main — `task_projects()`'s lazy `ensure_personal_project()`
+    INSERT hits the tenant FK after tenant deletion and surfaced as a `Db`
+    error. `tasks.rs` now treats that FK violation (SQLSTATE 23503) as
+    "nothing to ensure", so a deleted tenant reads as absent, never a 500.
+  - `cargo fmt -p alo-store` also normalized previously unformatted code in
+    `base.rs`, `tasks.rs`, and older `tenant_isolation.rs` tests —
+    mechanical churn, kept so the crate is fmt-clean.
+  - CHANGELOG untouched: storage foundation only, no user-visible behaviour.
+- **Next:** S1.03 (typed section schema v1 in a `site_model` module).

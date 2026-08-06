@@ -11,6 +11,7 @@ pub mod account;
 pub mod account_imap;
 pub mod account_sieve;
 pub mod audit;
+pub mod base;
 pub mod blob;
 pub mod calendar;
 pub mod changes;
@@ -19,6 +20,7 @@ pub mod control;
 pub mod dkim;
 pub mod dmarc_reports;
 pub mod document;
+pub mod drive;
 pub mod error;
 pub mod extract;
 pub mod ical;
@@ -30,12 +32,11 @@ pub mod model;
 pub mod reset;
 pub mod rfc2047;
 pub mod schedule;
+pub mod search;
 pub mod settings;
 pub mod share;
-pub mod base;
-pub mod drive;
-pub mod search;
 pub mod signup;
+pub mod sites;
 pub mod snooze;
 pub mod spaces;
 pub mod store;
@@ -46,6 +47,7 @@ pub mod vcard;
 pub use account::AccountStore;
 pub use account_imap::{ImapEntry, ImapMailbox, ImapSearchRow};
 pub use account_sieve::{OutboundAction, SieveDelivery, SieveScriptMeta};
+pub use base::{Base, BaseField, BaseRecord, BaseTable, BaseView};
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;
 pub use blob::{BlobStore, ShareStream};
@@ -55,10 +57,12 @@ pub use control::PLATFORM_TENANT_NAME;
 pub use dkim::DkimSigningMaterial;
 pub use dmarc_reports::{DmarcAggregateRow, DmarcEventRecord};
 pub use document::{Document, DocumentSummary};
+pub use drive::{DriveLocation, DriveNode, DriveVersion, NewDriveFile};
 pub use error::{Result, StoreError};
 pub use id::{
-    AttachmentId, BaseFieldId, BaseRecordId, BaseTableId, BaseViewId, BlobId, CalendarId, CategoryId, CommentId, ContactId, DriveNodeId, EventId, GroupId, LabelId, MailboxId, MessageId,
-    ProjectId, SpaceId, SubtaskId, TaskId, TenantId, ThreadId, UserId,
+    AttachmentId, BaseFieldId, BaseRecordId, BaseTableId, BaseViewId, BlobId, CalendarId,
+    CategoryId, CommentId, ContactId, DriveNodeId, EventId, GroupId, LabelId, MailboxId, MessageId,
+    ProjectId, SiteId, SpaceId, SubtaskId, TaskId, TenantId, ThreadId, UserId,
 };
 pub use identity::{
     AccessTokenRow, AuthCodeOutcome, AuthCodeRow, CredentialRow, OAuthClient, PublicKeyRow,
@@ -72,11 +76,10 @@ pub use model::{
 };
 pub use reset::PendingReset;
 pub use schedule::DueSend;
-pub use share::{ShareCreated, ShareTarget};
-pub use base::{Base, BaseField, BaseRecord, BaseTable, BaseView};
-pub use drive::{DriveLocation, DriveNode, DriveVersion, NewDriveFile};
 pub use search::SearchHit;
+pub use share::{ShareCreated, ShareTarget};
 pub use signup::PendingSignup;
+pub use sites::{Site, SiteStatus, validate_subdomain};
 pub use spaces::{Space, SpaceMember, SpaceRole};
 pub use store::{CATEGORY_KEYWORD_PREFIX, SEEN, Store, TenantStore, category_keyword};
 pub use tasks::{
