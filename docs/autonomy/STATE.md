@@ -13,3 +13,5 @@ deploys, Caddyfile prefixes, Peppol account, AI-provider keys):
 - (none yet)
 
 ---
+
+marathon preflight from the Mac, 2026-08-06 — toolchain and push access verified.
