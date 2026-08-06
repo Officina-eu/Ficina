@@ -1,0 +1,113 @@
+.ribbon {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+/* Tab strip. */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tab,
+.tabActive {
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  border-radius: 6px 6px 0 0;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+}
+.tab:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.tabActive {
+  color: var(--accent, var(--text-primary));
+  font-weight: 500;
+  border-bottom-color: var(--accent, var(--text-primary));
+}
+/* Groups row. */
+.groups {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 6px var(--space-3);
+  overflow-x: auto;
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 var(--space-3);
+  border-right: 1px solid var(--border-subtle);
+}
+.group:last-child {
+  border-right: none;
+}
+.groupLabel {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.rowStack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+}
+.iconBtn:hover:not(:disabled) {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.fontSelect,
+.sizeSelect,
+.numberSelect {
+  height: 26px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  padding: 0 4px;
+}
+.fontSelect {
+  min-width: 116px;
+}
+.sizeSelect {
+  width: 56px;
+}
+.numberSelect {
+  min-width: 108px;
+}
+.fontSelect:disabled,
+.sizeSelect:disabled,
+.numberSelect:disabled {
+  opacity: 0.5;
+}
+/* Honest empty state for tabs not yet built. */
+.soon {
+  padding: 14px var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}

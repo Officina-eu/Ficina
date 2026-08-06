@@ -3,7 +3,7 @@
 // is the editor's own JSON snapshot stored in the node's blob; opening loads it,
 // edits auto-save a new version. Univer is heavy, so DriveModule code-splits this
 // out — it loads only when a sheet is opened.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Download, MoreHorizontal, Pencil, X } from "lucide-react";
 
 // Univer's own UI + engine. Framework-agnostic: it mounts into a plain DOM
@@ -18,6 +18,7 @@ import { useJmapClient } from "../jmap";
 import { Menu, Spinner } from "../ds";
 import { saveBlob } from "./parts";
 import { univerSnapshotToXlsx } from "./exportOffice";
+import { SheetRibbon, type SheetActions } from "./SheetRibbon";
 import styles from "./SheetEditor.module.css";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -67,7 +68,9 @@ export function SheetEditor({
       locale: LocaleType.EN_US,
       locales: { [LocaleType.EN_US]: merge({}, sheetsCoreEnUS) },
       theme: defaultTheme,
-      presets: [UniverSheetsCorePreset({ container: containerRef.current })],
+      // Hide Univer's built-in toolbar — our own ribbon (SheetRibbon) replaces
+      // it. Keep the formula bar and grid.
+      presets: [UniverSheetsCorePreset({ container: containerRef.current, toolbar: false })],
     });
     apiRef.current = univerAPI;
     // An empty object → a blank default workbook; a stored snapshot → that book.
@@ -112,6 +115,40 @@ export function SheetEditor({
     }
     onClose();
   }
+
+  // Ribbon → engine bridge. The ribbon is pure UI; these implement its actions
+  // against Univer's facade (the one place that touches the engine).
+  const actions = useMemo<SheetActions>(() => {
+    const range = () => apiRef.current?.getActiveWorkbook()?.getActiveRange() ?? null;
+    return {
+      exec: (id) => {
+        void apiRef.current?.executeCommand(id);
+      },
+      setFontFamily: (family) => {
+        range()?.setFontFamily(family);
+      },
+      setFontSize: (size) => {
+        range()?.setFontSize(size);
+      },
+      align: (a) => {
+        const r = range();
+        // Univer's facade type omits 'right', but its runtime maps left/center/right.
+        if (r !== null) (r.setHorizontalAlignment as (v: string) => unknown)(a);
+      },
+      merge: () => {
+        range()?.merge();
+      },
+      setNumberFormat: (pattern) => {
+        range()?.setNumberFormat(pattern);
+      },
+      undo: () => {
+        void apiRef.current?.getActiveWorkbook()?.undo();
+      },
+      redo: () => {
+        void apiRef.current?.getActiveWorkbook()?.redo();
+      },
+    };
+  }, []);
 
   /** Persist a renamed sheet (Drive rename); revert on empty or failure. */
   function commitName() {
@@ -211,6 +248,7 @@ export function SheetEditor({
           ]}
         />
       </header>
+      <SheetRibbon actions={actions} disabled={!ready} />
       <div className={styles.body}>
         {!ready && (
           <div className={styles.center}>
