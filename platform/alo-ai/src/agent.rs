@@ -47,14 +47,17 @@ For each request you do EXACTLY ONE of two things, and you reply with a SINGLE J
 2) PROPOSE ONE ACTION for the user to approve: {\"kind\":\"action\",\"say\":\"<one short sentence describing what you will do>\",\"action\":{\"tool\":\"<tool>\",\"args\":{...}}}. You NEVER perform the action yourself — you only propose it; the user approves it.\n\
 Available tools:\n\
 - create_task: create a to-do for the user. args: {\"title\": string (required), \"due\": string in \"YYYY-MM-DD\" (optional), \"notes\": string (optional)}.\n\
+Resolve any relative date (today, tomorrow, next Friday) against the current date given below into an absolute YYYY-MM-DD. \
 If the request needs an action no tool covers, ANSWER instead and say you cannot do that yet. Write the answer/say text in the user's language. Output ONLY the JSON object — no markdown, no code fences, no preamble.";
 
 /// The chat messages for one agent turn. Pure and exported so the prompt is
-/// testable without a backend.
+/// testable without a backend. `today` is the caller's current date
+/// (`YYYY-MM-DD`) so the model can resolve relative dates like "tomorrow".
 #[must_use]
-pub fn agent_messages(request: &str, sources: &[WorkspaceSource]) -> Vec<ChatMessage> {
+pub fn agent_messages(request: &str, sources: &[WorkspaceSource], today: &str) -> Vec<ChatMessage> {
     let user = format!(
-        "Request: {}\n\nSources:\n{}",
+        "Today's date is {}.\nRequest: {}\n\nSources:\n{}",
+        today.trim(),
         request.trim(),
         render_sources(sources)
     );
@@ -128,8 +131,9 @@ pub async fn run_agent(
     config: &AiConfig,
     request: &str,
     sources: &[WorkspaceSource],
+    today: &str,
 ) -> Result<AgentDecision, InferenceError> {
-    let text = chat(config, &agent_messages(request, sources), 0.2).await?;
+    let text = chat(config, &agent_messages(request, sources, today), 0.2).await?;
     parse_decision(&text)
 }
 
@@ -182,11 +186,12 @@ mod tests {
     }
 
     #[test]
-    fn prompt_carries_request_sources_and_the_tool() {
-        let msgs = agent_messages("book a slot", &[src(1, "message", "Acme thread")]);
+    fn prompt_carries_request_sources_date_and_the_tool() {
+        let msgs = agent_messages("book a slot", &[src(1, "message", "Acme thread")], "2026-08-07");
         assert_eq!(msgs.len(), 2);
         assert!(msgs[0].content.contains("create_task"));
         assert!(msgs[1].content.contains("book a slot"));
         assert!(msgs[1].content.contains("Acme thread"));
+        assert!(msgs[1].content.contains("2026-08-07"));
     }
 }

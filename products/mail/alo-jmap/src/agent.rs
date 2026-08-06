@@ -91,7 +91,7 @@ pub async fn agent(
         api_key: row.api_key,
         enabled: row.enabled,
     };
-    match alo_ai::run_agent(&config, &request, &ground).await {
+    match alo_ai::run_agent(&config, &request, &ground, &today_utc()).await {
         Ok(AgentDecision::Answer(answer)) => Ok(Json(json!({
             "answer": answer, "action": Value::Null,
             "reason": Value::Null, "sources": sources_json
@@ -184,6 +184,13 @@ async fn execute_create_task(account: &Account, args: &Value) -> Result<Json<Val
         "ok": true,
         "result": { "kind": "task", "id": id.as_str(), "title": new.title }
     })))
+}
+
+/// The current UTC date as `YYYY-MM-DD`, given to the agent so it can resolve
+/// relative dates ("tomorrow") into absolute ones.
+fn today_utc() -> String {
+    let d = time::OffsetDateTime::now_utc().date();
+    format!("{:04}-{:02}-{:02}", d.year(), u8::from(d.month()), d.day())
 }
 
 /// Parse a `YYYY-MM-DD` due date to midnight UTC, or `None` if malformed (a bad
