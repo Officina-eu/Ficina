@@ -6,8 +6,17 @@
 //! sequence ([`crate::billing_sequence`]), stamps the dates and freezes the
 //! content. This module owns the document's whole life — creating the draft,
 //! replacing its header, replacing its line set, deleting it while it is still
-//! nothing, issuing it, and voiding an issued one — and reading a document
-//! back with its totals.
+//! nothing, issuing it, voiding an issued one, and **crediting** one — and
+//! reading a document back with its totals.
+//!
+//! **A credit note is an invoice, not a second kind of document.** It lives in
+//! this table, draws from the same number series, and goes through the same
+//! draft → issued life; what makes it one is that it names the document it
+//! credits and carries that document's lines with their quantities negated. A
+//! full mirror is worth exactly the negative of its original — the rounding
+//! convention in [`crate::billing_totals`] is chosen so that holds to the cent
+//! — so the two documents together sum to zero, which is what "this invoice was
+//! corrected" has to mean in a ledger.
 //!
 //! **Issuing is the only transition that assigns a number, and it never lies
 //! about the date.** The issue date is the day the store issued it, read from
@@ -181,6 +190,32 @@ impl InvoiceStatus {
             self.as_str()
         )))
     }
+
+    /// The guard crediting runs: only a document the customer actually holds
+    /// can be credited — `issued`, or `paid` once the money has arrived.
+    ///
+    /// A **draft** is refused: it carries no number, is owed by nobody, and is
+    /// simply deleted, so a credit note against it would credit a document that
+    /// legally never existed. A **void** one is refused for the mirror reason:
+    /// voiding has already cancelled it in full, and crediting it as well would
+    /// take the ledger below zero.
+    ///
+    /// # Errors
+    /// [`StoreError::Conflict`] naming the status that refused (`409`).
+    pub fn ensure_creditable(self) -> Result<()> {
+        match self {
+            Self::Issued | Self::Paid => Ok(()),
+            Self::Draft => Err(StoreError::Conflict(
+                "a draft invoice has no number and is owed by nobody; delete it instead of \
+                 crediting it"
+                    .to_owned(),
+            )),
+            Self::Void => Err(StoreError::Conflict(
+                "a void invoice has already been cancelled in full; it cannot also be credited"
+                    .to_owned(),
+            )),
+        }
+    }
 }
 
 /// Turns a stored status string into a status, or reports corrupt data.
@@ -339,28 +374,43 @@ impl AccountStore {
         })
     }
 
-    /// Takes the document's row lock inside `tx` and returns its status, so a
-    /// caller can decide whether it may write and then write it without any
-    /// other transaction slipping in between. Two writers to one document
-    /// serialise here; a writer that arrives after an issue sees `issued`.
+    /// Takes the document's row lock inside `tx` and returns the few stored
+    /// facts a write has to decide against, so a caller can check whether it
+    /// may write and then write it without any other transaction slipping in
+    /// between. Two writers to one document serialise here; a writer that
+    /// arrives after an issue sees `issued`.
+    ///
+    /// It reads more than the status because two of those decisions are about
+    /// what the document *is* rather than where it is: a credit note may not be
+    /// moved to another customer or currency, and it may not itself be
+    /// credited.
     ///
     /// # Errors
     /// [`StoreError::NotFound`] when the id is absent **or another tenant's**;
     /// [`StoreError::Db`] on failure or on a status the code does not know.
-    async fn lock_invoice_status(
+    async fn lock_invoice(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         id: &BillingInvoiceId,
-    ) -> Result<InvoiceStatus> {
-        let stored: Option<String> = sqlx::query_scalar(
-            "SELECT status FROM billing_invoices WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
+    ) -> Result<LockedInvoice> {
+        let row: Option<LockedRow> = sqlx::query_as(
+            "SELECT status, is_credit_note, customer_id, currency, payment_terms_days, reference \
+             FROM billing_invoices WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(self.tenant.as_str())
         .bind(id.as_str())
         .fetch_optional(&mut **tx)
         .await
         .map_err(StoreError::Db)?;
-        parse_stored_status(&stored.ok_or(StoreError::NotFound)?)
+        let row = row.ok_or(StoreError::NotFound)?;
+        Ok(LockedInvoice {
+            status: parse_stored_status(&row.status)?,
+            is_credit_note: row.is_credit_note,
+            customer_id: row.customer_id,
+            currency: row.currency,
+            payment_terms_days: row.payment_terms_days,
+            reference: row.reference,
+        })
     }
 
     /// The status of one of this tenant's documents, without taking a lock —
@@ -520,10 +570,18 @@ impl AccountStore {
     /// complaint about a field it was never going to accept; it is then
     /// re-checked under the row lock that the write itself takes.
     ///
+    /// A **credit note** additionally keeps the customer and the currency it
+    /// was raised with: it exists to reverse one specific document, and a
+    /// credit note billed to somebody else — or denominated in another currency
+    /// — reverses nothing. Everything else about it (terms, reference, note,
+    /// and the lines, so a partial credit is a matter of editing them) stays
+    /// freely editable while it is a draft.
+    ///
     /// # Errors
     /// [`StoreError::NotFound`] when the invoice or the customer is not this
     /// tenant's; [`StoreError::Conflict`] when the invoice is no longer a
-    /// draft; [`StoreError::Validation`] as for create; [`StoreError::Db`]
+    /// draft; [`StoreError::Validation`] as for create, or when a credit note
+    /// is moved off its original's customer or currency; [`StoreError::Db`]
     /// on failure.
     pub async fn update_billing_invoice(
         &self,
@@ -534,12 +592,19 @@ impl AccountStore {
         let header = self.normalize_invoice(input).await?;
 
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
-        // Authoritative: the status that matters is the one under the lock the
+        // Authoritative: the state that matters is the one under the lock the
         // UPDATE below writes through, not the one read a moment ago.
-        // Dropping the transaction on either error rolls it back untouched.
-        self.lock_invoice_status(&mut tx, id)
-            .await?
-            .ensure_editable()?;
+        // Dropping the transaction on any error rolls it back untouched.
+        let locked = self.lock_invoice(&mut tx, id).await?;
+        locked.status.ensure_editable()?;
+        if locked.is_credit_note
+            && (header.customer_id != locked.customer_id || header.currency != locked.currency)
+        {
+            return Err(StoreError::Validation(
+                "a credit note stays on the customer and currency of the invoice it credits"
+                    .to_owned(),
+            ));
+        }
         sqlx::query(
             "UPDATE billing_invoices SET customer_id = $3, currency = $4, \
                  payment_terms_days = $5, reference = $6, note = $7, updated_at = now() \
@@ -587,8 +652,9 @@ impl AccountStore {
         // issue that raced this save either lost (and sees these lines) or won
         // (and this save is refused). Dropping the transaction on any error
         // below rolls it back; nothing was written.
-        self.lock_invoice_status(&mut tx, id)
+        self.lock_invoice(&mut tx, id)
             .await?
+            .status
             .ensure_editable()?;
         let lines: Vec<NormalizedLine> = normalize_lines(lines)?;
 
@@ -646,8 +712,9 @@ impl AccountStore {
     /// [`StoreError::Db`] on failure.
     pub async fn delete_billing_invoice(&self, id: &BillingInvoiceId) -> Result<()> {
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
-        self.lock_invoice_status(&mut tx, id)
+        self.lock_invoice(&mut tx, id)
             .await?
+            .status
             .ensure_editable()?;
         sqlx::query("DELETE FROM billing_invoices WHERE tenant_id = $1 AND id = $2")
             .bind(self.tenant.as_str())
@@ -691,17 +758,16 @@ impl AccountStore {
     /// [`StoreError::Db`] on failure.
     pub async fn issue_billing_invoice(&self, id: &BillingInvoiceId) -> Result<InvoiceDocument> {
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
-        self.lock_invoice_status(&mut tx, id)
-            .await?
-            .ensure_issuable()?;
+        // The lock also hands back the terms this document was raised with —
+        // never the customer's current ones — which is what the due date below
+        // is derived from.
+        let locked = self.lock_invoice(&mut tx, id).await?;
+        locked.status.ensure_issuable()?;
+        let terms = locked.payment_terms_days;
 
-        // Read under the lock: the terms this document was raised with (never
-        // the customer's current ones) and whether it says anything at all.
-        let (terms, lines): (i32, i64) = sqlx::query_as(
-            "SELECT i.payment_terms_days, \
-                 (SELECT count(*) FROM billing_invoice_lines l \
-                  WHERE l.tenant_id = i.tenant_id AND l.invoice_id = i.id) \
-             FROM billing_invoices i WHERE i.tenant_id = $1 AND i.id = $2",
+        // Read under the same lock: whether the document says anything at all.
+        let lines: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM billing_invoice_lines WHERE tenant_id = $1 AND invoice_id = $2",
         )
         .bind(self.tenant.as_str())
         .bind(id.as_str())
@@ -771,8 +837,9 @@ impl AccountStore {
     /// deleted, a paid document is credited); [`StoreError::Db`] on failure.
     pub async fn void_billing_invoice(&self, id: &BillingInvoiceId) -> Result<InvoiceDocument> {
         let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
-        self.lock_invoice_status(&mut tx, id)
+        self.lock_invoice(&mut tx, id)
             .await?
+            .status
             .ensure_voidable()?;
         sqlx::query(
             "UPDATE billing_invoices SET status = 'void', updated_at = now() \
@@ -786,6 +853,181 @@ impl AccountStore {
         tx.commit().await.map_err(StoreError::Db)?;
 
         self.billing_invoice(id).await?.ok_or(StoreError::NotFound)
+    }
+
+    /// Raises a **draft credit note** that mirrors an issued document: the same
+    /// customer, currency, terms and customer reference, and a copy of every
+    /// line with its quantity negated, in the original's order.
+    ///
+    /// It is a draft, not a finished document, and that is the point: the
+    /// mirror is the starting position, and a **partial** credit is a matter of
+    /// editing its lines before issuing it. Issuing it goes through the ordinary
+    /// [`AccountStore::issue_billing_invoice`], so it draws from the **same**
+    /// per-tenant series as the invoice it credits — an unbroken ledger is one
+    /// series, not two interleaved ones — and it is frozen by the same rules.
+    ///
+    /// A full mirror is exactly worth the negative of its original, down to the
+    /// per-rate VAT breakdown: [`crate::billing_totals`] rounds half away from
+    /// zero precisely so that `totals(−lines) == −totals(lines)`, and the two
+    /// documents therefore sum to zero with no residual cent.
+    ///
+    /// The original must be a document the customer actually holds — `issued`
+    /// or `paid` (see [`InvoiceStatus::ensure_creditable`]) — and it must not
+    /// itself be a credit note: crediting a credit note is an invoice, and
+    /// raising one as a "credit" would put a positive document in the credit
+    /// chain, where every ledger walk expects the opposite sign.
+    ///
+    /// The customer is copied rather than re-resolved, so an **archived**
+    /// customer can still be credited. Archiving means "we raise no new
+    /// business for them"; correcting a document already in their hands is not
+    /// new business, and refusing it would leave a wrong invoice standing
+    /// forever.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when the original is absent or another
+    /// tenant's; [`StoreError::Conflict`] when it is a draft, void, or itself
+    /// a credit note; [`StoreError::Db`] on failure.
+    pub async fn create_billing_credit_note(
+        &self,
+        original_id: &BillingInvoiceId,
+    ) -> Result<BillingInvoiceId> {
+        let mut tx = self.pool.begin().await.map_err(StoreError::Db)?;
+        // The original's lock is held for the whole copy: a void racing this
+        // call either lands first (and the credit is refused) or waits.
+        let original = self.lock_invoice(&mut tx, original_id).await?;
+        // What the document *is* outranks where it is in its life: a credit
+        // note is never creditable, in any state, so a caller gets that one
+        // stable answer rather than a state complaint that would change to a
+        // different refusal once the same document is issued.
+        if original.is_credit_note {
+            return Err(StoreError::Conflict(
+                "a credit note cannot itself be credited; raise an invoice instead".to_owned(),
+            ));
+        }
+        original.status.ensure_creditable()?;
+
+        let id = BillingInvoiceId::generate();
+        sqlx::query(
+            "INSERT INTO billing_invoices (tenant_id, id, customer_id, status, currency, \
+                 payment_terms_days, is_credit_note, credits_invoice_id, reference, note, \
+                 created_by) \
+             VALUES ($1, $2, $3, 'draft', $4, $5, true, $6, $7, '', $8)",
+        )
+        .bind(self.tenant.as_str())
+        .bind(id.as_str())
+        .bind(&original.customer_id)
+        .bind(&original.currency)
+        .bind(original.payment_terms_days)
+        .bind(original_id.as_str())
+        .bind(&original.reference)
+        .bind(self.user.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+
+        // The mirror: the same descriptions, units, prices and rates, in the
+        // same print order, with the quantity negated. Read inside the same
+        // transaction, under the original's lock. The quantity bound is
+        // symmetric ([`crate::billing_line::QTY_MAX_MILLI`]), so a stored
+        // quantity always has a storable negation, and every line gets an id of
+        // its own like any other written line — a credit note's lines are
+        // ordinary lines, not shadows of the original's.
+        let source: Vec<LineRow> = sqlx::query_as(&format!(
+            "SELECT {LINE_COLS} FROM billing_invoice_lines \
+             WHERE tenant_id = $1 AND invoice_id = $2 ORDER BY line_order"
+        ))
+        .bind(self.tenant.as_str())
+        .bind(original_id.as_str())
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(StoreError::Db)?;
+
+        for line in &source {
+            sqlx::query(
+                "INSERT INTO billing_invoice_lines (tenant_id, invoice_id, id, line_order, \
+                     description, unit, qty_milli, unit_price_cents, vat_rate_bp) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            )
+            .bind(self.tenant.as_str())
+            .bind(id.as_str())
+            .bind(BillingLineId::generate().as_str())
+            .bind(line.line_order)
+            .bind(&line.description)
+            .bind(&line.unit)
+            .bind(-line.qty_milli)
+            .bind(line.unit_price_cents)
+            .bind(line.vat_rate_bp)
+            .execute(&mut *tx)
+            .await
+            .map_err(StoreError::Db)?;
+        }
+
+        tx.commit().await.map_err(StoreError::Db)?;
+        Ok(id)
+    }
+
+    /// The credit notes raised against one of this tenant's documents, newest
+    /// first, each with its computed totals — the read side of the credit
+    /// relation, and the ledger of a corrected invoice: the original's gross
+    /// plus the gross of its *issued* credit notes is what is actually owed.
+    ///
+    /// Drafts are included, because a credit note being prepared is a fact the
+    /// invoice's screen must show; the caller distinguishes them by status
+    /// rather than by their absence.
+    ///
+    /// An id that is absent or another tenant's yields an empty list, like
+    /// every other list read here — never an existence oracle.
+    ///
+    /// # Errors
+    /// [`StoreError::Db`] on failure.
+    pub async fn billing_credit_notes(
+        &self,
+        original_id: &BillingInvoiceId,
+    ) -> Result<Vec<InvoiceSummary>> {
+        let rows = sqlx::query_as::<_, InvoiceRow>(&format!(
+            "SELECT {INVOICE_COLS} FROM billing_invoices \
+             WHERE tenant_id = $1 AND credits_invoice_id = $2 \
+             ORDER BY created_at DESC, id"
+        ))
+        .bind(self.tenant.as_str())
+        .bind(original_id.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+
+        let figures = sqlx::query_as::<_, FiguresRow>(
+            "SELECT l.invoice_id, l.qty_milli, l.unit_price_cents, l.vat_rate_bp \
+             FROM billing_invoice_lines l \
+             JOIN billing_invoices i ON i.tenant_id = l.tenant_id AND i.id = l.invoice_id \
+             WHERE l.tenant_id = $1 AND i.credits_invoice_id = $2",
+        )
+        .bind(self.tenant.as_str())
+        .bind(original_id.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::Db)?;
+
+        let mut by_invoice: HashMap<String, Vec<LineFigures>> = HashMap::new();
+        for row in figures {
+            by_invoice
+                .entry(row.invoice_id)
+                .or_default()
+                .push(LineFigures {
+                    qty_milli: row.qty_milli,
+                    unit_price_cents: row.unit_price_cents,
+                    vat_rate_bp: row.vat_rate_bp,
+                });
+        }
+
+        rows.into_iter()
+            .map(|row| {
+                let lines = by_invoice.remove(&row.id).unwrap_or_default();
+                Ok(InvoiceSummary {
+                    invoice: row.into_invoice()?,
+                    totals: totals(&lines),
+                })
+            })
+            .collect()
     }
 
     /// What a line set **would** total, without writing anything — the same
@@ -803,6 +1045,28 @@ impl AccountStore {
 }
 
 // ---- row types --------------------------------------------------------------
+
+/// What a locking read hands back: the stored facts a write decides against,
+/// with the status already parsed.
+#[derive(Debug)]
+struct LockedInvoice {
+    status: InvoiceStatus,
+    is_credit_note: bool,
+    customer_id: String,
+    currency: String,
+    payment_terms_days: i32,
+    reference: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct LockedRow {
+    status: String,
+    is_credit_note: bool,
+    customer_id: String,
+    currency: String,
+    payment_terms_days: i32,
+    reference: String,
+}
 
 #[derive(sqlx::FromRow)]
 struct InvoiceRow {
@@ -952,6 +1216,36 @@ mod tests {
             other => panic!("expected a decode failure, got {other:?}"),
         }
         assert!(parse_stored_status("draft").is_ok());
+    }
+
+    #[test]
+    fn only_a_document_the_customer_holds_may_be_credited() {
+        for creditable in [InvoiceStatus::Issued, InvoiceStatus::Paid] {
+            assert!(
+                creditable.ensure_creditable().is_ok(),
+                "{creditable:?} is a document the customer holds"
+            );
+        }
+        // A draft was never a document, and a void one is already cancelled in
+        // full — crediting either would take the ledger below zero. Both
+        // refusals say which case they are, so the UI can offer "delete" or
+        // say "already cancelled" without a second round trip.
+        let draft = match InvoiceStatus::Draft.ensure_creditable() {
+            Err(StoreError::Conflict(message)) => message,
+            other => panic!("expected Conflict for a draft, got {other:?}"),
+        };
+        assert!(
+            draft.contains("draft") && draft.contains("delete"),
+            "{draft}"
+        );
+        let void = match InvoiceStatus::Void.ensure_creditable() {
+            Err(StoreError::Conflict(message)) => message,
+            other => panic!("expected Conflict for a void document, got {other:?}"),
+        };
+        assert!(
+            void.contains("void") && void.contains("cancelled"),
+            "{void}"
+        );
     }
 
     #[test]

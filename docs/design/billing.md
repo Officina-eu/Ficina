@@ -96,6 +96,24 @@ column, struct field, or computation anywhere in this module.
   numbered document. The state refusal outranks any complaint about the
   payload, and deletion is draft-only: an issued document is voided,
   keeping its number so the sequence stays gapless.
+  As-built (B1.09): a **credit note is an invoice in this same table**, not a
+  second document type — it names its original in `credits_invoice_id`, carries
+  that document's lines with their quantities negated, and goes through the same
+  draft → issued life, drawing from the same series. Raising one copies the
+  original's customer, currency, terms and customer reference (never the note:
+  the original's "payable within 14 days" says the opposite of the truth on a
+  credit note) and leaves it a **draft**, so a *partial* credit is simply a
+  matter of editing its lines before issuing. The customer is copied rather than
+  re-resolved, so an **archived** customer can still be credited — correcting a
+  document already in their hands is not new business. While it is a draft a
+  credit note is editable like any other, except that its customer and currency
+  are pinned to the original's (`Validation`, `422`): a credit billed to
+  somebody else reverses nothing. Only an `issued` or `paid` document can be
+  credited; a draft (`Conflict`, `409` — delete it instead) and a void one
+  (already cancelled in full) cannot, and neither can a credit note itself —
+  that refusal is about what the document *is*, so it outranks and does not
+  vary with its status. `GET`-side, `billing_credit_notes(original)` lists what
+  credits a document, which is the ledger of a corrected invoice.
 - **`billing_invoice_lines`** — invoice ref, line order, description,
   quantity in **milli-units** (`i64`; 1.5 h = 1500), unit price cents,
   VAT rate bp. Lines **snapshot** the product's description, price, and
@@ -168,6 +186,9 @@ route edge to the existing `Problem` shape. The full map:
 | Issuing an invoice with no lines | `Validation` | `422` |
 | Voiding anything but an issued invoice | `Conflict` | `409` |
 | Crediting a draft (never-issued) invoice | `Conflict` | `409` |
+| Crediting a void invoice (already cancelled in full) | `Conflict` | `409` |
+| Crediting a credit note | `Conflict` | `409` |
+| Moving a credit note off its original's customer or currency | `Validation` | `422` |
 | Payment amount ≤ 0, or recorded against a draft | `Validation` | `422` |
 | Invalid quote transition (e.g. `declined` → `accepted`) | `Conflict` | `409` |
 | Sequence row contention beyond the tx retry | `Db` | `503` |

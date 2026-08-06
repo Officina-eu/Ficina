@@ -730,3 +730,148 @@ Cuts and flags:
 Next item: B1.09 (credit notes — a negative document referencing an issued
 original, drawing from the same series, whose ledger with the original sums to
 zero).
+
+---
+
+## 2026-08-06 — B1.09 credit notes and the ledger that closes
+
+The correction a customer's copy can be reconciled against. Shipped:
+
+- **Migration `0104_billing_credit_notes.sql`** — expand-only, and no new
+  table: `is_credit_note` and `credits_invoice_id` have been on
+  `billing_invoices` since `0102`, together with the CHECK tying them to each
+  other and the composite FK keeping the credited document inside the tenant.
+  This migration adds the two things the *relation* needs: a CHECK that a
+  document cannot credit itself (a one-row cycle every walk of the credit chain
+  would have to defend against) and a partial index on
+  `(tenant_id, credits_invoice_id)` for the read below.
+- **`AccountStore::create_billing_credit_note(original)`** — one transaction
+  under the original's row lock: refuse what cannot be credited, then insert a
+  **draft** carrying the original's customer, currency, terms and customer
+  reference, and copy every line in print order with its quantity negated.
+- **`AccountStore::billing_credit_notes(original)`** — the read side: what
+  credits this document, with each one's computed totals. Without it the
+  relation would be write-only, and the ledger of a corrected invoice
+  unanswerable.
+- **`InvoiceStatus::ensure_creditable`** alongside the existing
+  editable/issuable/voidable guards.
+- `lock_invoice_status` became **`lock_invoice`**, returning the handful of
+  stored facts a write decides against (status, credit-note flag, customer,
+  currency, terms, reference) instead of only the status. Two of the new
+  decisions are about what a document *is*, not where it is, and they must be
+  read under the same lock as the status. The issue path lost its extra
+  `SELECT` for the terms as a result.
+
+Decisions, all recorded as as-built in `docs/design/billing.md`:
+
+- **A credit note is an invoice in the same table, on the same series** — not a
+  second document type with a `CRN-` prefix of its own. An unbroken ledger is
+  one series; two prefixes sharing one counter would print as two series each
+  full of holes. Issuing a credit note therefore goes through the ordinary
+  `issue_billing_invoice`, with the same freezing rules.
+- **It is created as a draft, mirroring the whole original.** The mirror is the
+  starting position, not the finished document: a **partial** credit is made by
+  editing its lines before issuing. That is why no line-sign rule is imposed.
+- **The customer and currency are pinned** to the original's while editing
+  (`Validation`, 422). A credit billed to somebody else, or in another
+  currency, reverses nothing. Everything else — terms, reference, note, lines —
+  stays freely editable.
+- **The note is *not* copied.** The original's "payable within 14 days" says
+  the opposite of the truth on a credit note. The link to the original is
+  structural (`credits_invoice_id`), so B1.16's print view can render
+  "credit note for INV-…" as an i18n string rather than the store inventing
+  English prose.
+- **An archived customer can still be credited.** The customer is copied, not
+  re-resolved through `normalize_invoice`, so archiving cannot trap a wrong
+  invoice in the ledger forever. Raising a *new* invoice for them stays refused
+  — that guard is about new business.
+- **`issued` and `paid` are creditable; `draft` and `void` are not.** The queue
+  said "original must be issued"; a paid invoice was issued, and it is the case
+  credit notes exist for (the design note already said a paid document is
+  corrected, never voided). A draft is deleted instead, and a void document has
+  been cancelled in full already.
+- **The credit-note refusal outranks the status refusal.** Crediting a credit
+  note is refused for what the document *is*, so the answer does not change
+  when the same document is later issued — a UI must simply never offer the
+  action there. (The first cut had the checks the other way round and the test
+  caught it: a fresh credit note was refused for being a draft.)
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings); `cargo test -p alo-store` fully green
+against local Postgres — 149 unit tests (1 new over `ensure_creditable`) and
+every integration suite; `cargo test -p alo-jmap` green as well (88 unit + all
+suites), since the store's locking read changed underneath it.
+`rustfmt --edition 2024 --check` clean on both touched Rust files, and the
+formatting run touched only lines this item added (the pre-existing divergence
+in the inbox above is untouched).
+
+The item's gate is `tests/billing_credit_notes.rs` (6 tests):
+
+- **`an_issued_invoice_and_its_credit_note_sum_to_zero`** — the done-when. The
+  fixture is deliberately awkward: three VAT rates plus a zero rate, a discount
+  line with a negative quantity inside the *original*, a line whose net lands
+  on a third of a cent (0.333 h × €99.99) and one that lands exactly on a half
+  (0.5 × €11.11 → 555.5). Original and credit are added the way a ledger adds
+  them — net, VAT, gross **and every row of the per-rate breakdown** — and every
+  figure is 0, with no rate left over. It then checks the mirror line by line
+  (same order, same description/unit/price/rate, negated quantity, its own row
+  id), issues the credit note and asserts the numbers are `INV-YYYY-00001` and
+  `INV-YYYY-00002` off **one** counter row (`next_value` 3), that issuing kept
+  the link, that the frozen pair still sums to zero, and that the original can
+  name what credits it.
+- `a_draft_a_void_document_and_a_credit_note_are_all_refused` — each refusal
+  typed and named, nothing written (no document, and the counter row never even
+  created), and the credit-note refusal proven identical before and after the
+  credit note is issued. A ghost id gets `NotFound`, not a state refusal.
+- `a_paid_invoice_is_corrected_by_crediting_it_not_by_voiding_it` — the `paid`
+  state is planted with SQL (payments are B1.19), so the guard is tested
+  against the **stored** state rather than against what today's Rust API can
+  produce: voiding it is refused, crediting it is not, crediting does not
+  reopen it, and an archived customer is still creditable while a new invoice
+  for them is still refused. Two credit notes against one original are both
+  listed — partial corrections are several documents.
+- `a_credit_note_draft_is_editable_but_stays_on_its_original` — the customer
+  and currency moves refused typed with the document unchanged afterwards; then
+  a real partial credit (keep one line of the mirror, drop the rest) that keeps
+  the flag and the link, is worth less than the whole document, is still
+  negative, and matches a hand-computed −€114.18 net / −€23.98 VAT.
+- **`another_tenant_can_neither_credit_nor_discover_a_document`** — the
+  mandatory wrong-tenant proof. B gets `NotFound` (never `Conflict`, which
+  would confirm the id exists *and* its state) from crediting A's issued
+  document, A's draft and A's own credit note; a ghost id gets the identical
+  answer; `billing_credit_notes` on A's ids is empty for B and vice versa; A's
+  counter is unmoved and no row anywhere outside A's tenant credits A's
+  invoice (checked with a direct `count(*)`, not through the store's own tenant
+  predicate); and B credits its own document of the same shape cleanly, so the
+  denial is about ownership rather than the operation.
+- `the_table_itself_refuses_an_impossible_credit_link` — the database, not the
+  Rust: a self-credit, a cross-tenant credit link, and a `is_credit_note` flag
+  without a named original are each rejected by direct SQL, and deleting a
+  tenant still cascades cleanly with an issued credit chain in place.
+
+Schema confirmed on the live local database (`\d billing_invoices`): the new
+CHECK and the partial index are on the table as written.
+
+Cuts and flags:
+
+- **No over-credit guard.** Nothing stops a tenant raising credit notes worth
+  more than the original. Refusing that needs the sum of *issued* credits
+  against the gross, which is the same derived-state machinery B1.19 builds for
+  paid/partially-paid; adding a second, weaker version of it here would be the
+  thing that later disagrees. The read (`billing_credit_notes`) that such a
+  guard needs is in place.
+- **FLAGGED FOR HUMAN REVIEW (compliance-adjacent): the credit note's issue
+  date is its own issue day, not the original's.** That follows B1.08's rule
+  that numbers and dates ascend together, and it is the strict reading. Some
+  jurisdictions expect a credit note to reference the original's date as well
+  as its number; that is a *printing* concern (B1.16/B1.22 render both from the
+  link), not a reason to backdate.
+- **No routes** — `POST /billing/invoices/{id}/credit-note` is B1.10's, so no
+  curl transcript applies to this item, and nothing user-visible changed:
+  still no CHANGELOG line. The first one lands with B1.10.
+- **No quote credit** — quotes do not exist yet (B1.11) and are not credited
+  anyway.
+
+Next item: B1.10 (the `/billing/invoices` HTTP routes — draft CRUD, issue,
+void, credit-note, status-filtered list with overdue computed, and the
+draft→issue→credit arc wire-verified with curl).
