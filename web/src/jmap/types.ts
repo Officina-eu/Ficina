@@ -707,3 +707,27 @@ export interface AiAnswerDto {
   reason: "unconfigured" | "unreachable" | null;
   sources: SearchHitDto[];
 }
+
+/** An action the "Ask alo" agent proposes (ADR 0034) — shown for approval, run
+ *  only via `executeAgentAction`. `say` is a one-line human description. */
+export interface AgentActionDto {
+  tool: string;
+  args: Record<string, unknown>;
+  say: string;
+}
+
+/** The agent's reply: an answer, or a proposed action, over the same
+ *  access-scoped sources as Ask AI. Exactly one of `answer` / `action` is set
+ *  (both null when AI is off/unreachable — `reason` says which). */
+export interface AgentAnswerDto {
+  answer: string | null;
+  action: AgentActionDto | null;
+  reason: "unconfigured" | "unreachable" | null;
+  sources: SearchHitDto[];
+}
+
+/** Result of executing an approved agent action. */
+export interface AgentExecuteResultDto {
+  ok: boolean;
+  result: { kind: string; id: string; title?: string };
+}

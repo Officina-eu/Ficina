@@ -1306,6 +1306,11 @@ export const en = {
   aiSources: "Sources",
   aiUnconfigured: "AI isn’t set up yet — an admin can add a model. Here’s what matched:",
   aiUnreachable: "The AI couldn’t be reached. Here’s what matched:",
+  agentProposedAction: "alo would like to do this — approve to continue.",
+  agentApprove: "Approve",
+  agentDiscard: "Discard",
+  agentDone: "Done.",
+  agentFailed: "That action couldn’t be completed.",
   searchKind: (kind: string): string =>
     kind === "task"
       ? "Task"

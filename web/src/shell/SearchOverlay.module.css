@@ -97,6 +97,62 @@
   color: var(--text-secondary);
   margin: 0 0 var(--space-2);
 }
+/* A proposed agent action (ADR 0034) — shown for approval before it runs. */
+.action {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.actionSay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+.actionButtons {
+  display: flex;
+  gap: var(--space-2);
+}
+.approve {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--on-accent, #fff);
+  background: var(--accent, var(--text-primary));
+}
+.approve:disabled {
+  opacity: 0.6;
+}
+.discard {
+  padding: 0 14px;
+  min-height: 32px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+.discard:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.actionDone {
+  font-size: var(--text-sm);
+  color: var(--success, #16a34a);
+  margin: 0 0 var(--space-2);
+}
 .answerSourcesLabel {
   font-size: var(--text-xs);
   text-transform: uppercase;

@@ -56,6 +56,8 @@ import {
   type BaseViewKind,
   type SearchHitDto,
   type AiAnswerDto,
+  type AgentAnswerDto,
+  type AgentExecuteResultDto,
 } from "./types";
 import { API_BASE } from "../platform/runtime";
 
@@ -1417,6 +1419,36 @@ export class JmapClient {
     });
     if (!res.ok) throw new JmapError(`ask ${res.status}`);
     return (await res.json()) as AiAnswerDto;
+  }
+
+  /** The "Ask alo" agent (ADR 0034): like `askWorkspace`, but the model may
+   * return a *proposed action* instead of an answer. Nothing is executed here —
+   * a returned `action` must be approved by the user, which then calls
+   * `executeAgentAction`. Matches come back even with no model configured. */
+  async askAgent(query: string): Promise<AgentAnswerDto> {
+    const res = await this.#fetch(`${API_BASE}/ai/agent`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q: query }),
+    });
+    if (!res.ok) throw new JmapError(`agent ${res.status}`);
+    return (await res.json()) as AgentAnswerDto;
+  }
+
+  /** Execute an agent action the user approved (ADR 0034). The only path that
+   * acts; the server re-validates the tool + args and runs it within the caller's
+   * tenant. Throws on any non-2xx so the caller can surface a failure. */
+  async executeAgentAction(
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<AgentExecuteResultDto> {
+    const res = await this.#fetch(`${API_BASE}/ai/agent/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tool, args }),
+    });
+    if (!res.ok) throw new JmapError(`agent/execute ${res.status}`);
+    return (await res.json()) as AgentExecuteResultDto;
   }
 
   /** Propose document text from an instruction + the current doc (ADR 0029 §3).

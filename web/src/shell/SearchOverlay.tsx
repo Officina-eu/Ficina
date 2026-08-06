@@ -19,10 +19,12 @@ import {
 } from "lucide-react";
 
 import { strings } from "../i18n";
-import { useJmapClient, type AiAnswerDto, type SearchHitDto } from "../jmap";
+import { useJmapClient, type AgentAnswerDto, type SearchHitDto } from "../jmap";
 import { surface } from "../product";
 import { Spinner } from "../ds";
 import styles from "./SearchOverlay.module.css";
+
+type ExecState = "idle" | "running" | "done" | "error";
 
 function hitIcon(kind: string): LucideIcon {
   switch (kind) {
@@ -69,13 +71,15 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHitDto[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [answer, setAnswer] = useState<AiAnswerDto | null>(null);
+  const [answer, setAnswer] = useState<AgentAnswerDto | null>(null);
   const [asking, setAsking] = useState(false);
+  const [exec, setExec] = useState<ExecState>("idle");
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
-    // A new query invalidates any prior AI answer.
+    // A new query invalidates any prior AI answer/proposed action.
     setAnswer(null);
+    setExec("idle");
     if (q.trim() === "") {
       setHits(null);
       setLoading(false);
@@ -102,11 +106,35 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
     if (question === "" || asking) return;
     setAsking(true);
     setAnswer(null);
+    setExec("idle");
     void client
-      .askWorkspace(question)
+      .askAgent(question)
       .then((a) => setAnswer({ ...a, sources: openable(a.sources) }))
-      .catch(() => setAnswer({ answer: null, reason: "unreachable", sources: [] }))
+      .catch(() =>
+        setAnswer({ answer: null, action: null, reason: "unreachable", sources: [] }),
+      )
       .finally(() => setAsking(false));
+  }
+
+  /** Run the proposed action — the only path that acts, and only on the user's
+   *  approval (propose-then-approve, ADR 0034). On success the action card is
+   *  cleared and a confirmation is shown. */
+  function approve() {
+    const action = answer?.action;
+    if (!action || exec === "running") return;
+    setExec("running");
+    void client
+      .executeAgentAction(action.tool, action.args)
+      .then(() => {
+        setExec("done");
+        setAnswer((a) => (a ? { ...a, action: null } : a));
+      })
+      .catch(() => setExec("error"));
+  }
+
+  function discard() {
+    setAnswer((a) => (a ? { ...a, action: null } : a));
+    setExec("idle");
   }
 
   useEffect(() => {
@@ -162,7 +190,31 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
         {answer && (
           <div className={styles.answer}>
             {answer.answer && <p className={styles.answerText}>{answer.answer}</p>}
-            {answer.answer === null && (
+            {/* A proposed action — the agent never acts without this approval. */}
+            {answer.action && (
+              <div className={styles.action}>
+                <div className={styles.actionSay}>
+                  <Sparkles size={15} className={styles.askIcon} />
+                  <span>{answer.action.say || strings.agentProposedAction}</span>
+                </div>
+                <div className={styles.actionButtons}>
+                  <button
+                    type="button"
+                    className={styles.approve}
+                    onClick={approve}
+                    disabled={exec === "running"}
+                  >
+                    {exec === "running" ? <Spinner size={14} /> : strings.agentApprove}
+                  </button>
+                  <button type="button" className={styles.discard} onClick={discard}>
+                    {strings.agentDiscard}
+                  </button>
+                </div>
+              </div>
+            )}
+            {exec === "done" && <p className={styles.actionDone}>{strings.agentDone}</p>}
+            {exec === "error" && <p className={styles.answerNote}>{strings.agentFailed}</p>}
+            {answer.answer === null && answer.action === null && (
               <p className={styles.answerNote}>
                 {answer.reason === "unconfigured" ? strings.aiUnconfigured : strings.aiUnreachable}
               </p>
