@@ -144,8 +144,11 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 ### Drive & Docs
 
 - [ ] Drive: spaces, permissions, share links (password/expiry), trash/restore, version history
-- [ ] WOPI endpoints (CheckFileInfo/GetFile/PutFile) served by Drive
-- [ ] Collabora embedded, alo-themed; Docs/Sheets/Slides live per `features.md`
+- [ ] Native editors on embedded open engines (ADR 0033, replaces Collabora/WOPI):
+  - [x] alo Sheets — Univer engine + alo's own ribbon UI; real `.xlsx` import + `.xlsx` export
+  - [ ] alo Docs — BlockNote; real `.docx` best-effort import
+  - [ ] alo Slides — native in-house canvas; real `.pptx` best-effort import
+  - [ ] Remove Collabora + WOPI once every format has a native home
 - [ ] Technical authoring: browser-local math (KaTeX) + code (Prism) + alo auto-numbering/cross-references — standalone module first, docks into the Docs shell (ADR 0015)
 - [ ] Fidelity CI: real-document corpus round-trips to desktop Office without mangling
 - [ ] Desktop sync client v1
@@ -185,8 +188,9 @@ RFC 8601 contract) and at submission (DKIM signing). RSA crypto uses
 
 ### Docs & Sheets AI (editor-native)
 
-Depends on the Collabora integration (Phase 2, "Drive & Docs") **and** the AI
-layer above — the editors are a alo-owned shell over Collabora (ADR 0010),
+Depends on the native editors (Phase 2, "Drive & Docs") **and** the AI
+layer above — the editors are alo's own UI on embedded open engines
+(Univer/BlockNote, ADR 0033, superseding the Collabora shell of ADR 0010),
 so these ship after the core suite, never in Phase 1. UX source of truth:
 Figma pages "10 · Docs" and "11 · Sheets". Trust model throughout: **the AI
 proposes and diffs; the user accepts** — never a silent overwrite of a

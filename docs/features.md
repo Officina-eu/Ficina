@@ -136,26 +136,23 @@ list views over the same data, personal and team. ADRs 0021–0023.
 - [L] Files/folders, per-user and per-team spaces, permissions, trash/restore
 - [L] Desktop sync client (the OneDrive replacement)
 - [L] Share links with password, expiry, and download-off option
-- [L] In-browser editing of Word/Excel/PowerPoint formats (Collabora embedded, alo-themed). What users get per editor:
+- [L] **Native editors — alo's own UI on embedded open engines** (ADR 0033, replacing the earlier Collabora-embedded approach). Real Office files import best-effort into the native types; the original file is kept and stays downloadable; pixel-faithful round-trip to desktop Office is no longer promised. Per editor:
 
-  **alo Docs (Word-like)**
-  - [L] Full .docx/.odt editing: styles, headers/footers, tables, images, TOC, footnotes, page numbering
-  - [L] Real-time co-editing with visible cursors
-  - [L] Track changes and comments — round-trippable with desktop Word (the lawyer/HR dealbreaker)
-  - [L] Export to PDF; print-faithful layout
-  - [2] Compare documents; org templates with locked branding
+  **alo Docs (Word-like)** — alo's own block editor on **BlockNote** (MPL-2.0)
+  - [L] Rich text: styles, headings, lists, tables, images, code blocks, math equations (KaTeX)
+  - [L] Propose-then-approve document AI (ADR 0029)
+  - [L] Open a real `.docx` → best-effort import into an alo Doc
+  - [2] Real-time co-editing; comments; export to PDF
 
-  **alo Sheets (Excel-like)**
-  - [L] Full .xlsx/.ods editing: the formula set (LibreOffice Calc covers the overwhelming majority of Excel functions), multi-sheet, cell formatting, conditional formatting
-  - [L] Charts, pivot tables, sorting/filtering, freeze panes
-  - [L] Co-editing; comments
-  - [2] CSV import wizardry; named ranges; data validation
-  - Known honest limit: **VBA macros do not run** — flagged by the Migrate audit; the playbook answer is desktop LibreOffice/one perpetual Excel license for the macro workbook (see product doc §6)
+  **alo Sheets (Excel-like)** — alo's own ribbon UI on **Univer** (Apache-2.0)
+  - [L] Grid + formula engine, multi-sheet, cell formatting, number formats, alignment, merge, freeze panes
+  - [L] Open a real `.xlsx` → best-effort import; **export any sheet back to `.xlsx`**
+  - [2] Charts, pivot tables, sorting/filtering, data validation (Univer plugins, wired incrementally)
+  - Known honest limits: **VBA macros do not run**; complex `.xlsx` styling/charts may not survive import (see product doc §6)
 
-  **alo Slides (PowerPoint-like)**
-  - [L] Full .pptx/.odp editing: layouts, master slides, transitions, presenter notes
-  - [L] Present directly in the browser; present into a Meet call
-  - [2] Org slide templates; export to PDF handout
+  **alo Slides (PowerPoint-like)** — native canvas built in-house (no open engine covers it; ADR 0033)
+  - [2] Slides, text boxes, shapes, images; best-effort `.pptx` import
+  - [2] Present directly in the browser; present into a Meet call
 
 - [L] Format fidelity guarantee: files round-trip to desktop Office without layout mangling — tested in CI with a corpus of real customer documents (fidelity is the whole ballgame; a mangled offer letter loses the customer)
 - [L] Editors in the desktop app: Docs/Sheets/Slides work identically in the installed (Tauri) app — same frontend, no extra build
@@ -172,9 +169,10 @@ list views over the same data, personal and team. ADRs 0021–0023.
 Not a cheaper European Word. alo Docs differentiates on being **AI-native,
 whole-suite, and sovereign**, attacking documented, widespread Word/Docs
 frustrations that Microsoft/Google structurally cannot fix without dismantling
-their own architecture. The editor is a **alo-branded shell over the
-integrated Collabora engine** (via WOPI); alo owns the shell, the AI layer,
-and the four inventions below (ADR 0010). Base .docx/.odt editing lives under
+their own architecture. The editor is **alo's own block editor on the embedded
+BlockNote framework** (MPL-2.0); alo owns the UI, the AI layer, and the four
+inventions below (ADR 0033, superseding the Collabora shell of ADR 0010). Base
+.docx import lives under
 **Drive & Docs** above; this is the differentiator layer. UX source of truth:
 Figma page "10 · Docs".
 
@@ -258,10 +256,10 @@ Not a cheaper European Excel. Differentiates on **AI-native + auditable +
 whole-suite + sovereign**. Finance teams abandon spreadsheets over two things
 the research documents clearly: **error-blindness** (a CFO study found 41%
 struggle to identify and correct errors) and **lack of auditability / data
-lineage**. alo attacks both directly. The editor is a alo-branded shell
-over the integrated Collabora engine (via WOPI), the same pattern as Docs (ADR
-0010); alo owns the shell, the AI layer, and the inventions below. Base
-.xlsx/.ods editing lives under **Drive & Docs** above. UX source of truth:
+lineage**. alo attacks both directly. The editor is **alo's own ribbon UI on
+the embedded Univer engine** (Apache-2.0), the same pattern as Docs (ADR 0033,
+superseding ADR 0010); alo owns the UI, the AI layer, and the inventions below.
+Base .xlsx import + `.xlsx` export lives under **Drive & Docs** above. UX source of truth:
 Figma page "11 · Sheets".
 
 The four inventions:
