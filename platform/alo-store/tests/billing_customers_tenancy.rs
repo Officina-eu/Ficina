@@ -93,7 +93,7 @@ async fn billing_customers_round_trip_and_never_cross_tenant() {
     assert_eq!(
         got.vat_id.as_deref(),
         Some("DE811907980"),
-        "VAT id compacted"
+        "VAT id stored canonical: prefixed, uppercase, no separators"
     );
     assert_eq!(got.email.as_deref(), Some("billing@acme.test"));
     assert_eq!(got.payment_terms_days, 14);
@@ -179,6 +179,17 @@ async fn billing_customers_round_trip_and_never_cross_tenant() {
         },
         NewCustomer {
             vat_id: Some("DE!!907980".to_owned()),
+            ..acme()
+        },
+        // Right shape for Germany, wrong check digit — a typo, refused on
+        // both the create and the update path.
+        NewCustomer {
+            vat_id: Some("DE811907981".to_owned()),
+            ..acme()
+        },
+        // Nine digits are the German shape, but not with a Dutch prefix.
+        NewCustomer {
+            vat_id: Some("NL811907980".to_owned()),
             ..acme()
         },
         NewCustomer {

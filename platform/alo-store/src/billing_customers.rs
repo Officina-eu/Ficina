@@ -10,7 +10,10 @@
 //!
 //! Input is normalised once, in [`normalize`], and the same normalisation runs
 //! for create and update, so a field can never be stored two different ways
-//! depending on which door it came through. Everything the caller can fix is a
+//! depending on which door it came through. The VAT id is held to its member
+//! state's published shape and check digit by [`crate::vat_id`] and stored in
+//! the canonical prefixed form (`DE811907980`) that e-invoicing wants.
+//! Everything the caller can fix is a
 //! [`StoreError::Validation`] naming the rule; a link to an address-book
 //! contact that isn't the tenant's is a [`StoreError::NotFound`], the same
 //! answer as a contact that does not exist at all.
@@ -20,6 +23,7 @@ use time::OffsetDateTime;
 use crate::account::AccountStore;
 use crate::error::{Result, StoreError};
 use crate::id::{BillingCustomerId, ContactId};
+use crate::vat_id;
 
 /// A customer name is a legal/display name — generous but bounded.
 pub const CUSTOMER_NAME_MAX_CHARS: usize = 200;
@@ -37,9 +41,6 @@ const CITY_MAX_CHARS: usize = 120;
 /// RFC 5321 caps a path at 256 octets; 320 is the everyday local@domain
 /// ceiling and is what every validator in the wild uses.
 const EMAIL_MAX_CHARS: usize = 320;
-/// The longest EU VAT id is 14 characters (2-letter prefix + 12); the margin
-/// leaves room for non-EU forms without letting an essay through.
-const VAT_ID_MAX_CHARS: usize = 20;
 
 /// The columns every read of a customer selects, in `CustomerRow` order.
 const CUSTOMER_COLS: &str = "id, name, address_line1, address_line2, postal_code, city, \
@@ -241,31 +242,15 @@ fn validate_email(email: Option<&str>) -> Result<Option<String>> {
     Ok(Some(raw.to_owned()))
 }
 
-/// Normalises an optional VAT id: whitespace, dots, and hyphens removed (they
-/// are presentation, not identity), uppercased, bounded, alphanumeric only.
-/// Blank is `None` — B2C customers have no VAT id and that is not an error.
-/// Per-country checksum patterns land in B1.03 on top of this.
-fn normalize_vat_id(vat_id: Option<&str>) -> Result<Option<String>> {
+/// Validates and canonicalises an optional VAT id for a customer in
+/// `country`, delegating every rule to [`crate::vat_id`]: separators and case
+/// are presentation, the stored form always carries its country prefix, and
+/// the member state's shape (plus its check digit, where one is published) has
+/// to hold. Blank is `None` — B2C customers have no VAT id and that is not an
+/// error.
+fn normalize_vat_id(vat_id: Option<&str>, country: &str) -> Result<Option<String>> {
     let Some(raw) = vat_id else { return Ok(None) };
-    let compact: String = raw
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != '.' && *c != '-')
-        .collect::<String>()
-        .to_uppercase();
-    if compact.is_empty() {
-        return Ok(None);
-    }
-    if compact.chars().count() > VAT_ID_MAX_CHARS {
-        return Err(StoreError::Validation(format!(
-            "VAT id must be at most {VAT_ID_MAX_CHARS} characters"
-        )));
-    }
-    if !compact.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err(StoreError::Validation(
-            "VAT id may only contain letters and digits".to_owned(),
-        ));
-    }
-    Ok(Some(compact))
+    vat_id::canonicalize(raw, country).map_err(|error| StoreError::Validation(error.to_string()))
 }
 
 /// Validates payment terms in days.
@@ -280,7 +265,12 @@ fn validate_payment_terms(days: i32) -> Result<i32> {
 
 /// Validates and normalises a whole customer. Pure — no database, so the
 /// rules are unit-tested directly.
+///
+/// Country is resolved first: it decides which member state's VAT rules the
+/// id is held to, so an invalid country is reported before a VAT id that
+/// could only ever be judged against it.
 fn normalize(input: &NewCustomer) -> Result<Normalized> {
+    let country = validate_country(&input.country)?;
     Ok(Normalized {
         name: validate_name(&input.name)?,
         address_line1: bounded(
@@ -295,8 +285,8 @@ fn normalize(input: &NewCustomer) -> Result<Normalized> {
         )?,
         postal_code: bounded("postal code", &input.postal_code, POSTAL_CODE_MAX_CHARS)?,
         city: bounded("city", &input.city, CITY_MAX_CHARS)?,
-        country: validate_country(&input.country)?,
-        vat_id: normalize_vat_id(input.vat_id.as_deref())?,
+        vat_id: normalize_vat_id(input.vat_id.as_deref(), &country)?,
+        country,
         email: validate_email(input.email.as_deref())?,
         payment_terms_days: validate_payment_terms(input.payment_terms_days)?,
         currency: validate_currency(&input.currency)?,
@@ -658,20 +648,43 @@ mod tests {
     }
 
     #[test]
-    fn vat_id_is_compacted_and_optional() {
-        assert_eq!(normalize_vat_id(None).unwrap_or_default(), None);
-        assert_eq!(normalize_vat_id(Some("  ")).unwrap_or_default(), None);
+    fn vat_id_is_optional_canonical_and_country_checked() {
+        // No VAT id at all, and a blank one, are both the B2C customer.
+        assert_eq!(normalize_vat_id(None, "DE").unwrap_or_default(), None);
+        assert_eq!(normalize_vat_id(Some("  "), "DE").unwrap_or_default(), None);
+        // Stored canonical: prefixed, uppercase, no separators.
         assert_eq!(
-            normalize_vat_id(Some("nl 8012.34.567-B01")).unwrap_or_default(),
-            Some("NL801234567B01".to_owned())
+            normalize_vat_id(Some("nl 0044.95445-B01"), "NL").unwrap_or_default(),
+            Some("NL004495445B01".to_owned())
         );
-        let too_long = "X".repeat(VAT_ID_MAX_CHARS + 1);
-        for bad in ["DE811907980!", "FR/12345678901", too_long.as_str()] {
+        // The country decides the rules: a German id is not a Dutch one.
+        assert!(matches!(
+            normalize_vat_id(Some("811907980"), "NL"),
+            Err(StoreError::Validation(_))
+        ));
+        for bad in ["DE811907980!", "DE811907981", "DE81190798"] {
             assert!(
-                matches!(normalize_vat_id(Some(bad)), Err(StoreError::Validation(_))),
+                matches!(
+                    normalize_vat_id(Some(bad), "DE"),
+                    Err(StoreError::Validation(_))
+                ),
                 "expected rejection: {bad:?}"
             );
         }
+        // The failing rule reaches the caller, but never the id itself.
+        let message = invalid(normalize_vat_id(Some("DE811907981"), "DE"));
+        assert!(message.contains("check digit"), "{message}");
+        assert!(!message.contains("811907981"), "{message}");
+    }
+
+    #[test]
+    fn an_invalid_country_is_reported_before_the_vat_id_it_would_judge() {
+        let input = NewCustomer {
+            country: "Germany".to_owned(),
+            vat_id: Some("DE811907980".to_owned()),
+            ..valid()
+        };
+        assert!(invalid(normalize(&input)).contains("country"));
     }
 
     #[test]

@@ -154,3 +154,68 @@ VAT rules (B1.03) and the FX table (B1.21). Recorded here rather than
 silently.
 
 Next item: B1.03 (VAT-id format validation wired into customer create/update).
+
+## 2026-08-06 — B1.03 VAT-id validation
+
+Shipped `platform/alo-store/src/vat_id.rs`, a pure module (no database, no
+network) that validates and canonicalises a VAT identification number for a
+customer's country, wired into `create_billing_customer` and
+`update_billing_customer` through the one `normalize()` both already share.
+
+- **Shape rules for all EU-27**, keyed on the VAT prefix rather than the
+  country code (Greece is `GR` as a country and `EL` as a prefix, and that
+  mapping is handled).
+- **Check digits for 14 member states** — AT, BE, DE, DK, FI, FR, IT, LU,
+  NL, PL, PT, SE, SI, SK — each one pinned in the tests by a real,
+  independently-known VAT id plus a mistyped twin that must fail, so a
+  transcription slip in an algorithm fails the suite rather than a customer.
+- **The stored form is canonical**: uppercase, separators removed, and always
+  carrying its two-letter prefix (`DE 811.907-980`, `811907980` and
+  `de811907980` all store as `DE811907980`) — the form EN 16931 and every
+  e-invoicing schema want. This is a change from B1.02, which stored the
+  compacted string as typed; nothing is deployed, so no data migration is
+  involved.
+- **A foreign registration is kept as written** when it is valid for the
+  country it names (a German customer really can invoice under a French
+  number), and when an id names a country of its own but is broken, the error
+  reports *that* country's rule rather than the customer's.
+- **Empty stays empty**: no VAT id, or one that is only separators, is a B2C
+  customer, never an error.
+- Errors carry the rule and the country prefix but **never the id itself** —
+  customer data does not travel into logs (law 1), asserted by a test.
+
+Verified: `SQLX_OFFLINE=true cargo clippy --workspace --all-targets` clean
+(zero warnings), `cargo test -p alo-store` green against local Postgres —
+104 unit tests including 12 new ones over the VAT rules (every member state
+accepts its own real id; malformed and mistyped ids refused; prefix optional
+on input, always present on output; separators/case are presentation; the
+B2C blank; foreign registrations; the French key that looks like a country
+code; charset/length before everything; errors never echo the id) — plus the
+`billing_customers_tenancy` integration suite, whose wrong-tenant proof still
+passes and which now also refuses a right-shape/wrong-check-digit German id
+and a Dutch-prefixed nine-digit one on both the create and the update path.
+`rustfmt --check` clean on both touched files (formatting stayed inside this
+item's lines — the divergence noted in the inbox above is untouched). No new
+routes, so no wire verification applies; nothing user-visible yet, so no
+CHANGELOG line (the first one lands with B1.05's routes).
+
+Cuts, and the reasoning behind them — **flagged for human review, since VAT
+ids are compliance-adjacent**:
+
+- **13 member states pass on shape alone** (BG, CY, CZ, EE, EL, ES, HR, HU,
+  IE, LT, LV, MT, RO). Their check algorithms are either unpublished, or
+  published in several mutually-inconsistent variants that I could not pin
+  to a known-good sample offline. A wrong checksum **rejects a real customer
+  and makes them un-invoiceable**; a missing one only means a typo is caught
+  later. Silence was chosen over guessing, deliberately.
+- **NL post-2020 sole-trader ids** (letters in the first block, not
+  BSN-derived) pass on shape alone for the same reason; the classic
+  all-digit "elfproef" is enforced.
+- **FR alphanumeric keys** (issued since 2014) pass on shape alone; the
+  numeric-key rule `(12 + 3 × (SIREN mod 97)) mod 97` is enforced.
+- Existence is **not** checked: a live VIES lookup is a network call, which
+  is out of scope here and something the loop must never make. If we want
+  "this number is really registered", it becomes its own queue item with an
+  explicit user-triggered lookup and a cached result.
+
+Next item: B1.04 (migration + store for `billing_products`).

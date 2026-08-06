@@ -45,6 +45,7 @@ pub mod spaces;
 pub mod store;
 pub mod tasks;
 pub mod thread;
+pub mod vat_id;
 pub mod vcard;
 
 pub use account::AccountStore;
