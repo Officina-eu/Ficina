@@ -10,7 +10,7 @@
 //! can never act outside the caller's own permissions.
 
 use alo_ai::{AgentDecision, AiConfig, InferenceError, WorkspaceSource};
-use alo_store::{CalendarEvent, EventId, NewTask};
+use alo_store::{CalendarEvent, EventId, MailboxId, MessageId, NewTask, Page, MAX_PAGE};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::{body::Bytes, Json};
@@ -92,16 +92,26 @@ pub async fn agent(
         api_key: row.api_key,
         enabled: row.enabled,
     };
+    // (kind, id, title) per retrieved item, so a proposed email action referring
+    // to a source by its number can be resolved to the concrete message id here —
+    // execute never re-searches, and the model never sees raw ids.
+    let sources: Vec<(String, String, String)> = hits
+        .iter()
+        .map(|h| (h.kind.clone(), h.id.clone(), h.title.clone()))
+        .collect();
     match alo_ai::run_agent(&config, &request, &ground, &today_utc()).await {
         Ok(AgentDecision::Answer(answer)) => Ok(Json(json!({
             "answer": answer, "action": Value::Null,
             "reason": Value::Null, "sources": sources_json
         }))),
-        Ok(AgentDecision::Action { action, say }) => Ok(Json(json!({
-            "answer": Value::Null,
-            "action": { "tool": action.tool, "args": action.args, "say": say },
-            "reason": Value::Null, "sources": sources_json
-        }))),
+        Ok(AgentDecision::Action { mut action, say }) => {
+            resolve_email_source(&mut action.args, &sources);
+            Ok(Json(json!({
+                "answer": Value::Null,
+                "action": { "tool": action.tool, "args": action.args, "say": say },
+                "reason": Value::Null, "sources": sources_json
+            })))
+        }
         Err(InferenceError::Disabled | InferenceError::NotConfigured) => Ok(Json(json!({
             "answer": Value::Null, "action": Value::Null,
             "reason": "unconfigured", "sources": sources_json
@@ -137,9 +147,94 @@ pub async fn agent_execute(
     match tool {
         "create_task" => execute_create_task(&account, &args).await,
         "create_event" => execute_create_event(&account, &args).await,
+        "mark_read" => execute_set_keyword(&account, &args, "$seen", "read").await,
+        "flag_email" => execute_set_keyword(&account, &args, "$flagged", "flagged").await,
+        "archive_email" => execute_archive(&account, &args).await,
         // Unreachable given the allowlist check, but the match stays total.
         _ => Err(Problem::with(StatusCode::BAD_REQUEST, "unknown tool")),
     }
+}
+
+/// Replace `{"source": n}` in an action's args with the concrete email it refers
+/// to (`message_id` + `subject`), from the retrieval results. Only resolves when
+/// the referenced source is an email; leaves non-email or source-less args
+/// untouched. Pure so the mapping is unit-tested.
+fn resolve_email_source(args: &mut Value, sources: &[(String, String, String)]) {
+    let Some(n) = args.get("source").and_then(Value::as_u64) else {
+        return;
+    };
+    let Some((kind, id, title)) = (n as usize).checked_sub(1).and_then(|i| sources.get(i)) else {
+        return;
+    };
+    if kind != "message" {
+        return;
+    }
+    if let Some(obj) = args.as_object_mut() {
+        obj.remove("source");
+        obj.insert("message_id".to_owned(), json!(id));
+        obj.insert("subject".to_owned(), json!(title));
+    }
+}
+
+/// Read the resolved `message_id` from an email action's args.
+fn message_id_arg(args: &Value) -> Result<MessageId, Problem> {
+    let id = args
+        .get("message_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if id.is_empty() {
+        return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "message required"));
+    }
+    Ok(MessageId::new(id.to_owned()))
+}
+
+/// Set or clear a keyword ($seen for read, $flagged for flag) on an email.
+async fn execute_set_keyword(
+    account: &Account,
+    args: &Value,
+    keyword: &str,
+    flag_field: &str,
+) -> Result<Json<Value>, Problem> {
+    let msg = message_id_arg(args)?;
+    // Default the boolean to true ("mark read" / "flag" without an explicit value).
+    let on = args.get(flag_field).and_then(Value::as_bool).unwrap_or(true);
+    account
+        .acc
+        .set_keyword(&msg, keyword, on)
+        .await
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not update the email"))?;
+    Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
+}
+
+/// Archive an email: add it to Archive and take it out of the Inbox.
+async fn execute_archive(account: &Account, args: &Value) -> Result<Json<Value>, Problem> {
+    let msg = message_id_arg(args)?;
+    let boxes = account
+        .acc
+        .mailboxes(Page::first(MAX_PAGE))
+        .await
+        .map_err(|_| Problem::server_error())?;
+    let by_role = |role: &str| {
+        boxes
+            .iter()
+            .find(|m| m.role.as_deref() == Some(role))
+            .map(|m| MailboxId::new(m.id.as_str()))
+    };
+    let archive = by_role("archive")
+        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "no Archive mailbox"))?;
+    account
+        .acc
+        .add_to_mailbox(&msg, &archive)
+        .await
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not archive the email"))?;
+    // Take it out of the Inbox; if it was not there, the archive still stands.
+    if let Some(inbox) = by_role("inbox") {
+        match account.acc.remove_from_mailbox(&msg, &inbox).await {
+            Ok(()) | Err(_) => {}
+        }
+    }
+    Ok(Json(json!({ "ok": true, "result": { "kind": "email", "id": msg.as_str() } })))
 }
 
 /// Create a task from approved args, on the caller's personal project. Reuses the
@@ -284,7 +379,30 @@ fn parse_due(s: &str) -> Option<time::OffsetDateTime> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::{parse_due, parse_rfc3339};
+    use super::{parse_due, parse_rfc3339, resolve_email_source};
+
+    #[test]
+    fn resolves_an_email_source_number_to_its_message_id() {
+        let sources = vec![
+            ("file".to_owned(), "f1".to_owned(), "Report".to_owned()),
+            ("message".to_owned(), "m2".to_owned(), "Re: Acme".to_owned()),
+        ];
+        // An email source number becomes the concrete message id + subject.
+        let mut args = serde_json::json!({ "source": 2, "read": true });
+        resolve_email_source(&mut args, &sources);
+        assert_eq!(args["message_id"], "m2");
+        assert_eq!(args["subject"], "Re: Acme");
+        assert!(args.get("source").is_none());
+        assert_eq!(args["read"], true);
+        // A non-email source (a file) is left as-is — execute then rejects it.
+        let mut file = serde_json::json!({ "source": 1 });
+        resolve_email_source(&mut file, &sources);
+        assert!(file.get("message_id").is_none());
+        // No "source" at all (e.g. create_task) — untouched.
+        let mut task = serde_json::json!({ "title": "x" });
+        resolve_email_source(&mut task, &sources);
+        assert_eq!(task, serde_json::json!({ "title": "x" }));
+    }
 
     #[test]
     fn parses_rfc3339_to_utc() {
