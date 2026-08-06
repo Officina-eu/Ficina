@@ -61,7 +61,7 @@ pub(crate) fn generate_token() -> String {
 macro_rules! opaque_id {
     ($(#[$m:meta])* $name:ident) => {
         $(#[$m])*
-        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
         pub struct $name(String);
 
         impl $name {

@@ -72,3 +72,45 @@ Human-action inbox (things the loop must not do itself):
     mechanical churn, kept so the crate is fmt-clean.
   - CHANGELOG untouched: storage foundation only, no user-visible behaviour.
 - **Next:** S1.03 (typed section schema v1 in a `site_model` module).
+
+## S1.03 — typed section schema v1, `site_model` (2026-08-06)
+
+- **Shipped:** `platform/alo-store/src/site_model.rs` — the closed v1 section
+  vocabulary as an internally-tagged serde enum (`type` tag, snake_case):
+  nav, hero, features, text_image, gallery, testimonials, pricing, team,
+  faq, cta, contact_form, footer, each with typed props and
+  `deny_unknown_fields`; the `SectionsEnvelope { schema_version, sections }`
+  write gate (`from_value` = version check before shape check → strict serde
+  parse → content rules); content validation covering text bounds
+  (300/5 000 chars), list bounds (≤50, non-empty where meaningless empty),
+  href allowlist (`/path`, `#fragment`, http(s)/mailto/tel; rejects
+  `javascript:`, `data:`, protocol-relative — stored hrefs are always safe
+  in an `href` attribute), blob/form id token shape, and icon token shape.
+  Pricing `price` is a display string by design (no money computation —
+  integer-cents law not in play, per the design note). Golden fixtures: 12
+  per-section envelopes + a full-page fixture with all 12 in order
+  (`tests/fixtures/site_sections/`), pinned by `tests/site_sections.rs`
+  round-trip-to-identical-Value tests. Enabling change: the `opaque_id!`
+  macro now also derives serde Serialize/Deserialize (newtype-transparent,
+  purely additive) so `BlobId` can live typed inside section JSON.
+- **Verified:** `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-store
+  --all-targets` zero warnings; full `cargo test -p alo-store` green against
+  the local docker Postgres (77 unit incl. 10 new schema tests — exhaustive
+  fully-populated and minimal round-trips, wire-tag pinning, unknown
+  type/prop rejection, future-version error precedence, href/token/content
+  rules — plus 3 new golden-fixture tests and the whole isolation suite).
+  No storage/routes touched, so wrong-tenant and wire-verify gates don't
+  apply; pure model only.
+- **Cuts/flags:**
+  - Read-side tolerance (skip-with-log on unknown sections so an old
+    renderer survives a newer snapshot) deliberately NOT here — it is the
+    renderer's job and lands with S1.06, as the design note specifies.
+  - `contact_form.form_id` is a plain validated token (`Option<String>`)
+    until the forms table + id newtype land in S1.16; wire shape is final.
+  - Environment note: parallel rustc runs OOM-killed the first full test
+    build on this machine; `cargo test -j 2` builds fine. The DB tests need
+    `DATABASE_URL=postgres://alo:alo-dev-only@localhost:5432/alo` (harness
+    default points at 5433).
+  - CHANGELOG untouched: schema foundation only, no user-visible behaviour.
+- **Next:** S1.04 (site_pages migration + store, sections validated through
+  this module on every write).
