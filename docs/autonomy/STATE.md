@@ -219,3 +219,79 @@ ids are compliance-adjacent**:
   explicit user-triggered lookup and a cached result.
 
 Next item: B1.04 (migration + store for `billing_products`).
+
+## 2026-08-06 — B1.04 billing products (migration + store)
+
+Shipped the tenant's price list, plus the shared field rules the rest of the
+wave will sit on:
+
+- **Migration `0101_billing_products.sql`** — tenant-scoped,
+  `PRIMARY KEY (tenant_id, id)`, `REFERENCES tenants(id) ON DELETE CASCADE`,
+  `unit_price_cents BIGINT` and `vat_rate_bp INTEGER` (no floating-point
+  column exists anywhere in billing), an `archived_at` timestamp rather than
+  a boolean `active` — the same shape as `billing_customers`, so the pickers
+  and the `/archive` route behave identically across the module — and
+  defence-in-depth CHECKs on name/price/rate that the store already enforces
+  in Rust. Index `(tenant_id, lower(name))` for the list surface.
+- **`platform/alo-store/src/billing_products.rs`** — `NewProduct` (the
+  writable shape) and `Product` (the stored record), with the CRUD on
+  `AccountStore`: `create_billing_product`, `billing_products(include_
+  archived)`, `billing_product`, `update_billing_product`,
+  `set_billing_product_archived`. One `normalize()` runs for both create and
+  update. Archiving stays a separate call from editing, so a price change can
+  never drop an item out of the pickers by accident, and it is idempotent
+  (re-archiving keeps the original time).
+- **`platform/alo-store/src/billing_field.rs`** (new, small) — the primitive
+  rules every billing record shares: `bounded`, `required`, `vat_rate_bp`,
+  `unit_price_cents`, with `VAT_RATE_MAX_BP` and `UNIT_PRICE_MAX_CENTS`.
+  `billing_customers.rs` was moved onto it in the same commit (its private
+  `bounded`/`validate_name` are gone), so customers, products, and the
+  invoice/quote lines coming in B1.06 answer a caller with one wording per
+  rule instead of three.
+
+Two decisions worth naming, both recorded in the module docs:
+
+- **The price ceiling is arithmetic, not taste.** `UNIT_PRICE_MAX_CENTS` is
+  10^9 (€10 000 000.00 per unit) because B1.06 computes line net as
+  `qty_milli × unit_price_cents / 1000`; that cap keeps the product inside
+  `i64` for any quantity the line model can hold, so no document total can
+  wrap into a wrong number. A test asserts the multiplication at both
+  ceilings is still an `i64`.
+- **Negative prices are refused.** A discount is a negative quantity or a
+  credit note (B1.09) — both auditable — whereas a negative unit price hides
+  a refund inside an ordinary line.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store --all-targets` clean
+(zero warnings), `cargo test -p alo-store` green against local Postgres —
+115 unit tests, 11 of them new (the shared field rules, and the product
+normalisation: trimming, the required name at and past its bound, the
+optional unit, the price floor/ceiling, the real European VAT spread plus the
+exempt zero) — and the new `billing_products_tenancy` integration suite,
+which proves the CRUD arc and, on every path (read, list, update, archive),
+that another tenant gets the clean `NotFound`/empty and that a ghost id is
+indistinguishable from another tenant's id. It also pins that cents survive
+the round trip exactly, that active rows sort before archived ones, that a
+rejected write leaves the record untouched, and that deleting the tenant
+purges the rows — read back with a direct `count(*)`, not through the store's
+own tenant predicate. `\d billing_products` inspected on the live local
+database: the three CHECKs and the cascade are on the table as written.
+`rustfmt --edition 2024 --check` clean on all six touched files.
+
+No new routes (B1.05), so no wire verification applies; nothing user-visible
+yet, so still no CHANGELOG line — the first one lands with B1.05's routes.
+
+Cuts and flags:
+
+- **No `currency` column on a product.** The design note's model doesn't
+  carry one, and a price list is quoted in the tenant's own currency; the
+  document carries the currency it was raised in and B1.21 adds the FX
+  snapshot. Noted in `docs/design/billing.md` so the ambiguity isn't left to
+  be rediscovered. Additive to add later if a tenant really keeps two lists.
+- **`unit` is free text**, bounded at 32 characters. EN 16931 wants a
+  UN/ECE Recommendation 20 unit code on the line instead — that mapping is
+  the e-invoice writer's job (B1.22) and is flagged there rather than guessed
+  at here, in line with the loop's rule on compliance items.
+- **No SKU/barcode/purchase price** — those are explicitly B5.02's catalogue
+  upgrade, not this item.
+
+Next item: B1.05 (HTTP `/billing/customers` + `/billing/products` routes).

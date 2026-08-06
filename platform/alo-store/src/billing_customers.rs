@@ -21,6 +21,7 @@
 use time::OffsetDateTime;
 
 use crate::account::AccountStore;
+use crate::billing_field::{bounded, required};
 use crate::error::{Result, StoreError};
 use crate::id::{BillingCustomerId, ContactId};
 use crate::vat_id;
@@ -159,26 +160,6 @@ struct Normalized {
     contact_id: Option<String>,
 }
 
-/// Trims `value` and rejects it if it exceeds `max` characters.
-fn bounded(field: &str, value: &str, max: usize) -> Result<String> {
-    let trimmed = value.trim();
-    if trimmed.chars().count() > max {
-        return Err(StoreError::Validation(format!(
-            "{field} must be at most {max} characters"
-        )));
-    }
-    Ok(trimmed.to_owned())
-}
-
-/// Validates a required name: non-blank after trimming, bounded.
-fn validate_name(name: &str) -> Result<String> {
-    let name = bounded("name", name, CUSTOMER_NAME_MAX_CHARS)?;
-    if name.is_empty() {
-        return Err(StoreError::Validation("name must not be empty".to_owned()));
-    }
-    Ok(name)
-}
-
 /// Validates an ISO 3166-1 alpha-2 country code, returning it uppercased.
 ///
 /// Shape only: two ASCII letters. The store deliberately does not carry a
@@ -272,7 +253,7 @@ fn validate_payment_terms(days: i32) -> Result<i32> {
 fn normalize(input: &NewCustomer) -> Result<Normalized> {
     let country = validate_country(&input.country)?;
     Ok(Normalized {
-        name: validate_name(&input.name)?,
+        name: required("name", &input.name, CUSTOMER_NAME_MAX_CHARS)?,
         address_line1: bounded(
             "address line 1",
             &input.address_line1,

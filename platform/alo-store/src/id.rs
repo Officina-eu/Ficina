@@ -206,6 +206,11 @@ opaque_id!(
     /// (alo Billing, ADR 0035).
     BillingCustomerId
 );
+opaque_id!(
+    /// A billing product — one line of a tenant's price list
+    /// (alo Billing, ADR 0035).
+    BillingProductId
+);
 
 #[cfg(test)]
 mod tests {

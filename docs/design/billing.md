@@ -68,8 +68,12 @@ column, struct field, or computation anywhere in this module.
   flag. Archive rather than delete: an issued invoice must always be
   able to name its customer.
 - **`billing_products`** — name, unit, unit price cents, VAT rate bp,
-  active flag. A price-list *source* for lines, not a foreign key the
-  line depends on — see the line snapshot rule below.
+  archived flag (as-built: an `archived_at` timestamp, the same shape as
+  `billing_customers`, so the `/archive` route and the pickers behave
+  identically across the module). Prices are in the tenant's default
+  currency; the document carries the currency it was raised in, and
+  B1.21's FX snapshot converts. A price-list *source* for lines, not a
+  foreign key the line depends on — see the line snapshot rule below.
 - **`billing_invoices`** — customer ref, status
   `draft | issued | paid | void`, currency, optional number (NULL while
   draft), issue date, due date, payment terms snapshot, credit-note
