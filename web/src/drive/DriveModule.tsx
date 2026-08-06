@@ -23,6 +23,7 @@ import {
   Trash2,
   Upload,
   Users,
+  X,
 } from "lucide-react";
 
 import { strings } from "../i18n";
@@ -39,7 +40,12 @@ const OfficeEditor = lazy(() => import("./OfficeEditor").then((m) => ({ default:
 /** Real Office files open in Collabora; kept here so it doesn't pull the editor
  *  into the main bundle. */
 const OFFICE_EXT = /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv)$/i;
+// Spreadsheets we import natively into alo Sheet instead of opening in Collabora
+// (ADR 0033, stage 1). `.xlsx`/`.xlsm` are OOXML; `.xls` (old binary) and `.ods`
+// are not covered yet and still fall through to the Office path.
+const SPREADSHEET_IMPORT = /\.xls[mx]$/i;
 import { fileSize, nodeIcon, saveBlob } from "./parts";
+import { xlsxToUniverSnapshot } from "./importOffice";
 import styles from "./DriveModule.module.css";
 
 type Crumb = { id: string; name: string };
@@ -61,6 +67,9 @@ export function DriveModule() {
   const [openDoc, setOpenDoc] = useState<{ id: string; name: string } | null>(null);
   const [openSheet, setOpenSheet] = useState<{ id: string; name: string } | null>(null);
   const [openOffice, setOpenOffice] = useState<{ id: string; name: string } | null>(null);
+  // Best-effort import of a real Office file into a native editor (ADR 0033).
+  const [importing, setImporting] = useState<string | null>(null);
+  const [importFailed, setImportFailed] = useState<string | null>(null);
   const [showMembers, setShowMembers] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -107,6 +116,8 @@ export function DriveModule() {
       if (node.kind === "folder") setPath([{ id: node.id, name: node.name }]);
       else if (node.kind === "doc") setOpenDoc({ id, name: node.name });
       else if (node.kind === "sheet") setOpenSheet({ id, name: node.name });
+      else if (node.kind === "file" && SPREADSHEET_IMPORT.test(node.name))
+        void importSpreadsheet(id, node.name);
       else if (node.kind === "file" && OFFICE_EXT.test(node.name)) setOpenOffice({ id, name: node.name });
     });
   }, [searchParams, setSearchParams, client]);
@@ -121,6 +132,7 @@ export function DriveModule() {
     if (n.kind === "folder") setPath((p) => [...p, { id: n.id, name: n.name }]);
     else if (n.kind === "doc") setOpenDoc({ id: n.id, name: n.name });
     else if (n.kind === "sheet") setOpenSheet({ id: n.id, name: n.name });
+    else if (n.kind === "file" && SPREADSHEET_IMPORT.test(n.name)) void importSpreadsheet(n.id, n.name);
     else if (n.kind === "file" && OFFICE_EXT.test(n.name)) setOpenOffice({ id: n.id, name: n.name });
     else void download(n);
   }
@@ -146,6 +158,27 @@ export function DriveModule() {
       setOpenSheet({ id, name });
     } catch {
       /* ignore */
+    }
+  }
+
+  /** Import a real `.xlsx` into a new alo Sheet (ADR 0033, stage 1): convert its
+   *  cells to a Univer snapshot, create a native sheet node, and open it. One-way
+   *  — the original file is left untouched in Drive. */
+  async function importSpreadsheet(fileId: string, fileName: string) {
+    const base = fileName.replace(/\.[^.]+$/, "") || fileName;
+    setImportFailed(null);
+    setImporting(base);
+    try {
+      const bytes = new Uint8Array(await (await client.driveDownload(fileId)).arrayBuffer());
+      const snapshot = xlsxToUniverSnapshot(bytes, base);
+      const id = await client.driveCreateSheet(location, parent, base);
+      await client.driveSaveSheet(id, snapshot);
+      await load();
+      setOpenSheet({ id, name: base });
+    } catch {
+      setImportFailed(fileName);
+    } finally {
+      setImporting(null);
     }
   }
 
@@ -496,6 +529,26 @@ export function DriveModule() {
             }}
           />
         </Suspense>
+      )}
+      {importing !== null && (
+        <div className={styles.importOverlay}>
+          <Spinner size={24} />
+          <div className={styles.importTitle}>{strings.driveImporting(importing)}</div>
+          <div className={styles.importNote}>{strings.driveImportNote}</div>
+        </div>
+      )}
+      {importFailed !== null && (
+        <div className={styles.importToast} role="alert">
+          <span>{strings.driveImportFailed(importFailed)}</span>
+          <button
+            type="button"
+            className={styles.importToastClose}
+            onClick={() => setImportFailed(null)}
+            aria-label={strings.close}
+          >
+            <X size={16} />
+          </button>
+        </div>
       )}
     </div>
   );

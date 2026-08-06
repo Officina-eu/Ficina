@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- **Excel files open natively.** Opening a real `.xlsx` in Drive now imports it
+  straight into an **alo Sheet** — no third-party editor. Cell values, numbers,
+  and multiple sheets carry over (best-effort: complex styling and charts may
+  not). Your original file stays in Drive, unchanged, so nothing is lost. This
+  is the first step of moving every document type onto alo's own editors
+  (ADR 0033).
+
 - **Equations in documents.** In an alo Doc, type `/equation` (or `/formula`,
   `/math`) to add a math formula written in LaTeX — `E = mc^2`, `\frac{a}{b}`,
   and so on — rendered cleanly on the page. Click a formula to edit it. Code
