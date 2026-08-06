@@ -353,6 +353,114 @@ Cross-cutting Sheets principles:
 
 ---
 
+## Business modules — the Work OS (ADR 0035)
+
+alo's second act: the operational backbone SAP and Odoo sell, rebuilt from
+scratch on our own foundations, **one wave at a time, each with its agent on
+day one**. Wave tags map to the ROADMAP's Business track:
+**[B1]**…**[B6]** = build order · **[B+]** = later waves, post-traction.
+Same rule as above: nothing gets built that isn't listed, nothing listed
+without a wave. AI lines follow ADR 0034: propose-then-approve, access-scoped,
+EU models, suggest-only where the EU AI Act calls a use high-risk.
+
+### [B1] Billing — Quotes & Invoices (the wedge: EU e-invoicing mandates)
+
+- [B1] ★ **Billing agent** — "invoice Acme €2,400 for July consulting", "make that quote an invoice", "chase everyone overdue >14 days, politely" — drafts, user approves, alo Mail sends
+- [B1] Customer records: billing address, VAT ID (VIES format check), payment terms, default currency — linked to existing Contacts
+- [B1] Products/services price list: name, unit, price, VAT rate — the reusable line-item source
+- [B1] Quote record: customer + dated line items (qty × unit price, per-line VAT), totals computed server-side, money as integer cents — never floats
+- [B1] Quote lifecycle: draft → sent (as PDF via alo Mail) → accepted/declined/expired; accepted converts to invoice in one click
+- [B1] Invoice record: same line model + issue date, due date, payment terms
+- [B1] Legal sequential numbering: per-tenant, gapless, assigned at issue (drafts unnumbered), immutable once issued
+- [B1] Credit notes: negative-total invoice referencing the original — the only legal way to "undo" an issued invoice
+- [B1] PDF rendering: clean invoice/quote PDF with tenant branding (logo, footer, bank details)
+- [B1] ★ **EN 16931 e-invoice**: Factur-X (PDF with embedded XML) + XRechnung/UBL output — the format German/French law requires; validated against the official schematrons
+- [B1] ★ Peppol sending/receiving via an access point (integrate a certified AP first; own membership is an open decision)
+- [B1] E-invoice **receiving**: inbound Factur-X/XRechnung parsed into a bill record (DE already mandates being able to receive)
+- [B1] Payment tracking: mark paid (date, method, reference), partial payments, overdue view
+- [B1] Payment reminders/dunning: manual first, then scheduled polite sequences — drafted by the agent, approved by you
+- [B1] VAT summary report per period (the numbers your accountant asks for), CSV export
+- [B1] Multi-currency invoices with a stored ECB rate at issue date
+- [B2] Recurring invoices (subscriptions-lite): monthly/annual schedules, auto-draft for approval
+- [B2] Payment links on invoices (integrate an EU PSP; never store card data)
+- [B2] SEPA: pain.001 credit-transfer batch export for paying bills
+- [B+] Customer portal page per invoice (view + pay, no login)
+
+### [B2] CRM & Sales — deals that live on real email
+
+- [B2] ★ **CRM agent** — "turn this thread into a deal", "what's stalled in my pipeline?", "draft a follow-up for every deal quiet >1 week" — the mail-native advantage no standalone CRM has
+- [B2] Lead/deal record: company + contact, value, currency, expected close, stage, owner, source
+- [B2] Pipeline board: drag-between-stages kanban (same interaction as Tasks board), per-team pipelines
+- [B2] ★ Deal ↔ mail-thread linking: the full email history of a deal in one place, automatically (same-domain matching, user-confirmed)
+- [B2] Activities on a deal: notes, calls logged, next-step with due date (surfaces in Tasks/Agenda)
+- [B2] Lost reasons + simple win/loss reporting; pipeline value by stage
+- [B2] Quotes from a deal (bridges to B1); won deal → invoice
+- [B2] Import leads from CSV/Excel; dedupe by email domain
+- [B+] Web-form → lead capture; enrichment; forecasting; territory management
+
+### [B3] Projects & Timesheets — from shipped Tasks to billable work
+
+- [B3] ★ **Projects agent** — "set up the Acme onboarding project from our template", "what's over budget?", "draft this month's timesheet from my calendar" (draft only — you approve)
+- [B3] Client projects: a project typed as client work (links a customer), budget in hours or money
+- [B3] Milestones + simple timeline view over existing task boards
+- [B3] Time entry: start/stop timer + manual entry, per task/project, billable flag, hourly rate
+- [B3] Approval flow: submitted → approved timesheets (weekly), locked after approval
+- [B3] ★ Billable hours → invoice lines in one click (feeds B1); unbilled-work view
+- [B3] Project profitability: hours × rates vs budget, per project
+- [B3] Project templates (recurring engagement setup)
+- [B+] Gantt with dependencies; capacity planning; field-service work orders
+
+### [B4] Expenses & Accounting core — the books
+
+- [B4] ★ **Finance agent** — "categorise last month's bank transactions", "anything unusual in March?", "prepare the Q2 VAT summary" — suggestions with sources, accountant approves
+- [B4] ★ Receipt capture: photo/PDF → AI extracts vendor, date, amount, VAT — human confirms every field before it books
+- [B4] Expense record: category, project link (billable → B1 rebill), payment method; approval flow (submit → approve → reimburse)
+- [B4] Mileage claims at a per-km rate table
+- [B4] Chart of accounts: sensible EU SME default, editable, per-tenant
+- [B4] Double-entry ledger: every invoice/expense/payment posts journal entries automatically — correctness proven by property tests (debits always equal credits)
+- [B4] Manual journal entries with description + attachment (accountant escape hatch)
+- [B4] Bank statement import: CAMT.053, MT940, CSV mapping wizard — built by us, works with every bank, no licence needed
+- [B4] ★ Reconciliation with AI matching: statement line ↔ open invoice/expense suggestions, one-click confirm, rules learned per tenant
+- [B4] Fiscal periods with soft close (lock postings before a date)
+- [B4] Reports: P&L, balance sheet, aged receivables/payables, VAT return figures — all exportable (CSV/PDF) for the accountant
+- [B4] Accountant access role: read + journal-only rights, no mail/files
+- [B+] PSD2 live bank feeds via a licensed EU aggregator (integrate, ADR 0009); DATEV export (the German accountant handshake)
+
+### [B5] Purchasing & Inventory — things and stock
+
+- [B5] ★ **Inventory agent** — "what needs reordering?", "draft POs for everything under minimum", demand notes from sales history — always draft-then-approve
+- [B5] Product catalog: SKU, barcode, unit, purchase/sale price, VAT, photos; services vs stocked goods
+- [B5] Supplier records + per-supplier prices and lead times
+- [B5] Purchase order: draft → sent (via alo Mail as PDF) → received; receiving updates stock and creates the bill (three-way match-lite)
+- [B5] Stock on hand per location (multi-warehouse), stock moves with full history — quantities never edited in place, always moved
+- [B5] Manual adjustments with reason codes; stocktake (count sheet → variance)
+- [B5] Minimum-stock reorder rules feeding the agent's PO proposals
+- [B5] Sales order: order → delivery note → invoice chain (bridges B2 → B1)
+- [B5] Barcode scanning via phone camera in the web app
+- [B+] Lot/serial tracking, expiry dates; landed costs; manufacturing-lite (BOM + production order); POS
+
+### [B6] HR — people, without the payroll trap
+
+- [B6] ★ **HR agent** — "who's off next week?", "draft a contract letter from the template", onboarding checklist proposals. CV screening is **suggest-only with mandatory human decision** (EU AI Act high-risk class), every decision logged
+- [B6] Employee records: personal data, role, team, manager (org chart from this), documents (contract PDFs in Drive with HR-only permissions)
+- [B6] Leave management: request → manager approval, balances per policy (annual, sick, unpaid), team absence calendar (renders in Agenda)
+- [B6] Public-holiday calendars per country/region
+- [B6] Onboarding/offboarding checklists (account creation ties into alo admin)
+- [B6] Recruitment-lite: job openings, applicant pipeline board (CV in Drive, interview notes, stage kanban — same board pattern again)
+- [B6] Expense/leave/timesheet approvals unified in one "approvals" inbox for managers
+- [B+] Performance check-ins; training records; **payroll data export to local providers — payroll calculation itself is a permanent non-goal (ADR 0035)**
+
+### Cross-cutting (every business module gets these for free)
+
+- [B1] Everything is tenant-scoped records with the same isolation guarantees (and tests) as mail
+- [B1] Every record links to its mail threads, files, tasks — the "one point" promise in the data model
+- [B1] Every module's numbers visible to **Ask alo** ("how much did Acme pay us this year?") — cited, access-scoped
+- [B2] Audit log per record (who changed what, when) — sold as a feature, required for accounting anyway
+- [B2] CSV/Excel import per module the day the module ships; Odoo import mappings grow over time (ADR 0035 migration story)
+- [B2] Role-based access per module (finance vs sales vs HR see different worlds), on Spaces permissions
+
+---
+
 ## Deliberately absent
 
-No tracking pixels, no ad surface, no engagement mechanics, no consumer free tier, no dark-pattern storage nags. Every absence here is a sales argument; see Non-goals in the product doc for the build-side list.
+No tracking pixels, no ad surface, no engagement mechanics, no consumer free tier, no dark-pattern storage nags. On the business side: **no payroll calculation, no tax filing, no bank connections built from scratch** (ADR 0035 — export/integrate instead). Every absence here is a sales argument; see Non-goals in the product doc for the build-side list.

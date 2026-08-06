@@ -42,6 +42,17 @@ alo is built against each of those failures:
 | **alo Migrate** | The M365 exit suite — see section 6. |
 | **Admin console** | Tenant management, users and groups, domains, deliverability autopilot, audit logging, GDPR exports, backups. |
 
+**The Business modules (ADR 0035)** — alo's second act: the operational backbone SAP and Odoo sell, rebuilt from scratch on alo's own foundations (alo Base's relational core, the tenant-scoped store, Spaces permissions, the agent framework), shipped in waves, **each with its own AI agent on day one**:
+
+| Wave | Module | What it does |
+|---|---|---|
+| B1 | **alo Billing** | Quotes → invoices → payments with **EU e-invoicing** (EN 16931: Factur-X, XRechnung, Peppol) — the compliance wave every EU SME must ride in 2025–2027. Legal gapless numbering, credit notes, VAT summaries, dunning. |
+| B2 | **alo CRM** | Deals that live on real mail threads — pipeline board, activities, quotes from deals. The mail-native advantage no standalone CRM has. |
+| B3 | **alo Projects** | Client projects + timesheets over the shipped Tasks module; billable hours become invoice lines in one click. |
+| B4 | **alo Finance** | Expenses with AI receipt capture, double-entry ledger, bank-statement import (CAMT/MT940/CSV), AI-assisted reconciliation, P&L / balance sheet / VAT reports, accountant role. |
+| B5 | **alo Inventory** | Product catalog, suppliers, purchase and sales orders, multi-location stock with full move history, reorder rules. |
+| B6 | **alo HR** | Employee records, leave management, org chart, recruitment-lite, one approvals inbox. Payroll *calculation* is a permanent non-goal — data exports to local providers instead. |
+
 ## 4. What we build vs. what we integrate
 
 The rule: **build where we differentiate, integrate the commodity, operate the rest as sealed containers.** Our repositories stay Rust + TypeScript only.
@@ -191,11 +202,13 @@ Written down because scope creep killed most of our predecessors. alo will **not
 
 **Revised (ADR 0018):** *consumer/personal email* is no longer a Non-goal. alo now also offers self-service **personal** addresses (e.g. `johnsmith@alomails.com`) on platform-operated domains, as a distinct product line alongside the B2B offering. It is built on the same sovereign stack and the same per-tenant isolation (one tenant per person), verification-gated, with consumer sending reputation isolated from B2B customers. This is a deliberate scope expansion, not a free-tier growth-hacking play: the sovereignty promise and the "no tracking, no ads, no dark patterns" rule apply to personal users too.
 
+**Revised (ADR 0035):** *CRM/ERP* is no longer "Odoo's territory — integrate, don't compete." The goal has widened: **alo is the one place a business does its work**, and the operational backbone (billing, CRM, projects, accounting, inventory, HR) is now built **from scratch, in waves, AI-native** — see §3's Business modules and the ROADMAP's Business track. The revision is bounded by its own non-goals: **no payroll calculation, no tax filing, no from-scratch bank connections** (export or integrate instead), and no attempt to clone all of Odoo at once — one deep module at a time, each behind the same quality gates as mail.
+
 **Revised (ADR 0033):** *office editors* is narrowed, not abandoned. alo still does **not** build a from-scratch office *engine* — formula evaluation, layout, rendering — which is where the scope-creep danger lives. It **integrates open-source editor frameworks** (Univer, Apache-2.0, for Sheets; BlockNote, MPL-2.0, for Docs) as embedded TypeScript libraries and builds only its **own UI, chrome, and import/export** on top: the integrate-don't-build rule of §4, now applied to editors in place of the heavier Collabora-via-WOPI shell (ADR 0010, superseded). The one genuine new build is a native **Slides** canvas, because no open engine covers it — a deliberate, separately-justified expansion, not a blanket licence to rebuild Office. Real `.docx`/`.xlsx`/`.pptx` files are imported best-effort into the native types; pixel-faithful round-trip to desktop Office is explicitly no longer promised.
 
 ## 15. Open decisions
 
-Tracked here until closed: final name (alo vs Atelier — EUIPO search pending); exact open-core boundary (which control-plane components stay proprietary); CLA tooling; hosting partner (Hetzner vs OVH vs Scaleway); pricing tiers; second developer hire (target: Phase 2 start). *(Closed — Collabora vs OnlyOffice as docs engine: resolved by **ADR 0033**, which removes Collabora in favour of native editors on embedded open engines.)*
+Tracked here until closed: final name (alo vs Atelier — EUIPO search pending); exact open-core boundary (which control-plane components stay proprietary); CLA tooling; hosting partner (Hetzner vs OVH vs Scaleway); pricing tiers; second developer hire (target: Phase 2 start); Peppol access point — integrate a certified AP vs. become one (ADR 0035, decide during Wave B1); EU PSP for invoice payment links. *(Closed — Collabora vs OnlyOffice as docs engine: resolved by **ADR 0033**, which removes Collabora in favour of native editors on embedded open engines.)*
 
 ## 16. Positioning in one line
 

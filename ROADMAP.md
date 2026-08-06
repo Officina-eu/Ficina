@@ -284,6 +284,44 @@ document or a formula.
 
 ---
 
+## Business track — the Work OS (ADR 0035) ⇄ runs alongside Phases 3–6
+
+alo widens from "replace M365" to **the one place a business does its work**:
+the SAP/Odoo operational backbone, built from scratch on alo Base + the store +
+the agent framework. Waves ship one at a time, full depth; **each wave's agent
+is part of its definition of done** (ADR 0034 — propose-then-approve, EU
+models). Feature detail lives in `features.md` → Business modules; this file
+tracks the build order and gates.
+
+### Wave B1 — Billing: Quotes & Invoices (the EU e-invoicing wedge)
+
+Slices, in order — each shippable and wire-verified alone:
+
+- [ ] B1.1 Foundations: customer billing records (VAT ID, terms) on Contacts; product/price list; money as integer cents end-to-end
+- [ ] B1.2 Invoices: record + lines + server-computed VAT/totals; draft → issue with gapless per-tenant legal numbering; immutable once issued; credit notes
+- [ ] B1.3 Quotes: same line model; draft → sent → accepted/declined/expired; accept → invoice
+- [ ] B1.4 PDF: branded invoice/quote PDF, sent via alo Mail
+- [ ] B1.5 ★ E-invoice out: Factur-X + XRechnung/UBL, schematron-validated (EN 16931)
+- [ ] B1.6 E-invoice in: inbound Factur-X/XRechnung → parsed bill record
+- [ ] B1.7 Payments: mark paid / partial, overdue view, manual reminders; VAT summary per period
+- [ ] B1.8 ★ Billing agent: create/convert/chase by plain language, propose-then-approve, wired into Ask alo
+- [ ] B1.9 Peppol via a certified access point (integrate first — open decision on own membership)
+
+### Exit gate — B1 done when:
+
+- [ ] A real business (Axon Group) runs a full month's invoicing on alo: quotes sent, invoices issued with legal numbering, one credit note, an XRechnung accepted by a government/large-buyer portal, and the VAT summary handed to the accountant without a spreadsheet
+
+### Wave B2 — CRM & Sales — deals on real email *(gate: B1 live with ≥1 real tenant)*
+### Wave B3 — Projects & Timesheets — billable hours feed B1
+### Wave B4 — Expenses & Accounting core — receipts, ledger, reconciliation, VAT
+### Wave B5 — Purchasing & Inventory — products, stock, PO/SO chains
+### Wave B6 — HR — records, leave, recruitment-lite (payroll calc = permanent non-goal)
+
+Later waves (post-traction, unordered): manufacturing-lite, POS, subscriptions,
+e-signature (eIDAS), marketing sends, storefront, DATEV/PSD2 integrations.
+
+---
+
 When every box in a phase is checked, mark the phase header — DONE and record
 the date of the gate in git history, not in this file. The file stays about
 what; git stays about when.
