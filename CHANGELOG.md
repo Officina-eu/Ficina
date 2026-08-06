@@ -53,6 +53,13 @@ contracts.
   It never sends on its own, and the sender is always your own address (it can't
   write as anyone else). ADR 0034.
 
+- **Ask AI can send a draft — only when you approve, and only a draft.** After you
+  have a draft (one you wrote, or one Ask AI drafted for you), you can ask Ask AI
+  to send it; it shows you the send as a proposal and delivers it **only after you
+  press Approve**. It will only ever send a message that is already in your Drafts
+  — never an arbitrary email — and it goes out through the normal signed-sending
+  path, moving to Sent just as if you had clicked Send yourself. ADR 0034.
+
 - **Workspace search (files, tasks + email content).** A search box in the left
   rail (or **Ctrl/Cmd-K** anywhere) searches across your **files, tasks and
   email** at once, and a result jumps you straight to it — opening the file, task

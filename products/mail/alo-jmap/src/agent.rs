@@ -154,6 +154,7 @@ pub async fn agent_execute(
         "snooze_email" => execute_snooze(&account, &args).await,
         "draft_email" => execute_draft_email(&account, &args, &state).await,
         "draft_reply" => execute_draft_reply(&account, &args, &state).await,
+        "send_email" => execute_send(&account, &args, &state).await,
         // Unreachable given the allowlist check, but the match stays total.
         _ => Err(Problem::with(StatusCode::BAD_REQUEST, "unknown tool")),
     }
@@ -415,6 +416,83 @@ async fn save_draft(account: &Account, outgoing: &crate::mime::Outgoing) -> Resu
     Ok(id)
 }
 
+/// SEND a draft the user already has. This is the one agent action that leaves
+/// the server, so it is deliberately narrow: it runs only after the user approves
+/// the proposal, and it reuses the JMAP `EmailSubmission/set` path verbatim —
+/// which submits only a `$draft` through the trusted DKIM-signing listener and
+/// then moves it to Sent. The agent therefore can never send an arbitrary
+/// message (a non-draft is refused there) and there is no second send path to
+/// drift from the audited one.
+async fn execute_send(
+    account: &Account,
+    args: &Value,
+    state: &AppState,
+) -> Result<Json<Value>, Problem> {
+    let mid = message_id_arg(args)?;
+    // Build the send envelope from the draft's own recipients (To/Cc/Bcc), the
+    // way a compose client does. The account door scopes this fetch: a foreign or
+    // absent id is a clean not-found, never another tenant's message.
+    let bytes = account
+        .acc
+        .message_bytes(&mid)
+        .await
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "the draft to send was not found"))?;
+    let parsed = alo_store::message::parse(&bytes);
+    let mut rcpts: Vec<String> = Vec::new();
+    for header in [&parsed.to_addrs, &parsed.cc_addrs, &parsed.bcc_addrs] {
+        for addr in addr_specs(header) {
+            if !rcpts.contains(&addr) {
+                rcpts.push(addr);
+            }
+        }
+    }
+    if rcpts.is_empty() {
+        return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "the draft has no recipient to send to"));
+    }
+    let rcpt_to: Vec<Value> = rcpts.iter().map(|e| json!({ "email": e })).collect();
+    let sub_args = json!({
+        "accountId": account.account_id(),
+        "create": { "a": { "emailId": mid.as_str(), "envelope": { "rcptTo": rcpt_to } } },
+    });
+    let res = crate::submission::set(account, &sub_args, state)
+        .await
+        .map_err(|_| Problem::server_error())?;
+    if let Some(created) = res.get("created").and_then(|c| c.get("a")) {
+        let sent = created.get("emailId").and_then(Value::as_str).unwrap_or_else(|| mid.as_str());
+        return Ok(Json(json!({ "ok": true, "result": { "kind": "sent", "id": sent } })));
+    }
+    // notCreated carries the specific reason (not a draft, no send listener,
+    // notFound, forbidden) — surface it, without any recipient/body detail.
+    let reason = res
+        .get("notCreated")
+        .and_then(|n| n.get("a"))
+        .and_then(|e| e.get("description"))
+        .and_then(Value::as_str)
+        .unwrap_or("the message could not be sent")
+        .to_owned();
+    Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, reason))
+}
+
+/// The addr-specs in an address-list header value (`To`/`Cc`/`Bcc`), for building
+/// a send envelope. Handles `Name <a@b>, c@d` forms: takes the address inside
+/// angle brackets, else a bare token that looks like an address. A stray comma
+/// inside a quoted display name only yields a junk fragment with no `@`, which is
+/// dropped — the real address in the same entry is still recovered.
+fn addr_specs(header_value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for part in header_value.split(',') {
+        let part = part.trim();
+        let addr = match (part.rfind('<'), part.rfind('>')) {
+            (Some(lt), Some(gt)) if lt < gt => part[lt + 1..gt].trim(),
+            _ => part,
+        };
+        if addr.contains('@') && !addr.contains(' ') {
+            out.push(addr.to_lowercase());
+        }
+    }
+    out
+}
+
 /// Strip the surrounding angle brackets from a message-id, leaving the bare id
 /// the `mime` builder expects (it re-wraps in `<…>`).
 fn strip_brackets(raw: &str) -> String {
@@ -599,9 +677,24 @@ fn parse_due(s: &str) -> Option<time::OffsetDateTime> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::{
-        parse_due, parse_rfc3339, parse_wake_time, reply_references, reply_subject,
+        addr_specs, parse_due, parse_rfc3339, parse_wake_time, reply_references, reply_subject,
         resolve_email_source,
     };
+
+    #[test]
+    fn addr_specs_extracts_recipients_from_a_header_list() {
+        // Bare, display-name, and mixed forms all yield the addr-spec, lowercased.
+        assert_eq!(addr_specs("bob@example.com"), vec!["bob@example.com"]);
+        assert_eq!(
+            addr_specs("Bob <Bob@Example.com>, alice@x.eu"),
+            vec!["bob@example.com", "alice@x.eu"]
+        );
+        // A comma inside a quoted display name still recovers the real address.
+        assert_eq!(addr_specs("\"Doe, John\" <j@x.eu>"), vec!["j@x.eu"]);
+        // No address present → nothing.
+        assert!(addr_specs("").is_empty());
+        assert!(addr_specs("not an address").is_empty());
+    }
 
     #[test]
     fn reply_subject_prefixes_re_once() {
