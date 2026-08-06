@@ -23,6 +23,7 @@ pub const AGENT_TOOLS: &[&str] = &[
     "archive_email",
     "trash_email",
     "snooze_email",
+    "draft_email",
 ];
 
 /// One action the agent proposes. `args` is validated tool-by-tool at the
@@ -61,6 +62,7 @@ Available tools:\n\
 - archive_email: move an email out of the inbox into Archive. args: {\"source\": number}.\n\
 - trash_email: move an email to Trash (delete it from the inbox and archive). args: {\"source\": number}.\n\
 - snooze_email: hide an email from the inbox until a chosen time, when it returns to the inbox. args: {\"source\": number, \"until\": string RFC 3339 datetime e.g. \"2026-08-07T09:00:00Z\" (required)}.\n\
+- draft_email: write a NEW email and save it to the user's Drafts for them to review and send — it is NEVER sent automatically. args: {\"to\": string email address (required), \"subject\": string (optional), \"body\": string (required)}. Compose the body from the request; do not invent facts. The sender is always the user's own address — never set it.\n\
 For any tool that acts on an email, set \"source\" to the number [n] of that email in the numbered sources above; only propose it when the relevant email is present in the sources. \
 Resolve any relative date or time (today, tomorrow 3pm, next Friday) against the current date given below into an absolute value (YYYY-MM-DD for a task due, RFC 3339 UTC for an event). \
 If the request needs an action no tool covers, ANSWER instead and say you cannot do that yet. Write the answer/say text in the user's language. Output ONLY the JSON object — no markdown, no code fences, no preamble.";

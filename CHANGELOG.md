@@ -45,6 +45,12 @@ contracts.
   email. It only ever touches your own mailbox, and it will say so plainly when it
   can't do what you asked yet. ADR 0034.
 
+- **Ask AI can draft an email for you.** Ask it to "email bob@acme.com asking to
+  move our meeting to Friday" and it writes the message and — once you **Approve**
+  — saves it to your **Drafts** to review and send yourself. It never sends on its
+  own, and the sender is always your own address (it can't write as anyone else).
+  ADR 0034.
+
 - **Workspace search (files, tasks + email content).** A search box in the left
   rail (or **Ctrl/Cmd-K** anywhere) searches across your **files, tasks and
   email** at once, and a result jumps you straight to it — opening the file, task

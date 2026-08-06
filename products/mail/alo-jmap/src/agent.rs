@@ -152,6 +152,7 @@ pub async fn agent_execute(
         "archive_email" => execute_move_to_role(&account, &args, "archive", "Archive").await,
         "trash_email" => execute_move_to_role(&account, &args, "trash", "Trash").await,
         "snooze_email" => execute_snooze(&account, &args).await,
+        "draft_email" => execute_draft_email(&account, &args, &state).await,
         // Unreachable given the allowlist check, but the match stays total.
         _ => Err(Problem::with(StatusCode::BAD_REQUEST, "unknown tool")),
     }
@@ -279,6 +280,68 @@ async fn ensure_role_mailbox(account: &Account, role: &str, name: &str) -> Resul
         .create_mailbox(None, name, Some(role))
         .await
         .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not move the email"))
+}
+
+/// Draft a NEW email from approved args and save it to the user's Drafts (marked
+/// `$draft`) for them to review and send — this path never sends. The visible
+/// `From` is always the caller's own canonical address (resolved server-side, so
+/// a draft can never impersonate another author, even before it is sent); only
+/// the recipient, subject, and body come from the approved proposal. Reuses the
+/// same `mime::build` + `ingest` the JMAP `Email/set` create path uses.
+async fn execute_draft_email(
+    account: &Account,
+    args: &Value,
+    state: &AppState,
+) -> Result<Json<Value>, Problem> {
+    let to = args.get("to").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+    if !crate::submission::valid_addr(&to) {
+        return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "a valid recipient address is required"));
+    }
+    let body = args.get("body").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+    if body.is_empty() {
+        return Err(Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "the email body is required"));
+    }
+    let subject = args.get("subject").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+
+    // Sender is always the caller's own canonical address — never model-chosen.
+    let from = state
+        .store
+        .for_tenant(account.tenant.clone())
+        .email_of(&account.user)
+        .await
+        .map_err(|_| Problem::server_error())?
+        .ok_or_else(|| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "this account has no send address"))?;
+
+    let outgoing = crate::mime::Outgoing {
+        from: crate::mime::Addr { name: None, email: from.clone() },
+        to: vec![crate::mime::Addr { name: None, email: to }],
+        cc: Vec::new(),
+        bcc: Vec::new(),
+        subject,
+        in_reply_to: Vec::new(),
+        references: Vec::new(),
+        body_text: body,
+        body_html: None,
+        attachments: Vec::new(),
+        message_id_domain: crate::api::domain_of(&from),
+        message_id_token: crate::api::new_message_token(),
+    };
+    let raw = crate::mime::build(&outgoing);
+
+    // Save into Drafts (created on first use) with $draft, like any composed
+    // draft — the user reviews it and sends it through the normal path.
+    let drafts = ensure_role_mailbox(account, "drafts", "Drafts").await?;
+    let id = account
+        .acc
+        .ingest(&drafts, &raw)
+        .await
+        .map_err(|_| Problem::with(StatusCode::UNPROCESSABLE_ENTITY, "could not save the draft"))?;
+    account
+        .acc
+        .set_keyword(&id, "$draft", true)
+        .await
+        .map_err(|_| Problem::server_error())?;
+    Ok(Json(json!({ "ok": true, "result": { "kind": "draft", "id": id.as_str() } })))
 }
 
 /// Create a task from approved args, on the caller's personal project. Reuses the
