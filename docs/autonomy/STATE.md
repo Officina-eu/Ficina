@@ -295,3 +295,104 @@ Cuts and flags:
   upgrade, not this item.
 
 Next item: B1.05 (HTTP `/billing/customers` + `/billing/products` routes).
+
+## 2026-08-06 — B1.05 billing customers + products HTTP routes
+
+The first `/billing/*` routes. Three new files in `products/mail/alo-jmap/src`,
+registered in `server.rs` between the Spaces block and Drive:
+
+- **`billing.rs`** — the shared edge every future `/billing/*` module reuses:
+  the store-error → HTTP map the design note publishes (`NotFound` → 404,
+  `Validation` → 422 carrying the rule, `Conflict` → 409, everything else an
+  opaque 500), body parsing that answers `400 malformed request body` without
+  ever echoing the request, the RFC 3339 stamp, a forgiving boolean query flag,
+  and `absent_or_null` — the `Option<Option<T>>` deserializer that keeps
+  "absent" and "explicit null" apart so a `PATCH` can actually clear a field.
+- **`billing_customers.rs`**, **`billing_products.rs`** — `GET`/`POST` on the
+  collection, `GET`/`PATCH` on the item, `POST …/archive`.
+
+Three conventions, chosen once and documented in the module headers so B1.10's
+invoices inherit them rather than re-deciding:
+
+- **No validation lives at the route layer.** Every rule stays in the store,
+  because the billing agent (B1.25) calls the store directly and must not get a
+  second, weaker definition of valid.
+- **Every write answers with the stored record**, read back after the write. The
+  caller sees the canonical form (`de` → `DE`, `" de 811.907-980 "` →
+  `DE811907980`) rather than what it sent — and a misspelled field name is
+  visibly absent from the answer instead of silently dropped, which is why
+  unknown fields are ignored rather than rejected (the surface has to stay
+  additively evolvable).
+- **`PATCH` is a merge onto the stored record, then a full replace.** One
+  `apply()` serves both create (merged onto the type's defaults) and edit, so a
+  field cannot mean one thing on create and another on edit. Archiving is its
+  own `POST`, never a field on the `PATCH`.
+
+Verified. `SQLX_OFFLINE=true cargo clippy -p alo-jmap -p alo-store
+--all-targets` clean (zero warnings); `cargo test -p alo-jmap` fully green —
+every pre-existing suite plus the new `tests/billing_http.rs` (12 tests through
+the real router over local Postgres) and 14 new unit tests in the three
+modules. The **wrong-tenant test** is the centre of that suite: tenant A gets
+404 from `GET`/`PATCH`/`archive` on tenant B's customer *and* product ids, A's
+lists never mention them (`includeArchived` included), the refusals never echo
+the record they refused, B's rows are unchanged afterwards, and the same denial
+is then re-proved through the store handle directly so it does not rest only on
+the routes. Alongside it: the 401 guard on every verb, the 422s naming their
+rule, `null`/`""` clearing a nullable field, an empty `PATCH` changing nothing,
+zero being a stated value rather than an absent one, idempotent re-archiving,
+and a `400` for `19.99` in a cents field that never quotes the body back.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenant `wireb105`), full
+transcript:
+
+```
+GET  /billing/customers            (no token)                        -> 401
+POST /billing/products             (no token)                        -> 401
+POST /billing/customers            vatId DE811907981                 -> 422  "the check digit of this DE VAT id does not match; check for a typo"
+POST /billing/customers            name "   "                        -> 422  "name must not be empty"
+POST /billing/products             unitPriceCents 19.99              -> 400  "malformed request body"
+POST /billing/customers            " Acme GmbH ", de, " de 811.907-980 " -> 200  name "Acme GmbH", country "DE", currency "EUR", vatId "DE811907980"
+GET  /billing/customers                                              -> 200  1 record
+GET  /billing/customers/{id}                                         -> 200
+PATCH/billing/customers/{id}       {city, paymentTermsDays}          -> 200  city+terms changed, name/vatId/postalCode intact
+PATCH/billing/customers/{id}       {"vatId":null}                    -> 200  vatId null
+POST /billing/customers/{id}/archive {"archived":true}               -> 200  archived, archivedAt set
+GET  /billing/customers                                              -> 200  []
+GET  /billing/customers?includeArchived=1                            -> 200  1 record
+POST /billing/customers/{id}/archive {"archived":false}              -> 200  restored
+GET  /billing/customers/no-such-id                                   -> 404
+PATCH/billing/customers/no-such-id                                   -> 404
+POST /billing/products             " Consulting ", hour, 12500, 2100 -> 200
+GET  /billing/products                                               -> 200  1 record
+PATCH/billing/products/{id}        {"unitPriceCents":13000}          -> 200  price changed, name/rate intact
+POST /billing/products/{id}/archive                                  -> 200
+GET  /billing/products                                               -> 200  []
+```
+
+Real rows read back with `psql` afterwards: one customer row for that tenant
+with `vat_id` NULL (the clearing `PATCH` really landed), `city` Hamburg,
+`payment_terms_days` 30; one product row with `unit_price_cents` 13000 of
+`pg_typeof` **bigint** and `archived_at` set.
+
+Cuts and flags:
+
+- **HUMAN ACTION — `/billing` is a new top-level route prefix.** The production
+  Caddyfile must add it at the next deploy or every billing route returns the
+  SPA. The loop does not touch `deploy/`. (Flagged again at B1.27.)
+- **A create answers `200`, not `201`.** Every other action route in `alo-jmap`
+  answers `200` with the resource; one route inventing `201` is a wart a client
+  has to special-case. Revisit for the whole surface at once, never per module.
+- **No `If-Match`/`ETag`, so `PATCH` is last-writer-wins.** Two people editing
+  different fields of one customer at the same instant lose one edit. Acceptable
+  for a customer record; documents that carry money get concurrency control in
+  B1.07/B1.08, where it is load-bearing.
+- **A foreign VAT registration stays accepted.** A `DE`-prefixed valid id on an
+  `NL`-addressed customer is stored as written — B1.03's documented rule, since
+  a Dutch company registered for VAT in Germany really does invoice under a `DE`
+  number. Pinned by a route test so a later reading cannot quietly tighten it.
+  The country-decides rule still applies to unprefixed ids.
+- **No web UI** — B1.13 owns that; nothing in `web/` was touched.
+
+Next item: B1.06 (`billing_invoices` + `billing_invoice_lines` migration, store,
+and the pure totals function with property tests).

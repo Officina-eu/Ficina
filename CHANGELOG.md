@@ -6,6 +6,18 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: your customers and your price list, over the API.** The first
+  working part of alo Billing is live on the server: a tenant-wide list of the
+  companies you invoice — address, country, VAT id, payment terms, currency,
+  optionally linked to a contact in your address book — and a price list of the
+  things you sell, each with a unit, a price, and a VAT rate. VAT ids are checked
+  against the rules of the country they name, so a typo is caught when it is
+  entered rather than on an invoice. Nothing is ever deleted: an item you stop
+  selling, or a customer you stop working with, is **archived** — out of the
+  pickers, still there to explain last year's books. Prices are held in whole
+  cents from end to end, so nothing rounds behind your back. The screens for all
+  of this arrive shortly (`/billing/customers` and `/billing/products`; ADR 0035).
+
 - **alo Sheet ribbon: borders, rotation, wrapping, merge, and cell styles.** The
   Home ribbon now covers cell **borders**, **text rotation**, **wrapping**
   (overflow / wrap / clip), **merging** (all, across, vertically, unmerge), and a
