@@ -1,8 +1,12 @@
 # ADR 0030 — Two file types per format: compatibility and alo-native
 
-Status: accepted. The organising decision for the document surface that sits on
-top of Drive (ADR 0027). Governs alo Docs, alo Sheets, and alo Slides, and the
-build order for all three. Builds on ADR 0010 (Collabora as the editor engine).
+Status: accepted, but the **compatibility-via-Collabora half is superseded by
+[ADR 0033](0033-native-only-editors-collabora-removed.md)** — real Office files
+are now imported best-effort into the native types instead of edited in
+Collabora, and slides gain a native in-house editor. The native-type decisions
+below (alo Doc/Sheet/Base, everything-is-a-Drive-file) still stand. The
+organising decision for the document surface that sits on top of Drive (ADR
+0027).
 
 ## Context
 

@@ -1,6 +1,8 @@
 # ADR 0010 — Office editors are a Ficina shell over Collabora, not a from-scratch editor
 
-**Status:** accepted · 2026-07
+**Status:** superseded by [ADR 0033](0033-native-only-editors-collabora-removed.md)
+· 2026-07. Collabora is removed; the editors are native (alo Doc/Sheet/Slides),
+not a shell over Collabora. Retained for the reasoning that led here.
 
 **Decision:** Ficina Docs, Sheets, and Slides are a **Ficina-branded,
 AI-native shell over the integrated Collabora Online engine** (reached via
