@@ -13,12 +13,19 @@ import {
   AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd,
   AlignVerticalJustifyStart,
+  ArrowDownAZ,
+  ArrowUpAZ,
   Baseline,
   Bold,
+  ClipboardPaste,
+  Copy,
   Eraser,
+  Filter,
   Italic,
   PaintBucket,
   Redo2,
+  Scissors,
+  Search,
   Snowflake,
   Strikethrough,
   TableCellsMerge,
@@ -53,15 +60,41 @@ export interface SheetActions {
   clearFormats: () => void;
   freezeAtSelection: () => void;
   unfreeze: () => void;
+  /** Apply a named cell style (font size + weight + optional colour). */
+  stylePreset: (p: { size: number; bold: boolean; color?: string }) => void;
   undo: () => void;
   redo: () => void;
 }
 
-// Univer command ids for the toggle formats (verified against @univerjs/sheets).
+// Univer command ids (verified against @univerjs/sheets and the extra presets
+// wired in SheetEditor: sort, filter, find-replace).
 const CMD_BOLD = "sheet.command.set-range-bold";
 const CMD_ITALIC = "sheet.command.set-range-italic";
 const CMD_UNDERLINE = "sheet.command.set-range-underline";
 const CMD_STRIKE = "sheet.command.set-range-stroke";
+const CMD_COPY = "sheet.command.copy";
+const CMD_CUT = "sheet.command.cut";
+const CMD_PASTE = "sheet.command.paste";
+const CMD_SORT_ASC = "sheet.command.sort-range-asc";
+const CMD_SORT_DESC = "sheet.command.sort-range-desc";
+const CMD_FILTER = "sheet.command.smart-toggle-filter";
+const CMD_FIND = "ui.operation.open-find-dialog";
+
+// Number-format quick presets (label symbol → Excel pattern).
+const NUM_PERCENT = "0.00%";
+const NUM_CURRENCY = "€ #,##0.00";
+const NUM_COMMA = "#,##0";
+
+// Cell-style presets (the Styles gallery in the mockup).
+const STYLE_PRESETS: { key: string; label: string; size: number; bold: boolean; color?: string }[] = [
+  { key: "normal", label: "Default", size: 11, bold: false, color: "#111827" },
+  { key: "title", label: "Title", size: 28, bold: true, color: "#111827" },
+  { key: "subtitle", label: "Subtitle", size: 15, bold: false, color: "#6b7280" },
+  { key: "h1", label: "Heading 1", size: 20, bold: true, color: "#111827" },
+  { key: "h2", label: "Heading 2", size: 16, bold: true, color: "#111827" },
+  { key: "h3", label: "Heading 3", size: 14, bold: true, color: "#374151" },
+  { key: "h4", label: "Heading 4", size: 12, bold: true, color: "#374151" },
+];
 
 const FONTS = ["Calibri", "Arial", "Times New Roman", "Georgia", "Verdana", "Courier New"];
 const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
@@ -79,7 +112,7 @@ const NUMBER_FORMATS: { key: string; label: string; pattern: string }[] = [
 const TABS = ["home", "insert", "draw", "layout", "formulas", "data", "review", "view"] as const;
 type Tab = (typeof TABS)[number];
 // Tabs whose tools need Univer plugins we haven't wired yet — honest placeholder.
-const SOON: Tab[] = ["draw", "layout", "formulas", "data", "review"];
+const SOON: Tab[] = ["draw", "layout", "formulas", "review"];
 
 function tabLabel(tab: Tab): string {
   switch (tab) {
@@ -124,6 +157,7 @@ export function SheetRibbon({ actions, disabled }: { actions: SheetActions; disa
 
       {tab === "home" && <HomeTab actions={actions} disabled={disabled} />}
       {tab === "insert" && <InsertTab actions={actions} disabled={disabled} />}
+      {tab === "data" && <DataTab actions={actions} disabled={disabled} />}
       {tab === "view" && <ViewTab actions={actions} disabled={disabled} />}
       {SOON.includes(tab) && <div className={styles.soon}>{strings.sheetTabSoon(tabLabel(tab))}</div>}
     </div>
@@ -140,6 +174,20 @@ function HomeTab({ actions, disabled }: { actions: SheetActions; disabled: boole
           </IconBtn>
           <IconBtn label={strings.sheetRedo} onClick={actions.redo} disabled={disabled}>
             <Redo2 size={16} />
+          </IconBtn>
+        </div>
+      </Group>
+
+      <Group label={strings.sheetGroupClipboard}>
+        <div className={styles.row}>
+          <IconBtn label={strings.sheetPaste} onClick={() => actions.exec(CMD_PASTE)} disabled={disabled}>
+            <ClipboardPaste size={16} />
+          </IconBtn>
+          <IconBtn label={strings.sheetCut} onClick={() => actions.exec(CMD_CUT)} disabled={disabled}>
+            <Scissors size={16} />
+          </IconBtn>
+          <IconBtn label={strings.sheetCopy} onClick={() => actions.exec(CMD_COPY)} disabled={disabled}>
+            <Copy size={16} />
           </IconBtn>
         </div>
       </Group>
@@ -237,7 +285,7 @@ function HomeTab({ actions, disabled }: { actions: SheetActions; disabled: boole
       </Group>
 
       <Group label={strings.sheetGroupNumber}>
-        <div className={styles.row}>
+        <div className={styles.rowStack}>
           <select
             className={styles.numberSelect}
             aria-label={strings.sheetNumberFormat}
@@ -254,6 +302,34 @@ function HomeTab({ actions, disabled }: { actions: SheetActions; disabled: boole
               </option>
             ))}
           </select>
+          <div className={styles.row}>
+            <IconBtn label={strings.sheetPercent} onClick={() => actions.setNumberFormat(NUM_PERCENT)} disabled={disabled}>
+              <span className={styles.sym}>%</span>
+            </IconBtn>
+            <IconBtn label={strings.sheetCurrency} onClick={() => actions.setNumberFormat(NUM_CURRENCY)} disabled={disabled}>
+              <span className={styles.sym}>€</span>
+            </IconBtn>
+            <IconBtn label={strings.sheetComma} onClick={() => actions.setNumberFormat(NUM_COMMA)} disabled={disabled}>
+              <span className={styles.sym}>,</span>
+            </IconBtn>
+          </div>
+        </div>
+      </Group>
+
+      <Group label={strings.sheetGroupStyles}>
+        <div className={styles.styleGrid}>
+          {STYLE_PRESETS.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              className={styles.styleBtn}
+              disabled={disabled}
+              style={{ fontSize: 12, fontWeight: s.bold ? 700 : 400, color: s.color }}
+              onClick={() => actions.stylePreset({ size: s.size, bold: s.bold, ...(s.color ? { color: s.color } : {}) })}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
       </Group>
 
@@ -277,6 +353,41 @@ function HomeTab({ actions, disabled }: { actions: SheetActions; disabled: boole
           </IconBtn>
           <TextBtn label={strings.sheetClearContents} onClick={actions.clearContents} disabled={disabled} />
         </div>
+      </Group>
+
+      <Group label={strings.sheetGroupEditing}>
+        <EditingControls actions={actions} disabled={disabled} />
+      </Group>
+    </div>
+  );
+}
+
+/** Sort / Filter / Find — shared by Home's Editing group and the Data tab
+ *  (powered by the sort, filter, and find-replace presets). */
+function EditingControls({ actions, disabled }: { actions: SheetActions; disabled: boolean }) {
+  return (
+    <div className={styles.row}>
+      <IconBtn label={strings.sheetSortAsc} onClick={() => actions.exec(CMD_SORT_ASC)} disabled={disabled}>
+        <ArrowDownAZ size={16} />
+      </IconBtn>
+      <IconBtn label={strings.sheetSortDesc} onClick={() => actions.exec(CMD_SORT_DESC)} disabled={disabled}>
+        <ArrowUpAZ size={16} />
+      </IconBtn>
+      <IconBtn label={strings.sheetFilter} onClick={() => actions.exec(CMD_FILTER)} disabled={disabled}>
+        <Filter size={16} />
+      </IconBtn>
+      <IconBtn label={strings.sheetFindReplace} onClick={() => actions.exec(CMD_FIND)} disabled={disabled}>
+        <Search size={16} />
+      </IconBtn>
+    </div>
+  );
+}
+
+function DataTab({ actions, disabled }: { actions: SheetActions; disabled: boolean }) {
+  return (
+    <div className={styles.groups}>
+      <Group label={strings.sheetGroupSortFilter}>
+        <EditingControls actions={actions} disabled={disabled} />
       </Group>
     </div>
   );

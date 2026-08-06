@@ -11,7 +11,16 @@ import { Check, ChevronLeft, Download, MoreHorizontal, Pencil, X } from "lucide-
 import { createUniver, LocaleType, merge, defaultTheme } from "@univerjs/presets";
 import { UniverSheetsCorePreset } from "@univerjs/presets/preset-sheets-core";
 import sheetsCoreEnUS from "@univerjs/presets/preset-sheets-core/locales/en-US";
+import { UniverSheetsSortPreset } from "@univerjs/presets/preset-sheets-sort";
+import sheetsSortEnUS from "@univerjs/presets/preset-sheets-sort/locales/en-US";
+import { UniverSheetsFilterPreset } from "@univerjs/presets/preset-sheets-filter";
+import sheetsFilterEnUS from "@univerjs/presets/preset-sheets-filter/locales/en-US";
+import { UniverSheetsFindReplacePreset } from "@univerjs/presets/preset-sheets-find-replace";
+import sheetsFindReplaceEnUS from "@univerjs/presets/preset-sheets-find-replace/locales/en-US";
 import "@univerjs/presets/lib/styles/preset-sheets-core.css";
+import "@univerjs/presets/lib/styles/preset-sheets-sort.css";
+import "@univerjs/presets/lib/styles/preset-sheets-filter.css";
+import "@univerjs/presets/lib/styles/preset-sheets-find-replace.css";
 
 import { strings } from "../i18n";
 import { useJmapClient } from "../jmap";
@@ -66,11 +75,25 @@ export function SheetEditor({
     if (initial === null || containerRef.current === null) return undefined;
     const { univerAPI } = createUniver({
       locale: LocaleType.EN_US,
-      locales: { [LocaleType.EN_US]: merge({}, sheetsCoreEnUS) },
+      locales: {
+        [LocaleType.EN_US]: merge(
+          {},
+          sheetsCoreEnUS,
+          sheetsSortEnUS,
+          sheetsFilterEnUS,
+          sheetsFindReplaceEnUS,
+        ),
+      },
       theme: defaultTheme,
       // Hide Univer's built-in toolbar — our own ribbon (SheetRibbon) replaces
-      // it. Keep the formula bar and grid.
-      presets: [UniverSheetsCorePreset({ container: containerRef.current, toolbar: false })],
+      // it. Keep the formula bar and grid. Extra presets power the ribbon's
+      // Data/Editing tools (sort, filter, find & replace).
+      presets: [
+        UniverSheetsCorePreset({ container: containerRef.current, toolbar: false }),
+        UniverSheetsSortPreset(),
+        UniverSheetsFilterPreset(),
+        UniverSheetsFindReplacePreset(),
+      ],
     });
     apiRef.current = univerAPI;
     // An empty object → a blank default workbook; a stored snapshot → that book.
@@ -204,6 +227,13 @@ export function SheetEditor({
       },
       unfreeze: () => {
         ws()?.cancelFreeze();
+      },
+      stylePreset: ({ size, bold, color }) => {
+        const r = range();
+        if (r === null) return;
+        r.setFontSize(size);
+        r.setFontWeight(bold ? "bold" : "normal");
+        if (color !== undefined) r.setFontColor(color);
       },
       undo: () => {
         void wb()?.undo();

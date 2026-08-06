@@ -105,6 +105,32 @@
 .numberSelect:disabled {
   opacity: 0.5;
 }
+/* Number symbol glyph (%, €, ,) inside an icon button. */
+.sym {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+/* Styles gallery (Default / Title / Headings) — a compact grid of chips. */
+.styleGrid {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 3px;
+}
+.styleBtn {
+  padding: 3px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  white-space: nowrap;
+}
+.styleBtn:hover:not(:disabled) {
+  background: var(--bg-raised);
+}
+.styleBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 /* Small text button (row/column ops, clear contents). */
 .textBtn {
   height: 24px;
