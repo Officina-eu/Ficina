@@ -1073,3 +1073,120 @@ Cuts and flags:
 Next item: B1.11 (`billing_quotes` + lines — the same line model, shared where
 clean, with the draft/sent/accepted/declined/expired lifecycle and its
 allowed-transition tests).
+
+## 2026-08-06 — B1.11 quotes: the offer, its numbers, and its lifecycle
+
+The document that precedes the invoice, store-side and complete: migration,
+module, and the lifecycle stated once as data. No routes and no UI in this item
+(B1.12 accepts a quote into a draft invoice and wire-verifies; B1.15 draws it),
+so nothing under `web/` or `products/` was touched and no i18n strings were
+added. Shipped:
+
+- **`platform/alo-store/migrations/0105_billing_quotes.sql`** —
+  `billing_quotes` + `billing_quote_lines`. Number, `sent_date` and
+  `valid_until` exist exactly when the quote is no longer a draft;
+  `decided_date` exists exactly when it is closed; an offer can never expire
+  before it was made; the customer link is a composite FK inside the tenant.
+  Expand-only, two new tables, nothing dropped or rewritten.
+- **`platform/alo-store/src/billing_quotes.rs`** — `QuoteStatus`, `NewQuote`,
+  `Quote`, `QuoteSummary`, `QuoteDocument`, and the store surface:
+  `create/list(status)/read/update/set_lines/delete`, `send`, and
+  `accept | decline | expire` over one private `close_billing_quote`.
+- **`platform/alo-store/src/billing_line.rs`** — the line model is now shared
+  in fact and not only in prose: `LineTable` (the table + the column naming
+  its document) owns the read, the single `INSERT` both document types write
+  through, and the whole-set `replace`; `LineRow`, `FiguresRow` and
+  `group_figures` moved here too. `billing_invoices.rs` was rewired onto it and
+  lost its private copies — its four existing suites (22 tests) still pass
+  unchanged, which is what makes the move safe rather than hopeful.
+- **`billing_sequence.rs`** — `QUOTE_SEQUENCE_KIND` / `QUOTE_NUMBER_PREFIX`; a
+  new series is a row, never a migration, exactly as B1.08 promised.
+
+Decisions, recorded as as-built in `docs/design/billing.md`:
+
+- **Quotes count in a series of their own** (`QUO-YYYY-NNNNN`), not the invoice
+  series. Sharing it would leave a visible hole in invoice numbering for every
+  offer nobody accepted — the precise appearance gaplessness exists to avoid.
+  Quotes are still numbered the same transactional way, so no customer can ever
+  receive two offers bearing one number.
+- **The lifecycle is one pure table** (`QuoteStatus::allowed_next`): `draft →
+  sent`, `sent → accepted | declined | expired`. Every write path asks it, and
+  the unit tests walk all **twenty-five** ordered pairs — four legal, twenty-one
+  refused, including every self-transition (re-sending would draw a second
+  number; accepting twice would hide a caller that lost track of the document).
+- **The closing states are terminal.** A declined or lapsed offer does not
+  reopen: the answer to a change of mind is a new quote, which keeps the
+  document the customer holds and the record of what they were offered the same
+  thing. Stated in the module doc so B1.15 does not offer a "reopen" button.
+- **`valid_days` is snapshotted on the document** (default 30, range 0–365) and
+  `valid_until` is derived at send from the database's own `CURRENT_DATE`,
+  exactly as an invoice's due date follows its payment terms. A caller never
+  supplies either date.
+- **Expiry is a fact and a decision.** `Quote::is_expired(today)` is derived on
+  every read (a stored flag would be wrong every midnight); moving the quote to
+  `expired` is a separate recorded act with a `decided_date`. There is no
+  background sweep, and acceptance refuses on **state**, never on a date — a
+  tenant honouring an offer three days late is making a decision they are
+  entitled to make, and the store must not overrule it.
+- **A quote with no lines cannot be sent** (`Validation`), mirroring the empty
+  invoice: an offer that says nothing would spend a number.
+
+How it was verified — `cargo fmt`, `SQLX_OFFLINE=true cargo clippy -p alo-store
+--all-targets` clean (zero warnings), `cargo test -p alo-store` green against
+the local docker Postgres: **163 unit tests** (of which the new quote module
+contributes the transition table, the lapse predicate, the validity range and
+the status round-trip) plus every integration suite, including the two new ones:
+
+```
+billing_quotes_tenancy    2 passed   round trip + wrong tenant on 8 paths
+billing_quote_lifecycle   5 passed   send/answer/lapse/series
+billing_invoices_tenancy  3 passed   unchanged, after the shared-line rewire
+billing_invoice_lifecycle 5 passed   unchanged
+billing_invoice_issue     8 passed   unchanged (incl. the 100-iteration race)
+billing_credit_notes      6 passed   unchanged
+```
+
+What the wire proved that the unit tests could not:
+
+- Sending stamps `QUO-2026-00001`, today's date, and today + the 14 days the
+  document was raised with; the row's own CHECKs accept all of it together.
+- A refused send (no lines) leaves **no `billing_sequences` row at all** — the
+  next real quote is still number one, so an abandoned draft leaves no hole.
+- Two quotes and an invoice interleaved leave exactly two counter rows,
+  `invoice → next 2` and `quote → next 3`: `QUO-…-00001`, `QUO-…-00002`,
+  `INV-…-00001`. The series do not touch.
+- A quote aged past its validity reads as lapsed while its stored status is
+  still `sent` — nothing closed it behind the tenant's back — and accepting it
+  then succeeds.
+- Every path a foreign tenant can reach a quote by (read, list, update, lines,
+  delete, send, accept, decline, expire) is a clean `NotFound`, and the
+  attempts changed nothing; a quote can never be raised for or moved onto
+  another tenant's customer.
+
+Cuts and flags:
+
+- **No routes, no UI, no i18n** — B1.12 (accept → draft invoice, wire-verified)
+  and B1.13–B1.15 own those. This item is deliberately store-only, so there was
+  no new HTTP surface to verify with curl.
+- **No `quote_id` link on `billing_invoices` yet.** The design note promises the
+  invoice created on acceptance links back to its quote; that column and the
+  copy belong to B1.12, where they are exercised, rather than being added here
+  unused.
+- **No per-quote concurrency test.** Sending draws through the same
+  `draw_next` whose 100-iteration race is already proven in
+  `billing_invoice_issue`; a second copy of that test would assert the same
+  code twice. The quote path takes the document's lock before the counter's, in
+  the same order, for the same reason.
+- **No revision chain.** "Quote v2" is a new quote today; linking a replacement
+  to the offer it supersedes is a real feature, not a status, and is not in the
+  B1 list — flagged here rather than invented.
+- **A sent quote cannot be edited at all**, not even its note. Consistent with
+  every other document the customer holds; if practice shows tenants need to
+  correct a typo on an unanswered offer, the honest answer is decline + re-send,
+  which leaves both documents readable.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged from B1.05/B1.10: the production Caddyfile must add it at the next
+  deploy. The loop does not touch `deploy/`.
+
+Next item: B1.12 (accept-quote → draft invoice copying the lines, linked back
+to the quote, store + HTTP, wire-verified).

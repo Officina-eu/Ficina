@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: quotes, the offer before the invoice.** You can now draft a
+  quote for a customer with exactly the same lines an invoice takes, and the
+  server totals it the same way, to the cent. A draft is yours to change or
+  throw away; **sending** it takes the next number in your quote series
+  (`QUO-2026-00001` — a series of its own, so an offer nobody accepted never
+  leaves a hole in your invoice numbering), stamps the day it went out and the
+  day it stands until, and freezes it. An open offer is then **accepted**,
+  **declined**, or marked **expired**, each recorded with the day it was
+  decided; a quote list can be filtered by any of those. Nothing closes an
+  offer behind your back — a quote past its date is shown as lapsed, and it is
+  still yours to honour if you want to. Turning an accepted quote into a draft
+  invoice, and the screens for all of this, arrive shortly (ADR 0035).
+
 - **alo Billing: invoices, from draft to issued to credited.** The document
   itself is now live on the server. You raise a **draft** for a customer — lines
   with a description, a quantity, a unit price and a VAT rate — and the server

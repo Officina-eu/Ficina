@@ -162,6 +162,38 @@ column, struct field, or computation anywhere in this module.
   lifecycle `draft | sent | accepted | declined | expired`, valid-until
   date, and a link from the invoice created on acceptance back to the
   quote.
+  As-built (B1.11): the sharing is literal — `billing_line.rs` owns the
+  line model, the field rules, the read, and the single `INSERT` both
+  document types write through (`LineTable`, differing only in the table
+  and the column naming the document). What is *not* shared is the life:
+  a quote is its own table because an invoice is owed money under a
+  legally gapless number while a quote is an offer that can simply be
+  turned down, and folding them together would put a quote's states
+  inside the CHECK that guards invoice numbering.
+  **The lifecycle is one pure transition table** (`QuoteStatus::
+  allowed_next`): `draft → sent`, `sent → accepted | declined |
+  expired`, and nothing else — unit-tested over all twenty-five ordered
+  pairs, including every self-transition, which is refused (re-sending
+  would draw a second number). The three closing states are
+  **terminal**: a change of mind is a new quote, so the document the
+  customer holds and the record of what they were offered stay the same
+  thing. A refusal names both states *and* what the current one does
+  allow, so a UI corrects itself without a second round trip.
+  **Sending** is the quote's issue: it draws from a `quote` series
+  (`QUO-YYYY-NNNNN`, kind `quote` in `billing_sequences`) — deliberately
+  not the invoice series, since an unaccepted offer must not leave a
+  visible hole in invoice numbering — stamps `sent_date` from the
+  database's own `CURRENT_DATE` inside the transaction, derives
+  `valid_until` from the `valid_days` snapshotted on the document
+  (default 30, range 0–365), and freezes the content. A quote with no
+  lines cannot be sent (`Validation`, `422`), exactly as an empty
+  invoice cannot be issued.
+  **Expiry is a fact and a decision.** `Quote::is_expired(today)` is
+  derived on every read like an invoice's overdue flag; moving the quote
+  to `expired` is a separate recorded act with a `decided_date`. There
+  is deliberately **no background sweep**, and acceptance refuses on
+  *state*, never on a date — honouring a lapsed offer a few days late is
+  a decision the tenant is entitled to make.
 - **`billing_payments`** — invoice ref, date, amount cents, method,
   reference. Invoice paid-state is **derived** from the sum of its
   payments against its gross total, never stored as an independently
@@ -222,6 +254,9 @@ route edge to the existing `Problem` shape. The full map:
 | Listing with a `status` filter that is not one of the four states | — (route edge) | `422` |
 | Payment amount ≤ 0, or recorded against a draft | `Validation` | `422` |
 | Invalid quote transition (e.g. `declined` → `accepted`) | `Conflict` | `409` |
+| Editing, replacing the lines of, or deleting a non-draft quote | `Conflict` | `409` |
+| Sending a quote with no lines | `Validation` | `422` |
+| Quote validity outside 0–365 days | `Validation` | `422` |
 | Sequence row contention beyond the tx retry | `Db` | `503` |
 
 The wrong-tenant case deliberately returns the **same `404`** as a

@@ -54,19 +54,19 @@
 //! cross-tenant link), and the database backs that with a composite foreign
 //! key on `(tenant_id, customer_id)`.
 
-use std::collections::HashMap;
-
 use time::{Date, Duration, OffsetDateTime};
 
 use crate::account::AccountStore;
 use crate::billing_field::{bounded, currency, payment_terms_days};
-use crate::billing_line::{Line, NewLine, NormalizedLine, normalize_lines};
+use crate::billing_line::{
+    FiguresRow, INVOICE_LINES, Line, NewLine, NormalizedLine, group_figures, normalize_lines,
+};
 use crate::billing_sequence::{
     INVOICE_NUMBER_PREFIX, INVOICE_SEQUENCE_KIND, document_number, draw_next,
 };
 use crate::billing_totals::{LineFigures, Totals, totals};
 use crate::error::{Result, StoreError};
-use crate::id::{BillingCustomerId, BillingInvoiceId, BillingLineId};
+use crate::id::{BillingCustomerId, BillingInvoiceId};
 
 /// The customer's own reference (a PO number, a cost centre) printed on the
 /// document.
@@ -79,10 +79,6 @@ pub const INVOICE_NOTE_MAX_CHARS: usize = 2_000;
 const INVOICE_COLS: &str = "id, customer_id, status, currency, number, issue_date, due_date, \
      payment_terms_days, is_credit_note, credits_invoice_id, reference, note, created_by, \
      created_at, updated_at";
-
-/// The columns every read of a line selects, in `LineRow` order.
-const LINE_COLS: &str = "id, line_order, description, unit, qty_milli, unit_price_cents, \
-     vat_rate_bp";
 
 /// Where a document is in its life.
 ///
@@ -508,7 +504,7 @@ impl AccountStore {
         .map_err(StoreError::Db)?;
 
         let figures = sqlx::query_as::<_, FiguresRow>(
-            "SELECT invoice_id, qty_milli, unit_price_cents, vat_rate_bp \
+            "SELECT invoice_id AS doc_id, qty_milli, unit_price_cents, vat_rate_bp \
              FROM billing_invoice_lines \
              WHERE tenant_id = $1 AND invoice_id IN ( \
                  SELECT id FROM billing_invoices \
@@ -519,18 +515,7 @@ impl AccountStore {
         .fetch_all(&self.pool)
         .await
         .map_err(StoreError::Db)?;
-
-        let mut by_invoice: HashMap<String, Vec<LineFigures>> = HashMap::new();
-        for row in figures {
-            by_invoice
-                .entry(row.invoice_id)
-                .or_default()
-                .push(LineFigures {
-                    qty_milli: row.qty_milli,
-                    unit_price_cents: row.unit_price_cents,
-                    vat_rate_bp: row.vat_rate_bp,
-                });
-        }
+        let mut by_invoice = group_figures(figures);
 
         rows.into_iter()
             .map(|row| {
@@ -561,18 +546,9 @@ impl AccountStore {
         else {
             return Ok(None);
         };
-        let lines: Vec<Line> = sqlx::query_as::<_, LineRow>(&format!(
-            "SELECT {LINE_COLS} FROM billing_invoice_lines \
-             WHERE tenant_id = $1 AND invoice_id = $2 ORDER BY line_order"
-        ))
-        .bind(self.tenant.as_str())
-        .bind(id.as_str())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(StoreError::Db)?
-        .into_iter()
-        .map(LineRow::into_line)
-        .collect();
+        let lines = INVOICE_LINES
+            .read(&self.pool, self.tenant.as_str(), id.as_str())
+            .await?;
         let figures: Vec<LineFigures> = lines.iter().map(Line::figures).collect();
         Ok(Some(InvoiceDocument {
             invoice: row.into_invoice()?,
@@ -676,36 +652,9 @@ impl AccountStore {
             .await?
             .status
             .ensure_editable()?;
-        let lines: Vec<NormalizedLine> = normalize_lines(lines)?;
-
-        sqlx::query("DELETE FROM billing_invoice_lines WHERE tenant_id = $1 AND invoice_id = $2")
-            .bind(self.tenant.as_str())
-            .bind(id.as_str())
-            .execute(&mut *tx)
-            .await
-            .map_err(StoreError::Db)?;
-
-        for (index, line) in lines.iter().enumerate() {
-            let order = i32::try_from(index)
-                .map_err(|_| StoreError::Validation("a document has too many lines".to_owned()))?;
-            sqlx::query(
-                "INSERT INTO billing_invoice_lines (tenant_id, invoice_id, id, line_order, \
-                     description, unit, qty_milli, unit_price_cents, vat_rate_bp) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            )
-            .bind(self.tenant.as_str())
-            .bind(id.as_str())
-            .bind(BillingLineId::generate().as_str())
-            .bind(order)
-            .bind(&line.description)
-            .bind(&line.unit)
-            .bind(line.qty_milli)
-            .bind(line.unit_price_cents)
-            .bind(line.vat_rate_bp)
-            .execute(&mut *tx)
-            .await
-            .map_err(StoreError::Db)?;
-        }
+        INVOICE_LINES
+            .replace(&mut tx, self.tenant.as_str(), id.as_str(), lines)
+            .await?;
 
         sqlx::query(
             "UPDATE billing_invoices SET updated_at = now() WHERE tenant_id = $1 AND id = $2",
@@ -952,34 +901,20 @@ impl AccountStore {
         // quantity always has a storable negation, and every line gets an id of
         // its own like any other written line — a credit note's lines are
         // ordinary lines, not shadows of the original's.
-        let source: Vec<LineRow> = sqlx::query_as(&format!(
-            "SELECT {LINE_COLS} FROM billing_invoice_lines \
-             WHERE tenant_id = $1 AND invoice_id = $2 ORDER BY line_order"
-        ))
-        .bind(self.tenant.as_str())
-        .bind(original_id.as_str())
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(StoreError::Db)?;
+        let source = INVOICE_LINES
+            .read(&mut *tx, self.tenant.as_str(), original_id.as_str())
+            .await?;
 
         for line in &source {
-            sqlx::query(
-                "INSERT INTO billing_invoice_lines (tenant_id, invoice_id, id, line_order, \
-                     description, unit, qty_milli, unit_price_cents, vat_rate_bp) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            )
-            .bind(self.tenant.as_str())
-            .bind(id.as_str())
-            .bind(BillingLineId::generate().as_str())
-            .bind(line.line_order)
-            .bind(&line.description)
-            .bind(&line.unit)
-            .bind(-line.qty_milli)
-            .bind(line.unit_price_cents)
-            .bind(line.vat_rate_bp)
-            .execute(&mut *tx)
-            .await
-            .map_err(StoreError::Db)?;
+            INVOICE_LINES
+                .write(
+                    &mut tx,
+                    self.tenant.as_str(),
+                    id.as_str(),
+                    line.line_order,
+                    &line.negated(),
+                )
+                .await?;
         }
 
         tx.commit().await.map_err(StoreError::Db)?;
@@ -1016,7 +951,7 @@ impl AccountStore {
         .map_err(StoreError::Db)?;
 
         let figures = sqlx::query_as::<_, FiguresRow>(
-            "SELECT l.invoice_id, l.qty_milli, l.unit_price_cents, l.vat_rate_bp \
+            "SELECT l.invoice_id AS doc_id, l.qty_milli, l.unit_price_cents, l.vat_rate_bp \
              FROM billing_invoice_lines l \
              JOIN billing_invoices i ON i.tenant_id = l.tenant_id AND i.id = l.invoice_id \
              WHERE l.tenant_id = $1 AND i.credits_invoice_id = $2",
@@ -1026,18 +961,7 @@ impl AccountStore {
         .fetch_all(&self.pool)
         .await
         .map_err(StoreError::Db)?;
-
-        let mut by_invoice: HashMap<String, Vec<LineFigures>> = HashMap::new();
-        for row in figures {
-            by_invoice
-                .entry(row.invoice_id)
-                .or_default()
-                .push(LineFigures {
-                    qty_milli: row.qty_milli,
-                    unit_price_cents: row.unit_price_cents,
-                    vat_rate_bp: row.vat_rate_bp,
-                });
-        }
+        let mut by_invoice = group_figures(figures);
 
         rows.into_iter()
             .map(|row| {
@@ -1128,41 +1052,6 @@ impl InvoiceRow {
             updated_at: self.updated_at,
         })
     }
-}
-
-#[derive(sqlx::FromRow)]
-struct LineRow {
-    id: String,
-    line_order: i32,
-    description: String,
-    unit: String,
-    qty_milli: i64,
-    unit_price_cents: i64,
-    vat_rate_bp: i32,
-}
-
-impl LineRow {
-    fn into_line(self) -> Line {
-        Line {
-            id: BillingLineId::new(self.id),
-            line_order: self.line_order,
-            description: self.description,
-            unit: self.unit,
-            qty_milli: self.qty_milli,
-            unit_price_cents: self.unit_price_cents,
-            vat_rate_bp: self.vat_rate_bp,
-        }
-    }
-}
-
-/// Just the numbers, for the list surface: the totals of many documents
-/// without dragging every description over the wire.
-#[derive(sqlx::FromRow)]
-struct FiguresRow {
-    invoice_id: String,
-    qty_milli: i64,
-    unit_price_cents: i64,
-    vat_rate_bp: i32,
 }
 
 #[cfg(test)]
