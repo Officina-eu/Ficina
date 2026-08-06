@@ -36,8 +36,9 @@ B1 (Billing) through B6 (HR) — the whole SAP/Odoo-class catalog of
      `ALO_BLOB_DIR=<repo>/.localdev/blobs`, `ALO_JMAP_ADDR=127.0.0.1:8080`,
      `ALO_IDENTITY_ISSUER=http://localhost:5173`; bootstrap once with
      `identityctl bootstrap-admin` + `register-client web` as in
-     `.localdev/start.sh`). Kill `alo-jmap.exe` before rebuilding — Windows
-     locks the running exe. Real curl calls, real DB rows checked.
+     `.localdev/start.sh`). Kill the running `alo-jmap` before rebuilding
+     (macOS/Linux: `pkill -f alo-jmap`; Windows locks the exe:
+     `taskkill //F //IM alo-jmap.exe`). Real curl calls, real DB rows checked.
 6. Update what changed behaviour: a CHANGELOG.md line (user voice), rustdoc/
    TSDoc on public items, all UI strings through `i18n/en.ts` (fr/nl at wave
    reviews). New top-level route prefixes: note in STATE.md that the
