@@ -28,6 +28,14 @@ pub const VAT_RATE_MAX_BP: i32 = 10_000;
 /// hold, so no document total can ever overflow into a wrong number.
 pub const UNIT_PRICE_MAX_CENTS: i64 = 1_000_000_000;
 
+/// Longest payment terms we accept, in days (a year of credit is already far
+/// beyond any real B2B term; anything longer is a typo).
+pub const PAYMENT_TERMS_MAX_DAYS: i32 = 365;
+/// Payment terms applied when the caller states none — the EU B2B default.
+pub const DEFAULT_PAYMENT_TERMS_DAYS: i32 = 30;
+/// Currency applied when the caller states none.
+pub const DEFAULT_CURRENCY: &str = "EUR";
+
 /// Trims `value` and rejects it if it exceeds `max` characters.
 ///
 /// Counts characters, not bytes: a 200-character limit means 200 characters
@@ -73,6 +81,33 @@ pub(crate) fn unit_price_cents(field: &str, value: i64) -> Result<i64> {
     if !(0..=UNIT_PRICE_MAX_CENTS).contains(&value) {
         return Err(StoreError::Validation(format!(
             "{field} must be between 0 and {UNIT_PRICE_MAX_CENTS} cents"
+        )));
+    }
+    Ok(value)
+}
+
+/// Validates an ISO 4217 currency code, returning it uppercased.
+///
+/// Shape only — three ASCII letters. The store deliberately does not carry a
+/// list of assigned codes: that list changes under us and a rejected valid
+/// code blocks a real invoice, while the FX table (B1.21) is what decides
+/// which codes a tenant can actually invoice in.
+pub(crate) fn currency(value: &str) -> Result<String> {
+    let value = value.trim();
+    if value.len() != 3 || !value.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return Err(StoreError::Validation(
+            "currency must be a three-letter ISO 4217 code".to_owned(),
+        ));
+    }
+    Ok(value.to_ascii_uppercase())
+}
+
+/// Validates payment terms in days: how long after issue an invoice is due.
+/// Zero is valid — "due on receipt".
+pub(crate) fn payment_terms_days(value: i32) -> Result<i32> {
+    if !(0..=PAYMENT_TERMS_MAX_DAYS).contains(&value) {
+        return Err(StoreError::Validation(format!(
+            "payment terms must be between 0 and {PAYMENT_TERMS_MAX_DAYS} days"
         )));
     }
     Ok(value)
@@ -132,6 +167,34 @@ mod tests {
                     unit_price_cents("unit price", bad),
                     Err(StoreError::Validation(_))
                 ),
+                "expected rejection: {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn currency_must_be_three_letters() {
+        for ok in ["eur", "USD", " chf "] {
+            assert!(currency(ok).is_ok(), "expected valid: {ok:?}");
+        }
+        assert_eq!(currency("eur").unwrap_or_default(), "EUR");
+        for bad in ["", "EU", "EURO", "EU1", "€"] {
+            assert!(
+                matches!(currency(bad), Err(StoreError::Validation(_))),
+                "expected rejection: {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn payment_terms_are_ranged() {
+        // Zero is "due on receipt", not a missing value.
+        for ok in [0, 14, 30, PAYMENT_TERMS_MAX_DAYS] {
+            assert_eq!(payment_terms_days(ok).unwrap_or(-1), ok);
+        }
+        for bad in [-1, PAYMENT_TERMS_MAX_DAYS + 1, i32::MIN, i32::MAX] {
+            assert!(
+                matches!(payment_terms_days(bad), Err(StoreError::Validation(_))),
                 "expected rejection: {bad}"
             );
         }

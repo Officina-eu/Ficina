@@ -211,6 +211,16 @@ opaque_id!(
     /// (alo Billing, ADR 0035).
     BillingProductId
 );
+opaque_id!(
+    /// A billing invoice — the document a tenant raises against a customer
+    /// (alo Billing, ADR 0035).
+    BillingInvoiceId
+);
+opaque_id!(
+    /// One line of a billing document. Invoices and quotes share the line
+    /// model (`crate::billing_line`), so they share its id type.
+    BillingLineId
+);
 
 #[cfg(test)]
 mod tests {

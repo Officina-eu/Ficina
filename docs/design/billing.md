@@ -79,12 +79,29 @@ column, struct field, or computation anywhere in this module.
   draft), issue date, due date, payment terms snapshot, credit-note
   type flag with a nullable `credits_invoice_id` self-reference, and
   the stored FX rate snapshot for multi-currency (B1.21).
+  As-built (B1.06): also `reference` (the customer's PO number) and
+  `note`, both printed on the document; the currency and terms are
+  snapshotted from the customer when the draft is raised, and a new
+  document cannot be raised for an **archived** customer. The FX column
+  is not in the table yet — it arrives, additively, with B1.21. The
+  status/number/date invariants are enforced by CHECK constraints as
+  well as in Rust: a draft is exactly a document with no number and no
+  dates, so an abandoned draft can never consume a number, and
+  `(tenant_id, number)` is unique.
 - **`billing_invoice_lines`** — invoice ref, line order, description,
   quantity in **milli-units** (`i64`; 1.5 h = 1500), unit price cents,
   VAT rate bp. Lines **snapshot** the product's description, price, and
   rate at the moment they are added; later edits to the price list
   never rewrite an existing document. This is the whole reason a line
   does not simply join to `billing_products`.
+  As-built (B1.06): a document's lines are written as a **whole set** in
+  one transaction, in the caller's order (`line_order` is 0-based and
+  contiguous) — a draft editor sends the document it wants rather than a
+  patch stream, so there is no half-edited state and no ambiguity about
+  order. A negative quantity is legitimate (that is how a discount line
+  is written); a negative unit price is not. The bounds — |qty| ≤ 10^9
+  milli-units, price ≤ 10^9 cents, ≤ 500 lines — are what make the
+  totals arithmetic provably `i64`-safe.
 - **`billing_quotes`** + **`billing_quote_lines`** — the same line
   model (shared code where it stays clean, not a forced abstraction),
   lifecycle `draft | sent | accepted | declined | expired`, valid-until
@@ -103,17 +120,28 @@ Totals are a **pure function** over lines (B1.06), never a stored
 column the client can influence:
 
 ```
-line_net   = round_half_up(qty_milli × unit_price_cents / 1000)
+line_net   = round(qty_milli × unit_price_cents / 1000)
 net        = Σ line_net
-vat_by_rate[r] = round_half_up(Σ line_net where rate = r × r / 10_000)
+vat_by_rate[r] = round(Σ line_net where rate = r × r / 10_000)
 gross      = net + Σ vat_by_rate
 ```
 
-Rounding is half-up at the **VAT-rate subtotal**, not per line — the EN
-16931 / VAT-directive convention — and the property test asserts that
-line sums always reconcile to the returned totals for randomly
+Rounding is at the **VAT-rate subtotal**, not per line — the EN 16931 /
+VAT-directive convention (BR-CO-17: the category tax amount is the
+category taxable amount times the rate) — and the property tests assert
+that line sums always reconcile to the returned totals for randomly
 generated documents. The client renders what the API returns; the web
 layer never computes money (B1.14).
+
+As-built (B1.06), one decision the first sketch left open: `round` is
+half **away from zero**, not half up. The two agree on positive amounts;
+they differ on negatives, and away-from-zero is what makes a credit note
+the exact mirror of the document it credits — `totals(−lines) ==
+−totals(lines)`, asserted as a property. Half-up would leave a one-cent
+residue on any document whose credit rounds at a half, and a ledger that
+does not sum to zero is an accounting defect, not a rounding taste.
+Every intermediate is computed in `i128` and narrowed with saturation,
+so the function is total for any input a future caller hands it.
 
 ## Errors
 

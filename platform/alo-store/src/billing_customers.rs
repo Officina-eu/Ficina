@@ -21,20 +21,19 @@
 use time::OffsetDateTime;
 
 use crate::account::AccountStore;
-use crate::billing_field::{bounded, required};
+use crate::billing_field::{bounded, currency, payment_terms_days, required};
 use crate::error::{Result, StoreError};
 use crate::id::{BillingCustomerId, ContactId};
 use crate::vat_id;
 
+/// The terms and currency rules a customer shares with every other billing
+/// record, re-exported so a caller reading about customers finds them here.
+pub use crate::billing_field::{
+    DEFAULT_CURRENCY, DEFAULT_PAYMENT_TERMS_DAYS, PAYMENT_TERMS_MAX_DAYS,
+};
+
 /// A customer name is a legal/display name — generous but bounded.
 pub const CUSTOMER_NAME_MAX_CHARS: usize = 200;
-/// Longest payment terms we accept, in days (a year of credit is already far
-/// beyond any real B2B term; anything longer is a typo).
-pub const PAYMENT_TERMS_MAX_DAYS: i32 = 365;
-/// Payment terms applied when the caller states none — the EU B2B default.
-pub const DEFAULT_PAYMENT_TERMS_DAYS: i32 = 30;
-/// Currency applied when the caller states none.
-pub const DEFAULT_CURRENCY: &str = "EUR";
 
 const ADDRESS_LINE_MAX_CHARS: usize = 200;
 const POSTAL_CODE_MAX_CHARS: usize = 20;
@@ -176,19 +175,6 @@ fn validate_country(country: &str) -> Result<String> {
     Ok(country.to_ascii_uppercase())
 }
 
-/// Validates an ISO 4217 currency code, returning it uppercased. Shape only,
-/// for the same reason as [`validate_country`]; the FX table (B1.21) is what
-/// decides which codes a tenant can actually invoice in.
-fn validate_currency(currency: &str) -> Result<String> {
-    let currency = currency.trim();
-    if currency.len() != 3 || !currency.bytes().all(|b| b.is_ascii_alphabetic()) {
-        return Err(StoreError::Validation(
-            "currency must be a three-letter ISO 4217 code".to_owned(),
-        ));
-    }
-    Ok(currency.to_ascii_uppercase())
-}
-
 /// Validates an optional invoice email address: one `@`, non-empty local and
 /// domain parts, a dot in the domain, no whitespace, bounded. Blank is `None`
 /// (a customer without an email address is normal — the invoice is printed).
@@ -234,16 +220,6 @@ fn normalize_vat_id(vat_id: Option<&str>, country: &str) -> Result<Option<String
     vat_id::canonicalize(raw, country).map_err(|error| StoreError::Validation(error.to_string()))
 }
 
-/// Validates payment terms in days.
-fn validate_payment_terms(days: i32) -> Result<i32> {
-    if !(0..=PAYMENT_TERMS_MAX_DAYS).contains(&days) {
-        return Err(StoreError::Validation(format!(
-            "payment terms must be between 0 and {PAYMENT_TERMS_MAX_DAYS} days"
-        )));
-    }
-    Ok(days)
-}
-
 /// Validates and normalises a whole customer. Pure — no database, so the
 /// rules are unit-tested directly.
 ///
@@ -269,8 +245,8 @@ fn normalize(input: &NewCustomer) -> Result<Normalized> {
         vat_id: normalize_vat_id(input.vat_id.as_deref(), &country)?,
         country,
         email: validate_email(input.email.as_deref())?,
-        payment_terms_days: validate_payment_terms(input.payment_terms_days)?,
-        currency: validate_currency(&input.currency)?,
+        payment_terms_days: payment_terms_days(input.payment_terms_days)?,
+        currency: currency(&input.currency)?,
         contact_id: input.contact_id.as_ref().map(|c| c.as_str().to_owned()),
     })
 }
@@ -586,19 +562,6 @@ mod tests {
     }
 
     #[test]
-    fn currency_must_be_three_letters() {
-        for ok in ["eur", "USD", " chf "] {
-            assert!(validate_currency(ok).is_ok(), "expected valid: {ok:?}");
-        }
-        for bad in ["", "EU", "EURO", "EU1", "€"] {
-            assert!(
-                matches!(validate_currency(bad), Err(StoreError::Validation(_))),
-                "expected rejection: {bad:?}"
-            );
-        }
-    }
-
-    #[test]
     fn email_is_optional_but_well_formed_when_present() {
         assert_eq!(validate_email(None).unwrap_or_default(), None);
         assert_eq!(validate_email(Some("   ")).unwrap_or_default(), None);
@@ -669,16 +632,14 @@ mod tests {
     }
 
     #[test]
-    fn payment_terms_are_ranged() {
-        for ok in [0, 14, 30, PAYMENT_TERMS_MAX_DAYS] {
-            assert!(validate_payment_terms(ok).is_ok(), "expected valid: {ok}");
-        }
-        for bad in [-1, PAYMENT_TERMS_MAX_DAYS + 1, i32::MIN, i32::MAX] {
-            assert!(
-                matches!(validate_payment_terms(bad), Err(StoreError::Validation(_))),
-                "expected rejection: {bad}"
-            );
-        }
+    fn out_of_range_payment_terms_are_refused_on_the_customer_path() {
+        // The rule itself lives in `billing_field`; this pins that a customer
+        // actually goes through it.
+        let input = NewCustomer {
+            payment_terms_days: PAYMENT_TERMS_MAX_DAYS + 1,
+            ..valid()
+        };
+        assert!(invalid(normalize(&input)).contains("payment terms"));
     }
 
     #[test]

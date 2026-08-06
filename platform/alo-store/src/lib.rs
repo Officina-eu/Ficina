@@ -14,7 +14,10 @@ pub mod audit;
 pub mod base;
 pub mod billing_customers;
 pub mod billing_field;
+pub mod billing_invoices;
+pub mod billing_line;
 pub mod billing_products;
+pub mod billing_totals;
 pub mod blob;
 pub mod calendar;
 pub mod changes;
@@ -55,7 +58,10 @@ pub use account_imap::{ImapEntry, ImapMailbox, ImapSearchRow};
 pub use account_sieve::{OutboundAction, SieveDelivery, SieveScriptMeta};
 pub use base::{Base, BaseField, BaseRecord, BaseTable, BaseView};
 pub use billing_customers::{Customer, NewCustomer};
+pub use billing_invoices::{Invoice, InvoiceDocument, InvoiceStatus, InvoiceSummary, NewInvoice};
+pub use billing_line::{Line, NewLine};
 pub use billing_products::{NewProduct, Product};
+pub use billing_totals::{LineFigures, Totals, VatSubtotal};
 #[cfg(feature = "garage")]
 pub use blob::GarageConfig;
 pub use blob::{BlobStore, ShareStream};
@@ -69,7 +75,7 @@ pub use drive::{DriveLocation, DriveNode, DriveVersion, NewDriveFile};
 pub use error::{Result, StoreError};
 pub use id::{
     AttachmentId, BaseFieldId, BaseRecordId, BaseTableId, BaseViewId, BillingCustomerId,
-    BillingProductId, BlobId, CalendarId, CategoryId, CommentId, ContactId, DriveNodeId, EventId,
+    BillingInvoiceId, BillingLineId, BillingProductId, BlobId, CalendarId, CategoryId, CommentId, ContactId, DriveNodeId, EventId,
     GroupId, LabelId, MailboxId, MessageId, ProjectId, SiteId, SitePageId, SpaceId, SubtaskId,
     TaskId, TenantId, ThreadId, UserId,
 };

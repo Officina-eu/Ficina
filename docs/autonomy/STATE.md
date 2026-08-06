@@ -396,3 +396,121 @@ Cuts and flags:
 
 Next item: B1.06 (`billing_invoices` + `billing_invoice_lines` migration, store,
 and the pure totals function with property tests).
+
+## 2026-08-06 — B1.06 invoices, lines, and the totals arithmetic
+
+The document itself, and the one piece of arithmetic every later item in the
+wave depends on. Four new files plus a migration:
+
+- **Migration `0102_billing_invoices.sql`** — `billing_invoices` and
+  `billing_invoice_lines`. The lifecycle is in the constraints, not only in
+  Rust: `status IN (draft|issued|paid|void)`, `(status = 'draft') =
+  (number IS NULL)` and the same for the dates, so a **numbered draft** and an
+  **issued document without a number** are both states the database refuses;
+  `UNIQUE (tenant_id, number)`; a composite FK `(tenant_id, customer_id)` →
+  `billing_customers`, so a cross-tenant customer link is impossible even if a
+  `WHERE` clause were ever wrong; a nullable self-FK for the credit note
+  (B1.09) with `is_credit_note = (credits_invoice_id IS NOT NULL)`. Lines
+  cascade from their invoice and reach their tenant only through it.
+- **`billing_totals.rs`** (pure) — `LineFigures`, `VatSubtotal`, `Totals`,
+  `line_net_cents`, `totals`. No database, no clock, no tenant: the single
+  place money is computed, so invoices, quotes, the PDF and the e-invoice XML
+  cannot drift apart.
+- **`billing_line.rs`** — the line shape and its rules, shared with quotes at
+  B1.11: description/unit bounds, quantity in milli-units (negative allowed —
+  that is a discount), `MAX_LINES = 500`, and a rejection message that names
+  *which* line failed (1-based, as the user sees it) without ever echoing the
+  line's text.
+- **`billing_invoices.rs`** — `InvoiceStatus`, `NewInvoice`, `Invoice`,
+  `InvoiceSummary`, `InvoiceDocument`, and the store: create a draft, read one
+  document with lines+totals, list with a status filter, replace the header,
+  replace the whole line set in one transaction, and `billing_line_totals` —
+  the same arithmetic *before* writing, so the B1.14 draft editor shows live
+  totals from the server instead of computing money in the browser.
+- **`billing_field.rs`** gained the currency and payment-terms rules (moved out
+  of `billing_customers.rs`, which now uses them): invoices need the same two
+  rules, and one wording per rule across the module is the point of that file.
+
+Decisions worth recording:
+
+- **Rounding is half away from zero, not half up** — and this is a compliance
+  decision, so it is flagged rather than buried. Rounding happens once at the
+  VAT-rate subtotal (EN 16931 BR-CO-17), never per line. The two conventions
+  agree on positive amounts; away-from-zero is what makes a credit note the
+  exact mirror of its original (`totals(−lines) == −totals(lines)`, a
+  property test), whereas half-up leaves a one-cent residue whenever a credit
+  rounds at a half — a ledger that does not sum to zero. Recorded in
+  `docs/design/billing.md`, which had said "half-up" while leaving negatives
+  unconsidered.
+- **Totals are never stored.** They are derived from the lines on every read,
+  so no client can influence what a document is worth and no column can drift
+  from the lines that justify it. The list surface fetches every listed
+  document's lines in one further statement, not one per document.
+- **Lines are written as a whole set**, in one transaction, with the invoice
+  row locked `FOR UPDATE`: two editors saving at once serialise instead of
+  interleaving line sets. Every line is validated before anything is written,
+  so a bad line at the end cannot leave a half-replaced document. The
+  draft-only guard (B1.07) lands on that same lock.
+- **All arithmetic is `i128` internally, narrowed with saturation.** The
+  validated bounds (|qty| ≤ 10^9 milli, price ≤ 10^9 cents, ≤ 500 lines) put a
+  document's gross four orders of magnitude below `i64::MAX`; the saturation is
+  the guarantee that the pure function is total for *any* caller — no wrap into
+  a plausible wrong number, no panic.
+- **A new document cannot be raised for an archived customer** (typed 422).
+  Archiving means "we no longer bill them"; existing documents still name them,
+  which is what archiving is for.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings); `cargo test -p alo-store` fully green
+against local Postgres — 142 unit tests (27 new: 15 over the totals module, 9
+over the line rules, 3 over the status enum) and every integration suite,
+including the new `tests/billing_invoices_tenancy.rs` (3 tests).
+
+The **property tests** the item asked for run 19 000 generated documents
+through a deterministic seeded generator (xorshift64*, no new dependency, so a
+failure always reproduces): line sums always reconcile to the returned totals
+and to the per-rate subtotals; each rate appears exactly once, ascending, and
+the rate set is exactly the document's; every subtotal's VAT is the rate
+applied once to that subtotal's net, recomputed independently of the
+implementation; `gross == net + vat` always; negation is an exact mirror; line
+order never changes an answer; a zero rate never produces VAT. Plus the
+boundary cases: a 500-line document at every validated ceiling stays an order
+of magnitude inside `i64`, and absurd input saturates rather than wrapping.
+
+The **wrong-tenant proof** covers every path: tenant B gets `None`/empty from
+read and list and `NotFound` from header update and line replacement on A's
+document; A's document is unchanged after each attempt; a ghost id gets the
+same answer as another tenant's id (no existence oracle); and the customer
+link cannot cross — raising or re-pointing a document at another tenant's
+*real* customer id is `NotFound`, not a cross-tenant link. Alongside it: a
+second suite proving one document's line replacement never touches another's,
+and a third round-tripping a full 500-line document exactly (milli-units and
+cents intact, totals hand-checked).
+
+Wire-checked on the live local database with `psql`: `\d billing_invoices` and
+`\d billing_invoice_lines` show every constraint as written, and four direct
+SQL probes proved the claims the Rust tests cannot reach yet — a numbered
+draft is refused, an issued document without dates is refused, two documents
+of one tenant cannot share a number, and an invoice for **another tenant's**
+customer id is refused by the foreign key itself. A fifth probe confirmed that
+deleting a tenant still purges cleanly when a credit note references another
+invoice (the self-FK does not block the cascade), which is what B1.09 will
+build on.
+
+Cuts and flags:
+
+- **No FX column yet.** The design note lists a stored FX-rate snapshot on the
+  invoice; it belongs to B1.21 and arrives as an additive `ALTER TABLE` then,
+  rather than sitting unvalidated in the schema for fifteen items.
+- **No delete, and no draft-only guard.** Deleting an abandoned draft and
+  refusing edits to a non-draft are B1.07's item; nothing in B1.06 can move a
+  document off `draft`, so the guard would be untestable code today. The lock
+  it will sit on is already in place.
+- **`is_credit_note` / `credits_invoice_id` are written but never set** —
+  B1.09 sets them. They are in the table now because the numbering and status
+  constraints are stated in terms of them.
+- **No routes** (B1.10), so no curl transcript applies to this item; nothing
+  user-visible changed, so still no CHANGELOG line.
+
+Next item: B1.07 (draft-invoice lifecycle — edits only while draft, typed
+error on a non-draft).
