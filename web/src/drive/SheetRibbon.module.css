@@ -100,6 +100,21 @@
 .numberSelect {
   min-width: 108px;
 }
+/* Compact dropdown for borders / rotation. */
+.miniSelect {
+  height: 26px;
+  max-width: 88px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  padding: 0 4px;
+}
+.miniSelect:disabled {
+  opacity: 0.5;
+}
 .fontSelect:disabled,
 .sizeSelect:disabled,
 .numberSelect:disabled {

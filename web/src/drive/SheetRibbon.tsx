@@ -47,6 +47,8 @@ export interface SheetActions {
   adjustFontSize: (delta: number) => void;
   setFontColor: (hex: string) => void;
   setFillColor: (hex: string) => void;
+  setBorder: (kind: "all" | "outer" | "none") => void;
+  setRotation: (degrees: number) => void;
   align: (a: "left" | "center" | "right") => void;
   valign: (a: "top" | "middle" | "bottom") => void;
   toggleWrap: () => void;
@@ -247,6 +249,23 @@ function HomeTab({ actions, disabled }: { actions: SheetActions; disabled: boole
             <ColorBtn label={strings.sheetFillColor} onPick={actions.setFillColor} disabled={disabled}>
               <PaintBucket size={16} />
             </ColorBtn>
+            <select
+              className={styles.miniSelect}
+              aria-label={strings.sheetBorders}
+              title={strings.sheetBorders}
+              disabled={disabled}
+              value=""
+              onChange={(e) => {
+                if (e.target.value !== "") actions.setBorder(e.target.value as "all" | "outer" | "none");
+              }}
+            >
+              <option value="" disabled>
+                {strings.sheetBorders}
+              </option>
+              <option value="all">{strings.sheetBordersAll}</option>
+              <option value="outer">{strings.sheetBordersOuter}</option>
+              <option value="none">{strings.sheetBordersNone}</option>
+            </select>
           </div>
         </div>
       </Group>
@@ -280,6 +299,24 @@ function HomeTab({ actions, disabled }: { actions: SheetActions; disabled: boole
             <IconBtn label={strings.sheetMerge} onClick={actions.merge} disabled={disabled}>
               <TableCellsMerge size={16} />
             </IconBtn>
+            <select
+              className={styles.miniSelect}
+              aria-label={strings.sheetRotation}
+              title={strings.sheetRotation}
+              disabled={disabled}
+              value=""
+              onChange={(e) => {
+                if (e.target.value !== "") actions.setRotation(Number(e.target.value));
+              }}
+            >
+              <option value="" disabled>
+                {strings.sheetRotation}
+              </option>
+              <option value="0">{strings.sheetRotationNone}</option>
+              <option value="45">45°</option>
+              <option value="90">90°</option>
+              <option value="-45">-45°</option>
+            </select>
           </div>
         </div>
       </Group>

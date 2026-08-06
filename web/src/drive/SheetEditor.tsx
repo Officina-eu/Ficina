@@ -165,6 +165,18 @@ export function SheetEditor({
       setFillColor: (hex) => {
         range()?.setBackgroundColor(hex);
       },
+      setBorder: (kind) => {
+        const r = range();
+        const api = apiRef.current;
+        if (r === null || api === null || api === undefined) return;
+        const BT = api.Enum.BorderType;
+        const BS = api.Enum.BorderStyleTypes;
+        const type = kind === "all" ? BT.ALL : kind === "outer" ? BT.OUTSIDE : BT.NONE;
+        r.setBorder(type, BS.THIN);
+      },
+      setRotation: (degrees) => {
+        range()?.setTextRotation(degrees);
+      },
       align: (a) => {
         const r = range();
         // Univer's facade type omits 'right', but its runtime maps left/center/right.
