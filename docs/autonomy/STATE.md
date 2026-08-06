@@ -1848,3 +1848,12 @@ Cuts and flags:
 Next item: B1.16 (the invoice/quote HTML print view — a branded document with
 addresses, lines, VAT breakdown, payment terms and bank details, print-optimised
 to a correct A4 page, which is also the PDF source).
+
+*Correction, same iteration:* commit `d8b29c6` went out **without** the
+`Co-Authored-By: Claude …` trailer — the same slip as `0364163` at B1.09, and
+the same cause: a commit message written with `git commit -F -` does not get
+the trailer the harness would otherwise append, so it has to be written into
+the message by hand. It was already pushed when this was noticed, and rewriting
+pushed history is forbidden by the loop's safety rails, so the commit stands and
+the gap is recorded here. The authorship itself is correct (the repository
+owner, as configured). Every later commit writes the trailer explicitly.
