@@ -93,8 +93,42 @@ pub fn sections_lenient(stored: &serde_json::Value) -> Vec<Section> {
         .collect()
 }
 
+/// How the document references its stylesheet. Published pages link the
+/// served `/assets/site.css`; the authenticated draft preview inlines the
+/// generated sheet instead, because none of the public asset paths resolve
+/// on the edit origin. Everything else about the document is identical —
+/// one builder, so preview and production HTML cannot drift.
+enum StylesheetRef<'a> {
+    /// `<link rel="stylesheet" href="/assets/site.css">`.
+    Linked,
+    /// The generated stylesheet, embedded in a `<style>` block.
+    Inline(&'a str),
+}
+
 /// Renders one page to a complete HTML document.
 pub fn render_page(site: &SiteRenderContext<'_>, page: &PageRenderContext<'_>) -> String {
+    render_document(site, page, &StylesheetRef::Linked)
+}
+
+/// Renders one page as a self-contained draft-preview document: the same
+/// output as [`render_page`] with the stylesheet inlined in place of the
+/// `/assets/site.css` link. `css` is the machine-generated sheet from
+/// [`crate::stylesheet::stylesheet`] — generated purely from validated theme
+/// tokens, it can never contain `</style` (the stylesheet suite pins that
+/// mechanically), so embedding it verbatim is safe.
+pub fn render_page_preview(
+    site: &SiteRenderContext<'_>,
+    page: &PageRenderContext<'_>,
+    css: &str,
+) -> String {
+    render_document(site, page, &StylesheetRef::Inline(css))
+}
+
+fn render_document(
+    site: &SiteRenderContext<'_>,
+    page: &PageRenderContext<'_>,
+    stylesheet: &StylesheetRef<'_>,
+) -> String {
     let parsed = sections_lenient(page.sections);
 
     let mut header = String::new();
@@ -111,7 +145,7 @@ pub fn render_page(site: &SiteRenderContext<'_>, page: &PageRenderContext<'_>) -
     let mut out = String::with_capacity(16 * 1024);
     out.push_str("<!doctype html>\n");
     out.push_str(&format!("<html lang=\"{}\">\n", esc(site.strings.lang)));
-    push_head(&mut out, site, page, &parsed);
+    push_head(&mut out, site, page, &parsed, stylesheet);
     out.push_str("<body>\n");
     out.push_str(&format!(
         "<a class=\"skip-link\" href=\"#main\">{}</a>\n",
@@ -186,6 +220,7 @@ fn push_head(
     site: &SiteRenderContext<'_>,
     page: &PageRenderContext<'_>,
     parsed: &[Section],
+    stylesheet: &StylesheetRef<'_>,
 ) {
     let title = match page.seo_title {
         Some(seo) => seo.to_owned(),
@@ -238,7 +273,17 @@ fn push_head(
             img_src(favicon.as_str())
         ));
     }
-    out.push_str("<link rel=\"stylesheet\" href=\"/assets/site.css\">\n</head>\n");
+    match stylesheet {
+        StylesheetRef::Linked => {
+            out.push_str("<link rel=\"stylesheet\" href=\"/assets/site.css\">\n");
+        }
+        StylesheetRef::Inline(css) => {
+            out.push_str("<style>\n");
+            out.push_str(css);
+            out.push_str("</style>\n");
+        }
+    }
+    out.push_str("</head>\n");
 }
 
 /// The page's OG image source: the first hero section that carries an image.

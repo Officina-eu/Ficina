@@ -586,3 +586,67 @@ Human-action inbox (things the loop must not do itself):
     dropped by `JSON.stringify` — noted in `sections.ts`.
 - **Next:** S1.13 (live preview: authenticated draft-render endpoint in
   alo-jmap + iframe preview pane).
+
+## S1.13 — live preview: draft-render endpoint + preview pane (2026-08-07)
+
+- **Shipped:** the editor now shows the page while it is built. Render lib:
+  one private `render_document` behind both spellings — `render_page`
+  (public serving, `<link>` to `/assets/site.css`) and the new
+  `render_page_preview` (the same document with the generated stylesheet
+  inlined in a `<style>` block, because the public asset paths do not
+  resolve on the edit origin); the stylesheet self-containment test now also
+  forbids `</` so embedding the sheet verbatim can never close the block.
+  Edit API: `GET /sites/{id}/pages/{pid}/preview` — authenticated like every
+  edit route, renders the DRAFT with `SiteTheme::from_stored` + the site's
+  future public origin (`https://<sub>.<SITES_DOMAIN>`, env with the
+  alosites.com default) in canonical/OG, answers `text/html` with
+  `Cache-Control: no-store` (a draft has no cache life). Web: the editor is
+  now a two-pane layout — section stack left, preview right (sticky,
+  stacking on narrow screens); the pane holds a sandboxed iframe
+  (`sandbox="allow-scripts"`, document via `srcdoc` — it may run its own
+  menu script but never touches the app origin), refetches whenever a save
+  lands (keyed on the envelope the last op answered, so a refused gesture
+  does not refresh), and a desktop/phone toggle lays the document out at
+  375px. `SitesApi.pagePreview` answers text; the non-2xx→`SitesError` map
+  is now shared (`#rejectFailed`) between the JSON and text paths. 5 new
+  i18n en strings.
+- **Verified:** `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-sites
+  -p alo-jmap --all-targets` zero warnings; `cargo test -p alo-sites` green
+  (28 — incl. the new no-drift pin: for EVERY shipped preset, preview ==
+  published document with exactly the stylesheet reference swapped,
+  byte-for-byte) and full `cargo test -p alo-jmap` green (30 suites; sites_http
+  now 8 — the new preview test: self-contained document, no-store, follows an
+  edit on the next fetch; the 401 barrage and the wrong-tenant barrage both
+  extended with the preview route). Web: `npx tsc --noEmit`, eslint clean,
+  **full `npm test` green — 202 tests / 27 files** incl. 4 new preview-pane
+  tests (server document reaches the sandboxed frame's srcdoc; a successful
+  save refetches while a refused op provably does not; width toggle flips
+  aria-pressed; a failed preview shows its own error and never blocks
+  editing); `npm run build` clean. Manual wire pass against the rebuilt
+  debug binary + docker `alo-pg`, real curl: hero with `cta` → 422 naming
+  the real props (gate live on the wire), `primary_cta` → 200; preview →
+  200 `text/html; charset=utf-8`, `cache-control: no-store`, `<style>`
+  inlined, zero `/assets/site.css`, `Bread &amp; butter` escaped, canonical
+  `https://wire-preview-s113.alosites.com/`; no token → 401; bogus page id →
+  404; PUT the hero then re-fetch → the new heading, the old one gone;
+  fixture site deleted after.
+- **Cuts/flags:**
+  - This iteration ADOPTED uncommitted S1.13 work found in the tree (the
+    previous invocation died before finishing): the Rust endpoint, render
+    split, and preview pane were in place but unfinished — the 5
+    `sitesPreview*` i18n strings, all web tests, CHANGELOG, and
+    QUEUE/STATE were missing. Everything was read line-by-line, finished,
+    and re-verified through the full gates before committing as one item.
+  - The preview refetches the whole document per save (no diffing/morphing)
+    — right-sized until pages get heavy; revisit only on real complaints.
+  - `sites_domain()` reads env once per process (OnceLock); a changed
+    `SITES_DOMAIN` needs a restart — same posture as alo-sites' own config.
+  - The rustfmt-version delta from S1.10 struck again (fmt wanted to reflow
+    7 untouched business-track modules incl. `agent.rs`, active on the other
+    machine); reverted the churn again — the S1.10 flag for aligning rustfmt
+    versions at wave review stands.
+  - Environment note: the first `cargo test -p alo-jmap` build OOM-killed
+    parallel rustc (missing-rlib errors); `-j 2` builds clean — same as the
+    S1.03 note.
+- **Next:** S1.14 (theme UI: preset picker + logo/favicon upload via Drive;
+  preview updates).

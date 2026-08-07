@@ -77,7 +77,17 @@ fn every_preset_sheet_carries_its_tokens_and_stays_in_budget() {
 fn stylesheet_is_fully_self_contained() {
     for preset in THEME_PRESETS {
         let css = stylesheet(&theme_for(preset.id)).to_ascii_lowercase();
-        for forbidden in ["@import", "@font-face", "url(", "http:", "https:", "//"] {
+        // `</` additionally guarantees the sheet can be embedded verbatim in
+        // a `<style>` block (the draft preview does) without closing it.
+        for forbidden in [
+            "@import",
+            "@font-face",
+            "url(",
+            "http:",
+            "https:",
+            "//",
+            "</",
+        ] {
             assert!(
                 !css.contains(forbidden),
                 "{}: stylesheet contains {forbidden}",

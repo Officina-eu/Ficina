@@ -6,6 +6,14 @@ contracts.
 
 ## Unreleased
 
+- **alo Sites: see the page as you build it.** The page editor now shows a
+  live preview beside the section stack — the real page, rendered by the
+  same engine that will serve it to the public, so what you see is what
+  publishing will produce. It refreshes the moment a change is saved, and a
+  toggle switches the pane between desktop and phone width so you can check
+  both before anyone else sees either. It is a preview of your draft: only
+  you can see it, and nothing goes live until you publish.
+
 - **alo Billing now speaks French and Dutch — including the documents your
   customers receive.** Switch the language and the whole module follows:
   every screen, every button, every confirmation. So does the paperwork

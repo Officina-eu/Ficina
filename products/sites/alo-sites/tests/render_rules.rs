@@ -3,8 +3,11 @@
 //! hold even for stored values the write gate would never have admitted.
 #![allow(clippy::unwrap_used)]
 
-use alo_sites::render::{EN, PageRenderContext, SiteRenderContext, render_page, sections_lenient};
-use alo_store::site_theme::SiteTheme;
+use alo_sites::render::{
+    EN, PageRenderContext, SiteRenderContext, render_page, render_page_preview, sections_lenient,
+};
+use alo_sites::stylesheet::stylesheet;
+use alo_store::site_theme::{SiteTheme, THEME_PRESETS};
 use serde_json::json;
 
 /// Renders arbitrary stored-sections JSON on a default-theme site.
@@ -252,4 +255,38 @@ fn theme_logo_and_favicon_reach_nav_and_head() {
     let bare = render(&hero_page());
     assert!(bare.contains("<a class=\"brand\" href=\"/\">Nordwind Coffee Roasters</a>"));
     assert!(!bare.contains("rel=\"icon\""));
+}
+
+/// The draft preview is the published document with the stylesheet inlined —
+/// byte-for-byte, for every shipped preset. This is the no-drift pin: if the
+/// two ever diverge beyond the stylesheet reference, editing would preview
+/// something publishing does not produce.
+#[test]
+fn preview_is_the_published_document_with_the_stylesheet_inlined() {
+    for preset in THEME_PRESETS {
+        let theme =
+            SiteTheme::from_value(json!({"schema_version": 1, "preset": preset.id})).unwrap();
+        let site = SiteRenderContext {
+            name: "Nordwind Coffee Roasters",
+            base_url: "https://nordwind.alosites.com",
+            theme: &theme,
+            strings: &EN,
+        };
+        let page = PageRenderContext {
+            path: "/about",
+            title: "About",
+            seo_title: None,
+            seo_description: Some("Who we are."),
+            sections: &hero_page(),
+        };
+        let css = stylesheet(&theme);
+        let published = render_page(&site, &page);
+        let preview = render_page_preview(&site, &page, &css);
+        let expected = published.replace(
+            "<link rel=\"stylesheet\" href=\"/assets/site.css\">\n",
+            &format!("<style>\n{css}</style>\n"),
+        );
+        assert_eq!(preview, expected, "{}: preview drifted", preset.id);
+        assert!(!preview.contains("/assets/site.css"), "{}", preset.id);
+    }
 }
