@@ -114,14 +114,14 @@ admin-shaped read. `pipelineId` and `stageId` *are* resolved — they are
 this module's own records, and both a foreign and an invented id answer
 with the same `422`, so the strictness is not an existence oracle.
 
-### Web surface (planned, B2.07)
+### Web surface
 
 `web/src/crm`, a rail module of the **workspace product only**
-(`product/workplace.tsx`), mounted at `/crm/*` with tabs `deals` (the
-board, where `/crm` lands), `list`, and `reports`. It follows billing's
-three module rules verbatim — no validation in the client, no money
-computed in the browser, an edit sends only what changed — and adds
-nothing new to the shell.
+(`product/workplace.tsx`), mounted at `/crm/*` with tabs `board` (where
+`/crm` lands) and `list`. It follows billing's three module rules
+verbatim — no validation in the client, no money computed in the
+browser, an edit sends only what changed — and adds nothing new to the
+shell.
 
 The board is the **Tasks board interaction**, not a second one: columns
 are stages instead of statuses, a card move is a single-field update,
@@ -133,6 +133,44 @@ line model was shared under.
 A deal opens in a drawer, not a page: value and stage at the top,
 activities and linked conversations below, with an *open in mail* that
 hands off to the mail module rather than rendering a message inside CRM.
+
+*As built (B2.07) — seven things the note left open, decided in code.*
+
+- **The `reports` tab is not here yet.** The pipeline report is B2.08's
+  route and lands with it; a tab in front of an endpoint that does not
+  exist is a promise, not a surface.
+- **No column, and no screen, ever sums money.** A card shows the value
+  the server stored for that deal; value-by-stage is B2.08's
+  server-computed report, which reports per currency and refuses to
+  convert. A browser adding the cards up would answer a different
+  question under the same heading.
+- **A losing column asks why before the move is sent.** The reason is
+  collected in a dialog and the request is made only if it is given;
+  cancelling leaves the card where it was and makes no request at all.
+  So the `422` the server holds for a reasonless loss is a backstop, not
+  the user's experience of it.
+- **The open deal lives in `?deal=`**, not in component state, so a link
+  to a deal is a link a colleague can be sent. It survives a reload and
+  a tab switch, and the drawer **re-reads the deal** rather than
+  rendering the row the board is holding.
+- **The list's filters are the server's; the search box is not, and says
+  so.** Column, owner and state go into the query (the strictness above
+  is what makes the selects safe to build from the server's own answer);
+  the text box plainly matches the rows already on screen. The owner
+  filter sends the signed-in user's OIDC subject, which *is* the
+  tenant's user id (`alo-identity/src/oauth.rs`).
+- **`/mail?thread=<id>` is a new, additive mail deep link** beside the
+  existing `?open=<messageId>` a task uses: CRM knows a conversation and
+  not any one message in it. The mail module resolves the thread through
+  the *reading* user's own account door, so CRM hands over an id and
+  never a right to read it — which is why "open in mail" is offered only
+  where the server's computed `readable` is true, and a colleague who
+  does not hold the conversation is told who linked it instead.
+- **A deal in an archived column names it as one.** A closed deal can
+  sit in a column that was archived afterwards; the drawer's stage
+  select shows "Archived column" rather than falling back to its first
+  option, which would show the wrong column and turn an idle click into
+  a move.
 
 ## Data model
 

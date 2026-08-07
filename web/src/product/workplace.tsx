@@ -7,10 +7,11 @@
 // `../authoring`). alomails ships the `mail` surface instead and deletes this
 // file together with those areas — nothing else in the web app references them.
 import { Suspense, lazy } from "react";
-import { Building2, Code2, Globe, HardDrive, MessagesSquare, Receipt, Sigma, Video } from "lucide-react";
+import { Building2, Code2, Globe, HardDrive, Handshake, MessagesSquare, Receipt, Sigma, Video } from "lucide-react";
 
 import { strings } from "../i18n";
 import { BillingModule } from "../billing";
+import { CrmModule } from "../crm";
 import { SitesModule } from "../sites";
 import { ControlConsole } from "../control";
 import { DriveModule } from "../drive";
@@ -58,6 +59,17 @@ const suiteModules: ProductModule[] = [
     Icon: Receipt,
     enabled: true,
     element: () => <BillingModule />,
+  },
+  // CRM is a workspace module only (ADR 0035), beside Billing and for the same
+  // reason: the business suite is what aloworkplace.com sells. It sits next to
+  // Billing because a won deal becomes a quote there.
+  {
+    id: "crm",
+    path: "/crm",
+    label: strings.moduleCrm,
+    Icon: Handshake,
+    enabled: true,
+    element: () => <CrmModule />,
   },
   // Sites is a workspace module only (ADR 0036): the public website a business
   // publishes belongs to the suite, not to the standalone mail app.

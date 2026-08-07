@@ -4803,3 +4803,165 @@ Cuts and flags:
 Next item: B2.07 (the CRM web module — pipeline kanban on the Tasks board
 interaction, the deal drawer with value, stage, activities, next steps and
 linked threads, list view and filters).
+
+## 2026-08-07 — B2.07 the CRM module on screen: a board, a list, and a deal drawer
+
+The first item of wave B2 that a person can see. Everything B2.02–B2.06 built
+had no door: five route files, four tables and a thread matcher that only curl
+had ever opened. This item is the door — `web/src/crm`, a rail module of the
+workspace product, mounted at `/crm/*`.
+
+What shipped:
+
+- **`api.ts` / `types.ts`** — the client for `/crm`, and the wire shapes as the
+  server publishes them. It holds no validation and no arithmetic: titles,
+  currencies, values, lost reasons, filters and days are all the store's rules,
+  which the CRM agent (B2.10) will call directly, and a second weaker copy here
+  is exactly how two doors end up disagreeing. `?lang=` goes on the pipeline
+  read alone, because that read is what **seeds** a tenant's first board.
+- **`useCrmData.ts`** — two hooks, not one: `useBoardContext` (the boards and
+  the open one's columns) and `useDealList` (the deals answering one question).
+  The board and the list ask *different* questions of the same records, and one
+  `revision` counter is the single refresh channel — an edit in the drawer
+  re-reads exactly the list on screen.
+- **`BoardView.tsx`** — the Tasks board interaction with stages instead of
+  statuses: native HTML5 drag, drop on a column to append, drop on a card to
+  land above it, fractional `position` so one row changes (ADR 0022). Cards are
+  a named list per column, so a screen reader can say which column it is in.
+- **`ListView.tsx`** — the same deals as a table, with the column / state /
+  owner filters sent to the SERVER and a search box that plainly matches the
+  rows already on screen (and says so).
+- **`DealDrawer.tsx`** + **`ActivityLog.tsx`**, **`NextSteps.tsx`**,
+  **`LinkedThreads.tsx`** — the record beside the board: value, state, the
+  stage select, edit and delete, then the log (kind + body, no `happenedAt` —
+  an entry nobody dated happened now, on the server's clock), the next steps as
+  real tasks with a link into Tasks, and the conversations.
+- **`moveDeal.ts`** — the one action with a rule a user must answer for, in one
+  place because the board and the drawer both do it: a losing column asks why
+  **before** the request is made, and cancelling the question makes no request
+  at all.
+- **`DealDialog.tsx`** — raise or edit a deal. The money edge (`parseHundredths`
+  → integer cents) and nothing else; an edit sends only what changed.
+- **`platform/rest.ts`** — `RestError` / `restMessage` / `problemDetail`, the
+  failure shape both business modules now share. `BillingError` became a
+  subclass rather than a second copy: this is the web half of the design note's
+  "the store-error map moves to a shared module when a third caller needs it".
+- **`billing/index.ts`** now exports `formatAmount` / `parseHundredths` /
+  `hundredthsToInput`. Billing owns money formatting — it is where money was
+  first typed and printed — so CRM reads them from the owner rather than
+  growing a second, slightly different formatter.
+- **`mail/MailModule.tsx`** gained `/mail?thread=<id>`, additive beside the
+  `?open=<messageId>` a task uses. CRM knows a conversation, not a message in
+  it; mail resolves the thread through the *reading* user's own account door,
+  so CRM hands over an id and never a right to read it.
+- **`vite.config.ts`**: `/crm` added to the dev proxy prefixes (dev server
+  only — `deploy/` untouched).
+
+Verification. `npx tsc --noEmit` on both projects, `npx eslint . --max-warnings
+0`, `npm run build`, and `npx vitest run` — **28 files, 213 tests green**,
+including 11 new ones in `src/crm/CrmModule.test.tsx` that drive the real
+router, the real module routes, the real client and the real dialogs against a
+recorded network: the board is the server's columns, a drag is exactly one move
+request, a losing column asks first and sends the reason (and cancelling sends
+nothing), the list's filters go to the server while the search box does not,
+the drawer offers "open in mail" for exactly the conversation this reader
+holds, suggestions are read on request and never on open, and a next step is
+posted with no source link because the deal in the path is the source.
+
+Wire-verified with real curl against the debug `alo-jmap` on `127.0.0.1:8080`
+over docker `alo-pg` (fresh tenants `wire-b207`, `wire-b207b`) — every request
+below is one the module actually makes, checked key by key against what the
+client's types read:
+
+```
+GET  /crm/pipelines?lang=en                   -> 200 seeded 'Sales' + 5 columns
+GET  /crm/pipelines/{id}/stages               -> 200 New, Qualified, Proposal,
+                                                     Won(isWon), Lost(isLost)
+POST /crm/deals  (what the dialog sends)      -> 200 valueCents=2500000 EUR
+                                                     expectedClose=2026-09-30
+                                                     state=open position=1
+GET  /crm/deals?pipelineId=…                  -> 200 1 deal (the board read)
+GET  /crm/deals/{id}                          -> 200 (the drawer's own re-read)
+  the drag:
+POST .../stage {stageId,position}             -> 200 moved
+POST .../stage into Lost, no reason           -> 422 'a lost deal needs a reason'
+                                                     — the request the UI never makes
+POST .../stage into Lost, reason 'Price'      -> 200 closed=true, closedAt set
+POST .../stage reason into a NON-losing column-> 422 'a lost reason belongs only…'
+POST .../stage back to an open column         -> 200 closed=false, snapshot cleared
+  the list's filters:
+GET  /crm/deals?…&state=won                   -> 200 []
+GET  /crm/deals?…&state=open&ownerUserId=<me> -> 200 1 deal  ('Only mine')
+GET  /crm/deals?…&ownerUserId=nobody          -> 200 []      (owner is not resolved)
+GET  /crm/deals?…&stageId=<qualified>         -> 200 0 deals
+GET  /crm/deals?…&state=closed                -> 422 'state must be one of…'
+GET  /crm/deals?pipelineId=nope               -> 422 'pipelineId is not a pipeline…'
+  the edit form:
+PATCH /crm/deals/{id} {"valueCents":3000000}  -> 200 only that field moved
+PATCH … {"expectedClose":null}                -> 200 cleared
+PATCH … {"expectedClose":"30/09/2026"}        -> 422 'must be a date written YYYY-MM-DD'
+  the drawer's three panels:
+GET  .../activities                           -> 200 []
+POST .../activities {kind,body}               -> 200 kind=meeting, happenedAt=now
+GET  .../next-steps                           -> 200 []
+POST .../next-steps {title,dueAt}             -> 200 sourceKind=deal sourceId=<deal>
+                                                     state=active project=personal
+GET  .../threads                              -> 200 []
+GET  .../thread-suggestions                   -> 200 []  (an empty mailbox)
+POST .../threads {threadId:"not mine"}        -> 404 'not found'
+  a deep link opened by the neighbour (tenant B):
+GET  /crm/deals/{A's deal}                    -> 404 'no such deal'
+GET  /crm/deals/{A's deal}/activities         -> 404 'not found'
+GET  /crm/deals?pipelineId={A's board}        -> 422 (not an existence oracle:
+                                                      an invented id answers the same)
+  with no token at all:
+GET  /crm/deals/{id}                          -> 401
+GET  /crm/pipelines                           -> 401
+  the drawer's delete, and what it leaves standing:
+DEL  /crm/deals/{id}                          -> 200
+GET  .../activities                           -> 404 — the log went with it
+GET  /tasks?project=<personal>                -> 200 'Chase the PO', source deal <id>
+                                                     — the task lives on, as designed
+```
+
+Cuts and flags:
+
+- **Cut: the `reports` tab.** The design note's web section listed three tabs;
+  the pipeline report is B2.08's route and lands with it. A tab in front of an
+  endpoint that does not exist is a promise, not a surface. Recorded as-built in
+  `docs/design/crm.md`.
+- **Cut: the customer picker on a deal.** A deal's company is typed as the lead
+  fields (`companyName`, `contactName`, `contactEmail`) the store already
+  carries; linking one to a `billing_customers` row is the won-deal handoff,
+  which is B2.08. Reaching into `web/src/billing`'s API client from CRM to fill
+  a picker would have broken that module's stated boundary for a field the next
+  item owns.
+- **Cut: a project picker on a next step.** It goes to the caller's own list,
+  which is the server's default and the right one for "what *I* do next"; a
+  picker lands with whatever needs it.
+- **Cut: choosing when a log entry happened.** The panel writes `kind` + `body`
+  and lets the server date it. Back-dating a call is real (the store and the
+  route support it, B2.06) and wants a date-and-time control that is worth its
+  own pass.
+- **No manual browser click-path was run** — this loop has no browser. What
+  stands in its place is stated plainly: 11 tests driving the *real* router,
+  module, client and dialogs, plus the curl transcript above proving the client's
+  URLs, bodies and read keys against the real server. A human should still click
+  through it once.
+- **Two copies of the modal-form chrome now exist** (`billing/parts.tsx` and
+  `crm/parts.tsx`). The right home is `ds`, and moving it is a design-system
+  change with a visual blast radius across every billing dialog — **flagged for
+  a human** rather than done blind inside a CRM item. The failure shape and the
+  money formatter WERE consolidated (`platform/rest.ts`, `billing/index.ts`),
+  because those are logic and could be proven by the suite.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged since B2.02. Nothing here is deployed.
+- **Standing human actions:** the `/billing` **and** `/crm` Caddyfile prefixes
+  at the next deploy (this item adds no new prefix — `/crm` was already the
+  standing one, and the line added to `vite.config.ts` is the dev server's
+  proxy, not the deployment's), a deploy, and a real tenant. fr/nl for the new
+  `crm*` strings are the wave review's (B2.14), as the loop protocol says.
+
+Next item: B2.08 (win/loss — the closing flow, won → optionally raise a quote
+or invoice in billing, lost → the reason picker, plus the per-pipeline
+value-by-stage report and its CSV).

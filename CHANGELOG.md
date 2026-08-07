@@ -6,6 +6,22 @@ contracts.
 
 ## Unreleased
 
+- **alo CRM: your pipeline, on screen.** Sales is now a module you can open:
+  a board of your deals, one column per stage, where you drag a card from
+  Qualified to Proposal the same way you move a task. Moving one into your
+  "Lost" column asks why before it does anything — the reason goes on the deal,
+  so your win/loss report has something to say. Click a card and the deal opens
+  beside the board: what it is worth, where it stands, the log of what was said,
+  the next steps (real tasks, in the list you already open every morning), and
+  the email conversations it belongs to — with **Open in Mail** for the ones in
+  your own mailbox, and the name of the colleague who linked the rest. Ask for
+  suggestions and CRM proposes conversations from your own recent mail, telling
+  you which address matched; nothing is attached until you say so. There is a
+  list view too, for the questions a board cannot answer — your open deals by
+  value, everything won this quarter — and its filters are answered by the
+  server, so what you count and what you see always agree. A link to a deal is
+  a link you can send: it opens the same deal for whoever you send it to.
+
 - **Sheets open faster and files get readable web addresses.** Opening a sheet
   now loads the editor only when it is needed, shows the file name while it
   opens, and keeps that file at a readable address that survives a browser
