@@ -52,6 +52,7 @@ alo is built against each of those failures:
 | B4 | **alo Finance** | Expenses with AI receipt capture, double-entry ledger, bank-statement import (CAMT/MT940/CSV), AI-assisted reconciliation, P&L / balance sheet / VAT reports, accountant role. |
 | B5 | **alo Inventory** | Product catalog, suppliers, purchase and sales orders, multi-location stock with full move history, reorder rules. |
 | B6 | **alo HR** | Employee records, leave management, org chart, recruitment-lite, one approvals inbox. Payroll *calculation* is a permanent non-goal — data exports to local providers instead. |
+| BI | **alo Insights** | The cross-module analytics tab (ADR 0037): a zero-setup Business-overview dashboard over every process, ask-to-chart in plain language (typed ChartSpec, never SQL), Spaces-scoped sharing, digest mails. The anti-Power-BI: no connectors, no data person, EU-sovereign. |
 
 **alo Sites (ADR 0036)** — the AI-native no-code website builder, in parallel with the Business track: "describe your business" generates a complete draft site; section-based editing with preview-then-approve AI changes; blog written in alo Docs; forms that feed CRM; static Rust rendering; instant subdomains **and** custom domains with automatic TLS; privacy-first, cookie-free analytics. Completes the SME bundle — domain → email → website → leads → invoices — in one sovereign place.
 

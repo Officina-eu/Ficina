@@ -319,6 +319,8 @@ covering note and reminder letter (B1.27).
 ### Wave B4 — Expenses & Accounting core — receipts, ledger, reconciliation, VAT
 ### Wave B5 — Purchasing & Inventory — products, stock, PO/SO chains
 ### Wave B6 — HR — records, leave, recruitment-lite (payroll calc = permanent non-goal)
+### Wave BI-1 — alo Insights first slice ⇄ inserted after B2 (ADR 0037: zero-setup overview dashboard, tile gallery, ask-to-chart)
+### Wave BI-2 — alo Insights full — after B4 (finance depth, module-embedded strips, digest mail)
 
 Later waves (post-traction, unordered): manufacturing-lite, POS, subscriptions,
 e-signature (eIDAS), marketing sends, storefront, DATEV/PSD2 integrations.

@@ -54,6 +54,17 @@ small, or a `[!]` note for the human if large.
 - [ ] B2.13 Audit log (cross-cutting): append-only record of create/update/status events for billing+crm entities, `GET /audit?entity=`, UI tab on records. Tests: every mutating route writes exactly one entry.
 - [ ] B2.14 Wave review: fr/nl, CHANGELOG, design docs as-built, features.md [B2] reconciliation.
 
+## Wave BI-1 — alo Insights, first slice (ADR 0037; inserted by owner decision 2026-08-07)
+
+- [ ] BI1.01 Design note `docs/design/insights.md`: ChartSpec model (typed measure/dimension/period/filter envelope — the AI never writes SQL), the whitelisted semantic layer over billing+crm views, tile/dashboard model, tenancy, chart-library choice (embedded Apache-2.0 lib, ADR 0033 precedent), out-of-scope. Same four-block bar as B1.01.
+- [ ] BI1.02 Migration + store: `insight_dashboards` + `insight_tiles` (typed spec JSON validated on write like site sections; layout order) tenant-scoped CRUD + wrong-tenant tests.
+- [ ] BI1.03 Query engine: ChartSpec → safe SQL against whitelisted billing/crm views only; every query tenant-bound by construction; golden tests on a seeded tenant reproduce hand-computed series; a test proves a foreign tenant's spec yields only their own data.
+- [ ] BI1.04 HTTP `/insights/*`: dashboards/tiles CRUD + `POST /insights/eval` (spec → series) + wire transcript incl. 401/422; ALSO add `/insights` to the vite dev proxy list (the S1.11 lesson).
+- [ ] BI1.05 Web: Insights rail tab (workspace surface), dashboard grid, tile renderers (number, bar, line, pie, table) via the chosen embedded chart lib under alo chrome; i18n en.
+- [ ] BI1.06 Gallery + the ★ zero-setup "Business overview": prebuilt specs (Billing: revenue by month, outstanding, overdue aging, VAT by period; CRM: pipeline by stage, won this month, win rate) and the default dashboard auto-built per tenant on first visit. Done when: a seeded tenant opens Insights and sees live numbers with zero clicks.
+- [ ] BI1.07 ★ Ask-to-chart: alo-ai NL→ChartSpec envelope (strict parse + one repair retry, fixture tests, NO live calls) + propose-then-approve UI (chart preview → Approve pins to dashboard).
+- [ ] BI1.08 Wave review: fr/nl strings, CHANGELOG, design as-built, features [BI-1] reconciliation.
+
 ## Wave B3 — alo Projects & Timesheets
 
 - [ ] B3.01 Design note `docs/design/projects.md` (client-project typing over existing task projects, time model, approval, rates).
