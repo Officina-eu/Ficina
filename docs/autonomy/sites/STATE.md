@@ -300,3 +300,48 @@ Human-action inbox (things the loop must not do itself):
     (first user-visible surface lands with S1.09/S1.10).
 - **Next:** S1.08 (publish flow: immutable per-page published snapshots +
   site publish state).
+
+## S1.08 — publish flow: immutable snapshots + publish state (2026-08-07)
+
+- **Shipped:** migration `0057_site_publishes.sql` — `site_publishes` (theme
+  frozen at publish time, published_by/at, cascading tenants → sites →
+  publishes) + `site_page_snapshots` (slug/title/sections/SEO/nav/home frozen
+  per page; **deliberately no FK to `site_pages`** — a snapshot must survive
+  the draft page being edited or deleted, that's the immutability property) +
+  the published-set pointer `sites.published_publish_id` (composite FK to
+  site_publishes so it can only name a same-tenant publish; no referential
+  action — publishes die only by the site cascade). New `SitePublishId`;
+  `platform/alo-store/src/site_publish.rs` on the account door:
+  `publish_site` (one transaction: site row locked FOR UPDATE so concurrent
+  publishes serialize → named Conflicts for zero pages / no home page →
+  publish + snapshot rows copied INSERT…SELECT inside SQL so the snapshot is
+  byte-what the write gates admitted → pointer flip + status `live`),
+  `unpublish_site` (pointer NULL + status `draft`; history retained;
+  idempotent), `current_site_publish`, `site_publish_snapshots` (scoped
+  through the site; wrong tenant or wrong site reads as empty/None,
+  indistinguishable from absent).
+- **Verified:** `cargo fmt --check`; `SQLX_OFFLINE=true cargo clippy -p
+  alo-store --all-targets` zero warnings; full `cargo test -p alo-store`
+  green on the local docker Postgres (200 unit + all suites; isolation 23
+  with the new `site_publishes_freeze_immutable_snapshots_and_scope_by_tenant`:
+  empty/homeless site refused, publish freezes pages+theme, then edit +
+  retitle + add + **delete** + retheme and the published set doesn't move a
+  byte — republish makes a NEW set while the old survives; outsider tenant
+  cleanly denied on publish/unpublish/reads; same-tenant cross-site
+  addressing reads empty; unpublish keeps history; site delete cascades
+  publishes+snapshots through the pointer FK without error). Manual pass:
+  `\d site_publishes` / `\d site_page_snapshots` in psql show PKs, indexes,
+  cascade FKs and the pointer FK exactly as designed; real snapshot rows
+  from the test run read back with frozen slug/home/nav values.
+- **Cuts/flags:**
+  - No publish-history list API — nothing consumes it yet; the index
+    (`site_publishes_by_site`, newest first) and immutable rows are the S2
+    rollback substrate, the accessor lands with a consumer.
+  - Snapshot retention is unbounded by design (immutable history); revisit
+    with quotas if it ever binds.
+  - `unpublish_site` shipped (small, completes the state machine) though the
+    queue text named only publish; publish UI copy is S1.15's.
+  - CHANGELOG untouched: store flow only — the first user-visible surface
+    lands with S1.09/S1.10.
+- **Next:** S1.09 (`alo-sites` public service: Host resolution → published
+  snapshots, cache, /healthz, Host-isolation tests).
