@@ -54,9 +54,13 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     # Newest transcript write overall (macOS stat -f, GNU stat -c fallback).
     # The worker creates/writes its transcript within seconds of starting, so
     # newest-overall tracks the CURRENT session almost immediately.
-    newest=$(find "$transcripts" -name '*.jsonl' -exec stat -f %m {} \; 2>/dev/null | sort -rn | head -1)
+    # GNU stat (-c) FIRST: on Git Bash, BSD-style `stat -f %m` prints
+    # filesystem info instead of failing, poisoning the age check — the guard
+    # then killed honestly-working workers every 20 minutes. macOS falls
+    # through to -f when -c errors out. Numeric-only guard on the result.
+    newest=$(find "$transcripts" -name '*.jsonl' -exec stat -c %Y {} \; 2>/dev/null | grep -E '^[0-9]+$' | sort -rn | head -1)
     if [ -z "$newest" ]; then
-      newest=$(find "$transcripts" -name '*.jsonl' -exec stat -c %Y {} \; 2>/dev/null | sort -rn | head -1)
+      newest=$(find "$transcripts" -name '*.jsonl' -exec stat -f %m {} \; 2>/dev/null | grep -E '^[0-9]+$' | sort -rn | head -1)
     fi
     if [ -z "$newest" ] || [ "$newest" -lt "$start_epoch" ] 2>/dev/null && [ $(( start_epoch + 120 )) -gt "$now" ]; then
       # First two minutes: give the worker time to open its transcript.
