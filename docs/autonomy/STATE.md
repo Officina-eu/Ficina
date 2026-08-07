@@ -3974,3 +3974,103 @@ B1.09, and the same resolution: it was already pushed when noticed, rewriting
 pushed history is forbidden by the loop's safety rails, so the commit stands and
 the gap is recorded here. The authorship itself is correct (the repository
 owner, as configured). The trailer is present on this correction.
+
+## 2026-08-07 — B2.01 the CRM design note: what a deal is, and what a thread link is not
+
+Wave B2 opens with `docs/design/crm.md`, written ahead of the first migration
+and to the same bar as B1.01: surface and route table, the `crm_*` data model,
+the `StoreError` → HTTP map, the tenancy story, the out-of-scope list, and the
+central decision recorded **with the alternative it rejects**. No code changed;
+nothing was built.
+
+**The decision the note exists for — a thread link is a reference, never a
+copy.** `crm_deal_threads` stores a deal id, a thread id, who linked it and
+when, and no message content at all. Every read of a linked conversation
+resolves through the *reading* user's own account door, because `messages` are
+per-user (`messages.user_id`) while `threads` are tenant-scoped. So a colleague
+who holds the thread opens it in mail; one who does not sees that a
+conversation is linked, its subject, and who linked it — and cannot open it.
+The subject is the single field that crosses, and it crosses knowingly:
+`threads.subject_base` is tenant-scoped by construction and linking is a
+deliberate act of sharing. **Rejected: automatic linking on a domain match** —
+the obvious feature, wrong twice, because a customer with three deals would
+have every conversation attached to all three, and a customer on a shared
+free-mail domain would put private mail on a record the whole company reads.
+The `[B2]` feature line itself says *user-confirmed*; the confirmation is the
+feature, not the friction. **Also rejected: copying messages into a CRM
+activity feed** — the shape most CRMs use, which duplicates content into a
+table with different tenancy, ages instantly, and makes deleting a message a
+two-place problem. Suggestion stays a pure function that links nothing, with
+free-mail domains (gmail, outlook, proton, …) excluded from *domain* matching
+so only a full-address match counts there.
+
+Four more decisions the note settles, each with its rejected alternative:
+
+- **A pipeline is tenant-wide; "per-team" means several pipelines per tenant.**
+  *Rejected: scoping a pipeline to a Space now* — role-based access per module
+  is a cross-cutting `[B2]` feature covering finance, sales and HR, and
+  settling it from its narrowest caller (a nullable `space_id` a later item has
+  to reinterpret) is how a design gets decided by accident. Until it lands,
+  every member of a tenant sees every deal, and the note says so out loud.
+  *Also rejected: per-user pipelines*, the shape personal task projects use — a
+  deal is a company asset.
+- **Stage history is a typed, transactional table** (`crm_deal_stage_events`,
+  one row per move, written in the move's own transaction, plus one at
+  creation). *Rejected: deriving it from the audit log* (B2.13) — that log is
+  administrative, best-effort by design, and its detail is free text; funnel
+  and velocity reporting needs rows guaranteed present.
+- **A next step is a real Task** with `source_kind = 'deal'`, the additive third
+  value beside `email` and `event`. *Rejected: a `next_step` column or a
+  CRM-private to-do table* — two to-do lists in one workspace is how a CRM
+  becomes the system nobody updates.
+- **A deal names a `billing_customers` row, or carries lead fields until it
+  does.** *Rejected: a CRM-owned organisation table* — a second record of the
+  same company guarantees two spellings and a merge problem the day somebody
+  invoices it.
+
+Two smaller ones worth the ink: the pipeline report **groups by currency and
+never converts** (a forecast has no issue date, so converting it means picking
+today's rate for money that may arrive next quarter), and a closed deal **can
+be reopened** — a deliberate contrast with a quote's terminal states, because a
+quote is a document the customer holds while a deal is our own record of an
+opportunity.
+
+Verified: the note is checked against the code it commits to, not against
+memory — `AccountStore::thread_messages` is `(tenant, user)`-scoped,
+`contacts` carries `user_id` (so a deal's `contact_id` resolves only for its
+owner, which is why the name and email the team needs are columns on the deal),
+`threads.subject_base` is tenant-scoped, `billing_field::currency` is the
+validator CRM reuses, `alo-jmap/src/csv.rs` is the RFC 4180 writer B2.08's
+export will share, and `0111` is the last migration, so the `crm_*` tables
+start at `0112`. Docs-only item: no Rust, web or storage gate applies, and no
+CHANGELOG line — nothing a user can see changed, the same call B1.01 made.
+
+Cuts and flags:
+
+- **FLAG — the ROADMAP gates wave B2 on "B1 live with ≥1 real tenant", and B1
+  is code-complete but not deployed.** A design note is exactly the work that
+  belongs ahead of an unmet gate, so this item proceeded; **B2.02 is the first
+  item that writes a migration, and a human should confirm or move the gate
+  before it ships.** The gate depends on three human actions already standing
+  in this file: the `/billing` Caddyfile prefix, a deploy, and a real tenant.
+- **HUMAN ACTION (new, additive to the standing list) — `/crm` will be a new
+  top-level route prefix** at B2.04, needing the production Caddyfile entry the
+  same way `/billing` does. No route exists yet; recorded now so the two prefixes
+  are added in one edit.
+- **Open question left to a human, not guessed:** whose language seeds the
+  default stage names when the first user to open CRM is not the tenant's
+  admin. The note's answer is "the requesting user's", and renaming a stage is
+  a rename, so being wrong is cheap.
+- **Out of scope, stated rather than omitted:** per-role access, `.xlsx`
+  import (CSV at full depth instead — a ZIP-of-XML parser is its own
+  dependency decision), email open/click tracking (a tracking pixel in a
+  sovereignty product is a contradiction), lead scoring (needs a written EU AI
+  Act posture before it needs code), campaigns, and duplicate merging.
+- **Scope boundary recorded:** B2.11 (recurring invoices) and B2.12 (SEPA
+  pain.001) are billing extensions and will be designed in
+  `docs/design/billing.md`; B2.13 (audit log) is cross-cutting and gets its own
+  note. `crm.md` stays one file with one reason to change.
+
+Next item: B2.02 (migration + store: `crm_pipelines` + `crm_stages`, CRUD,
+tests incl. wrong-tenant) — the first B2 item to write code, and the one gated
+on the human confirmation above.

@@ -39,7 +39,7 @@ small, or a `[!]` note for the human if large.
 
 ## Wave B2 — alo CRM (+ billing extensions)
 
-- [ ] B2.01 Design note `docs/design/crm.md` (deals model, thread-linking approach, pipeline stages, tenancy) same bar as B1.01.
+- [x] B2.01 Design note `docs/design/crm.md` (deals model, thread-linking approach, pipeline stages, tenancy) same bar as B1.01.
 - [ ] B2.02 Migration + store: `crm_pipelines` (per-team, default seeded) + `crm_stages` (ordered, win/loss flags) + CRUD + tests incl. wrong-tenant.
 - [ ] B2.03 Migration + store: `crm_deals` (title, customer/contact link, value cents, currency, expected close, stage, owner, source, lost reason nullable) + stage-move with history rows + tests.
 - [ ] B2.04 HTTP `/crm/*` routes for pipelines/stages/deals + wire transcript.
