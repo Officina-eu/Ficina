@@ -479,3 +479,55 @@ Human-action inbox (things the loop must not do itself):
   - CHANGELOG: user-voice entry added (first user-visible sites surface).
 - **Next:** S1.11 (web module skeleton: rail entry, site list + create,
   page list; i18n en).
+
+## S1.11 — web module skeleton `web/src/sites` (2026-08-07)
+
+- **Shipped:** the Sites web module, cut from the Tasks/Billing module cloth.
+  Rail entry **"Websites"** (Globe) registered in the workplace product
+  surface only (ADR 0036 — the suite sells it, the standalone mail app never
+  sees it). `web/src/sites/`: `api.ts` — its own thin REST client over the
+  wire-verified `/sites/*` surface (S1.11 slice only: list/create site,
+  get site, subdomain check, list/create page; methods land with their
+  consumers), `SitesError` carrying the server's rule-naming detail,
+  `sitesMessage` fallback helper; `types.ts` — wire types trimmed to what the
+  screens render; `SitesListView` — site table (name → opens the site,
+  address mono, live/draft chip), empty state, load-failure banner;
+  `NewSiteDialog` — name + address with a **live taken/free check**
+  (350 ms debounce, sequence-guarded against out-of-order answers,
+  advisory only: submit always allowed, the server's 422 shown verbatim);
+  `SiteView` — site header (back link, name, address, status chip) + page
+  list (title, home badge, /path) at `/sites/:siteId`, stale/foreign id
+  reads as not-found with the way back; `NewPageDialog` — title/path/home,
+  the home flag **defaulting on for the first page**; `parts.tsx` — the
+  module's own dialog chrome/empty/error/field pieces (deliberately NOT
+  imported from billing: cross-track coupling; promoting this chrome into
+  `ds` once three modules carry it is a wave-review candidate); module CSS;
+  ~40 new `i18n/en.ts` strings (additive block at the catalog's end).
+- **Verified:** `npx tsc --noEmit` clean; `npx eslint` on all changed files
+  zero warnings; **full `npm test` green — 178 tests / 25 files**, incl. 10
+  new module tests driving the REAL client + views over a recording fake
+  fetch (list renders the API's answer with status chips; empty state;
+  load-failure banner; live check hits `/sites/subdomain-check` and shows
+  free/taken/the server's 422 rule sentence; create POSTs exactly
+  `{name, subdomain}` and navigates into the new site; a 422 refusal shows
+  in the dialog which stays open; page list with home badge; 404 → not-found
+  + back link; create-page POSTs `{title, slug, home}` with home defaulted
+  on the first page and the list reloads); `npm run build` clean. No new
+  HTTP routes and no storage touched → the wire/wrong-tenant gates are the
+  server's (proven in S1.10); the component tests pin the exact request
+  shapes this client sends to that verified surface.
+- **Cuts/flags:**
+  - The page-create dialog is a small deliberate addition beyond the queue's
+    "page list": no other item owns page-create UI (S1.12 owns sections),
+    and a page list with no way to create a page is dead UI. Recorded here.
+  - No site rename/delete/publish UI (S1.15), no section editor (S1.12), no
+    theme UI (S1.14), no list search (lists are short), fr/nl at S1.31.
+  - The create form shows the bare label only; the "goes live at
+    `<sub>.<domain>`" copy is S1.15's, when the web learns the sites domain.
+  - Rejected alternative (recorded in `parts.tsx`): importing billing's
+    dialog chrome — same look, but couples the two tracks' modules; own
+    copies now, promotion to `ds` at wave review.
+  - `npm ci` had to be run on this machine (fresh checkout, no
+    node_modules) — environment note only.
+- **Next:** S1.12 (web editor core: section stack + per-type prop forms +
+  save).

@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **alo Sites: your websites now live in the workspace.** The rail has a new
+  **Websites** area: every site you have, with its address and whether it is
+  live. Create one by picking a name and claiming an address — the form checks
+  availability as you type and tells you in plain words when an address is
+  free, taken, or not allowed. Open a site to see its pages with the home page
+  marked, and add a page with a title and path — the first page you add is
+  offered as the home page. Every rule is the server's: a refusal always
+  names the exact rule that was broken. The visual page editor is next.
+
 - **alo Sites: build and publish your website through the workspace API.**
   Everything a site is made of can now be managed while signed in: create a
   site by claiming a free subdomain (with a live taken/free check), add and
