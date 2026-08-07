@@ -7,12 +7,16 @@ except to actually fire them.
 
 Human-action inbox (things the loop must not do itself):
 
-- Buy/choose the public sites domain (e.g. alosites.com) and set wildcard DNS
-  — needed before any real subdomain goes live (ADR 0036 open decision).
+- ~~Buy/choose the public sites domain and set wildcard DNS~~ **DONE
+  2026-08-07: alosites.com purchased (Namecheap). Verified live on public
+  DNS: apex/`*`/www A → 152.53.179.142, null SPF + DMARC reject. The env for
+  the alo-sites service is `SITES_DOMAIN=alosites.com`.**
 - At next deploy: add the alo-sites container to production compose + Caddy
   wildcard/on-demand-TLS config (the loop never touches deploy/).
 - Configure an AI provider key on the live server before real "generate my
   site" runs (loop verifies with fixtures only).
+- Post-launch hardening (not urgent): submit alosites.com to the Public
+  Suffix List so browsers isolate customer subdomains from each other.
 
 ---
 
