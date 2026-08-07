@@ -70,7 +70,7 @@ small, or a `[!]` note for the human if large.
 - [x] B3.01 Design note `docs/design/projects.md` (client-project typing over existing task projects, time model, approval, rates).
 - [x] B3.02 Store: client-project extension (customer link, budget hours/cents, hourly rate) on existing task projects + tests.
 - [x] B3.03 Migration + store: `time_entries` (user, project, task nullable, started/minutes, billable, note, rate snapshot cents) + CRUD + tests incl. wrong-tenant.
-- [ ] B3.04 Timer routes: start/stop (one running per user, stop writes entry) + manual entry + weekly list; wire transcript.
+- [x] B3.04 Timer routes: start/stop (one running per user, stop writes entry) + manual entry + weekly list; wire transcript.
 - [ ] B3.05 Approval: weekly submit → manager approve/reject; approved entries lock (edit → typed error). Tests for the lock.
 - [ ] B3.06 ★ Billable → invoice: select approved unbilled entries for a customer → invoice draft lines (B1), entries marked billed with invoice link; unbilled view. Wire-verified arc.
 - [ ] B3.07 Web: timer widget in shell (workspace surface), timesheet week grid, project budget bar, approvals inbox page for managers.

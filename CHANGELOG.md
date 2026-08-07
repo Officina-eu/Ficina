@@ -6,6 +6,22 @@ contracts.
 
 ## Unreleased
 
+- **Your time is now something the workspace can count.** A clock you start
+  from a project board runs until you stop it, and stopping is what writes the
+  hour down — with the task you were on, what you were doing and the day it
+  belongs to, in your own zone rather than the server's. Start a second clock
+  while one is running and nothing is decided behind your back: you are told
+  which one is going and you choose. A clock left running overnight stops at a
+  full day and says how long it really ran, so a forgotten Friday timer becomes
+  a day plus a note rather than a twenty-two-hour line on a client's invoice.
+  Hours worked away from the clock are typed in the same way, corrected while
+  they are still yours to correct, and read back a week at a time with the
+  totals underneath. What is chargeable and what it is chargeable at come from
+  the engagement itself, taken as a snapshot when the hour is written, so
+  repricing the work tomorrow never rewrites what you did today. **Your hours
+  are yours**: a colleague on the same board cannot see them, and every change
+  to one is recorded in the record's own history.
+
 - **Insights now speaks French and Dutch, down to the labels on an axis.**
   Switch the language and the whole tab follows: your boards and the charts on
   them, the picker of ready-made questions, the box you type a question into,

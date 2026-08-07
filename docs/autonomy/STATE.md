@@ -7621,3 +7621,195 @@ Next item: B3.04 (the timer routes — `time_timers`, start/stop with one runnin
 timer per user enforced by a primary key, the manual entry and weekly list
 routes, `/projects` registered in `server.rs` and the vite dev proxy, and the
 first wire transcript of the wave).
+
+## 2026-08-08 — B3.04 the timer, the manual hour, and the week (routes)
+
+The first `/projects` routes exist, and with them the first thing in this wave
+a person can actually do: start a clock, stop it, and read the week back.
+
+**The clock is its own table** (`0124_time_timers`, one row per person or none,
+`PRIMARY KEY (tenant_id, user_id)`), which is the design note's decision made
+literal — "one running timer per user" is enforced by the key rather than by a
+query, so a second concurrent start *cannot represent itself*. `time_timer.rs`
+holds start/stop and the two pure functions the rounding lives in
+(`elapsed_minutes` ceils and floors at one minute; `capped_minutes` trims at a
+day and says that it did). **Stopping is one transaction**: the
+`DELETE … RETURNING` on the timer row *is* the claim, so two simultaneous stops
+produce exactly one entry and one `NotFound`, and the hour and the clearing
+stand or fall together.
+
+To let a stop write inside its own transaction, `time_entries.rs`'s insert was
+lifted out of `log_time` into one `pub(crate) insert_entry(conn, …)` — **the one
+place an hour is written**, so the manual entry and the timer's stop get the
+same validation, the same rate snapshot and the same columns because they are
+the same function. `project_rate` beside it answers "what is an hour here
+worth?" without the visibility check, deliberately: an hour already worked is
+not un-worked by the board having been archived while the clock ran, and losing
+somebody's afternoon to protect a rule about starting new work would be the
+wrong trade. `week_totals` — minutes, billable minutes, and proposed minutes
+counted apart — is the fold the grid puts under its column; minutes, never
+money, and saturating so a corrupted row cannot wrap a week negative.
+
+`projects_time.rs` is the edge: `GET /projects/timer`, `POST
+/projects/timer/start|stop`, `GET|POST /projects/time`, and
+`GET|PATCH|DELETE /projects/time/{id}`. **No route on this surface names a
+user** — a person's hours are personal data, and the account door has no
+function that takes somebody else's id, so the cross-user reads are structurally
+absent rather than merely gated. `projects` joined `AUDITED_MODULES`, and
+`tests/audit_routes.rs` now holds `/projects/*` to the same promise as
+`/billing` and `/crm` by reading the router's own source.
+
+Verification. `cargo clippy -p alo-store -p alo-jmap --all-targets` clean;
+`cargo test -p alo-store -p alo-jmap` **fully green (exit 0, ~60 test binaries)**
+against docker `alo-pg`. New: `tests/time_timer_tenancy.rs`, 12 tests — the arc,
+the day fallback, the refused second start (which changes nothing and writes no
+hour), **eight concurrent starts settling to exactly one clock**, **eight
+concurrent stops writing exactly one hour**, the two doors (a colleague's
+personal board refused, one's own accepted, archived and ghost boards absent), a
+task that must live on the clock's own board, the note bound, wrong-tenant on
+every path, wrong-user inside one tenant, and the project cascade. Five pure
+unit tests on the rounding, three on `week_totals`, six on the edge's parsing.
+`rustfmt --edition 2024` on the changed files only (the standing `cargo fmt`
+trap). Web: `npx tsc --noEmit`, `npx eslint vite.config.ts`, `npm run build` all
+clean.
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, a tenant bootstrapped for the run, rows read with psql.
+
+```
+GET  /projects/timer            (no bearer)            → 401
+POST /projects/time             (no bearer)            → 401
+
+POST /tasks/projects {Portal rebuild}                  → 200  team board
+POST /billing/customers {Nordwind GmbH, DE, EUR}       → 200
+psql: INSERT project_clients … rate 9500 EUR           (no route yet — below)
+POST /tasks {Wire the login}                           → 200
+
+GET  /projects/timer                                   → 200  {"timer": null}
+POST /projects/timer/start {projectId, taskId,
+                            note:"  Login screen  "}   → 200  note trimmed
+GET  /projects/timer                                   → 200  same startedAt
+POST /projects/timer/start {projectId}                 → 409
+     "a timer is already running; stop it before starting another"
+     …and the body carries the RUNNING timer, so the client can offer to
+     stop that one rather than ask the user what happened
+POST /projects/timer/start {}                          → 422  "projectId is required"
+POST /projects/timer/stop  {workDate:"yesterday"}      → 422  "…form YYYY-MM-DD"
+POST /projects/timer/stop  {workDate:"2026-08-03"}     → 200
+     entry: minutes 1 (a sub-minute stint is one minute, never zero),
+     workDate 2026-08-03 (the caller's day), startedAt = the clock's start
+     (provenance), note "Login screen", rateCents 9500 / EUR — priced at
+     the stop from the engagement, exactly as a manual hour is;
+     elapsedMinutes 1, cappedAtDayLimit false
+GET  /projects/timer                                   → 200  {"timer": null}
+POST /projects/timer/stop  {}                          → 404
+
+POST /projects/time {2026-08-04, 90}                   → 200  billable, 9500 EUR
+POST /projects/time {2026-08-05, 45, billable:false}   → 200
+POST /projects/time {no workDate}                      → 422  "workDate is required: …"
+POST /projects/time {no minutes}                       → 422  "minutes is required: …"
+POST /projects/time {minutes: 0}                       → 422  the store's own bound
+POST /projects/time {minutes: 1441}                    → 422  the store's own bound
+POST /projects/time {projectId:"no-such-board"}        → 404  never an oracle
+
+GET  /projects/time?from=2026-08-03&to=2026-08-09      → 200  3 entries
+GET  …&projectId=no-such-board                         → 200  [] + zero totals
+GET  /projects/time?from=…09&to=…03                    → 422  "must not be before its start"
+GET  /projects/time?to=2026-08-09                      → 422  "from is required: …"
+GET  /projects/time?from=2026-01-01&to=2027-01-02      → 422  "shorter than 366 days"
+
+GET    /projects/time/{e1}                             → 200
+PATCH  /projects/time/{e1} {minutes:120, note:…}       → 200  90 → 120
+PATCH  /projects/time/{e1} {minutes:2000}              → 422
+GET    /projects/time/does-not-exist                   → 404
+DELETE /projects/time/{e2}                             → 200  {"deleted": true}
+GET    /projects/time/{e2}                             → 404
+GET    /projects/time?from=…03&to=…09                  → 200  2 entries,
+       totals {minutes 121, billableMinutes 121, proposedMinutes 0}
+       — 1 + 120, hand-checked; the unbillable 45 was the one deleted
+
+POST /admin/users {colleague@…}                        → 200
+  (the colleague, same tenant, same board)
+GET    /projects/timer                                 → 200  {"timer": null}
+GET    /projects/time/{e1}                             → 404  not 403
+PATCH  /projects/time/{e1}                             → 404
+DELETE /projects/time/{e1}                             → 404
+GET    /projects/time?from=…03&to=…09                  → 200  [] — a clean
+       absence, never a refusal that would confirm somebody worked that day
+POST /projects/timer/start (colleague)                 → 200  their own clock
+GET  /projects/timer       (owner, meanwhile)          → 200  {"timer": null}
+
+psql: SELECT action, entity_type, entity_id, target FROM audit_log
+      WHERE action LIKE 'projects.%'
+  projects.timer.start | projects.timer | —    | /projects/timer/start
+  projects.timer.stop  | projects.timer | —    | /projects/timer/stop
+  projects.time.create | projects.time  | {e1} | /projects/time
+  projects.time.create | projects.time  | {e2} | /projects/time
+  projects.time.update | projects.time  | {e1} | /projects/time/{e1}
+  projects.time.delete | projects.time  | {e2} | /projects/time/{e2}
+  — exactly one entry per successful mutation, none for the 401/404/409/422s,
+    and not one note anywhere in it
+
+service log grep for "Login screen" | "Spec review" | "Internal standup" → 0
+  a time note can name a client, a person or a case; none reached a log
+```
+
+Cuts and flags:
+
+- **HUMAN ACTION — `/projects` is now a real top-level prefix.** The production
+  Caddyfile needs `/projects` added at the next deploy, exactly as `/billing`,
+  `/crm`, `/audit` and `/insights` did; without it every call 404s into the SPA.
+  `web/vite.config.ts`'s `API_PATHS` already has it (the S1.11 lesson), and
+  `deploy/` is untouched by the loop by rule.
+- **GAP — the client-facts routes have no queue item, and B3.07 will need
+  them.** B3.02 shipped `set_project_client`/`project_client` on the store; the
+  design note's `GET /projects`, `GET /projects/{id}`, `PUT /projects/{id}/client`
+  and `DELETE /projects/{id}/client` are in no B3 item. This iteration proved it
+  on the wire (`PUT /projects/{id}/client` → 404, no such route) and planted the
+  engagement's rate with psql rather than widen the item — the *reader* is
+  production code and is what the transcript exercises. **The web module (B3.07)
+  cannot set a project's rate without them**, so they should be folded into
+  B3.07 or given an item of their own. Flagged rather than built: cut scope,
+  never depth.
+- **`elapsedMinutes` and `cappedAtDayLimit` are on the stop's answer, not the
+  entry.** A cap is a fact about the *clock*, not about the hour that was
+  written — the entry is honestly one day — so it is reported once, to the
+  person who can still correct it, and not stored. It also keeps the audit layer
+  honest: the three-key answer means the stop is filed as `projects.timer.stop`
+  with no record id, rather than as the creation of an entry it does not address.
+- **A stop with no `workDate` falls back to the day the clock STARTED**, in UTC,
+  not the server's idea of "today". A session that began Friday 23:40 and ended
+  Saturday 00:10 belongs to Friday, which is also how it must be billed. Every
+  caller with a user in front of it states the day in the user's own zone; the
+  fallback exists so a scripted stop is not undated, and it is documented on the
+  route.
+- **`PATCH` reads absent fields from the stored record, not from defaults.** A
+  correction that mentions only `minutes` must not silently blank a note. An
+  explicitly empty `taskId` detaches the task, which is the one way to say
+  "none" over JSON.
+- **The week read is capped at 366 days** and refuses rather than truncates. A
+  silently shortened period is a total that is quietly wrong, and a client
+  asking for its whole history one call at a time is a paging question this
+  route does not answer.
+- **The week lock is still B3.05's**, unchanged from B3.03: an entry in a
+  submitted or approved week must refuse to move, and the table holding a week's
+  status does not exist yet. The *billed* guard is live and wire-visible
+  (`billed`/`invoiceId` on every entry).
+- **The proposal routes are not here.** `POST /projects/time/propose`, `/accept`
+  and `/reject` belong to the agent item (B3.10); the store verbs exist and are
+  tested, and `totals.proposedMinutes` is already on the week read so the screen
+  that will show them has its figure.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates
+  B2 on "B1 live with ≥1 real tenant"; B1, B2 and BI-1 are code-complete and
+  undeployed, and deploying is a human action the loop is forbidden to take.
+- **`docs/design/projects.md` is untouched**; as-built doc updates are B3.11's
+  and nothing here deviates from the note. Two refinements worth recording
+  there: the stop's answer carries `elapsedMinutes`/`cappedAtDayLimit` (the note
+  says only "says so in the response"), and the week read's 366-day ceiling is
+  new to it.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`) —
+  unchanged; a pinned `rust-toolchain.toml` is still the human fix.
+
+Next item: B3.05 (the week — `time_weeks`, submit/withdraw on the account door,
+approve/reject/reopen behind `require_admin` on the tenant door, and the lock
+that makes an entry in a decided week refuse to move).
