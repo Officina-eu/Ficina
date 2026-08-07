@@ -1857,3 +1857,220 @@ the message by hand. It was already pushed when this was noticed, and rewriting
 pushed history is forbidden by the loop's safety rails, so the commit stands and
 the gap is recorded here. The authorship itself is correct (the repository
 owner, as configured). Every later commit writes the trailer explicitly.
+
+---
+
+## 2026-08-07 — B1.16 the printed document, and who it is from
+
+The paper a customer actually receives. `GET /billing/invoices/{id}/print` and
+`GET /billing/quotes/{id}/print` answer **one self-contained HTML page** — no
+script, no font, no image, no request of any kind — laid out for A4 by its own
+`@page` rules.
+
+**The decision that shaped the item, recorded in `docs/design/billing.md`
+before any code: the page is rendered on the server.** The alternative was the
+React module composing it. Three things ruled that out — it is the source of
+the PDF (B1.17) and of the mail attachment (B1.18), neither of which has a
+browser session to render in, so a client-rendered document would have to be
+written twice and the two would drift; and a document assembled from the app's
+`ds` tokens inherits the app's layout instead of an A4 sheet. The browser
+therefore *fetches* the document with the session's bearer token and prints it,
+rather than composing it.
+
+Shipped:
+
+- **`platform/alo-store/src/iban.rs`** (new) — ISO 13616 length per country
+  (79 registered countries) **and** the ISO 7064 mod-97 check, carried digit by
+  digit so no integer type is involved; plus BIC shape. `grouped()` is the
+  spaced form a document prints. A typo'd IBAN is money that never arrives and
+  is caught at the point of entry or not at all.
+- **Migration 0107 + `billing_settings.rs`** (new, store) — the issuer side of
+  every document: **one row per tenant**, legal name required, address, country,
+  VAT id, register number, contact, IBAN/BIC/bank/holder, footer note. A tenant
+  that has never saved reads the **blanks**, never a `404`; `is_stated()` tells
+  the two apart. `billing_field::country` was lifted out of `billing_customers`
+  so both records hold one country rule (the customer's is required, the
+  issuer's may be unstated).
+- **`billing_settings.rs`** (new, jmap) — `GET` + `PATCH /billing/settings`. A
+  `PATCH`, not a `PUT`, because it behaves like one: absent keeps, `null`
+  clears, and a `PUT` would promise a whole-document replace and quietly blank
+  what an older client did not know to send.
+- **`billing_print.rs`** (new, jmap) — the renderer, its `Strings` table, and
+  the response. `PrintDocument` is what an invoice, a credit note and a quote
+  all reduce to, so the three are one layout with different words rather than
+  three that look alike.
+- **Web** — a `Print` button on both editors, `printSheet.ts`, the `Your
+  details` tab (`SettingsView.tsx`), `documentHtml`/`settings`/`saveSettings`
+  on the client, and 31 new `billing*` keys in `i18n/en.ts` (fr/nl at B1.27).
+
+Decisions worth recording, all now as-built in `docs/design/billing.md`:
+
+- **The document says what it is.** A draft prints as a draft **and carries no
+  number** (it has none); a void invoice prints as void; a credit note is
+  titled as one and names the invoice it corrects. Paper that could be mistaken
+  for an issued invoice is a legal problem, not a cosmetic one.
+- **A quote and a credit note print no bank details**, and say explicitly that
+  nothing is payable. An IBAN under that sentence is how a document gets paid
+  twice. An invoice with no due date yet states the *term* instead, so the page
+  never simply omits when the money is owed.
+- **Dates are ISO `YYYY-MM-DD` in every language.** `05/03/2026` is two
+  different days depending on the reader; a misread due date is a dispute.
+- **`srcdoc`, not a blob URL and not a tab.** A tab needs a URL and the route
+  is authenticated — an anonymous tab gets a `401`. A `blob:` URL is blocked by
+  our own CSP (`frame-src 'self'`), while `srcdoc` inherits the parent policy
+  and its `style-src 'unsafe-inline'`, which the document's inline stylesheet
+  needs. Asserted in a test, because the reason is invisible in the code.
+- **Two different mechanisms keep the page inert, one per way it is used** —
+  and the first draft of this item claimed only one, which the cold review
+  caught. Fetched **as a document** (headless chromium at B1.17, a saved file,
+  a mail client) the response's own `Content-Security-Policy: default-src
+  'none'` binds it, with `nosniff` and `no-store`. Mounted by the **web app**
+  that header never applies: `srcdoc` is same-origin and inherits the *app's*
+  policy. So the frame is **sandboxed without `allow-scripts`**
+  (`allow-same-origin` so this window can call `print()` on it, `allow-modals`
+  because a print dialog is one). Both mechanisms are now asserted — the
+  headers in `billing_print_http.rs`, the sandbox in `Printing.test.tsx` — and
+  the code says in both places that neither substitutes for the other.
+- **The issuer is read live, not snapshotted at issue.** A reprint shows the
+  current address and bank — which is what moving office is supposed to do —
+  while number, dates, lines and money live on the document.
+- **`?lang=` falls back to the default rather than refusing**, deliberately
+  unlike the strict `status` filter: a document that will not print because of
+  a display preference is worse than one printed in English.
+- **Two things came from looking at the rendered page, not from a test.** The
+  number was printed twice (heading *and* meta grid — a reader then checks
+  whether the two agree), and a lone `NL` under a Dutch address read like a
+  stray field. Both fixed: the number is stated once, and a **domestic** address
+  omits its country while a cross-border one keeps it, which is the line that
+  decides VAT treatment anyway.
+- **`Print` waits for the save**, like every lifecycle button (B1.15): it
+  prints the *stored* document, so a draft holding unsaved edits would print
+  without them.
+
+Verified. `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean; `cargo test -p alo-store -p alo-jmap` green, **50 new
+tests** (11 IBAN, 8 settings-store units, 3 settings tenancy, 15 render, 6 HTTP,
+7 web).
+Web: `npx tsc --noEmit`, `npx eslint . --max-warnings 0`, `npm run test` (**151
+in 21 files**) and `npm run build` all clean, for the workspace **and** for
+`ALO_PRODUCT=mail`, whose bundle was probed and carries no billing route, no
+`printSheet` and no settings screen — only the shared string catalogue, as
+before this item.
+
+The wrong-tenant proof for the new table is sharper than the others, because
+`billing_settings` is keyed by the tenant alone: there is no id to guess and no
+`NotFound` to return. `billing_settings_tenancy.rs` asserts that a tenant which
+has never saved reads its **own blanks even after a neighbour has filled the
+table in**, that a neighbour's save never reaches back (checked on the IBAN
+specifically), that the identity is the tenant's and not the user's, that a
+save is a full replace at the store door, and that a tenant deletion purges the
+row — read directly, not through the tenant predicate.
+
+The same four routes are held by `products/mail/alo-jmap/tests/billing_print_http.rs`
+(new, 6 tests through the real router over a real Postgres), which the first
+draft of this item did not have — the cold review's blocking finding, and it
+was right: the design note *published* the wrong-tenant `404` and nothing
+proved it. What it now proves: every route `401`s without a token and `404`s on
+an id that does not exist; the three response headers are what the design note
+claims; **a printed page is the one place in billing where two records are
+rendered into one document**, so the neighbour there holds a distinctive legal
+name and IBAN and A's paper is searched for both (as is every refusal, which
+must leak nothing it declined); the identity is created by its first save and
+merged, never replaced, afterwards; a draft/void/credit note/quote each print
+as what they are; and **twenty** user-controlled fields across all three
+records are each carried onto the page escaped — a field silently not printed
+fails that test too. (The neighbour's first IBAN in that suite was invented and
+the store refused it, which is the validator doing its job; the fixture now
+carries a real one.)
+
+Wire-verified against the **local** backend (docker `alo-pg`, the debug
+`alo-jmap` on `127.0.0.1:8080`, fresh tenant `wireb116`). All four new routes
+`401` without a token. Abbreviated:
+
+```
+GET   /billing/settings           (never saved)     -> 200 stated:false, all blank
+PATCH /billing/settings {}                          -> 422 "legal name must not be empty"
+PATCH /billing/settings {…,"iban":"NL92ABNA…"}      -> 422 "the check digits of this IBAN
+                                                            do not match; check for a typo"
+PATCH /billing/settings {…,"bic":"ABNANL2"}         -> 422
+PATCH /billing/settings {"vatId":…} (no country)    -> 422 "state the country before the
+                                                            VAT id…"
+PATCH /billing/settings (the real identity)         -> 200  nl→NL, "nl 8123.45.678.B01"→
+                                    NL812345678B01, "nl91 abna 0417 1643 00"→NL91ABNA0417164300
+PATCH /billing/settings {"city":"Rotterdam"}        -> 200  a merge: the IBAN survives
+GET   /billing/invoices/{draft}/print               -> 200 text/html, banner Draft, no number
+                                    CSP default-src 'none' · nosniff · no-store
+POST  /billing/invoices/{id}/issue                  -> 200 INV-2026-00001
+GET   /billing/invoices/{id}/print                  -> 200 "Invoice INV-2026-00001",
+                                    "NL91 ABNA 0417 1643 00", "Payable by 2026-08-20",
+                                    EUR 1 843.60 net · VAT 9% 6.62 · VAT 21% 371.70 ·
+                                    EUR 2 221.92 — the server's figures, two rates
+GET   /billing/invoices/{credit}/print              -> 200 "Credit note", "corrects invoice
+                                    INV-2026-00001", and NO bank account (grep: 0)
+GET   /billing/quotes/{sent}/print                  -> 200 "Quote QUO-2026-00001",
+                                    "stands until 2026-09-05", no bank account, no "Due date"
+GET   /billing/invoices/no-such-id/print            -> 404
+GET   /billing/invoices/{id}/print?lang=xx | fr     -> 200, <html lang="en"> (falls back)
+```
+
+**The item's done-when — a correct one-page A4 — was checked in a real headless
+browser**, not asserted: Google Chrome's own print path
+(`--headless --print-to-pdf --no-pdf-header-footer`) over each captured page,
+with the resulting PDF's page count and `/MediaBox` read back.
+
+```
+issued.html  pages=1 (/Count=[1])  box=595.0x841.9pt  A4=yes
+draft.html   pages=1 (/Count=[1])  box=595.0x841.9pt  A4=yes
+credit.html  pages=1 (/Count=[1])  box=595.0x841.9pt  A4=yes
+quote.html   pages=1 (/Count=[1])  box=595.0x841.9pt  A4=yes
+long.html    pages=2 (/Count=[2])  box=595.0x841.9pt  A4=yes   (24 lines — see below)
+```
+
+Cuts and flags:
+
+- **A logo is a monogram placeholder** — up to two initials from the legal name,
+  drawn in a rounded square. A real logo is a Drive file plus an upload surface
+  plus an embedding decision (a PDF/A-3 attachment cannot reference an external
+  image), which is its own item. A blank rectangle on every invoice would be
+  worse than initials.
+- **A 24-line document paginates to two A4 pages**, which is correct, and the
+  totals block, the payment block and every individual line carry
+  `page-break-inside: avoid` so none of them is ever split. What has **not**
+  been exercised is a "page 1 of 2" footer or a repeated issuer block on later
+  pages; the column headers do repeat (`thead`). Worth an item if long
+  documents turn out to be common.
+- **The printed document is English only.** `strings_for()` is the seam and
+  falls back rather than refusing; fr/nl land with the rest of the wave's
+  translations at B1.27. Its number and date *formats* are already language-
+  keyed (`group_separator`, `decimal_separator`), so a translation is a table
+  entry, not a code change.
+- **Country codes print as codes** (`DE`), not names, and only cross-border.
+  Names need a per-language table — B1.27, with the translations.
+- **Nothing is emailed and no PDF is produced.** B1.17 turns this page into a
+  PDF and B1.18 attaches it to a mail **draft**; the loop sends no mail.
+- **No browser click-path was exercised** (unchanged from B1.13–B1.15: there is
+  no interactive browser here). What stands in for it: 7 new component tests
+  driving the real screens through the real router and client — including the
+  print button really fetching the server's page and really handing it to a
+  print dialog through a `srcdoc` frame — the full curl arc above, and the
+  headless-Chrome measurements. A human click-path remains the open step.
+- **Server refusals are English** (flagged at B1.13, still open, and now
+  visible in one more place: the settings form).
+- **`cargo fmt --all -- --check` is red on ten files this item does not
+  touch** (alo-ai ×2, alo-identity ×1, and seven alo-jmap modules), all of it
+  import-ordering drift from the edition-2024 style. `cargo fmt` on the changed
+  crates swept them, and that churn was **reverted** so this commit stays the
+  item: a formatting-only commit is the right way to clear it, and it is not
+  this item's to make.
+- **`platform/alo-store/tests/common/mod.rs` defaults to port 5433**, while the
+  `alo-pg` container publishes **5432** — the store suites fail with
+  `PoolTimedOut` unless `DATABASE_URL` is set. Noted for whoever writes the
+  runbook; not changed here, since the default may be right for compose.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged from B1.05/B1.10/B1.12/B1.13/B1.14/B1.15: the production Caddyfile
+  must add it at the next deploy, or every billing XHR gets the SPA. This item
+  adds no new prefix — all four routes live under `/billing`.
+
+Next item: B1.17 (server-side PDF: the design decision between headless
+chromium in a pinned container and a pure-Rust HTML-to-PDF path, recorded in
+`billing.md` first, then `GET /billing/invoices/{id}/pdf`).

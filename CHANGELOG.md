@@ -6,6 +6,22 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: the document your customer actually receives.** Every invoice,
+  credit note and quote now has a **Print** button that puts a proper A4
+  document in front of you: your name and address at the top, theirs beside it,
+  the lines, the VAT broken out per rate, the total, and — on an invoice — what
+  is payable by when and the account it goes to. A draft prints as a **draft**
+  and carries no number, because it has none; a voided invoice prints as
+  **void**; a credit note is titled as one and names the invoice it corrects,
+  and neither a credit note nor a quote shows your bank details, since nothing
+  is payable on them. The page is the same one the PDF and the emailed
+  attachment will be made from, so what you see is what your customer gets.
+  Fill in **Your details** first (a new tab in Billing): the name you invoice
+  under, your VAT and company numbers, how customers reach you, and where the
+  money goes. The **IBAN is checked before it is saved** — against your
+  country's length and its check digits — because a mistyped account number is
+  only ever discovered by the payment that never arrives.
+
 - **alo Billing: issue an invoice, and quote for the work first.** A draft
   invoice now has an **Issue** button. It asks first, and says exactly what it
   is about to do: take the next number in your series, date the document, and

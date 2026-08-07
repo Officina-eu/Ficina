@@ -92,6 +92,99 @@ it is the one that now needs work. Both directions of each link are on
 the record: an invoice names the quote it came from and the invoice it
 credits; a quote names the invoice it became.
 
+### The printed document — the decision (B1.16)
+
+**Chosen: the printable document is rendered on the server**, by
+`alo-jmap`, as one self-contained HTML page (`billing_print.rs`) —
+inline CSS, no script, no external asset of any kind.
+
+**Rejected: rendering it in the browser from the React module.** Three
+things make the client the wrong place for it:
+
+- **It is the PDF source** (B1.17). Whatever produces the PDF —
+  headless chromium or a Rust HTML-to-PDF path — runs *without a
+  browser session*, so a client-rendered document would have to be
+  reimplemented server-side, and the paper the customer holds would
+  come from a second, drifting definition of the same document.
+- **It is also the mail attachment** (B1.18), produced when nobody is
+  looking at a screen at all.
+- **It must be printable from a page we do not style.** A document
+  assembled from the app's `ds` tokens inherits the app's layout; a
+  standalone page with its own `@page` rules is what actually yields
+  an A4 sheet.
+
+The browser therefore *fetches* the document rather than composing it:
+`GET /billing/{invoices,quotes}/{id}/print` with the session's bearer
+token, the returned HTML into a hidden `srcdoc` iframe, `print()`. A
+plain link would open an unauthenticated tab, and printing a document
+is not a reason to invent a second way in.
+
+Rules the renderer holds itself to:
+
+- **Every value is escaped, and the page can reach nothing.** Customer
+  data goes through one escaper, so a defect there is the only way
+  markup could appear at all — and two *different* mechanisms stop it
+  becoming a request, one per place the page is used. Fetched as a
+  document (headless chromium at B1.17, a saved file, a mail client)
+  the response's own `Content-Security-Policy: default-src 'none'`
+  binds it. Mounted by the web app it is copied into a **same-origin
+  `srcdoc` frame**, which inherits the *app's* policy and never sees
+  that header — so the frame is **sandboxed without `allow-scripts`**.
+  Neither mechanism substitutes for the other, and the code says so in
+  both places.
+- **The document says what it is.** A draft prints as a draft and
+  carries no number (it has none); a void invoice prints as void; a
+  credit note is titled as one. A printed page that could be mistaken
+  for an issued invoice is a legal problem, not a cosmetic one.
+- **No money is computed here either.** The renderer prints the store's
+  cents; it only groups digits.
+- **Its words are a table, not literals in the markup**
+  (`billing_print::Strings`), keyed by document language — the same
+  externalisation rule as the web catalogues, in the one place a
+  customer-facing string is emitted by Rust. `en` ships now; fr/nl at
+  the wave review (B1.27). An unknown language falls back to the
+  default rather than refusing: a filter may be strict, but a document
+  that will not print because of a display preference is worse than a
+  document printed in English.
+
+**The issuer's own details** — who is billing, their VAT and
+registration numbers, and the bank the money goes to — are a *tenant*
+record, not a per-document one, so B1.16 also lands `billing_settings`
+(below). The logo is a **monogram placeholder** drawn from the legal
+name: a real logo is a Drive file and an upload surface, which is its
+own item, and a blank rectangle on every invoice is worse than initials.
+
+As-built (B1.16), the decisions the page itself forced:
+
+- **Dates print as ISO `YYYY-MM-DD` in every language.** `05/03/2026`
+  is two different days depending on who reads it, and a due date a
+  customer can misread by two months is a dispute. EN 16931 dates are
+  ISO for the same reason.
+- **Amounts are grouped and carry the ISO currency code**
+  (`EUR 1 843.60`), never a symbol: the code is what the e-invoice
+  schemas want and is unambiguous across member states.
+- **The number is stated once.** It is in the heading, so the grid
+  beside it does not repeat it — a document that states its own number
+  twice makes a reader check whether the two agree.
+- **A domestic address does not print its country.** Postal convention
+  names the country only when the document crosses a border, and a lone
+  `NL` under a Dutch address reads like a stray field. Cross-border it
+  is the line that decides the VAT treatment, so it stays. (Country
+  *names* rather than codes need a table per language — B1.27.)
+- **A quote and a credit note print no bank details.** Both say
+  explicitly that nothing is payable; an IBAN under that sentence is
+  how a document gets paid twice. An invoice with no due date yet (a
+  draft) states the term instead, so the page never simply omits when
+  the money is owed.
+- **The issuer is read live, not snapshotted at issue.** Reprinting last
+  year's invoice shows the current address and bank, which is what
+  moving office or changing bank is supposed to do; the facts that must
+  never drift — number, dates, lines, money — are on the document.
+- **`?lang=` falls back rather than refusing**, unlike the `status`
+  filter: a filter that silently widened would mislead a bookkeeper, but
+  a document that will not print because of a display preference is
+  worse than one printed in English.
+
 ### Routes
 
 All under the authenticated `alo-jmap` router, following the existing
@@ -106,6 +199,8 @@ extractor, registered in `server.rs`):
 | `POST /billing/invoices/{id}/issue` | assign number, freeze (B1.10) |
 | `POST /billing/invoices/{id}/void` | cancel an issued document, keeping its number (B1.10) |
 | `POST /billing/invoices/{id}/credit-note` | create the crediting invoice (B1.10) |
+| `GET /billing/settings`, `PATCH /billing/settings` | the issuer's own identity and bank details (B1.16) — **as built** |
+| `GET /billing/invoices/{id}/print[?lang=]`, `GET /billing/quotes/{id}/print[?lang=]` | the printable document as one self-contained HTML page (B1.16) — **as built** |
 
 As-built (B1.10), for the invoice routes specifically:
 
@@ -135,6 +230,12 @@ As-built (B1.10), for the invoice routes specifically:
   happen because an editor submitted a stale form.
 - **`status`, `number`, `issueDate` and `dueDate` are not writable** by any
   request; like any unknown field they are ignored.
+
+The rest of the surface, **not yet built** (the wave item that lands each is
+named):
+
+| Route | Purpose |
+|---|---|
 | `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17, B1.23) |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
@@ -289,6 +390,18 @@ column, struct field, or computation anywhere in this module.
   writable field that could disagree with the ledger.
 - **`billing_sequences`** — `(tenant_id, kind, year, next_value)`, the
   row-locked counter behind legal numbering (below).
+- **`billing_settings`** (B1.16) — **one row per tenant**, the issuer
+  side of every document: legal name, address, country, VAT id,
+  company registration number, contact email/phone/website, and the
+  bank the money goes to (IBAN, BIC, account holder). Tenant-wide, as
+  customers and products are: a tenant issues under one identity.
+  The row is created on first save; a tenant that has never saved reads
+  the **blanks**, never a `404` — a print view asking "have you
+  configured billing yet" would be a second source of truth about a
+  record that always conceptually exists. The IBAN is held to its
+  ISO 13616 length-per-country **and its mod-97 check** (`iban.rs`), the
+  same standard the VAT id gets: a typo'd IBAN is money that never
+  arrives, and it is caught at the point of entry or not at all.
 
 ### Totals
 
@@ -349,6 +462,9 @@ route edge to the existing `Problem` shape. The full map:
 | Accepting a quote that is not an open offer (draft, or already answered) | `Conflict` | `409` |
 | Creating a quote without naming a customer (`customerId` absent or blank) | — (route edge) | `422` |
 | Listing quotes with a `status` filter that is not one of the five states | — (route edge) | `422` |
+| Saving billing settings without a legal name | `Validation` | `422` |
+| Malformed issuer VAT id, IBAN (length or mod-97) or BIC | `Validation` | `422` |
+| Printing a document that is absent **or another tenant's** | `NotFound` | `404` |
 | Sequence row contention beyond the tx retry | `Db` | `503` |
 
 The wrong-tenant case deliberately returns the **same `404`** as a
