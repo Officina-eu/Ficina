@@ -1,7 +1,9 @@
 //! The public HTTP surface (ADR 0036, `docs/design/sites.md`): resolve the
 //! Host header to one tenant's live site, serve its published snapshots, and
-//! nothing else. The service holds no session — its whole tenant scope is
-//! the [`host`] lookup's result — and it is deliberately terse on the wire:
+//! accept contact-form submissions (`POST /f/{form_id}`, the [`forms`]
+//! module) — nothing else. The service holds no session — its whole tenant
+//! scope is the [`host`] lookup's result (or, for a submission, the posted
+//! form id's own resolution) — and it is deliberately terse on the wire:
 //! misses are one uniform not-found, errors carry no internals.
 //!
 //! Response semantics:
@@ -20,16 +22,18 @@
 
 mod cache;
 pub mod config;
+mod forms;
 mod host;
+mod rate;
 mod rendered;
 
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Request, State};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 
 use alo_store::SitePublicStore;
 
@@ -44,6 +48,8 @@ pub struct AppState {
     cache: cache::SiteCache,
     /// The one body every host-level miss serves (built once).
     unknown_host: String,
+    /// Per-client budget on the form-submit path (in-memory, transient).
+    rate: rate::RateLimiter,
 }
 
 impl AppState {
@@ -56,14 +62,20 @@ impl AppState {
             sites_domain,
             cache: cache::SiteCache::default(),
             unknown_host: rendered::unknown_host_not_found(&EN),
+            rate: rate::RateLimiter::default(),
         })
     }
 }
 
-/// The service router: `/healthz` plus the catch-all site path.
+/// The service router: `/healthz`, the form-submit POST (with its own tight
+/// body cap), and the catch-all site path.
 pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route(
+            "/f/{form_id}",
+            post(forms::submit).layer(DefaultBodyLimit::max(forms::FORM_BODY_MAX_BYTES)),
+        )
         .fallback(serve_site)
         .with_state(state)
 }

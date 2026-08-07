@@ -33,6 +33,20 @@ pub struct UiStrings {
     /// Contact form: confirmation shown after a successful submission when
     /// the section sets no custom `success_message`.
     pub form_success: &'static str,
+    /// Form-result page: heading of the success document `POST /f/…` lands
+    /// a no-script submission on.
+    pub form_sent_title: &'static str,
+    /// Form-result page: heading of every failed-submission document.
+    pub form_not_sent_title: &'static str,
+    /// Form-result page: text when the submission body could not be read.
+    pub form_malformed_text: &'static str,
+    /// Form-result page: heading of the rate-limited (429) document.
+    pub form_rate_limited_title: &'static str,
+    /// Form-result page: text of the rate-limited (429) document.
+    pub form_rate_limited_text: &'static str,
+    /// Form-result page: appended after a field-level validation message,
+    /// telling the visitor how to recover.
+    pub form_back_hint: &'static str,
     /// Not-found page: heading (and `<title>` prefix).
     pub not_found_title: &'static str,
     /// Not-found page: explanatory text.
@@ -54,6 +68,12 @@ pub const EN: UiStrings = UiStrings {
     form_website: "Website",
     form_send: "Send",
     form_success: "Thanks — your message has been sent.",
+    form_sent_title: "Message sent",
+    form_not_sent_title: "Message not sent",
+    form_malformed_text: "The submission could not be read. Please go back and try again.",
+    form_rate_limited_title: "Too many messages",
+    form_rate_limited_text: "Please wait a few minutes before sending another message.",
+    form_back_hint: "Please go back and try again",
     not_found_title: "Page not found",
     not_found_text: "The page you are looking for does not exist or has moved.",
     not_found_home: "Go to the homepage",

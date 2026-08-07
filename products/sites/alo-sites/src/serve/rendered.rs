@@ -113,6 +113,20 @@ impl RenderedSite {
 /// here), and built once at startup.
 #[must_use]
 pub fn unknown_host_not_found(strings: &UiStrings) -> String {
+    minimal_document(
+        strings.lang,
+        strings.not_found_title,
+        strings.not_found_text,
+    )
+}
+
+/// A complete self-contained little document — the shell of the unknown-host
+/// 404 and of the form-result pages a no-script submission lands on. Marked
+/// `noindex` (none of these are content), no external stylesheet (no site
+/// scope resolves here). Inputs are our own [`UiStrings`] constants or
+/// store validation messages, never visitor text — nothing needs escaping.
+#[must_use]
+pub fn minimal_document(lang: &str, title: &str, text: &str) -> String {
     format!(
         "<!doctype html>\n<html lang=\"{lang}\">\n<head>\n<meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
@@ -121,8 +135,5 @@ pub fn unknown_host_not_found(strings: &UiStrings) -> String {
          margin:0;place-items:center;background:#fafafa;color:#1a1a1a}}\
          main{{text-align:center;padding:2rem}}h1{{font-size:1.5rem}}</style>\n\
          </head>\n<body>\n<main>\n<h1>{title}</h1>\n<p>{text}</p>\n</main>\n</body>\n</html>\n",
-        lang = strings.lang,
-        title = strings.not_found_title,
-        text = strings.not_found_text,
     )
 }

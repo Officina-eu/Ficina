@@ -6,6 +6,16 @@ contracts.
 
 ## Unreleased
 
+- **Contact forms on live sites now actually send.** A visitor pressing Send on
+  a published site's contact form has their message stored with the site it was
+  written to — nothing more: in keeping with the no-tracking promise, only the
+  name, email and message they typed are kept, never their address or browser.
+  Junk is turned away at the door — a hidden trap field silently swallows bots,
+  a sender who floods is politely asked to wait a few minutes, and a form that
+  does not exist (or whose site is not live) reveals nothing about what does.
+  The message landing in your inbox and the submissions screen arrive in the
+  next slices.
+
 - **Insights now opens on your business, with nothing to set up.** The first
   time anyone in your company opens Insights, a **Business overview** board is
   already there and already answering: what you are owed, what you won this

@@ -966,3 +966,43 @@ under the lock. Next: S1.16a (the freshly split, single-turn store slice).
      item's migration applied cleanly. Dev-DB-only surgery; no code impact.
 - **Cuts:** none — the split item shipped whole.
 - **Next:** S1.16b (public `POST /f/:form_id` on alo-sites).
+
+## S1.16b — public form submit endpoint (salvaged + wired + gated)
+
+- **Provenance, stated plainly:** this iteration found four uncommitted,
+  untracked files exactly matching S1.16b's scope (`site_public_forms.rs`,
+  `serve/forms.rs`, `serve/rate.rs`, `tests/form_submit.rs`), last written
+  ~11 minutes before this worker started — a prior iteration of this same
+  wrapper that died mid-item without committing (nothing was wired into
+  either crate's module tree). The tree was verified quiet, the files were
+  read line-by-line, judged correct and house-style, and SALVAGED; this
+  worker wrote all the missing wiring and ran every gate itself, so the
+  result is fully reviewed + verified regardless of which turn typed what.
+- **Shipped:** `POST /f/{form_id}` on alo-sites. Store side:
+  `site_public_forms.rs` — the public door's ONE write; a single conditional
+  INSERT..SELECT resolves the bare form id to its owning tenant and writes
+  only if the site is live (`published_publish_id IS NOT NULL`), so a
+  cross-tenant write is unrepresentable and unknown/deleted/draft ids are one
+  indistinguishable `Ok(None)`; fields pass the same `normalize_submission`
+  gate as the authenticated door. Service side: `serve/forms.rs` (handler:
+  rate limit → parse → honeypot `website` field silently drops as a fake 200
+  → store write; 400 with the store's field-level reason, 413 via a
+  256 KiB `DefaultBodyLimit` on the route, 404 = the generic unknown-host
+  page, 429 with `Retry-After`); `serve/rate.rs` (in-memory sliding window,
+  10/10 min per client key, 4096-key cap, key = last XFF hop or peer IP —
+  transient only, never stored/logged). Wiring this turn: `pool()` accessor
+  on `SitePublicStore`, `site_public_forms` module line, six `UiStrings`
+  form-result strings (i18n path), `minimal_document` shared with the
+  unknown-host 404, `AppState.rate` + route registration, `main.rs`
+  ConnectInfo for the no-proxy fallback key, `serde` dep on alo-sites.
+- **Verified:** `cargo fmt`; clippy `--all-targets` on both crates zero
+  warnings; `cargo test -p alo-store -p alo-sites` — 52 binaries, zero
+  failures, incl. the 6 new in-process integration tests: submission lands
+  in the owning tenant only (outsider sees nothing), unknown + draft-site
+  form ids are one clean 404 that writes nothing, honeypot 200-drops,
+  malformed/invalid bodies 400 naming the field, oversized body 413,
+  11th submission in the window 429 with Retry-After while another client
+  still lands. All against the compose Postgres (port 5432 on this machine;
+  the test default remains 5433, overridden via DATABASE_URL).
+- **Cuts:** none. NO notification yet, as split — that is S1.16c.
+- **Next:** S1.16c (internal inbox delivery + auto-create form on section add).

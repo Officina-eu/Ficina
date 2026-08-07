@@ -7,6 +7,7 @@
 //!
 //! Environment: see [`alo_sites::serve::config`].
 
+use std::net::SocketAddr;
 use std::process::ExitCode;
 
 use alo_sites::serve::config::BLOB_MAX_BYTES;
@@ -41,6 +42,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::new(store, config.sites_domain.clone());
     let listener = tokio::net::TcpListener::bind(config.addr).await?;
     tracing::info!(addr = %config.addr, sites_domain = %config.sites_domain, "alo-sites listening");
-    axum::serve(listener, app(state)).await?;
+    // ConnectInfo gives the form rate limiter a per-peer fallback key when
+    // the service is reached without a proxy's X-Forwarded-For in front.
+    axum::serve(
+        listener,
+        app(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

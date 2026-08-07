@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 alo-store = { path = "../../../platform/alo-store" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 # The service slice: the Host-resolving public server (`serve` module + the
