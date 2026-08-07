@@ -32,12 +32,38 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "[loop] halted by the agent — fix the reason in STATE.md, remove the marker, restart."; break
   fi
 
-  # One iteration. --dangerously-skip-permissions is required for unattended
-  # runs; the hard safety rails live in LOOP.md and the repo's deny rules.
-  claude -p "$PROMPT" --dangerously-skip-permissions
-  code=$?
+  # One iteration, with a hang guard: a stalled API stream once froze the
+  # Windows loop for a whole night, so the worker runs in the background and
+  # is killed if it exceeds the timeout — the item is redone next iteration.
+  # --dangerously-skip-permissions is required for unattended runs; the hard
+  # safety rails live in LOOP.md and the repo's deny rules.
+  claude -p "$PROMPT" --dangerously-skip-permissions &
+  cpid=$!
+  waited=0
+  tmo=$(( ${ITERATION_TIMEOUT_MIN:-90} * 60 ))
+  code=""
+  while kill -0 "$cpid" 2>/dev/null; do
+    sleep 30
+    waited=$((waited + 30))
+    if [ "$waited" -ge "$tmo" ]; then
+      echo "[loop] iteration exceeded $((tmo / 60)) min — killing the hung worker."
+      kill -TERM "$cpid" 2>/dev/null; sleep 10; kill -KILL "$cpid" 2>/dev/null
+      # Drop half-done uncommitted state so the next iteration starts clean.
+      git rebase --abort >/dev/null 2>&1
+      git checkout -- . >/dev/null 2>&1
+      code=124
+      break
+    fi
+  done
+  if [ -z "$code" ]; then
+    wait "$cpid"; code=$?
+  else
+    wait "$cpid" 2>/dev/null || true
+  fi
 
-  if [ "$code" -ne 0 ]; then
+  if [ "$code" -eq 124 ]; then
+    sleep 30                          # the hang already wasted time — go again
+  elif [ "$code" -ne 0 ]; then
     # Rate limit / transient failure: back off instead of spinning.
     echo "[loop] iteration exited with code $code — waiting 15 minutes."
     sleep 900

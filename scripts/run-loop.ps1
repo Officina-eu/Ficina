@@ -9,8 +9,9 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\run-loop.ps1 -RepoPath "C:\dev\Ficina"
 param(
   [string]$RepoPath = "C:\dev\Ficina",
-  [string]$Track = "business",   # business | sites (LOOP.md Tracks table)
-  [int]$MaxIterations = 500      # hard backstop against runaway loops
+  [string]$Track = "business",       # business | sites (LOOP.md Tracks table)
+  [int]$MaxIterations = 500,         # hard backstop against runaway loops
+  [int]$IterationTimeoutMin = 90     # a hung worker is killed after this long
 )
 $ErrorActionPreference = "Continue"
 Set-Location $RepoPath
@@ -37,12 +38,34 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
   if ($state -match "LOOP COMPLETE") { Write-Host "[loop] queue complete - stopping."; break }
   if ($state -match "LOOP HALT")     { Write-Host "[loop] halted by the agent - fix the reason in STATE.md, remove the marker, restart."; break }
 
-  # One iteration. --dangerously-skip-permissions is required for unattended
-  # runs; the hard safety rails live in LOOP.md and the repo's deny rules.
-  & $claude -p $prompt --dangerously-skip-permissions
-  $code = $LASTEXITCODE
+  # One iteration, with a hang guard: a stalled API stream once froze the loop
+  # for a whole night, so the worker runs as a child process that gets killed
+  # if it exceeds the timeout — the item is simply redone next iteration.
+  # --dangerously-skip-permissions is required for unattended runs; the hard
+  # safety rails live in LOOP.md and the repo's deny rules.
+  if ($claude -like "*.ps1") {
+    $file = "powershell"
+    $cliArgs = @("-ExecutionPolicy","Bypass","-File",$claude,"-p","`"$prompt`"","--dangerously-skip-permissions")
+  } else {
+    $file = $claude
+    $cliArgs = @("-p","`"$prompt`"","--dangerously-skip-permissions")
+  }
+  $proc = Start-Process -FilePath $file -ArgumentList $cliArgs -NoNewWindow -PassThru
+  if (-not $proc.WaitForExit($IterationTimeoutMin * 60 * 1000)) {
+    Write-Host "[loop] iteration exceeded $IterationTimeoutMin min - killing the hung worker."
+    taskkill /PID $proc.Id /T /F 2>$null | Out-Null
+    # Drop any half-done, uncommitted state so the next iteration starts clean
+    # (local commits survive — only unpushed edits of the killed run are lost).
+    git rebase --abort 2>$null | Out-Null
+    git checkout -- . 2>$null | Out-Null
+    $code = 124
+  } else {
+    $code = $proc.ExitCode
+  }
 
-  if ($code -ne 0) {
+  if ($code -eq 124) {
+    Start-Sleep -Seconds 30           # the hang already wasted time - go again
+  } elseif ($code -ne 0) {
     # Rate limit / transient failure: back off instead of spinning.
     Write-Host "[loop] iteration exited with code $code - waiting 15 minutes."
     Start-Sleep -Seconds 900
