@@ -1,0 +1,8 @@
+# One toolchain for every machine (both build loops, Codex, CI, future PCs).
+# Why pinned: the two loop machines had different rustfmt versions that
+# disagreed about formatting, causing reformat ping-pong between autonomous
+# commits. rustup reads this file and auto-installs/uses the exact version.
+# Bump deliberately (one commit), never per-machine.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
