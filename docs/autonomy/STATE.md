@@ -7162,3 +7162,188 @@ approval, rates).
 `eb80850` made. Pushed history is not rewritten (LOOP.md's hard rail), so the
 gap is journalled here instead. The author is the repository owner, as it
 should be; only the co-author trailer is missing.
+
+## 2026-08-07 — B3.01 the Projects design note: minutes are the truth, hours are a document
+
+Wave B3 opens with `docs/design/projects.md`, written ahead of the first
+migration and to the same bar as B1.01, B2.01 and BI1.01: surface and route
+table, the web surface, the five-table data model with its bounds, the
+arithmetic, the week state machine, the error map, the tenancy story, the
+files the wave will add, the out-of-scope list, and every central decision
+recorded **with the alternative it rejects**. No code changed; nothing was
+built.
+
+**The decision the note exists for — B3 adds no second project list.** A
+client project is a `task_projects` row (shipped, in daily use, ADR 0021/0022)
+with a `project_clients` row beside it carrying the customer, currency, rate,
+budget and start date. *Rejected: a separate `projects` table* — two project
+lists is the failure mode B2.06 refused for to-dos, and the one the invoice is
+raised from drifts from the board the team actually opens. *Rejected: new
+columns on `task_projects`* — that table is `tasks.rs`'s, whose
+`create_task_project` knows nothing about money and should not learn (law 3);
+a side table means this wave never edits the tasks store and "no client facts"
+needs no sentinel, it is just a missing `LEFT JOIN` row. *Rejected: a third
+`kind` value (`'client'`)* — `kind` governs *visibility*, so instead client
+facts may only attach to a `team` project and a personal board is a `422`.
+
+**The arithmetic got its own section, because it is a real question.** Minutes
+are the stored truth; a billing line's quantity is milli-units, so one minute
+is 16⅔ milli-hours and the conversion cannot be exact. It therefore happens
+once, per line, in one pure function — `qty_milli_hours(min) = (100·min + 3)/6`,
+integer only — and the bound is stated rather than discovered: a minute
+count's exact hour value has a fractional part of 0, ⅓ or ⅔ of a milli-hour
+and **never a half** (100·min mod 6 ∈ {0,2,4}), so the error is at most a
+third of a milli-hour — 1.2 seconds — and the line's money is within
+`rate/3000` cents: 3.3 cents on a €100/h line, two thirds of a cent at €20/h.
+Every third minute is exact, so an hour, a quarter-hour and a six-minute stint
+carry no residue at all. The consequence that matters is a rule: **the
+unbilled view and the profitability report fold through the same function and
+the same `billing_totals::totals` the printed invoice uses**, so a report and
+a document cannot disagree by a cent — BI1.01's "a chart and a tax return
+cannot disagree", one module down. *Rejected: a `minute` line unit* (exact and
+unreadable — `740 minute` is not a document a client accepts), *rejected:
+adjusting the unit price to make the total tidy* (a document that misstates
+the agreed rate misstates the contract), *rejected: two-decimal hours*, which
+is what most time-billing products write and is 36× coarser than our schema
+allows.
+
+Six more decisions, each with its rejected alternative:
+
+- **A running timer is not an entry.** `time_timers` is keyed
+  `(tenant_id, user_id)`, so "one running timer per user" is a primary key
+  rather than a query, and stopping it is what writes the `time_entries` row.
+  *Rejected: an entry with `minutes` NULL* — every aggregate in the module
+  would have to remember to exclude it, and the one that forgets bills a
+  timer that is still running. Starting while one runs is a `409`, not an
+  implicit stop: *rejected: stop-and-start in one call*, because stopping
+  writes a billable fact and a write nobody asked for is not a convenience.
+- **`work_date` is a DATE in the user's own zone, and it bounds every
+  period.** *Rejected: deriving the day and the week from `started_at` in
+  UTC* — an entry stopped at 00:30 in Berlin belongs to the previous working
+  day and often the previous week, and an employee would be right to dispute
+  it. Weeks are ISO 8601 Monday-start via `Date::to_iso_week_date()`, the
+  function `insight_series::bucket_key` already uses (including its lesson
+  that the week-numbering year is not the calendar year).
+- **Rates are snapshotted, never guessed**, resolved caller → project → null.
+  A billable entry with no rate is legal (the person logging the hour is often
+  not the person who prices it); *billing* it is not, and the handoff demands
+  a rate for every group exactly as `crm_handoff` demands a VAT rate rather
+  than making a compliance statement on a machine's behalf. Unrated hours are
+  counted and named, never priced at zero — the VAT report's honesty rule.
+- **A tenant admin approves the week; the user submits and may withdraw.**
+  *Rejected: inventing a manager relation now* — that is B6.02's org chart and
+  B6.07's unified inbox, and `task_projects.owner_user_id` cannot approve a
+  timesheet that spans four projects anyway. The check widens additively when
+  employees exist. The lock lives in the store (`409` naming the week), and
+  moving an entry's date checks **both** weeks, or a locked week can be
+  drained one entry at a time. Reopening a week with billed entries is a
+  `409`: the way back is to void or credit the document, not to edit history
+  underneath it.
+- **The handoff groups one line per (project, rate)**, all-or-nothing in one
+  transaction, and raises a **draft** — one-way and one-shot, `crm_handoff`'s
+  rule. *Rejected: a line per entry* (a month of six-minute stints is a
+  200-line invoice every client queries) and *per task* (a rounding multiplier
+  plus an undecided disclosure question — named in the out-of-scope list so
+  its absence is a decision). Deleting a draft or **voiding** an issued
+  document releases its entries in the same transaction; a **credit note does
+  not**, because crediting corrects a document and re-billing the hours would
+  be a second charge for one piece of work. *Rejected: `ON DELETE SET NULL`* —
+  the FK is composite and `SET NULL` would null the `NOT NULL` tenant column.
+- **A template is a project.** *Rejected: a JSON template schema* — a
+  template that is not a project cannot be opened or corrected in the editor
+  that already exists, and it drifts the first time a task gains a field.
+  Instantiating copies tasks, milestones and links, shifts dates by
+  `starts_on − earliest milestone`, and deliberately copies no assignees,
+  comments, activity, followers or hours.
+
+**The tenancy section adds a rule to alo's vocabulary: a person's hours are
+personal data inside their own tenant.** Two doors, deliberately —
+`AccountStore` for everything a person does with their own time (every
+statement `user_id = self.user`, so a colleague's diary is unrepresentable),
+`TenantStore` for the approvals inbox, another person's week and the per-user
+breakdown, each gated by `require_admin` at the edge. *Rejected: one door with
+an explicit `user_id` argument after an admin check* — that turns the rule
+into something every future caller must remember. So B3 has **two** mandatory
+isolation tests: wrong-tenant (law 1) and **wrong-user** (`404` inside the
+same tenant). Project aggregates stay visible to anyone who can see the
+project, without a per-person breakdown; time notes never reach a log (a note
+can name a client or a case, so spans carry ids and minute counts only); and
+every submit/approve/reject/reopen/bill is audited, because "who approved my
+week" is a question an employee is entitled to have answered.
+
+Verified — the note is checked against the code it commits to, not memory:
+
+```
+task_projects.kind 'personal'|'team'      0046_tasks.sql — visibility, hence no 'client'
+tasks::create_task_project                exists, money-free — the law-3 argument
+billing_line::NewLine.qty_milli           milli-units; MAX_LINES = 500
+billing_field::UNIT_PRICE_MAX_CENTS       1_000_000_000 — the rate ceiling reused
+billing_totals::totals / LineFigures      exist — the fold the report shares
+crm_handoff                               confirms: VAT rate stated, never guessed;
+                                          one-way, one-shot, draft only
+billing_invoices::{delete_,void_}         exist — the two release points
+billing_settings.base_currency            exists — the accounting currency
+crm_report                                confirms: never converts currencies
+billing_reports                           CSV convention: ISO dates, '.' decimals,
+                                          untranslated headers, no customer data
+calendar::events_in_range                 exists — B3.10's calendar source
+insight_series::bucket_key                to_iso_week_date() precedent
+billing::map_store_err                    the shared error map CRM already reuses
+Account::require_admin (state.rs)         the gate the approval routes need
+audit_action::AUDITED_MODULES             ["billing","crm"] → "projects" joins at
+                                          B3.04; tests/audit_routes.rs then proves
+                                          every mutating route is audited
+tasks::project_files                       exists — project files are not B3's
+0121_insight_seeds.sql                    is the last migration → B3 starts at 0122
+web/vite.config.ts API_PATHS              /billing /crm /audit /insights /sites;
+                                          /projects must join it at B3.04
+qty_milli_hours over 0…100 000 minutes    max error 1/3 milli-hour (checked
+                                          numerically); 60→1000, 90→1500, 1440→24000
+```
+
+Docs-only item: no Rust, web or storage gate applies, and no CHANGELOG line —
+nothing a user can see changed, the same call B1.01, B2.01 and BI1.01 made.
+
+Cuts and flags:
+
+- **HUMAN ACTION (additive to the standing list) — `/projects` will be a new
+  top-level route prefix** at B3.04, needing the production Caddyfile entry
+  the way `/billing`, `/crm` and `/insights` do, and the `API_PATHS` line in
+  `web/vite.config.ts` (the S1.11 / BI1.04 lesson). No route exists yet.
+- **Flagged: the ROADMAP gate on B2 ("B1 live with ≥1 real tenant") is still
+  unmet** — B1, B2 and BI-1 are code-complete and nothing is deployed. A
+  design note is exactly the work that belongs ahead of an unmet gate;
+  **B3.02 is the first item that writes a migration**, and a human should
+  confirm or move the gate before it ships.
+- **Compliance flagged, not guessed:** several member states require working
+  time to be recorded (CJEU C-55/18, *CCOO v Deutsche Bank*), some daily
+  rather than weekly, with retention and access rules attached. B3 records a
+  day, a person and a duration, which satisfies the shape; whether alo
+  *claims* working-time-record compliance in its marketing is a legal
+  statement for a human, and the note says so rather than implying it.
+- **Cut from B3 and written down rather than implied:** cost rates, salaries
+  and true margin (needs B4's ledger and B6's employees — the report's labels
+  say *value*, never *margin*); per-person rate cards; per-task invoice lines
+  and per-customer rounding increments (a commercial policy that inflates an
+  invoice and must be disclosed on the document — a human decision);
+  fixed-price engagements and revenue recognition; capacity planning and Gantt
+  (`[B+]`); expenses on a project (B4.05 links from the other side); and
+  per-project access roles, the same cross-cutting question CRM and Insights
+  deferred to **B4.12**.
+- **Not a cut but a refusal, stated in the note:** automatic time tracking —
+  app or idle detection, geofencing, anything that observes a person rather
+  than recording what they say they did. A sovereignty product does not ship
+  surveillance.
+- **Open questions left to a human, not guessed:** whether a rejected week
+  notifies its owner; whether an admin may log time *for* someone else (the
+  exact capability the two-door split exists to withhold, so it should arrive
+  as an audited per-tenant setting if it ever does); and whether the grid
+  shows `7:30` or decimal hours.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`) —
+  unchanged, and untouched by a docs-only item. A pinned `rust-toolchain.toml`
+  is still the fix and still a human item.
+
+Next item: B3.02 (the client-project extension — migration `0122_project_clients.sql`
+plus the `project_clients` store module: customer link, currency, hourly rate,
+budget in hours or money, start date, the `team`-only rule, and the mandatory
+wrong-tenant test).
