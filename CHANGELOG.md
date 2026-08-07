@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **Your website can now keep what visitors send it.** Under the surface, every
+  site gained a place for contact forms and their submissions: each message a
+  visitor writes — name, email and what they had to say — is stored with the
+  site it was sent to, waiting to be read and marked as dealt with. In keeping
+  with the no-tracking promise of alo Sites, a submission stores only what the
+  visitor typed — never their IP address or browser fingerprint; there are no
+  columns for them. The public submit button and the inbox notification arrive
+  in the next slices; nothing on a live site changes yet.
+
 - **alo CRM now speaks French and Dutch — and so does the history on every
   record.** Switch the language and Sales follows: the board and its columns,
   the deal drawer, the log, the next steps, the linked conversations, the

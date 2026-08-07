@@ -935,3 +935,34 @@ zero survivors, tree clean. Permanent fix shipped in run-loop.sh: a per-track
 machine lock — a second wrapper now refuses to start while a live owner
 exists, and stale locks from dead PIDs are taken over. One wrapper relaunched
 under the lock. Next: S1.16a (the freshly split, single-turn store slice).
+
+## S1.16a — forms store (banked on the seventh attempt, first with an empty stage)
+
+- **Shipped:** migration `0120_site_forms.sql` (`site_forms` +
+  `site_form_submissions`, tenant-scoped, cascading tenants → sites → forms →
+  submissions, a global unique index on the bare form id for the later public
+  resolve, and deliberately NO ip/ua columns per the privacy model);
+  `SiteFormId`/`SiteFormSubmissionId` newtypes; `site_forms.rs` store module —
+  form create/list/get/rename/delete (per-site cap 50) and submission
+  add/list/mark-handled/delete, every statement scoped by (tenant, site) with
+  the same patterns as `site_pages.rs`; `normalize_submission` is the public
+  write gate (trim, non-blank, caps 200/254/10k, loose one-@ email) so the
+  S1.16b endpoint validates identically. NO HTTP, as split.
+- **Verified:** `cargo fmt`; clippy `--all-targets` zero warnings;
+  `cargo test -p alo-store` — 43 binaries green against the compose Postgres,
+  including the new `site_forms_and_submissions_scope_by_tenant_and_site`
+  (wrong-tenant denial on every path, cross-site denial within a tenant,
+  write-gate rejections, newest-first order, handled toggle, cascades) plus
+  4 unit tests on the validation gates.
+- **Environment flags for the human:**
+  1. The machine hit Windows commit-charge exhaustion mid-gate (os error 1455,
+     "paging file too small") — parallel rustc jobs failed to mmap and
+     masqueraded as corrupted-artifact ICEs. Worked around with `-j 2` after a
+     `target/debug` wipe; consider a bigger page file or capping the wrapper's
+     build parallelism.
+  2. The local dev DB still carried a ghost's applied version-120 "site forms"
+     migration (different SQL, checksum mismatch → `VersionMismatch(120)`).
+     Dropped the ghost's two tables and its `_sqlx_migrations` row, then this
+     item's migration applied cleanly. Dev-DB-only surgery; no code impact.
+- **Cuts:** none — the split item shipped whole.
+- **Next:** S1.16b (public `POST /f/:form_id` on alo-sites).
