@@ -205,3 +205,51 @@ Human-action inbox (things the loop must not do itself):
     until S1.10/S1.14).
 - **Next:** S1.06 (renderer crate `products/sites/alo-sites`, page JSON +
   theme → full HTML document, golden tests).
+
+## S1.06 — renderer crate `products/sites/alo-sites` (2026-08-07)
+
+- **Shipped:** new workspace crate `alo-sites` (library-first; the axum
+  service is S1.09) with the pure `render` module: page JSON + theme → one
+  complete HTML document. `render_page(SiteRenderContext, PageRenderContext)`
+  emits head (charset/viewport, title `seo_title` or `<page> — <site>`, meta
+  description, canonical, OG type/site_name/title/description/url, og:image
+  from the first hero image, favicon from theme, one stylesheet link) and a
+  landmarked body: skip link → `nav` sections as `<header>` → one `<main>` →
+  `footer` sections as `<footer>` (rule documented: a mid-page nav still
+  lands in the header region — valid landmarks outrank literal order). One
+  fragment builder per section type in `render/sections.rs` (h1 only in hero,
+  h2 per section, h3 per item, `<details>` FAQ, `alt` on every `<img>`,
+  stable `s-<kind>` class hooks for the S1.07 stylesheet). Read-side
+  tolerance per the design note: `sections_lenient` parses per-entry and
+  skips unknown/newer sections with a `tracing` warning — never a 500.
+  Defense in depth independent of the write gate: every string through
+  `esc()`, every link target re-checked against the href allowlist (unsafe →
+  inert `#`, in `render/html.rs`). Visitor-facing chrome strings (skip link,
+  menu, form labels) externalized in `render/strings.rs` (`UiStrings`, `EN`).
+  Contact form: posts `/f/<form_id>`, fixed v1 field contract name/email/
+  message + visually-hidden `website` honeypot (aria-hidden, tabindex −1),
+  `data-success` attribute; without a `form_id` the section renders text
+  only. Public-path contract documented in `lib.rs`: `/assets/site.css`,
+  `/assets/img/<blob_id>`, `/f/<form_id>` — changing these means
+  re-rendering every snapshot.
+- **Verified:** `cargo fmt --check`; `SQLX_OFFLINE=true cargo clippy -p
+  alo-sites --all-targets` zero warnings; `cargo test -p alo-sites` green —
+  13 golden files (one per section type + a themed full-page golden with
+  logo/favicon/SEO, blessed via `UPDATE_GOLDENS=1` then re-run clean) and 11
+  behavior tests (head/OG/canonical exact strings, landmark order, lenient
+  skip incl. newer schema_version, script + attribute-injection escaping,
+  javascript: href rendered inert, honeypot + fixed fields, alt on every img
+  across the full corpus, theme logo/favicon paths). Manual pass: read the
+  full-page golden byte-for-byte — structure, escaping (`&#39;`, `&amp;`),
+  and all head tags check out. No storage/routes touched → wrong-tenant and
+  wire-verify gates don't apply (pure library).
+- **Cuts/flags:**
+  - Feature icons: the schema's icon token renders nothing yet (we ship no
+    icon set); the fallback path is the only path until an icon set arrives
+    with the stylesheet slice, or the prop is retired at wave review.
+  - Byte-budget tests (CSS < 50KB, HTML < 100KB) are S1.07's, with the
+    stylesheet; the nav toggle button is inert markup until S1.07's JS.
+  - Site-level locale selection doesn't exist yet — `EN` chrome strings
+    only; fr/nl land at the wave review (S1.31).
+  - CHANGELOG untouched: rendering library only, no served surface yet.
+- **Next:** S1.07 (stylesheet generation from theme tokens + byte budgets).

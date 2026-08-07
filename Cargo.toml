@@ -13,6 +13,8 @@ members = [
     "products/mail/alo-smtp-client",
     "products/mail/alo-imap",
     "products/mail/alo-jmap",
+    # products/sites — the Sites product (alosites)
+    "products/sites/alo-sites",
     # suite — the workplace umbrella (control plane, integration)
     "suite/alo-control",
     "migrate",
