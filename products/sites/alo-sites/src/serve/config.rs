@@ -5,15 +5,23 @@
 //!   e.g. `alosites.example` makes `acme.alosites.example` serve the site
 //!   with subdomain `acme` (required; the name is the contract used across
 //!   `docs/design/sites.md`).
+//! - `ALO_BLOB_DIR` — the on-disk blob backend published images are read
+//!   from (required; the same directory the authenticated services write —
+//!   the name matches `alo-jmap`'s).
 //! - `ALO_SITES_ADDR` — internal bind address (default `0.0.0.0:8081`; TLS
 //!   is terminated by the front proxy).
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use thiserror::Error;
 
 /// Default internal bind (the front proxy terminates TLS and forwards here).
 pub const DEFAULT_ADDR: &str = "0.0.0.0:8081";
+
+/// Per-object byte ceiling on blob reads — the same ceiling `alo-jmap`
+/// enforces on upload, re-checked here as defence against a tampered object.
+pub const BLOB_MAX_BYTES: usize = 50 * 1024 * 1024;
 
 /// Why configuration could not be read — printable to an operator as-is.
 #[derive(Debug, Error)]
@@ -38,6 +46,8 @@ pub struct ServeConfig {
     pub database_url: String,
     /// The apex domain published sites are served under (lowercased).
     pub sites_domain: String,
+    /// The on-disk blob backend published images are read from.
+    pub blob_dir: PathBuf,
     /// The bind address.
     pub addr: SocketAddr,
 }
@@ -59,6 +69,7 @@ impl ServeConfig {
                 reason: "must be a bare DNS name (letters, digits, dots, hyphens)".to_owned(),
             });
         }
+        let blob_dir = PathBuf::from(require("ALO_BLOB_DIR")?);
         let addr = std::env::var("ALO_SITES_ADDR")
             .ok()
             .filter(|v| !v.is_empty())
@@ -70,6 +81,7 @@ impl ServeConfig {
         Ok(Self {
             database_url,
             sites_domain,
+            blob_dir,
             addr,
         })
     }

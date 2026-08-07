@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **alo Sites: your look, your logo.** Every site now has a theme you pick in
+  the editor: seven designed color-and-type looks, each checked for readable
+  contrast, applied to the whole site with one click. Upload your logo and it
+  replaces the site name in the navigation bar; upload a favicon and browsers
+  show it on the tab. The pictures you add — logo, favicon, and every section
+  image — are stored in your Drive, show up immediately in the draft preview,
+  and are served on your published site. Image fields in the page editor now
+  take a direct upload too, so adding a photo is a file picker, not an ID.
+
 - **alo CRM: win it, and bill it.** A won deal no longer stops at a card.
   Open it and raise a **quote** or an **invoice**: alo creates the customer from
   the lead if there is not one yet, copies the deal across as a line at its

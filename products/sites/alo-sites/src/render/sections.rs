@@ -13,7 +13,7 @@ use alo_store::site_model::{
 };
 
 use super::SiteRenderContext;
-use super::html::{esc, img_src, safe_href};
+use super::html::{esc, safe_href};
 
 /// A `nav` section, rendered as a `<header>` landmark. The brand link shows
 /// the theme logo when one is set, the site name otherwise; the toggle
@@ -29,7 +29,7 @@ pub(super) fn nav(out: &mut String, site: &SiteRenderContext<'_>, s: &NavSection
     match &site.theme.logo {
         Some(logo) => out.push_str(&format!(
             "<a class=\"brand\" href=\"/\"><img class=\"logo\" src=\"{}\" alt=\"{}\"></a>\n",
-            img_src(logo.as_str()),
+            site.images.src(logo.as_str()),
             esc(site.name)
         )),
         None => out.push_str(&format!(
@@ -88,20 +88,20 @@ pub(super) fn body_section(
     match section {
         Section::Nav(s) => nav(out, site, s, index),
         Section::Footer(s) => footer(out, site, s),
-        Section::Hero(s) => hero(out, s),
+        Section::Hero(s) => hero(out, site, s),
         Section::Features(s) => features(out, s),
-        Section::TextImage(s) => text_image(out, s),
-        Section::Gallery(s) => gallery(out, s),
+        Section::TextImage(s) => text_image(out, site, s),
+        Section::Gallery(s) => gallery(out, site, s),
         Section::Testimonials(s) => testimonials(out, s),
         Section::Pricing(s) => pricing(out, s),
-        Section::Team(s) => team(out, s),
+        Section::Team(s) => team(out, site, s),
         Section::Faq(s) => faq(out, s),
         Section::Cta(s) => cta(out, s),
         Section::ContactForm(s) => contact_form(out, site, s, index),
     }
 }
 
-fn hero(out: &mut String, s: &HeroSection) {
+fn hero(out: &mut String, site: &SiteRenderContext<'_>, s: &HeroSection) {
     out.push_str("<section class=\"s-hero\">\n");
     out.push_str(&format!("<h1>{}</h1>\n", esc(&s.heading)));
     if let Some(subheading) = &s.subheading {
@@ -121,7 +121,7 @@ fn hero(out: &mut String, s: &HeroSection) {
         out.push_str("</p>\n");
     }
     if let Some(image) = &s.image {
-        push_figure(out, image);
+        push_figure(out, site, image);
     }
     out.push_str("</section>\n");
 }
@@ -143,26 +143,26 @@ fn features(out: &mut String, s: &FeaturesSection) {
     out.push_str("</ul>\n</section>\n");
 }
 
-fn text_image(out: &mut String, s: &TextImageSection) {
+fn text_image(out: &mut String, site: &SiteRenderContext<'_>, s: &TextImageSection) {
     let side = match s.image_side {
         ImageSide::Left => "image-left",
         ImageSide::Right => "image-right",
     };
     out.push_str(&format!("<section class=\"s-text-image {side}\">\n"));
-    push_figure(out, &s.image);
+    push_figure(out, site, &s.image);
     out.push_str("<div class=\"text\">\n");
     push_opt_heading(out, s.heading.as_deref());
     out.push_str(&format!("<p>{}</p>\n", esc(&s.body)));
     out.push_str("</div>\n</section>\n");
 }
 
-fn gallery(out: &mut String, s: &GallerySection) {
+fn gallery(out: &mut String, site: &SiteRenderContext<'_>, s: &GallerySection) {
     out.push_str("<section class=\"s-gallery\">\n");
     push_opt_heading(out, s.heading.as_deref());
     out.push_str("<ul class=\"grid\">\n");
     for image in &s.images {
         out.push_str("<li>");
-        push_figure(out, image);
+        push_figure(out, site, image);
         out.push_str("</li>\n");
     }
     out.push_str("</ul>\n</section>\n");
@@ -229,14 +229,14 @@ fn pricing(out: &mut String, s: &PricingSection) {
     out.push_str("</ul>\n</section>\n");
 }
 
-fn team(out: &mut String, s: &TeamSection) {
+fn team(out: &mut String, site: &SiteRenderContext<'_>, s: &TeamSection) {
     out.push_str("<section class=\"s-team\">\n");
     push_opt_heading(out, s.heading.as_deref());
     out.push_str("<ul class=\"grid\">\n");
     for member in &s.members {
         out.push_str("<li>\n");
         if let Some(photo) = &member.photo {
-            push_figure(out, photo);
+            push_figure(out, site, photo);
         }
         out.push_str(&format!("<h3>{}</h3>\n", esc(&member.name)));
         if let Some(role) = &member.role {
@@ -346,11 +346,12 @@ fn push_link(out: &mut String, link: &Link, class: &str) {
 }
 
 /// `<figure><img></figure>` — `alt` is always present; empty means the model
-/// marked the image decorative.
-fn push_figure(out: &mut String, image: &SiteImage) {
+/// marked the image decorative. The `src` comes from the context's image
+/// sources (public path or inline data URI).
+fn push_figure(out: &mut String, site: &SiteRenderContext<'_>, image: &SiteImage) {
     out.push_str(&format!(
         "<figure><img src=\"{}\" alt=\"{}\"></figure>\n",
-        img_src(image.blob_id.as_str()),
+        site.images.src(image.blob_id.as_str()),
         esc(&image.alt)
     ));
 }

@@ -9,8 +9,9 @@
 
 use std::process::ExitCode;
 
+use alo_sites::serve::config::BLOB_MAX_BYTES;
 use alo_sites::serve::{AppState, ServeConfig, app};
-use alo_store::SitePublicStore;
+use alo_store::{BlobStore, SitePublicStore};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -32,7 +33,9 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = ServeConfig::from_env()?;
-    let store = SitePublicStore::connect(&config.database_url)
+    let blobs = BlobStore::local(&config.blob_dir, BLOB_MAX_BYTES)
+        .map_err(|_| "cannot open the blob directory")?;
+    let store = SitePublicStore::connect(&config.database_url, blobs)
         .await
         .map_err(|_| "cannot connect to the database")?;
     let state = AppState::new(store, config.sites_domain.clone());

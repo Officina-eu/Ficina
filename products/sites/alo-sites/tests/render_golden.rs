@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use alo_sites::render::{EN, PageRenderContext, SiteRenderContext, render_page};
+use alo_sites::render::{EN, ImageSources, PageRenderContext, SiteRenderContext, render_page};
 use alo_store::id::BlobId;
 use alo_store::site_model::{
     ContactFormSection, CtaSection, FaqItem, FaqSection, FeatureItem, FeaturesSection,
@@ -136,6 +136,7 @@ fn render_default(sections: Vec<Section>) -> String {
         base_url: BASE_URL,
         theme: &theme,
         strings: &EN,
+        images: ImageSources::PublicPaths,
     };
     let page = PageRenderContext {
         path: "/",
@@ -189,6 +190,7 @@ fn full_page_golden_with_theme_logo_and_seo() {
         base_url: BASE_URL,
         theme: &theme,
         strings: &EN,
+        images: ImageSources::PublicPaths,
     };
     let page = PageRenderContext {
         path: "/",

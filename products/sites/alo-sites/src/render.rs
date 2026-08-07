@@ -39,6 +39,37 @@ pub struct SiteRenderContext<'a> {
     pub theme: &'a SiteTheme,
     /// Visitor-facing chrome strings ([`EN`] until more locales ship).
     pub strings: &'a UiStrings,
+    /// Where `<img>`/favicon references point (public paths on the served
+    /// origin; inline data URIs in the self-contained draft preview).
+    pub images: ImageSources<'a>,
+}
+
+/// How the document spells its image references. Public serving uses the
+/// `/assets/img/<blob_id>` path contract; the authenticated draft preview —
+/// a self-contained document in a sandboxed iframe, where those paths do not
+/// resolve — carries the bytes inline as `data:` URIs. `og:image` is exempt:
+/// it is head metadata addressed to crawlers and always spells the absolute
+/// public URL.
+#[derive(Debug, Clone, Copy)]
+pub enum ImageSources<'a> {
+    /// `/assets/img/<blob_id>` — the crate-level public-path contract.
+    PublicPaths,
+    /// Blob id → `data:` URI. An id missing from the map falls back to the
+    /// public path, so an unresolvable image degrades exactly like a public
+    /// render rather than changing the document shape.
+    Inline(&'a std::collections::HashMap<String, String>),
+}
+
+impl ImageSources<'_> {
+    /// The attribute-ready `src` for a blob id.
+    pub(crate) fn src(&self, blob_id: &str) -> String {
+        match self {
+            ImageSources::PublicPaths => img_src(blob_id),
+            ImageSources::Inline(map) => map
+                .get(blob_id)
+                .map_or_else(|| img_src(blob_id), |uri| esc(uri)),
+        }
+    }
 }
 
 /// Page-level inputs of a render.
@@ -180,7 +211,7 @@ pub fn render_not_found(site: &SiteRenderContext<'_>) -> String {
     if let Some(favicon) = &site.theme.favicon {
         out.push_str(&format!(
             "<link rel=\"icon\" href=\"{}\">\n",
-            img_src(favicon.as_str())
+            site.images.src(favicon.as_str())
         ));
     }
     out.push_str("<link rel=\"stylesheet\" href=\"/assets/site.css\">\n</head>\n<body>\n");
@@ -261,6 +292,8 @@ fn push_head(
         esc(&canonical)
     ));
     if let Some(blob) = first_hero_image(parsed) {
+        // og:image is crawler metadata: always the absolute public URL,
+        // never an inline data URI (see `ImageSources`).
         out.push_str(&format!(
             "<meta property=\"og:image\" content=\"{}{}\">\n",
             esc(site.base_url),
@@ -270,7 +303,7 @@ fn push_head(
     if let Some(favicon) = &site.theme.favicon {
         out.push_str(&format!(
             "<link rel=\"icon\" href=\"{}\">\n",
-            img_src(favicon.as_str())
+            site.images.src(favicon.as_str())
         ));
     }
     match stylesheet {

@@ -23,7 +23,7 @@ Do not touch billing/crm/business areas — that's the Mac's track.
 - [x] S1.11 Web module skeleton: `web/src/sites` — rail entry (workspace surface), site list + create (name → live subdomain check), page list; i18n en.
 - [x] S1.12 Web editor core: section stack (add from a picker with thumbnails, drag-reorder, delete) + per-type prop forms + save; tsc/eslint/build clean.
 - [x] S1.13 Live preview: authenticated draft-render endpoint in alo-jmap reusing the render lib; iframe preview pane refreshing on save; mobile/desktop width toggle.
-- [ ] S1.14 Theme UI: preset picker + logo/favicon upload via Drive; preview updates.
+- [x] S1.14 Theme UI: preset picker + logo/favicon upload via Drive; preview updates.
 - [ ] S1.15 Publish UI: publish button with "goes live at <sub>.<domain>" copy, live/draft status chips; STATE human-inbox note: production needs the alo-sites container + wildcard DNS/TLS + SITES_DOMAIN purchase.
 - [ ] S1.16 Forms backend: contact_form section wiring — public POST `/f/:form_id` on alo-sites (per-IP rate limit, honeypot field, size caps), `site_form_submissions` store, notification by INTERNAL delivery to the owner's inbox (never outbound SMTP); tests incl. rate-limit + wrong-tenant.
 - [ ] S1.17 Submissions UI: per-site list with view/mark-handled + CSV export; wire-verified.

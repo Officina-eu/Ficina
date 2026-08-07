@@ -2,12 +2,12 @@
 //! every page document, the stylesheet, and the site's not-found page —
 //! built once from the frozen snapshots and shared immutably from the cache.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use alo_store::site_theme::SiteTheme;
 use alo_store::{PublishedSite, SitePageSnapshot, SitePublishId};
 
-use crate::render::{self, EN, PageRenderContext, SiteRenderContext, UiStrings};
+use crate::render::{self, EN, ImageSources, PageRenderContext, SiteRenderContext, UiStrings};
 use crate::stylesheet;
 
 /// The servable output of one publish of one site.
@@ -21,6 +21,11 @@ pub struct RenderedSite {
     pub css: String,
     /// The site's themed not-found document (status 404, any unknown path).
     pub not_found: String,
+    /// The blob ids this publish's documents reference (theme logo/favicon +
+    /// section images) — the only ids `/assets/img/<blob_id>` will serve for
+    /// this site. Collected from the same frozen content the pages were
+    /// rendered from, so what is servable is exactly what is shown.
+    images: HashSet<String>,
 }
 
 impl RenderedSite {
@@ -42,14 +47,32 @@ impl RenderedSite {
             base_url: &base_url,
             theme: &theme,
             strings: &EN,
+            images: ImageSources::PublicPaths,
         };
         let mut pages = HashMap::with_capacity(snapshots.len());
+        let mut images = HashSet::new();
+        images.extend(
+            [theme.logo.as_ref(), theme.favicon.as_ref()]
+                .into_iter()
+                .flatten()
+                .map(|blob| blob.as_str().to_owned()),
+        );
         for snapshot in snapshots {
             let path = if snapshot.is_home {
                 "/".to_owned()
             } else {
                 format!("/{}", snapshot.slug)
             };
+            // The same lenient read the renderer uses, so the servable image
+            // set can never disagree with what the documents reference.
+            for section in render::sections_lenient(&snapshot.sections) {
+                images.extend(
+                    section
+                        .image_blob_ids()
+                        .into_iter()
+                        .map(|blob| blob.as_str().to_owned()),
+                );
+            }
             let page = PageRenderContext {
                 path: &path,
                 title: &snapshot.title,
@@ -64,6 +87,7 @@ impl RenderedSite {
             pages,
             css: stylesheet::stylesheet(&theme),
             not_found: render::render_not_found(&ctx),
+            images,
         }
     }
 
@@ -71,6 +95,14 @@ impl RenderedSite {
     #[must_use]
     pub fn page(&self, path: &str) -> Option<&str> {
         self.pages.get(path).map(String::as_str)
+    }
+
+    /// Whether this publish references `blob_id` — the gate on the public
+    /// image path: a live site serves exactly the images its published
+    /// content shows, nothing else in the tenant.
+    #[must_use]
+    pub fn serves_image(&self, blob_id: &str) -> bool {
+        self.images.contains(blob_id)
     }
 }
 

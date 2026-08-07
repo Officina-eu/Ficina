@@ -4,7 +4,8 @@
 #![allow(clippy::unwrap_used)]
 
 use alo_sites::render::{
-    EN, PageRenderContext, SiteRenderContext, render_page, render_page_preview, sections_lenient,
+    EN, ImageSources, PageRenderContext, SiteRenderContext, render_page, render_page_preview,
+    sections_lenient,
 };
 use alo_sites::stylesheet::stylesheet;
 use alo_store::site_theme::{SiteTheme, THEME_PRESETS};
@@ -27,6 +28,7 @@ fn render_with(
         base_url: "https://nordwind.alosites.com",
         theme,
         strings: &EN,
+        images: ImageSources::PublicPaths,
     };
     let page = PageRenderContext {
         path: "/about",
@@ -257,6 +259,48 @@ fn theme_logo_and_favicon_reach_nav_and_head() {
     assert!(!bare.contains("rel=\"icon\""));
 }
 
+/// Inline image sources (the draft preview's spelling): an id in the map
+/// renders as its data URI, an id missing from the map falls back to the
+/// public path — and `og:image` always stays the absolute public URL, since
+/// it is crawler metadata, not something the document displays.
+#[test]
+fn inline_image_sources_swap_srcs_per_id_and_never_touch_og_image() {
+    let map = std::collections::HashMap::from([(
+        "9hK3vQ2mR8pT1xWz4bC5dg".to_owned(),
+        "data:image/png;base64,QUJD".to_owned(),
+    )]);
+    let theme = SiteTheme::from_value(json!({
+        "schema_version": 1,
+        "preset": "north",
+        "favicon": "f4K9sL2wN7qR5tYx8vB1cA"
+    }))
+    .unwrap();
+    let site = SiteRenderContext {
+        name: "Nordwind Coffee Roasters",
+        base_url: "https://nordwind.alosites.com",
+        theme: &theme,
+        strings: &EN,
+        images: ImageSources::Inline(&map),
+    };
+    let page = PageRenderContext {
+        path: "/about",
+        title: "About",
+        seo_title: None,
+        seo_description: None,
+        sections: &hero_page(),
+    };
+    let html = render_page(&site, &page);
+    // The hero image is in the map: rendered inline.
+    assert!(html.contains("<img src=\"data:image/png;base64,QUJD\" alt=\"The drum\">"));
+    assert!(!html.contains("src=\"/assets/img/9hK3vQ2mR8pT1xWz4bC5dg\""));
+    // The favicon is not in the map: public-path fallback.
+    assert!(html.contains("<link rel=\"icon\" href=\"/assets/img/f4K9sL2wN7qR5tYx8vB1cA\">"));
+    // og:image ignores the map by design.
+    assert!(html.contains(
+        "og:image\" content=\"https://nordwind.alosites.com/assets/img/9hK3vQ2mR8pT1xWz4bC5dg\""
+    ));
+}
+
 /// The draft preview is the published document with the stylesheet inlined —
 /// byte-for-byte, for every shipped preset. This is the no-drift pin: if the
 /// two ever diverge beyond the stylesheet reference, editing would preview
@@ -271,6 +315,7 @@ fn preview_is_the_published_document_with_the_stylesheet_inlined() {
             base_url: "https://nordwind.alosites.com",
             theme: &theme,
             strings: &EN,
+            images: ImageSources::PublicPaths,
         };
         let page = PageRenderContext {
             path: "/about",

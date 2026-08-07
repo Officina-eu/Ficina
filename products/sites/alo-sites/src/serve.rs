@@ -10,6 +10,9 @@
 //!   with `304`. `Cache-Control: public, max-age=60` bounds client
 //!   staleness; the service itself is never stale (the per-request resolver
 //!   read is what flips content on republish).
+//! - `/assets/img/<blob_id>` serves image bytes for exactly the blob ids
+//!   the served publish references (tenant-scoped through the resolved
+//!   site); immutable per id, so `max-age=3600` with the id as `ETag`.
 //! - Unknown host → the generic not-found (identical for unknown and
 //!   unpublished — no existence leak). Unknown path on a live site → the
 //!   site's themed not-found. Both `404`, `no-cache`.
@@ -134,6 +137,25 @@ async fn serve_site(State(state): State<Arc<AppState>>, req: Request) -> Respons
     let trimmed = raw.trim_end_matches('/');
     let path = if trimmed.is_empty() { "/" } else { trimmed };
 
+    // The image path of the public contract: bytes for exactly the blob ids
+    // this publish references (`RenderedSite::serves_image`), read
+    // tenant-scoped through the resolved site. Anything else — foreign,
+    // unreferenced, or non-image — is the site's themed 404.
+    if let Some(blob_id) = path.strip_prefix("/assets/img/") {
+        if !site.serves_image(blob_id) {
+            tracing::debug!(subdomain = %sub, "image not referenced by the served publish");
+            return not_found(site.not_found.clone());
+        }
+        return serve_image(
+            &state,
+            &resolved,
+            blob_id,
+            req.headers(),
+            site.not_found.clone(),
+        )
+        .await;
+    }
+
     let (content_type, body) = if path == "/assets/site.css" {
         ("text/css; charset=utf-8", site.css.clone())
     } else if let Some(page) = site.page(path) {
@@ -149,6 +171,74 @@ async fn serve_site(State(state): State<Arc<AppState>>, req: Request) -> Respons
         return cacheable(StatusCode::NOT_MODIFIED, content_type, &etag, String::new());
     }
     cacheable(StatusCode::OK, content_type, &etag, body)
+}
+
+/// Serves one referenced image blob. Bytes are immutable per blob id
+/// (content-addressed underneath), so the ETag is the id and clients may
+/// cache for an hour; the CSP defangs SVG opened as a top-level document
+/// (no scripts can run on the site's origin).
+async fn serve_image(
+    state: &Arc<AppState>,
+    resolved: &alo_store::PublishedSite,
+    blob_id: &str,
+    req_headers: &axum::http::HeaderMap,
+    site_not_found: String,
+) -> Response {
+    let etag = format!("\"img:{blob_id}\"");
+    if if_none_match_hits(req_headers.get(header::IF_NONE_MATCH), &etag) {
+        // The bytes are immutable per id — a matching validator never needs
+        // the row read at all.
+        return image_response(StatusCode::NOT_MODIFIED, None, &etag, Vec::new());
+    }
+    match state.store.published_image(resolved, blob_id).await {
+        Ok(Some(image)) => image_response(
+            StatusCode::OK,
+            Some(image.content_type),
+            &etag,
+            image.bytes.to_vec(),
+        ),
+        Ok(None) => {
+            // Referenced by the publish but not servable (blob gone, or a
+            // non-image content type): the same themed 404 as a missing page.
+            tracing::warn!(site = %resolved.site, "referenced image blob is not servable");
+            not_found(site_not_found)
+        }
+        Err(error) => {
+            tracing::error!(site = %resolved.site, %error, "image read failed");
+            unavailable()
+        }
+    }
+}
+
+/// A 200/304 for an image: revalidatable for an hour, `nosniff`, and a CSP
+/// that keeps an SVG document inert on the site's origin.
+fn image_response(
+    status: StatusCode,
+    content_type: Option<&'static str>,
+    etag: &str,
+    body: Vec<u8>,
+) -> Response {
+    let mut response = (status, body).into_response();
+    let headers = response.headers_mut();
+    if let Some(value) = content_type.and_then(|ct| HeaderValue::from_str(ct).ok()) {
+        headers.insert(header::CONTENT_TYPE, value);
+    }
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+    if let Ok(value) = HeaderValue::from_str(etag) {
+        headers.insert(header::ETAG, value);
+    }
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'"),
+    );
+    response
 }
 
 /// Whether an `If-None-Match` value matches `etag` (list form and `*`).

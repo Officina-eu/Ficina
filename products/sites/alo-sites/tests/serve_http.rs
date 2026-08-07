@@ -32,9 +32,12 @@ async fn harness() -> (Store, Arc<AppState>) {
         .connect(&database_url())
         .await
         .expect("connect to test postgres (is compose up? is DATABASE_URL set?)");
-    let store = Store::new(pool.clone(), BlobStore::in_memory(25 * 1024 * 1024));
+    // One shared blob backend: what the account door uploads is what the
+    // public service serves — exactly the production wiring, in memory.
+    let blobs = BlobStore::in_memory(25 * 1024 * 1024);
+    let store = Store::new(pool.clone(), blobs.clone());
     store.migrate().await.expect("run migrations");
-    let state = AppState::new(SitePublicStore::new(pool), APEX.to_owned());
+    let state = AppState::new(SitePublicStore::new(pool, blobs), APEX.to_owned());
     (store, state)
 }
 
@@ -194,6 +197,115 @@ async fn serves_a_published_site_with_the_response_contract() {
     let refused = app(Arc::clone(&state)).oneshot(post).await.unwrap();
     assert_eq!(refused.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(header_str(&refused, &header::ALLOW), "GET, HEAD");
+}
+
+/// The image path of the public contract (S1.14): a live site serves exactly
+/// the image blobs its publish references — an unreferenced blob of the same
+/// tenant, another tenant's blob, and a referenced-but-non-image blob all
+/// answer the themed 404, while the referenced logo serves with the image
+/// header contract (immutable-per-id ETag, CSP that defangs SVG documents).
+#[tokio::test]
+async fn serves_exactly_the_published_images() {
+    use axum::body::Bytes;
+
+    let (store, state) = harness().await;
+    let a = fresh_account(&store, "img-a").await;
+    let b = fresh_account(&store, "img-b").await;
+
+    let logo = a
+        .put_blob(Bytes::from_static(b"logo-png-bytes"), Some("image/png"))
+        .await
+        .unwrap();
+    let unreferenced = a
+        .put_blob(Bytes::from_static(b"unreferenced-png"), Some("image/png"))
+        .await
+        .unwrap();
+    let not_an_image = a
+        .put_blob(
+            Bytes::from_static(b"<script>alert(1)</script>"),
+            Some("text/html"),
+        )
+        .await
+        .unwrap();
+    let foreign = b
+        .put_blob(Bytes::from_static(b"foreign-png"), Some("image/png"))
+        .await
+        .unwrap();
+
+    let sub = unique("img");
+    let host = format!("{sub}.{APEX}");
+    let site = a.create_site("Image Co", &sub).await.unwrap();
+    let home = a.create_site_page(&site, "Home", "", true).await.unwrap();
+    // The gallery references the HTML blob too — referenced is necessary
+    // but not sufficient: only image content types serve.
+    a.set_page_sections(
+        &site,
+        &home,
+        json!({
+            "schema_version": 1,
+            "sections": [{"type": "gallery", "images": [
+                {"blob_id": logo.as_str(), "alt": "Logo art"},
+                {"blob_id": not_an_image.as_str(), "alt": ""}
+            ]}]
+        }),
+    )
+    .await
+    .unwrap();
+    a.set_site_theme(
+        &site,
+        json!({"schema_version": 1, "preset": "north", "logo": logo.as_str()}),
+    )
+    .await
+    .unwrap();
+    a.publish_site(&site).await.unwrap();
+
+    // The document references the public image path.
+    let html = body_string(send(&state, &host, "/").await).await;
+    assert!(html.contains(&format!("/assets/img/{}", logo.as_str())));
+
+    // The referenced image serves with the full image header contract.
+    let img = send(&state, &host, &format!("/assets/img/{}", logo.as_str())).await;
+    assert_eq!(img.status(), StatusCode::OK);
+    assert_eq!(header_str(&img, &header::CONTENT_TYPE), "image/png");
+    assert_eq!(
+        header_str(&img, &header::CACHE_CONTROL),
+        "public, max-age=3600"
+    );
+    assert_eq!(header_str(&img, &header::X_CONTENT_TYPE_OPTIONS), "nosniff");
+    assert_eq!(
+        header_str(&img, &header::CONTENT_SECURITY_POLICY),
+        "default-src 'none'; style-src 'unsafe-inline'"
+    );
+    let etag = header_str(&img, &header::ETAG).to_owned();
+    assert_eq!(etag, format!("\"img:{}\"", logo.as_str()));
+    assert_eq!(body_string(img).await, "logo-png-bytes");
+
+    // The id is the validator: a matching If-None-Match answers 304 empty.
+    let request = Request::builder()
+        .uri(format!("/assets/img/{}", logo.as_str()))
+        .header(header::HOST, &host)
+        .header(header::IF_NONE_MATCH, &etag)
+        .body(Body::empty())
+        .unwrap();
+    let revalidated = app(Arc::clone(&state)).oneshot(request).await.unwrap();
+    assert_eq!(revalidated.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(body_string(revalidated).await, "");
+
+    // Everything the publish does not show as an image is the themed 404:
+    // unreferenced same-tenant blob, another tenant's blob, the referenced
+    // HTML blob, and garbage ids.
+    for blob in [
+        unreferenced.as_str(),
+        foreign.as_str(),
+        not_an_image.as_str(),
+        "no-such-blob",
+    ] {
+        let miss = send(&state, &host, &format!("/assets/img/{blob}")).await;
+        assert_eq!(miss.status(), StatusCode::NOT_FOUND, "blob {blob}");
+        let body = body_string(miss).await;
+        assert!(body.contains("Image Co"), "stays in the brand: {blob}");
+        assert!(!body.contains("foreign-png") && !body.contains("alert(1)"));
+    }
 }
 
 #[tokio::test]

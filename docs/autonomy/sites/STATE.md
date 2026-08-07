@@ -650,3 +650,93 @@ Human-action inbox (things the loop must not do itself):
     S1.03 note.
 - **Next:** S1.14 (theme UI: preset picker + logo/favicon upload via Drive;
   preview updates).
+
+## S1.14 — theme UI + the whole image path (2026-08-07)
+
+- **Shipped:** the theme becomes a thing users touch, and images become real
+  end-to-end. **Web:** `ThemeDialog` (preset cards rendered from the server's
+  tokens — swatches + the preset's own heading font — plus logo/favicon
+  upload/replace/remove rows), opened from BOTH the site view and the page
+  editor; applying PUTs the full envelope through the wire-verified theme
+  gate and the editor preview refetches (new `previewEpoch` — the preview
+  depends on the theme, not only the sections). Uploads go through Drive:
+  new additive `JmapClient.driveUploadBlob` (one upload, registered as a
+  drive file, returns the blob id) — rejected alternative: the bare
+  `uploadFile`, whose contract says unreferenced blobs may be GC'd; a
+  logo must outlive any future GC and stay user-visible. Section image
+  fields got the picker S1.12's hint promised: an Upload button beside the
+  id input (same Drive path). **Edit API:** `GET /sites/theme-presets`
+  (authed; ids/names/palette/typography, camelCase) for the picker;
+  the draft preview now inlines theme + section images as `data:` URIs
+  (public paths don't resolve on the edit origin; > 4 MiB or non-image →
+  public-path fallback). **Render lib:** `SiteRenderContext.images:
+  ImageSources` (`PublicPaths` | `Inline(map)` with per-id fallback;
+  `og:image` deliberately always the absolute public URL) — rejected
+  alternative: post-processing the rendered HTML string. **Public service
+  (closes the S1.09 flag):** `/assets/img/<blob_id>` now serves — membership
+  gate first (`RenderedSite.serves_image`: the set collected from the
+  publish's frozen theme + lenient sections, so servable ≡ shown), then the
+  tenant-scoped read `SitePublicStore::published_image` (blob row by the
+  resolved site's private tenant, bytes from the new blob backend handle);
+  image content types only (allowlist in the new
+  `alo-store/src/site_assets.rs`, shared with the preview), `ETag
+  "img:<id>"` + 304, `public, max-age=3600`, nosniff, and
+  `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`
+  so an SVG opened as a document can't run script on the site origin.
+  `alo-sites` env gains **required `ALO_BLOB_DIR`**. Store:
+  `AccountStore::site_image` (tenant-scoped, image-typed blob read for the
+  preview) and `Section::image_blob_ids()` (exhaustive match — a new
+  variant fails to compile until it declares its images).
+- **Verified:** fmt; `SQLX_OFFLINE=true cargo clippy -p alo-store -p
+  alo-sites -p alo-jmap --all-targets` zero warnings; **full test suites
+  green on docker Postgres**: alo-store 318 unit + all suites (isolation
+  gains `site_images_scope_by_tenant_and_refuse_non_images`: own image
+  serves, own non-image reads as absent, **outsider tenant reading the blob
+  id gets clean None**, and `published_image` through B's resolved site
+  never reaches A's bytes), alo-sites 30 (serve_http gains
+  `serves_exactly_the_published_images`: unreferenced same-tenant blob /
+  foreign blob / referenced-but-HTML blob / garbage id all themed-404,
+  referenced logo serves with the full header contract + 304; render_rules
+  gains the Inline-sources pin incl. og:image exemption; the preset no-drift
+  pin still holds byte-for-byte), alo-jmap 284 unit + all suites (sites_http
+  now 10: presets shape + 401, preview inlines the logo as base64 while the
+  non-image falls back to the public path). Web: tsc, eslint, `npm run
+  build` clean; **208 tests / 28 files** incl. 6 new (presets render +
+  exact envelope PUT with absent keys, upload feeds blob id in, stored logo
+  prefills + remove drops the key, 422 sentence stays in the open dialog,
+  theme apply refetches the preview, hero image upload fills the id the
+  section then saves). Manual wire pass, real curl against both debug
+  binaries + docker `alo-pg`: presets 401 then 200 (7 presets, north
+  first); real 70-byte PNG through `/jmap/upload` + `/drive/files`;
+  `vaporwave` → 422 naming the preset rule, `not/a/token` logo → 422,
+  terra+logo → ok; preview `no-store` with `data:image/png;base64,iVBOR…`
+  inline, zero `/assets/img/` for the logo, terra tokens in the inlined
+  style; publish → the served home references `/assets/img/<id>`, the image
+  answers 200 `image/png` + etag + CSP with **bytes identical to the
+  uploaded PNG** (cmp), If-None-Match → 304 size 0, garbage id → themed 404
+  (`Page not found — Wire Theme Co`), apex host → 404; fixture site deleted,
+  host off the air.
+- **Cuts/flags:**
+  - Responsive image derivatives/resizing stay S2 (design-note out-of-scope);
+    the service serves original bytes, one blob read per request (no image
+    byte-cache — revisit with real traffic, noted in `serve.rs`).
+  - Theme v1 stays presets-only; free-form colors remain rejected (contrast
+    guarantee).
+  - The dialog shows uploaded-state text, not a thumbnail — the preview pane
+    IS the thumbnail (it renders the real logo); revisit only on complaints.
+  - `SitePublicStore` constructors now take the blob backend (breaking only
+    in-repo callers; no public wire contract touched). The public door doc
+    was updated: it now holds a blob handle, reachable only through
+    `published_image`.
+  - **Deploy note (human inbox):** the production `alo-sites` container will
+    need `ALO_BLOB_DIR` mounted to the same blob directory `alo-jmap` writes
+    (read-only is fine), alongside the S1.09 compose/Caddy/DNS items.
+  - Blob GC does not exist today; when one lands it MUST treat site
+    references (theme logo/favicon, section images, later post covers) as
+    live references — flagged here so the future implementer inherits the
+    knowledge.
+  - The rustfmt-version delta struck again (fmt reflowed 7 untouched
+    business-track modules); reverted the churn again — the S1.10 flag about
+    aligning rustfmt versions at wave review stands.
+- **Next:** S1.15 (publish UI: publish button + "goes live at" copy +
+  status chips; STATE human-inbox note for production serving).
