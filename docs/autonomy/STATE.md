@@ -7476,3 +7476,148 @@ Next item: B3.03 (migration `0123_time_entries.sql` plus the `time_entries`
 store module — the caller's own entries through the account door, the
 `work_date` grain, the 1…1440-minute bound, the rate/currency snapshot, the
 `proposed` state, and the mandatory wrong-tenant **and wrong-user** tests).
+
+## 2026-08-08 — B3.03 time entries (migration + store)
+
+The hours themselves — the table the whole Projects module exists for, and the
+first one in alo whose *rows are personal data about a colleague*. B3.02 said
+which boards are client work; this says who worked, on what day, for how long,
+and at what rate that time was priced. Everything B3 has left — the week grid,
+the approval, the invoice draft, the profitability report — is a fold over
+these rows.
+
+- **Migration `0123_time_entries.sql`** — one table, `PRIMARY KEY
+  (tenant_id, id)`, `tenant_id REFERENCES tenants ON DELETE CASCADE`, and one
+  composite FK `(tenant_id, project_id) → task_projects ON DELETE CASCADE`, so
+  an hour can only ever name a board of its **own** tenant. Seven CHECKs the
+  store also enforces in Rust: the 1…1440-minute bound, the rate range (the
+  billing line's own ceiling), the currency shape, `state IN ('active',
+  'proposed')`, and three *togetherness* invariants — rate-and-currency arrive
+  as one snapshot, `invoice_id`-and-`billed_at` as one fact, and a proposal can
+  never already be on a document. Three indexes matching the three reads the
+  design names: `(tenant_id, user_id, work_date)` for the week,
+  `(tenant_id, project_id, work_date)` for the report, and a **partial**
+  `(tenant_id, invoice_id) WHERE invoice_id IS NOT NULL` for the release path.
+  No floating-point column, anywhere on the path from a logged hour to an
+  invoice line.
+- **`platform/alo-store/src/time_entries.rs`** — `NewTimeEntry` (with the
+  `worked(project, day, minutes)` constructor), `TimeEntryEdit`, `TimeEntry`
+  (`is_proposed()`, `is_billed()`, `is_rated()`), the pure `minutes` and
+  `snapshot_rate` validators, and eight functions on `AccountStore`:
+  `log_time`, `time_entry`, `time_entries` (range + optional project),
+  `time_entry_proposals`, `edit_time_entry`, `delete_time_entry`,
+  `accept_time_entry`, `reject_time_entry`. One new id newtype,
+  `TimeEntryId`; three bounds re-exported (`MINUTES_MIN`, `MINUTES_MAX`,
+  `TIME_NOTE_MAX`).
+
+Six decisions worth naming, all in the module docs:
+
+- **There is no function here that takes a user id.** Every statement binds
+  `user_id = self.user` from the account door, so reaching a colleague's hours
+  through this API is *unrepresentable*, not merely rejected — the two-door
+  split the design note argues for, applied to the first table where the
+  personal data is *when somebody worked*. The cross-user reads and the
+  approval decision are B3.05's, on the tenant door behind `require_admin`.
+- **A colleague's entry answers `NotFound`, never `Forbidden`.** A refusal
+  would confirm that somebody worked that day, which is the very fact being
+  protected. Inside one tenant, on one shared board, the denial is
+  indistinguishable from an id that never existed.
+- **Minutes are BIGINT, not the design note's loose `INT`.** Minutes, budget
+  minutes (0122) and every i64 fold above them are then one type with no cast
+  anywhere between a logged hour and an invoice line's milli-hour quantity.
+- **A proposal carries no rate at all, and is priced at acceptance.** ADR 0023
+  held literally: an agent's guess about somebody's Tuesday is not work, so it
+  is not priced, and `accept_time_entry` resolves the rate from the engagement
+  as it stands the moment a human agrees the work happened. A double accept is
+  `NotFound`, so a real hour can never be silently repriced.
+- **Correcting an entry never touches its rate.** `TimeEntryEdit` carries the
+  work (day, task, minutes, billable, note) and nothing else: repricing an hour
+  is not a correction of what happened, and an edit that silently picked up the
+  project's *current* rate would restate work that was already recorded.
+  Moving an hour to another engagement is likewise absent — it changes who is
+  billed, which is a new record.
+- **Writing an hour checks the board; remembering one does not.** `log_time`
+  requires a project the caller can open — the Tasks module's own visibility
+  rule (a team board, or their own personal one, not archived) — but
+  `time_entries` returns the caller's own hours whatever became of the board
+  since. A project archived after the fact must not silently empty somebody's
+  timesheet.
+
+Verification: `cargo test -p alo-store` **fully green — 47 test binaries, zero
+failures**, against the local docker Postgres (`alo-pg`, port 5432). The new
+`tests/time_entries_tenancy.rs` is 10 tests proving the arc (log → read → list
+→ correct → delete, with the note trimmed and the rate snapshotted), that
+**another tenant** gets `NotFound`/empty on every path — read, list,
+list-by-project, proposals, edit, delete, accept, reject, and logging an hour
+against our board — that **another user inside the same tenant** gets exactly
+the same absence on the same shared board while each door sees precisely its
+own week, that an hour is logged only against a board the worker can open
+(team ✓, own personal ✓ and unrated, a colleague's personal ✗, archived ✗,
+a ghost id ✗), that a task link must live on the entry's own project (another
+project → `Validation`, another tenant's task → `NotFound`), that repricing an
+engagement never rewrites an hour already logged while the next hour takes the
+new price, that every bound is refused before the column sees it and the
+ceilings are inclusive, that a proposal is visibly a proposal and priced only
+on acceptance, that an hour already on a document refuses both edit and delete
+with a `Conflict` naming the way back (void or credit), and that deleting the
+project — or the tenant — takes the hours with it, read back with a direct
+`count(*)` rather than through the store's own tenant predicate. Ten unit
+tests in the module cover the pure validators (the minute bound, every branch
+of the rate resolution, the source trim, the state predicates). `cargo clippy -p alo-store
+--all-targets` clean. `rustfmt --edition 2024` applied to the two new files
+only (the standing finding that `cargo fmt` on this machine rewrites hundreds
+of pre-existing lines).
+
+No new routes (B3.04), so no wire verification applies; nothing user-visible
+yet, so no CHANGELOG line — the first B3 one lands with B3.04's routes.
+
+Cuts and flags:
+
+- **FLAG — the wave gate is still unmet** (unchanged from B3.02 and B2.02):
+  `ROADMAP.md` gates B2 on "B1 live with ≥1 real tenant"; B1, B2 and BI-1 are
+  code-complete and undeployed, and deploying is a human action the loop is
+  forbidden to take. This migration is additive, unreleased and reversible by
+  not deploying it. **A human should confirm or move the gate.**
+- **HUMAN ACTION (standing, unchanged) — `/projects` becomes a new top-level
+  route prefix at B3.04**, needing the production Caddyfile entry and the
+  `API_PATHS` line in `web/vite.config.ts`. Still no route exists.
+- **The week lock is not here, and that is B3.05's by design.** An entry in a
+  submitted or approved week must refuse to move; the table that holds a week's
+  status does not exist yet, so the guard cannot be written without inventing
+  it. The *billed* guard — an hour already carried onto a document is frozen —
+  **is** here, because `invoice_id` is representable from this migration on,
+  and it is the same refusal one fact earlier.
+- **`invoice_id` has no foreign key, deliberately** (the design note's own
+  rejection): `ON DELETE CASCADE` would delete the hours when a draft invoice
+  is discarded, and the composite `SET NULL` would null `tenant_id`, which is
+  `NOT NULL`. The release is an explicit statement inside the transaction that
+  removes the document (B3.06). `task_id` carries no FK for the same shape of
+  reason — deleting a task must not delete the hour worked on it — and a
+  dangling id simply resolves to nothing, exactly as `tasks.source_id` does.
+- **The billed-entry test plants `invoice_id` with direct SQL**, because
+  nothing writes it until B3.06. The *reader* and the guard are production
+  code and are what the test exercises; the writer arrives with the handoff.
+  Same precedent as B3.02's archived-project fixture.
+- **`accept_time_entry`/`reject_time_entry` are in this item although the
+  agent that produces proposals is B3.10.** A `proposed` state with no way out
+  is a half-built state (law 2), and the two verbs are forty lines that make
+  the state honest. The agent tool that *writes* proposals is still B3.10's.
+- **Deferred to the items that need them, not forgotten:** the running timer
+  (`time_timers`, B3.04), the week and its lock (B3.05), `qty_milli_hours` and
+  the fold to money (B3.06/B3.08), and the audit entries every mutating
+  `/projects/*` route will owe (B3.04, when `projects` joins
+  `AUDITED_MODULES`).
+- **`docs/design/projects.md` is untouched by this item.** As-built design docs
+  are the wave review's (B3.11), and nothing built here deviates from the note
+  — the columns, the bounds, the two doors, the snapshotted rate, the
+  `work_date` grain and the proposal rule are all exactly as designed. The one
+  refinement worth recording for B3.11: the note says `minutes INT`, and the
+  column is `BIGINT` for the reason above.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`) —
+  unchanged. A pinned `rust-toolchain.toml` is still the fix and still a human
+  item.
+
+Next item: B3.04 (the timer routes — `time_timers`, start/stop with one running
+timer per user enforced by a primary key, the manual entry and weekly list
+routes, `/projects` registered in `server.rs` and the vite dev proxy, and the
+first wire transcript of the wave).
