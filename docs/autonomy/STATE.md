@@ -6167,3 +6167,129 @@ Cuts and flags:
 Next item: BI1.01 (the alo Insights design note — ChartSpec, the whitelisted
 semantic layer over billing+crm views, tiles and dashboards, chart-library
 choice; ADR 0037, inserted by owner decision ahead of wave B3).
+
+## 2026-08-07 — BI1.01 the Insights design note: a chart is a typed envelope, never a query
+
+Wave BI-1 opens with `docs/design/insights.md`, written ahead of the first
+migration and to the same bar as B1.01 and B2.01: surface and route table, the
+ChartSpec model, the whitelisted semantic layer, the `insight_*` data model,
+the error map, the tenancy story, the chart-library decision, the out-of-scope
+list, and every central decision recorded **with the alternative it rejects**.
+No code changed; nothing was built.
+
+**The decision the note exists for — nothing in a spec is an identifier.** A
+ChartSpec's `dataset`, `measure.id`, `dimension.id` and `filters[].id` are enum
+variants, each mapping to a `&'static str` SQL fragment we wrote at compile
+time; the only caller-controlled things that reach a query are *bound
+parameters*. So the AI is never in a position to write SQL badly, because it is
+never in a position to write SQL at all — and neither is the tile builder.
+Unknown fields are `deny_unknown_fields` refusals, pairings come from a
+declared compatibility matrix (`sum(deal value)` by `vat_rate` is a `422`, not
+an odd chart), and every bound (50 categories, 400 buckets, a 5-year window, 8
+filters, 8 KB of spec) is part of the type. *Rejected: letting the model emit
+SQL, even a parsed "safe subset"* — that makes a parser the tenancy boundary
+and requires it to be perfect forever; a closed catalog inverts the problem so
+there is nothing to parse.
+
+Four more decisions the note settles, each with its rejected alternative:
+
+- **The semantic layer is Rust, not Postgres views.** *Rejected: DB views* —
+  a view cannot carry the tenant predicate by construction without row-level
+  security (which alo does not use), so tenancy would move out of the store
+  handle where it is structural today; and the rules that make a figure right
+  (only `issued`/`paid` count, credit notes subtract, VAT rounds once per rate
+  per document, a document converts at its own frozen rate) already live in
+  `billing_vat_report` / `billing_totals` / `billing_fx`. A view would restate
+  them in SQL, and the first cent of disagreement between a tile and the VAT
+  return is a defect that destroys trust in both.
+- **SQL may sum a stored integer column; SQL may never *derive* money** — never
+  qty×price, never a rate applied, never a rounding, never a conversion. So
+  `crm.deals` and `billing.payments` aggregate in Postgres (exact stored cents,
+  the precedent `crm_report` already set) while `billing.documents` and
+  `billing.receivables` read line figures and **fold in Rust** through the same
+  functions the printed invoice uses. Consequences stated rather than
+  discovered: folded queries are bounded by period, filters and a hard 200 000
+  line-row cap (over it → `422 period_too_wide`, never a silent truncation),
+  and documents with no usable FX snapshot are **reported in a `notes` entry,
+  never dropped** — the VAT report's honesty rule carried into charts.
+- **Nothing computed is stored.** No results table, no snapshot, no cache in
+  BI-1. *Rejected: caching tile results now* — a stored subtotal outlives the
+  rows that justified it, and a fast number that disagrees with the documents
+  is worse than a slow one. Caching is BI-2, with an invalidation design behind
+  it.
+- **The Business overview is seeded as real rows**, once per tenant, guarded by
+  a partial unique index on `(tenant_id, system_key)`. *Rejected: rendering it
+  virtually from code each visit* — that is a second kind of dashboard nobody
+  can edit, and the first request would be to change one tile on it.
+
+Two smaller ones worth the ink: **labels never cross as English** (catalog
+labels cross as ids the client translates, user data — customer and stage names
+— crosses raw, buckets are ISO strings formatted per locale), and **exactly one
+web file imports the chart library**. That library is **Apache ECharts
+(Apache-2.0)**, tree-shaken, canvas-rendered, bundled with no network at
+runtime — the ADR 0033 "library under our chrome" precedent Univer and BlockNote
+already set. *Rejected: Recharts and Chart.js* (neither Apache-2.0; Recharts
+reconciles every point through React), *rejected harder: drawing charts
+ourselves* (ADR 0037's from-scratch non-goal), *and rejected: an embedded BI
+engine such as Metabase or Superset* — a second server, in a third language,
+with its own notion of tenancy: three doctrine violations and ADR 0037's
+non-goal in one line.
+
+Verified — the note is checked against the code it commits to, not against
+memory:
+
+```
+billing_totals::totals / LineFigures        exist (the per-rate fold)
+billing_fx::restated, convert_totals        exist (frozen-rate restatement)
+billing_vat_report                          confirms: issued+paid only, credit
+                                            notes negative, per-document VAT,
+                                            unconverted reported not guessed
+crm_report::win_rate_bp                     exists — ratios are basis points,
+                                            and the report never converts
+billing_settings.base_currency              exists; blank resolves to
+                                            DEFAULT_CURRENCY ("EUR"), so a
+                                            money tile always has a currency
+GET /billing/reports/vat.csv                exists (server.rs) — the export
+                                            precedent BI-1 does not extend
+0118_audit_entity.sql                       is the last migration → insight
+                                            tables start at 0119
+web/vite.config.ts API_PATHS                lists /billing /crm /audit /sites;
+                                            /insights must join it at BI1.04
+```
+
+Docs-only item: no Rust, web or storage gate applies, and no CHANGELOG line —
+nothing a user can see changed, the same call B1.01 and B2.01 made.
+
+Cuts and flags:
+
+- **HUMAN ACTION (new, additive to the standing list) — `/insights` will be a
+  new top-level route prefix** at BI1.04, needing the production Caddyfile
+  entry the same way `/billing`, `/crm` and `/audit` do. No route exists yet;
+  recorded now so all four prefixes are added in one edit.
+- **Flagged: dashboards are tenant-wide in BI-1** — every member sees every
+  dashboard. ADR 0037 wants Spaces-scoped sharing, and it is real, but it is
+  the same cross-cutting role question CRM deferred and **B4.12** owns, where
+  the accountant is the first scoped role. Deciding a permission model from its
+  narrowest caller is how a design gets decided by accident; the note states
+  the limitation out loud instead.
+- **Flagged: the ROADMAP gate on B2 ("B1 live with ≥1 real tenant") is still
+  unmet** — B1 and B2 are code-complete but nothing is deployed, and BI-1 was
+  inserted ahead of B3 by owner decision (ADR 0037). A design note is exactly
+  the work that belongs ahead of an unmet gate; **BI1.02 is the first item that
+  writes a migration**, and a human should confirm or move the gate before it
+  ships. Standing human actions are otherwise unchanged.
+- **Cut from BI-1 and written down rather than implied:** tiles over modules
+  that do not exist yet (B3/B4/B5, S2 site analytics), module-embedded strips
+  and the digest mail (ADR 0037's own later wave), chart exports and dashboard
+  printing, period-over-period comparison / targets / forecasting,
+  drill-through and cross-filtering, and free-form drag-resize layout (BI-1 has
+  ordered tiles with a 1–4 column span, the same restraint the sites section
+  model uses: a typed layout is one an AI can also write).
+- **Open question left to a human, not guessed:** whether a tenant billing in
+  several currencies should be *prompted* to confirm its accounting currency
+  before Insights shows a restated total. The default is honest (EUR, with
+  unconverted documents reported); making it insistent is a product call.
+
+Next item: BI1.02 (migration `0119_insight_dashboards.sql` + the
+`insight_dashboards` / `insight_tiles` store modules with typed-spec validation
+on write and the mandatory wrong-tenant tests).

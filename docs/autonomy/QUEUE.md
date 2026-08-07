@@ -56,7 +56,7 @@ small, or a `[!]` note for the human if large.
 
 ## Wave BI-1 — alo Insights, first slice (ADR 0037; inserted by owner decision 2026-08-07)
 
-- [ ] BI1.01 Design note `docs/design/insights.md`: ChartSpec model (typed measure/dimension/period/filter envelope — the AI never writes SQL), the whitelisted semantic layer over billing+crm views, tile/dashboard model, tenancy, chart-library choice (embedded Apache-2.0 lib, ADR 0033 precedent), out-of-scope. Same four-block bar as B1.01.
+- [x] BI1.01 Design note `docs/design/insights.md`: ChartSpec model (typed measure/dimension/period/filter envelope — the AI never writes SQL), the whitelisted semantic layer over billing+crm views, tile/dashboard model, tenancy, chart-library choice (embedded Apache-2.0 lib, ADR 0033 precedent), out-of-scope. Same four-block bar as B1.01.
 - [ ] BI1.02 Migration + store: `insight_dashboards` + `insight_tiles` (typed spec JSON validated on write like site sections; layout order) tenant-scoped CRUD + wrong-tenant tests.
 - [ ] BI1.03 Query engine: ChartSpec → safe SQL against whitelisted billing/crm views only; every query tenant-bound by construction; golden tests on a seeded tenant reproduce hand-computed series; a test proves a foreign tenant's spec yields only their own data.
 - [ ] BI1.04 HTTP `/insights/*`: dashboards/tiles CRUD + `POST /insights/eval` (spec → series) + wire transcript incl. 401/422; ALSO add `/insights` to the vite dev proxy list (the S1.11 lesson).
