@@ -60,7 +60,11 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
     git checkout -- . 2>$null | Out-Null
     $code = 124
   } else {
-    $code = $proc.ExitCode
+    # PS quirk: after a timed WaitForExit, ExitCode can read null until a
+    # blocking WaitForExit() refreshes the handle; a null code then looked
+    # like a failure and cost a 15-minute backoff per SUCCESSFUL item.
+    $proc.WaitForExit()
+    $code = if ($null -ne $proc.ExitCode) { $proc.ExitCode } else { 0 }
   }
 
   if ($code -eq 124) {
