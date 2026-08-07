@@ -58,8 +58,8 @@ extractor, registration in `server.rs`, and the store-error map in
 | `GET/POST /crm/deals`, `GET/PATCH/DELETE /crm/deals/{id}` | deal CRUD; list filtered by pipeline, stage, owner, state (B2.03, B2.04) |
 | `POST /crm/deals/{id}/stage` | move a deal to a stage (and, on a board, to a position); writes exactly one history row (B2.03) |
 | `GET /crm/deals/{id}/history` | the stage history of one deal, oldest first (B2.03) |
-| `GET /crm/deals/{id}/threads`, `POST /crm/deals/{id}/threads`, `DELETE /crm/deals/{id}/threads/{threadId}` | the conversations linked to a deal (B2.05) |
-| `GET /crm/deals/{id}/thread-suggestions` | candidate conversations, computed over the **requesting user's own** mail (B2.05) |
+| `GET /crm/deals/{id}/threads`, `POST /crm/deals/{id}/threads`, `DELETE /crm/deals/{id}/threads/{threadId}` | the conversations linked to a deal (B2.05). *As built:* the `POST` is **idempotent** — it answers `{"created":false}` for a conversation already linked, because linking twice is the same link |
+| `GET /crm/deals/{id}/thread-suggestions[?limit]` | candidate conversations, computed over the **requesting user's own** mail (B2.05). *As built:* `limit` is a page size and is **clamped** (1…50, default 10) rather than refused — it is not an assertion about the data, so the strict-filter rule does not apply to it |
 | `GET/POST /crm/deals/{id}/activities`, `DELETE /crm/activities/{id}` | notes and logged calls (B2.06) |
 | `POST /crm/deals/{id}/next-step` | create a Task in the tasks module, linked back to the deal (B2.06) |
 | `POST /crm/deals/{id}/quote`, `POST /crm/deals/{id}/invoice` | the won-deal handoff to billing: a **draft** quote or invoice for the deal's customer, answering the created document (B2.08) |
@@ -419,6 +419,48 @@ record the whole company reads. The `[B2]` feature line says
 "automatically … (same-domain matching, **user-confirmed**)"; the
 confirmation is the feature, not the friction.
 
+*As built (B2.05) — five things the note left open, decided in code.*
+
+- **A conversation is threaded per user, so a link is per copy.**
+  `AccountStore::resolve_thread` matches references against
+  `(tenant, user)`, so two colleagues on one email hold **two** thread
+  rows. `readable` is therefore true for the linker and for anyone whose
+  messages are in that thread row (delegated access to the same account
+  door), and false for a colleague holding their own copy — who can link
+  *their* copy to the same tenant-wide deal, and reads it back as their
+  own. Nothing in the note changes; it is the concrete shape of "reads
+  resolve through the reading user's door", and the one that makes the
+  computed `readable` flag necessary rather than decorative.
+- **The subject a non-holder sees is `threads.subject_base`** — the
+  normalised, lower-cased, `Re:`-stripped label. A reader who *does* hold
+  the conversation sees the subject of their own newest message in it.
+  One field crosses, and it crosses as the least of itself.
+- **Correspondents, not just senders.** The queue said "pure fn over
+  message from-addrs"; the matcher reads `From` **and** `To`, because a
+  sales thread is usually one *we* started and a from-only rule would miss
+  most of a pipeline. Deliberate, recorded, and one argument to
+  `crm_thread_match::match_message` if a human disagrees.
+- **The scan is bounded and so is the link count.** A suggestion pass
+  reads the requesting user's 500 most recent messages
+  (`SUGGESTION_SCAN_MESSAGES`) and answers at most 50
+  (`SUGGESTIONS_MAX`, default 10); a deal holds at most 100 conversations
+  (`DEAL_THREADS_MAX`, the note's cap), enforced under the deal's row lock
+  so two colleagues linking at once cannot walk past it. Conversations
+  already linked are left out of the suggestions — proposing them again is
+  noise.
+- **Unlinking is open to the whole tenant, linking is not.** Writing a
+  link needs the linker's own door; removing one needs only tenant
+  membership, because a link left by a colleague who has since left the
+  company would otherwise be permanent, and removing it destroys nothing —
+  the link never held the mail.
+
+*As built (B2.05) — the database backstop.* `threads` is keyed on its id
+alone, which is enough to point at a thread but not at a thread *of this
+tenant*, so migration `0114` adds a unique index on
+`threads (tenant_id, id)` and points `crm_deal_threads` at it with a
+composite foreign key. The per-user rule stays in code, where it belongs;
+the coarser tenant rule is now enforced by Postgres as well.
+
 **Also rejected: copying the messages into a CRM activity feed** — the
 shape most CRMs use. It duplicates content into a table with different
 tenancy from the mail store, ages instantly, and makes deleting a
@@ -516,9 +558,11 @@ this one).
 | Archiving a pipeline that still has open deals (as built, B2.03) | `Conflict` | `409` |
 | Deleting an activity written by somebody else | `Forbidden` | `403` |
 | Linking a thread that is absent, another tenant's, **or one the requesting user has no message in** | `NotFound` | `404` |
-| Linking a thread already linked to this deal | — | `200`, idempotent (unique row) |
-| Linking beyond the per-deal thread cap | `Conflict` | `409` |
+| Linking a thread already linked to this deal | — | `200`, idempotent (`created:false`) |
+| Linking beyond the per-deal thread cap (as built, B2.05: 100) | `Conflict` | `409` |
+| Linking without stating a `threadId` (as built, B2.05) | — (route edge) | `422` |
 | Unlinking a link that is absent or another deal's | `NotFound` | `404` |
+| Suggestions for a deal with no usable address (as built, B2.05) | — | `200`, empty |
 | Listing with a `state` filter that is not one of open/won/lost | — (route edge) | `422` |
 | Listing with a `pipelineId`/`stageId` filter this tenant does not have (as built, B2.04) | — (route edge) | `422` |
 | Listing with an `ownerUserId` who owns nothing (as built, B2.04) | — | `200`, empty |

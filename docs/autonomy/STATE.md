@@ -4498,3 +4498,154 @@ Cuts and flags:
 
 Next item: B2.05 (deal ↔ mail linking: `crm_deal_threads`, suggest-by-domain,
 routes, and the tests that prove another tenant's thread can never be linked).
+
+## 2026-08-07 — B2.05 the conversation a deal came from
+
+The link CRM exists for, and the one boundary *inside* the tenant that the
+rest of the module never has to think about: a deal is tenant-wide, a mailbox
+is not. Two new store files, one new route file, one migration, and no copy of
+a single message anywhere.
+
+- **`0114_crm_deal_threads.sql`** — `crm_deal_threads` (deal, thread,
+  `linked_by`, `linked_at`), PK `(tenant_id, deal_id, thread_id)` so linking
+  twice is the same row. It also adds a unique index on `threads (tenant_id,
+  id)` — trivially satisfied, since `id` is already the primary key — purely so
+  the link's foreign key can carry `tenant_id` through: **a thread of another
+  tenant can no longer be stored at all**, not merely refused by our code.
+- **`crm_thread_match.rs`** (store, pure) — the matcher: address normalisation,
+  the free-mail domain list (73 entries, plus six country-domain families) and
+  `match_message`, which answers *why* a conversation matched. No database, no
+  linking, 9 unit tests.
+- **`crm_deal_threads.rs`** (store) — `link` / `crm_deal_threads` / `unlink` /
+  `suggest`, plus the pure `rank` that folds a page of the caller's own mail
+  into one candidate per conversation.
+- **`crm_threads.rs`** (alo-jmap) — `GET/POST /crm/deals/{id}/threads`,
+  `DELETE /crm/deals/{id}/threads/{threadId}`,
+  `GET /crm/deals/{id}/thread-suggestions[?limit]`.
+
+Six decisions worth naming, all in the module docs and in `docs/design/crm.md`
+(updated as-built in this commit):
+
+- **A conversation is threaded PER USER, so a link is per copy.**
+  `AccountStore::resolve_thread` matches references against `(tenant, user)`,
+  so two colleagues on one email hold two thread rows. That makes the computed
+  `readable` flag necessary rather than decorative: it is true for the linker
+  (and for delegated access to the same account door) and false for a colleague
+  holding their own copy — who can link *their* copy to the same tenant-wide
+  deal and reads it back as their own. The note said reads resolve through the
+  reader's door; this is the concrete shape of that, and the test asserts it.
+- **The subject is the only thing that crosses.** A holder sees the subject of
+  their own newest message; a non-holder sees `threads.subject_base`, the
+  normalised lower-cased label — the least of itself. No body, no addresses, no
+  message count, on any path. The HTTP test asserts those keys are *absent*.
+- **Correspondents, not just senders.** The queue said "pure fn over message
+  from-addrs"; the matcher reads `From` **and** `To`. A sales thread is usually
+  one we started, and a from-only rule would miss most of a pipeline. Stated
+  plainly rather than done quietly; it is one argument to `match_message` if a
+  human disagrees.
+- **Free-mail domains never match by domain** — the rule that keeps a
+  salesperson's private mail out of a record the whole company reads. An
+  explicit sorted list a human can correct, not a clever heuristic, with a test
+  that fails if the sort order ever slips (it is binary-searched).
+- **Linking needs your own door; unlinking needs only the tenant.** A link left
+  by a colleague who has since left the company would otherwise be permanent,
+  and removing it destroys nothing — the link never held the mail.
+- **The idempotent path is checked before the cap.** A deal holding its 100
+  conversations still answers "yes, that one is linked" rather than a `409`.
+
+Verified: `cargo clippy -p alo-store -p alo-jmap --all-targets` clean; **74 test
+binaries green, zero failures** — including 277 `alo-store` and 312 `alo-jmap`
+unit tests, the new `crm_deal_threads_tenancy.rs` (6 tests over a real Postgres,
+covering the tenant boundary, the mailbox boundary, the suggestion rules and the
+100-conversation cap) and `crm_threads_http.rs` (5 tests through the real
+router). `rustfmt --edition 2024` on the new/changed files only — never on
+`lib.rs`, which reformats every module it declares (the trap recorded at B2.04).
+
+Wire-verified with curl-equivalent HTTP against the debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `wire-b205`, `wire-b205b`;
+four real messages planted in A's mailbox through `Email/set`, one in B's):
+
+```
+POST /crm/deals  (the deal under test)        -> 200 Renewal — Acme GmbH
+  the door, with no token:
+GET  /crm/deals/{id}/threads   (no token)     -> 401
+POST /crm/deals/{id}/threads   (no token)     -> 401
+DEL  /crm/deals/{id}/threads/{t}(no token)    -> 401
+GET  .../thread-suggestions    (no token)     -> 401
+  what the mail proposes (nothing is written):
+GET  .../thread-suggestions                   -> 200 address:ada@acme.test
+                                                     address:ada@acme.test
+                                                     domain:bob@acme.test
+     the private gmail thread is absent       -> 200 True
+     the outbound thread IS proposed          -> 200 True
+GET  .../thread-suggestions?limit=1           -> 200 1 suggestion
+GET  .../thread-suggestions?limit=0           -> 200 1 (clamped, never refused)
+GET  .../thread-suggestions?limit=9999        -> 200 3 (clamped)
+GET  /crm/deals/{id}/threads (still none)     -> 200 0 linked — a proposal is
+                                                     not a link
+  confirming one:
+POST .../threads  (no threadId)               -> 422 'threadId is required'
+POST .../threads  (blank threadId)            -> 422 'threadId is required'
+POST .../threads  (a thread that never was)   -> 404 'not found'
+POST .../threads  (the real one)              -> 200 created=True
+                                                     subject='Renewal 2027'
+                                                     readable=True
+POST .../threads  (the same one again)        -> 200 created=False (idempotent)
+GET  /crm/deals/{id}/threads                  -> 200 1 linked, keys=[linkedAt,
+                                                     linkedBy, readable,
+                                                     subject, threadId]
+GET  .../thread-suggestions (linked one gone) -> 200 0 times proposed
+POST .../threads  (the outbound one too)      -> 200 created=True
+  the neighbour's door (tenant B):
+GET  A's deal /threads with B's token         -> 404 'not found'
+GET  a ghost deal /threads with B's token     -> 404 'not found'   (identical)
+GET  A's deal /thread-suggestions (B)         -> 404 'not found'
+GET  a ghost deal /thread-suggestions (B)     -> 404 'not found'   (identical)
+POST A's deal /threads, B's own thread        -> 404 'not found'
+POST A's deal /threads, A's thread (B)        -> 404 'not found'
+DEL  A's link with B's token                  -> 404 'not found'
+POST B's deal /threads, A's thread            -> 404 'not found'
+POST B's deal /threads, a ghost thread        -> 404 'not found'   (identical)
+POST A's deal /threads, B's thread (A)        -> 404 'not found'
+GET  B's own suggestions (own mail only)      -> 200 1 — only B's own copy,
+                                                     though A's thread matches
+                                                     the very same address
+POST B's deal /threads, B's own thread        -> 200 created=True
+  A's records after all of that:
+GET  /crm/deals/{id}/threads (A)              -> 200 2 linked, still A's
+DEL  A's link (mine to remove)                -> 200 True
+DEL  the same link again                      -> 404 'not found'
+GET  .../thread-suggestions (proposed again)  -> 200 True — unlinking gave it back
+DEL  the deal itself                          -> 200 True
+GET  /crm/deals/{id}/threads after that       -> 404 'not found'
+     the mail itself is untouched             -> 200 4 messages still in A's
+                                                     mailbox
+```
+
+Cuts and flags:
+
+- **Nothing was cut from the item.** The table, the suggest-by-domain pure
+  function, the routes and the tests the queue asked for all shipped, plus the
+  `?limit` page size, the idempotent link, the per-deal cap and the database
+  backstop the note's tenancy section implied but no migration had built.
+- **The matcher reads `To` as well as `From`**, against the queue's literal
+  "from-addrs". Named above with its reason; wire-verified (`the outbound thread
+  IS proposed`). **A human may disagree** — it is one argument.
+- **`readable` is false for a colleague holding their own copy of the same
+  email**, because threading is per user. This is the honest answer, not a
+  regression, but it is worth a human's eye: it means "open in mail" in the deal
+  drawer (B2.07) will be available to the linker far more often than to the
+  team. The note's open question 3 (a *shared* view of a linked thread) is where
+  that gets solved, and it is not B2.
+- **No web work, no i18n strings.** The CRM UI is B2.07; the route details are
+  the same English `Problem` strings billing publishes.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged from B2.02/B2.03/B2.04. Nothing here is deployed;
+  the migration is additive and reversible by not deploying it. **A human should
+  confirm or move the gate.**
+- **Standing human actions:** the `/billing` **and** `/crm` Caddyfile prefixes
+  at the next deploy (`/crm/deals/{id}/threads` is under the same `/crm` prefix
+  — no new top-level prefix in this item), a deploy, and a real tenant.
+
+Next item: B2.06 (activities on a deal — notes and a next step that creates a
+real Task through the existing tasks store, with its source link back).

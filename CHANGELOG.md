@@ -19,6 +19,22 @@ contracts.
   both before anyone else sees either. It is a preview of your draft: only
   you can see it, and nothing goes live until you publish.
 
+- **alo CRM: a deal can name the conversation it came from.** Every deal now
+  carries the email threads it belongs to, and CRM will suggest them for you —
+  it reads *your own* recent mail, matches it against the deal's contact and
+  customer addresses, and proposes the conversations that look right, telling you
+  which address matched and why. Nothing is attached until you say so: a
+  suggestion is a proposal, never an automatic link. Mail stays in mail — the
+  link holds no message, no addresses and no copy of anything, just a pointer, so
+  deleting the link changes nothing about your mailbox and deleting a deal takes
+  its pointers with it and leaves the mail alone. Colleagues see that a
+  conversation is attached, what it is called and who attached it; opening it
+  still needs the conversation to be in their own mailbox, so linking a deal
+  never hands anybody a key to somebody else's mail. And conversations from
+  personal addresses at Gmail, Outlook, GMX and the like are only ever proposed
+  on an exact address match, so a customer who mails from a personal account
+  never drags your private mail into a record the whole company reads.
+
 - **alo CRM has an API: the boards your deals move across, and the deals
   themselves.** The first time anybody opens CRM your company is handed a
   working funnel — a *Sales* board with New, Qualified, Proposal, Won and Lost —
