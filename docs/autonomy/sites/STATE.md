@@ -839,3 +839,32 @@ Human-action inbox (things the loop must not do itself):
   delivered by an alo-jmap background sweep through the account door;
   forms auto-provisioned on section save; POST gated to the published
   reference set like images).
+
+## LOOP HALT: concurrent editor detected AGAIN on this checkout (2026-08-07 ~15:56)
+
+- **The same failure mode as the 13:45 incident recurred one iteration
+  later.** This iteration started with a clean working tree (per the
+  invocation's git-status snapshot), pulled (already up to date), and spent
+  ~15 minutes READING code for S1.16 — it wrote nothing. At 15:55 a probe
+  found 8 modified + 2 untracked files in the tree: the S1.16 surfaces
+  (`0058_site_forms.sql`, `site_forms.rs`, `SiteFormId`/lib registration,
+  `site_public.rs`, alo-sites render/strings/rendered, both Cargo.tomls),
+  written file-by-file with mtimes 15:50:59 → 15:55:50 — the newest EIGHT
+  SECONDS before the probe, i.e. a second agent was actively implementing
+  S1.16 in this same checkout while this iteration was reading it.
+- Note for the human: this iteration's earlier reads of `id.rs` already
+  showed the rival's uncommitted `SiteFormId`/`SiteFormSubmissionId`
+  additions — mid-flight rival edits are indistinguishable from committed
+  code to a reader, which is exactly why the one-agent-per-tree rule is
+  absolute and why no code from this tree can be trusted or committed now.
+- Actions taken: **no code written, none committed** — only this HALT note
+  is committed so both wrappers stop at their next check. The rival's
+  uncommitted, ambiguously-authored work is left untouched in the tree for
+  human review (same posture as the 13:45 incident).
+- The 13:45 resolution ("both workers confirmed exited; single-wrapper
+  supervision relaunched") evidently did not hold: either the supervisor
+  relaunch double-fired again, or a second machine/session is running the
+  sites track. Before restarting, please (1) enumerate ALL running
+  wrappers/agent sessions for this track on every machine, (2) kill all
+  but one, and (3) only then discard-or-salvage the tree and remove/date
+  this HALT. S1.16 remains the next queue item.
