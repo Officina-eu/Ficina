@@ -39,6 +39,24 @@ contracts.
   `alo-sites` container with `SITES_DOMAIN` and wildcard DNS pointed at it;
   nothing else changes.)
 
+- **alo Billing: your invoices are now e-invoices (Factur-X).** Every issued
+  invoice and credit note is also a **machine-readable European e-invoice** —
+  EN 16931, the model the French and German mandates are written against. You
+  do not have to do anything to get one: the PDF you download or email now
+  **carries the e-invoice inside it**, so your customer's bookkeeping system
+  can read the figures straight off the file a person is looking at, and the
+  two can never disagree or arrive separately. Customers whose systems want the
+  data on its own can be sent the XML alone.
+  If your billing details are not complete enough for the standard — no country,
+  no VAT identifier, no address — the e-invoice tells you **which rule** is
+  unmet (`BR-09`, `BR-S-02`) instead of producing a document your customer's
+  gateway would reject weeks later. Your invoice still prints and still sends
+  in the meantime. Drafts and cancelled documents have no e-invoice, which is
+  what the standard says: a credit note is how an issued invoice is corrected,
+  and it carries an e-invoice of its own.
+  (Not yet PDF/A-3, the archival flavour Factur-X also asks for: that needs an
+  embedded font we have to license first.)
+
 - **alo Billing: invoice in another currency, and keep your books in yours.**
   Your billing details now name the **currency you keep books in** — euro unless
   you say otherwise — and you can invoice a customer in any currency alongside

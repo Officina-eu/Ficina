@@ -2884,3 +2884,177 @@ Cuts and flags:
 Next item: B1.22 (★ Factur-X: EN 16931 CII XML from an issued invoice, embedded
 into the PDF as a PDF/A-3 attachment, with golden-file tests against the official
 sample set and schematron validation in the suite).
+
+## B1.22 — Factur-X: the invoice a machine reads, inside the one a person reads
+
+An issued invoice is now also an **EN 16931 e-invoice**, and the PDF carries it.
+The item's three parts landed as three: the semantic model, the rules over it,
+and one syntax binding — with the fourth part, PDF/A-3 conformance, cut for the
+reason the design note reserved a year ago (a font binary is a human's licence
+decision, not a build loop's download).
+
+What shipped:
+
+- **`billing_einvoice.rs`** — the invoice in the *standard's* terms (BT-1 the
+  number, BT-112 the total with VAT, BG-23 the VAT breakdown), built from the
+  same `PrintDocument` the paper and the PDF are built from, so no figure can
+  reach a customer's bookkeeping system that is not on the paper beside it. It
+  renders nothing: EN 16931 separates the semantic model from the syntax that
+  writes it down, and the two syntaxes in law (CII and UBL) are the same invoice
+  twice — a split that exists so B1.23 adds a renderer and not a second mapping.
+- **`billing_einvoice_rules.rs`** — the business rules, cited by the identifier
+  a receiving system quotes back: `BR-02`/`BR-03` (a draft is not an e-invoice),
+  `BR-06`…`BR-11` (both parties, both addresses, both countries), `BR-16`,
+  `BR-25`, `BR-27`, `BR-CO-09`/`BR-CO-10`/`BR-CO-13`…`BR-CO-18`/`BR-CO-25`/
+  `BR-CO-26`, `BR-S-02`/`BR-S-05`/`BR-S-08`/`BR-S-09`, `BR-Z-05`/`BR-Z-08`/
+  `BR-Z-09`, `BR-53`. It runs on the route as well as in the tests, which is the
+  point: a tenant that has not stated its own country learns it from us, with
+  the rule named, rather than from a customer's gateway a fortnight later.
+- **`billing_cii.rs`** — UN/CEFACT CII, the syntax Factur-X carries. CII is a
+  schema of *sequences*, so the module is ordered the way the schema is and four
+  golden files pin that order byte for byte. `currencyID` appears on exactly one
+  element (stating it elsewhere is a validation error in this profile), dates
+  are `format="102"`, every value is escaped, and the XMP packet it writes
+  describes the **attachment** without claiming a `pdfaid` conformance level the
+  file does not have.
+- **`alo-pdf` grew attachments** (`attachment.rs`): an embedded-file stream
+  carried byte for byte, a `/Filespec` with `/AFRelationship /Alternative`, the
+  `/AF` array and the `/Names /EmbeddedFiles` name tree (written sorted, as PDF
+  1.7 §7.9.6 requires of a tree a reader may binary-search), plus an XMP
+  metadata stream. A document that attaches nothing is byte-identical to what
+  the crate produced before, which a test asserts.
+- **`GET /billing/invoices/{id}/facturx.xml`** — the e-invoice on its own, and
+  `GET .../pdf` now embeds it. The refusals are the load-bearing half: `409` for
+  a draft ("issue it first") and for a void document ("correct it with a credit
+  note, which carries one of its own"), `422` naming every rule for a document
+  that breaks one, `404` for another tenant's id. The **PDF never fails because
+  of it** — an invoice that would not print because its XML could not be built
+  would be a worse failure than one that prints without it.
+
+Verified: `cargo clippy -p alo-jmap -p alo-pdf --all-targets` clean; 35 test
+binaries green, including 25 new unit tests, the 6 golden-file tests and the 7
+`billing_facturx_http` suites over real Postgres — among them the mandatory
+wrong-tenant proof (B's distinctive legal name, VAT id and IBAN appear nowhere
+in A's XML *or* in A's PDF, the refusal for B's id is byte-identical to the
+refusal for an id that never existed, and neither leaks a field it declined).
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `fxwire2`, `fxwire2b`):
+
+```
+GET  /billing/invoices/x/facturx.xml     (no token)  -> 401
+GET  /billing/invoices/ghost/facturx.xml             -> 404 "no such invoice"
+GET  .../{draft}/facturx.xml                         -> 409 "a draft has no e-invoice: issue it
+                                                             first, which is what assigns the
+                                                             number and the dates the standard
+                                                             requires"
+POST .../{id}/issue                                  -> 200 INV-2026-00001
+GET  .../{issued}/facturx.xml  (identity unstated)   -> 422 "…cannot be issued as an EN 16931
+                                                             e-invoice: BR-06 (the seller's name
+                                                             is not stated: fill in your billing
+                                                             details); BR-08 …; BR-09 …;
+                                                             BR-CO-26 …; BR-S-02 …"
+GET  .../{issued}/pdf          (identity unstated)   -> 200 %PDF-1.7, 6 897 bytes,
+                                                             0 attachments — it still prints
+PATCH /billing/settings (the identity)               -> 200
+GET  .../{issued}/facturx.xml                        -> 200 6 789 bytes
+       content-type: application/xml; charset=utf-8
+       content-disposition: attachment; filename="Invoice-INV-2026-00001-factur-x.xml"
+       x-content-type-options: nosniff · cache-control: no-store
+       <ram:ID>urn:cen.eu:en16931:2017</ram:ID> · <ram:TypeCode>380</ram:TypeCode>
+       <ram:BilledQuantity unitCode="HUR">15</…>  (the label "hour" → UN/ECE Rec 20)
+       <ram:BilledQuantity unitCode="KMT">240</…>
+       <ram:ID schemeID="VA">NL812345678B01</…> · <ram:ID schemeID="VA">DE811907980</…>
+       <ram:LineTotalAmount>1875.00 / 100.80 / 1975.80</…>
+       <ram:TaxTotalAmount currencyID="EUR">414.92</…>
+       <ram:GrandTotalAmount>2390.72</…> · <ram:DuePayableAmount>2390.72</…>
+GET  .../{issued}/pdf                                -> 200 18 667 bytes
+       %PDF-1.7 · the served XML is inside it verbatim: true
+       /AFRelationship /Alternative: true · (factur-x.xml): true
+       /Type /Metadata /Subtype /XML: true
+       <fx:ConformanceLevel>EN 16931</fx:ConformanceLevel>: true
+       pdfaid:part: FALSE  (the claim we deliberately do not make)
+POST .../{id}/credit-note + /issue                   -> 200 INV-2026-00002
+GET  .../{credit note}/facturx.xml                   -> 200 <ram:TypeCode>381</…>
+       <ram:IssuerAssignedID>INV-2026-00001</…>  (what it corrects)
+       <ram:GrandTotalAmount>2390.72</…>  — positive on the wire, negative in our ledger
+       negative amounts on it: 0 · no IBANID · no PaymentReference
+POST .../{id}/void, then GET .../{void}/facturx.xml  -> 409 "a void document has been cancelled
+                                                             and has no e-invoice: correct an
+                                                             issued invoice with a credit note…"
+GET  .../{void}/pdf                                  -> 200 still prints, 0 attachments
+POST /billing/fx/rates/import (Date,USD 1.1626)      -> 200 {rates 1, days 1}
+POST .../{USD draft}/issue                           -> 200 INV-2026-00004 fx 1.1626, gross 145 200
+GET  .../{USD}/facturx.xml                           -> 200 <ram:TaxCurrencyCode>EUR</…>
+                                                             <ram:InvoiceCurrencyCode>USD</…>
+                                                             TaxTotalAmount USD 252.00
+                                                             TaxTotalAmount EUR 216.76  (BT-111)
+                                                             GrandTotal 1452.00
+  the neighbour's door:
+GET  A's invoice with B's token (xml)                -> 404 "no such invoice"
+GET  A's invoice with B's token (pdf)                -> 404
+GET  ghost with B's token                            -> 404, byte-identical to the above
+       any of A's identity in either refusal: 0
+```
+
+Cuts and flags:
+
+- **HUMAN REVIEW (compliance) — a credit note is issued in credit direction.**
+  A stored credit note has negative amounts (it mirrors its original); the
+  e-invoice states type 381 with **positive** ones. The reading taken: EN 16931
+  carries the direction in BT-3, `BR-27` forbids the negative *price* that the
+  other spelling would need, and receiving systems overwhelmingly expect a
+  positive 381. The standard does not forbid the alternative, and a member
+  state or a large customer may insist on it — a human should confirm this
+  before a tenant relies on it.
+- **HUMAN DECISION (data model) — VAT categories beyond `S` and `Z`.** A line
+  carries a rate, not a category, so reverse charge (`AE`), intra-community
+  supply (`K`), export (`G`) and exemption (`E`) — all of which print 0 % and
+  mean entirely different things, each requiring an exemption reason — cannot be
+  told apart today, and every 0 % line is labelled `Z`. That is **wrong for a
+  real intra-community sale** and it understates a return. Adding a per-line
+  category is a migration + store + route + UI change, i.e. a queue item, and it
+  is deliberately not invented here. It is the single biggest gap between what
+  shipped and "an EU business can bill anyone with it".
+- **HUMAN ITEM — the normative schematron is not run.** The CEN EN 16931
+  schematron (and the Factur-X/XRechnung ones over it) are XSLT; an XSLT
+  processor is a third language and a downloaded artefact in a public repo. What
+  ships is a hand-written subset of the rules our model can violate, cited by
+  identifier, run on the route and over four golden documents. Someone should
+  run the real schematron over `alo-jmap/tests/golden/*.xml` once, offline, and
+  record the result — the golden files exist precisely so that becomes a one-off
+  check rather than a standing risk. The **official Factur-X sample set** is not
+  in the repo either, for the same licensing reason; the goldens are our own
+  output, and the item's "golden-file tests against the official sample set"
+  was cut to that.
+- **CUT — PDF/A-3.** Factur-X asks for it and the carrier is not there yet.
+  Everything that is *ours* landed (attachment, `/AFRelationship`, `/AF`,
+  the name tree, the XMP with the fx extension schema); the two that are not are
+  an **embedded font file** and an **output-intent ICC profile** — licensed
+  binaries whose choice `docs/design/billing.md` reserved for a human at B1.17.
+  Nothing written claims conformance it does not have: there is no `pdfaid`
+  block in the XMP, deliberately. The same font decision still gates the WinAnsi
+  fold in `alo-pdf` (Polish, Czech, Greek and Cyrillic names print folded).
+  **This is the one part of B1.22 a human has to unblock.**
+- **No web UI.** The item's done-when is the XML, the embedding and the tests;
+  the issued-invoice view gained no "download e-invoice" link, and the hybrid
+  PDF is what a user gets today without asking. A link is a small B1.27 or
+  follow-up item.
+- **Unrecognised units become `C62`** ("one"). BT-130 is mandatory and coded;
+  the table covers the labels a European price list actually uses in en/fr/nl
+  plus symbols, and anything else says "a number of things" rather than claiming
+  a dimension it does not know. The label the user typed still prints on paper.
+- **The e-invoice ignores the payments ledger** (BT-113 absent, so BT-115 =
+  BT-112). It states the document, as the paper does; an e-invoice whose amount
+  due moved every time a payment landed would contradict the copy the customer
+  already holds.
+- **`cargo fmt` was NOT run crate-wide**, per the standing note: only the five
+  files this item wrote were formatted, and no `lib.rs` was handed to rustfmt.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05: the production Caddyfile must add it at the next
+  deploy. This item adds no new prefix (`facturx.xml` is under
+  `/billing/invoices/*`).
+
+Next item: B1.23 (★ XRechnung: UBL 2.1 output for the same invoice model at
+`GET .../xrechnung.xml`, validated by the XRechnung schematron in tests — the
+second renderer over `billing_einvoice.rs`, which is the seam it was built for).

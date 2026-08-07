@@ -296,9 +296,66 @@ named):
 
 | Route | Purpose |
 |---|---|
-| `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17 — **as built**, B1.23) |
+| `GET /billing/invoices/{id}/pdf`, `.../facturx.xml`, `.../xrechnung.xml` | renderings (B1.17, B1.22 — **as built**, B1.23) |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
+
+### The e-invoice (as built, B1.22)
+
+An invoice that a machine reads is a different document from the one a person
+reads, and EN 16931 is the European law about the first. Three modules, split
+along the standard's own seam:
+
+| Module | What it owns |
+|---|---|
+| `billing_einvoice.rs` | the **semantic** invoice: the standard's business terms (BT-1, BT-112, …) built from the same `PrintDocument` the paper and the PDF are built from |
+| `billing_einvoice_rules.rs` | the **business rules** over those terms, cited by identifier (`BR-09`, `BR-CO-15`, `BR-S-09`) |
+| `billing_cii.rs` | one **syntax**: UN/CEFACT CII, which is what Factur-X carries. UBL (XRechnung, B1.23) is a second renderer of the same model |
+
+The seam matters because the two syntaxes in law are the *same invoice twice*;
+mapping our records straight into two dialects of XML would put the decisions
+below in two places that would drift.
+
+**The decisions:**
+
+- **A credit note is issued in credit direction, not in negatives.** Our store
+  mirrors an invoice by negating quantities, so a stored credit note has
+  negative amounts. EN 16931 carries the direction in the type code — 381 *is*
+  "money goes back" — and receiving systems overwhelmingly expect a 381 whose
+  amounts are positive. Every quantity and amount is multiplied by −1 for a
+  credit note (not made absolute, so a partial credit keeps its structure).
+  **Flagged for human review**: the standard does not forbid the other reading.
+- **The e-invoice states the document, not its settlement.** Payments recorded
+  against the invoice (B1.19) are deliberately not BT-113, so BT-115 amount due
+  equals BT-112 total with VAT — the same figure the paper carries.
+- **Only categories `S` and `Z` are expressible**, because a line carries a
+  *rate* and not a category. Reverse charge (`AE`), intra-community supply
+  (`K`), export (`G`) and exemption (`E`) all print 0 % and mean different
+  things, and each needs an exemption reason. **A per-line VAT category is a
+  data-model addition a human has to schedule**; guessing `Z` for an
+  intra-community supply would understate somebody's return.
+- **Validation is a refusal, not a warning.** `GET .../facturx.xml` runs the
+  rules before it renders: a draft and a void document are `409` (a draft has
+  no number; a cancelled e-invoice does not exist — correct it with a credit
+  note), and a document that breaks a rule is `422` **naming the rules**. A
+  tenant learns that its country is unstated from us, not from a customer's
+  gateway a fortnight later.
+- **The PDF never fails because of it.** `GET .../pdf` embeds the e-invoice
+  when there is a valid one and prints an ordinary PDF when there is not. A
+  document must always print.
+- **Not the official schematron.** The normative artefacts are XSLT, and an
+  XSLT processor is a third language (`CLAUDE.md`) plus a downloaded binary in
+  a public repository. What ships is a hand-written subset of the rules our
+  model can break, cited by identifier, run on the route *and* over four golden
+  documents in `alo-jmap/tests/golden/`. Running the normative schematron in CI
+  is an open item for a human, recorded in `docs/autonomy/STATE.md`.
+
+**The carrier is not yet PDF/A-3.** `alo-pdf` grew everything else the hybrid
+needs — the attachment, `/AFRelationship /Alternative`, the `/AF` array, the
+embedded-files name tree and an XMP packet — and the XMP describes *the
+attached XML* without claiming a `pdfaid` conformance level the file does not
+have. The two remaining requirements are an embedded font and an output-intent
+ICC profile: licensed binaries, and a human's choice (see § The PDF above).
 
 ### Payments (as built, B1.19)
 
