@@ -907,10 +907,13 @@ so this note stays one file with one reason to change:
 
 - **B2.11 recurring invoices** and **B2.12 SEPA pain.001 export** are
   billing extensions; their design lands in `docs/design/billing.md`
-  where the invoice model already is.
+  where the invoice model already is — as built, in its "Recurring
+  invoices (as built, B2.11)" and "Paying suppliers — the SEPA file (as
+  built, B2.12)" sections.
 - **B2.13 the audit log** is cross-cutting (billing *and* CRM, and every
-  module after). It extends the existing `audit.rs` spine and gets its
-  own note when it is built, not a section inside a module note.
+  module after). It extends the existing `audit.rs` spine and got its
+  own note when it was built — `docs/design/audit-trail.md` — rather
+  than a section inside a module note.
 
 ## Out of scope for B2
 
@@ -942,12 +945,47 @@ Deliberate cuts, each a decision rather than an omission:
 
 1. **The B2 wave gate** (`ROADMAP.md`): B1 is not live with a real
    tenant. Confirm or move the gate before B2.02's migration.
-2. **Whose language seeds the stage names** when the first user of a
-   tenant to open CRM is not the tenant's admin. The note's answer is
-   "the requesting user's", which is right for a solo tenant and
-   arguable for a mixed-language team; renaming is a rename, so the cost
-   of being wrong is small.
+2. ~~**Whose language seeds the stage names**~~ — **answered in code**
+   (B2.04, `products/mail/alo-jmap/src/crm.rs`): the language of the
+   client making the first read, sent as `?lang=` from the interface
+   language, with an English fallback. The board is seeded in en, fr or
+   nl and is ordinary user data from that moment on, so a tenant that
+   disagrees renames it. Left here as a decision a human may still
+   overturn, not as an open question.
 3. **Whether a linked conversation should be openable by a colleague who
    does not hold it** — i.e. whether CRM should eventually ask mail for
    a *shared* view of a linked thread. That is a delegation feature with
    its own consent model, and it is not B2.
+
+## What B2 promised, and what B2 shipped (B2.14)
+
+Every `[B2]` line of `docs/features.md` § Business modules, reconciled
+against the code — the CRM section, the three billing extensions and the
+two cross-cutting lines. Nothing on that list is silently missing: each
+is either shipped, or a cut with the reason and where it goes instead.
+
+| `[B2]` feature | State | Where / why |
+|---|---|---|
+| ★ CRM agent ("turn this thread into a deal", "what's stalled", "chase every quiet deal") | **Shipped**, narrowed | B2.10: `create_deal` (carrying an email's numbered source, which links that conversation on approval), `move_deal_stage` (how a deal is won or lost), `draft_followup` (into Drafts, to the deal's *own* contact, never an address the model chose). **Two narrowings:** "what's stalled in my pipeline?" is an **answer** over deals, and deals are not in the workspace index — the same cut B1.25 recorded for invoices, and the same human item (index business records for retrieval). "A follow-up for *every* deal quiet >1 week" is a bulk action: a dozen letters from one approval needs its own confirmation, as B1.25's bulk chase did. |
+| Lead/deal record (company, contact, value, currency, expected close, stage, owner, source) | **Shipped** | B2.03. Money is integer cents, currency is per deal, and nothing is ever summed across two of them. |
+| Pipeline board: drag-between-stages kanban, per-team pipelines | **Shipped**, one deferral | B2.02, B2.04, B2.07 — the Tasks board interaction, fractional `position` (ADR 0022). **Deferred:** a pipeline is per *tenant*, not per team; scoping boards to teams is the same roles work as the cross-cutting line below, and half-building it would have shipped an access rule nobody tested. |
+| ★ Deal ↔ mail-thread linking (same-domain matching, user-confirmed) | **Shipped** | B2.05. Suggestions read the *requesting user's* own recent mail; a free-mail domain matches only on the exact address; the link is a pointer and never a copy; a colleague who does not hold the conversation is told who linked it instead. Another tenant's thread can never be linked, proven by test. |
+| Activities on a deal: notes, calls logged, next-step with due date (surfaces in Tasks/Agenda) | **Shipped**, one gap | B2.06: the log (note/call/meeting, dated when it happened) and a next step that is a **real task** in the owner's own list. **Gap:** "surfaces in Agenda" — a next step is a task with a due date, and whether dated tasks appear in Agenda is Agenda's question, not CRM's; CRM writes no calendar event. |
+| Lost reasons + simple win/loss reporting; pipeline value by stage | **Shipped** | B2.08: a reason is required by the store, offered as a picker over a free-text field, and the report gives open-by-stage, closed-in-period, win rate and CSV — **per currency, never converted**. |
+| Quotes from a deal (bridges to B1); won deal → invoice | **Shipped** | B2.08: both raise a **draft** in billing, creating the customer from the lead when there is not one. **Cut (recorded at B2.08):** the raised document is not linked back to the deal as a record, and raising one writes no activity — both wanted a link model this wave did not have. B2.13's history now names the raising on the deal. |
+| Import leads from CSV/Excel; dedupe by email domain | **Shipped**, two cuts | B2.09: preview-then-commit, all-or-nothing, European separators and decimal forms, dedupe on address then on the company's own domain. **Cut:** `.xlsx` (a ZIP-of-XML parser is its own decision, already out of scope above). **Cut:** the import **screen** — the arc is API-only today, and the queue item's own text called the screen out as the part cut rather than half-drawn. |
+| *Billing extension:* recurring invoices (monthly/annual schedules, auto-draft for approval) | **Shipped** | B2.11. Weekly/monthly/quarterly/yearly, month-end anchoring, an hourly sweep that can never bill a period twice, and every occurrence a **draft** — nothing is ever issued unattended. |
+| *Billing extension:* payment links on invoices (integrate an EU PSP) | **NOT SHIPPED — human item** | Needs a contract and credentials with a payment provider, which the loop cannot obtain and would not hold. No code was written toward it; it is not in the B2 queue. |
+| *Billing extension:* SEPA pain.001 credit-transfer export | **Shipped** | B2.12, schema-valid golden tests, `pain.001.001.03` by default and `.09` on request, a bill in one run only. **Cuts (recorded there):** no `pain.008` direct debits, no ISO 11649 creditor reference, no creditor BIC, and no screen. |
+| *Cross-cutting:* audit log per record (who changed what, when) | **Shipped**, one cut | B2.13: every mutating billing/CRM route writes exactly one entry, `GET /audit?entity=`, a **History** panel on the invoice, quote and deal. **Cut:** no field-level diff — a log that quotes the old value is a second copy of the record under different access rules. **Cut:** panels on three record types; customers, products, bills and schedules are recorded but have no screen to hang one on yet. |
+| *Cross-cutting:* CSV/Excel import per module the day the module ships | **Partially shipped** | CRM leads only (B2.09), CSV only, API only. Billing has no importer of its own; the Odoo mapping story of ADR 0035 is a later wave's work. |
+| *Cross-cutting:* role-based access per module (finance vs sales see different worlds) | **NOT SHIPPED** | Deliberate, and said out loud in "Out of scope for B2" above: until roles land on Spaces, every member of a tenant sees every deal. The first scoped role is queued as **B4.12** (the accountant), which is where the pattern gets designed rather than invented twice. |
+
+**Languages.** The CRM interface, the recurring-invoice screens, the
+agent's proposal cards and the History panel are translated end to end in
+en/fr/nl (B2.14), and `web/src/i18n/locale.test.ts` fails if a B2 key is
+ever added without both. CRM renders **no server-side document** — it has
+no print view, and a follow-up's words are the model's, not a template —
+so unlike B1 there was nothing outside the browser to translate. The one
+thing still English everywhere is the server's own refusal sentence, the
+same cross-cutting item B1.27 left for a human.

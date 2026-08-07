@@ -6,6 +6,21 @@ contracts.
 
 ## Unreleased
 
+- **alo CRM now speaks French and Dutch — and so does the history on every
+  record.** Switch the language and Sales follows: the board and its columns,
+  the deal drawer, the log, the next steps, the linked conversations, the
+  win/loss report and every confirmation in between. So do the parts of
+  Billing that arrived with it — recurring invoices, from the cadence you pick
+  to the sentence that tells you how a monthly arrangement anchored to the 31st
+  behaves in February — and the **History** on an invoice, a quote or a deal,
+  where each line reads as the language's own way of naming what happened. The
+  assistant's proposal cards are translated too, so approving a deal it
+  suggested no longer means reading English to do it. Your first board is
+  already in your language — a French tenant is handed *Ventes* with *Gagné*
+  and *Perdu*, a Dutch one *Verkoop* with *Gewonnen* and *Verloren* — and
+  renaming a column changes nothing but its name. The one thing still English
+  everywhere is a refusal from the server, the same gap Billing named.
+
 - **Every invoice, quote and deal now remembers who changed it.** Each record in
   Billing and CRM carries a **History**: created, edited, issued, paid,
   credited, moved, linked — each line naming the colleague who did it and when.

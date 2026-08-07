@@ -315,6 +315,27 @@ covering note and reminder letter (B1.27).
 - [ ] A real business (Axon Group) runs a full month's invoicing on alo: quotes sent, invoices issued with legal numbering, one credit note, an XRechnung accepted by a government/large-buyer portal, and the VAT summary handed to the accountant without a spreadsheet
 
 ### Wave B2 — CRM & Sales — deals on real email *(gate: B1 live with ≥1 real tenant)*
+
+Built ahead of its gate: the gate is a **deployment** milestone and B2 is
+code, migrations and tests, none of it deployed. A human confirms or moves
+the gate before any of this reaches a tenant.
+
+- [x] B2.1 Pipelines & deals: per-tenant boards, ordered stages with win/loss flags, deal record (value in cents, currency, expected close, owner, source), every move kept as history
+- [x] B2.2 ★ Deal ↔ mail-thread linking: suggest from the requesting user's own recent mail, exact-address-only for free-mail domains, user-confirmed; the link is a pointer, never a copy
+- [x] B2.3 Activities: notes/calls/meetings logged, and a next step that is a **real task** in its owner's own list
+- [x] B2.4 Board, list and deal drawer on screen — the Tasks board interaction, a deal link a colleague can be sent
+- [x] B2.5 Win/loss: lost reasons, won → draft quote or invoice in Billing, pipeline report by stage and by period, CSV — per currency, never converted
+- [x] B2.6 Lead import: CSV preview-then-commit, all-or-nothing, dedupe by address then company domain — *API only; the import screen is a named cut*
+- [x] B2.7 ★ CRM agent: `create_deal` (from a thread), `move_deal_stage`, `draft_followup` — propose-then-approve, nothing sent
+- [x] B2.8 Billing extensions: recurring invoices (drafts only, never auto-issued) and the SEPA `pain.001` file for paying approved bills
+- [x] B2.9 Audit trail: every mutating billing/CRM route writes one entry; a **History** panel on invoices, quotes and deals
+- [ ] B2.10 Payment links on invoices via an EU PSP — *human item: needs a contract and credentials with a payment provider. No code written toward it.*
+- [ ] B2.11 Role-based access per module (sales vs finance) — *deliberately deferred to B4.12, where the first scoped role is designed on Spaces rather than invented twice*
+
+CRM is translated end to end in en/fr/nl — interface, agent cards, record
+history (B2.14). It renders no server-side document, so unlike B1 there was
+nothing outside the browser to translate.
+
 ### Wave B3 — Projects & Timesheets — billable hours feed B1
 ### Wave B4 — Expenses & Accounting core — receipts, ledger, reconciliation, VAT
 ### Wave B5 — Purchasing & Inventory — products, stock, PO/SO chains

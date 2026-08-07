@@ -52,7 +52,7 @@ small, or a `[!]` note for the human if large.
 - [x] B2.11 Billing extension — recurring invoices: schedule table, due-run creates DRAFTS (never auto-issues), UI badge; time-based test with injected clock.
 - [x] B2.12 Billing extension — SEPA pain.001 export for approved bills (from B1.24) with schema-valid XML golden tests.
 - [x] B2.13 Audit log (cross-cutting): append-only record of create/update/status events for billing+crm entities, `GET /audit?entity=`, UI tab on records. Tests: every mutating route writes exactly one entry.
-- [ ] B2.14 Wave review: fr/nl, CHANGELOG, design docs as-built, features.md [B2] reconciliation.
+- [x] B2.14 Wave review: fr/nl, CHANGELOG, design docs as-built, features.md [B2] reconciliation.
 
 ## Wave BI-1 — alo Insights, first slice (ADR 0037; inserted by owner decision 2026-08-07)
 

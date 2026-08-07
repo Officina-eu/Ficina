@@ -6039,3 +6039,131 @@ Cuts and flags:
 Next item: B2.14 (wave review — fr/nl for every B2 string including B2.11's
 untranslated schedule strings above and this item's `audit*` keys, CHANGELOG
 sweep, design docs as-built, features.md `[B2]` reconciliation).
+
+## 2026-08-07 — B2.14 the wave review: CRM in three languages, and B2 reconciled
+
+Wave B2's review item. The module wave that started with a design note about
+what a deal is now ends with the same thing every B1 screen got: the whole
+surface in en/fr/nl, a design note that describes what was actually built, and
+a line-by-line answer to "did anything on the feature list go missing?".
+
+What shipped:
+
+- **fr/nl for the whole B2 surface — 240 keys per language.** The CRM module
+  (`crm*` + `moduleCrm`, ~150 keys: board, list, deal form, lost-reason dialog,
+  the billing handoff, the report, the log, next steps, linked conversations),
+  the recurring-invoice screens B2.11 left English (`billingRecurring*`,
+  `billingSchedule*`, `billingCadence*`, 42 keys — the flag B2.11 raised and
+  B2.13 inherited), the record History of B2.13 (`audit*`, 34 keys) and the
+  agent's proposal chrome plus its three CRM actions (15 keys, the flag B2.10
+  raised). Interpolations were re-authored, not transliterated:
+  `crmReportWinRate` reads "2 sur 5 affaires clôturées" rather than a French
+  sentence with an English shape, and `billingScheduleAnchorHint(1)` says
+  "le 1er" because French ordinals do not survive a template.
+- **Two grammar decisions worth naming.** (1) The French History labels are
+  **nouns of action** — "Émission", "Suppression d’un paiement" — where English
+  uses participles ("Issued"). A French participle agrees with a subject the
+  line deliberately does not name (the record kind is the page you are on), so
+  "Émise" would be wrong on a devis and "Émis" wrong on a facture; a noun is
+  invariable and reads correctly on every record. Dutch keeps the participles,
+  which are gender-safe there. Recorded in a comment above each block.
+  (2) `crmDocumentDraft` returns **"brouillon de facture" / "brouillon de
+  devis"** — both masculine on purpose, because the string is interpolated into
+  "Votre … est prêt" and a feminine branch would print an ungrammatical
+  sentence. The test asserts both branches of that sentence.
+- **`crmDocumentDraft` was untranslatable and is now translatable.** The `en`
+  catalog is `as const`, so a function returning two bare literals typed the key
+  as *those two English words* — `fr`/`nl` could not satisfy it, and `tsc` said
+  so. One annotation in `en.ts` (`: string`) fixes the key for every language;
+  every other interpolation in the catalog returns a template literal and was
+  never affected.
+- **A second completeness test** (`locale.test.ts`, "alo CRM and the record
+  history are fully translated (B2.14)"), mirroring B1.27's billing one: the B2
+  key set must be present in both catalogs, every interpolation must keep its
+  argument count, and a handful of assertions prove the words really changed
+  language. A B2 key added later without fr/nl turns the suite red.
+- **Docs as-built.** `docs/design/crm.md` gains "What B2 promised, and what B2
+  shipped (B2.14)" — a row per `[B2]` feature (CRM, the billing extensions and
+  the two cross-cutting lines), each shipped or a cut with its reason — plus a
+  Languages paragraph, a corrected "What else wave B2 carries" (the audit note
+  exists now: `docs/design/audit-trail.md`), and open question 2 struck through
+  as answered in code by B2.04's `?lang=` seed. `docs/features.md` § `[B2]` CRM
+  gets the same pointer blockquote B1 has. `ROADMAP.md` gains the B2 slice list
+  with B2.1–B2.9 ticked and the two unshipped lines left unticked with their
+  reason inline.
+
+Verified (no production touched, no Rust changed):
+
+```
+npx tsc --noEmit                          -> clean (2 errors found and fixed:
+                                             the as-const literal-union above)
+npx eslint en.ts fr.ts nl.ts locale.test.ts -> clean
+npx vitest run                            -> 29 files, 237 tests, all green
+npm run build                             -> clean
+```
+
+  the red suite this item inherited, before and after:
+```
+at HEAD (changes stashed):  4 failed | 227 passed (231)   [B2.11's 42 keys]
+with this item:             0 failed | 237 passed (237)
+```
+  the same one stray unhandled rejection after teardown in `App.test.tsx`
+  (`signupDomains()` resolving into a torn-down environment) appears in BOTH
+  runs and in neither when that file runs alone — pre-existing, unrelated to
+  i18n, and not this item's to fix.
+
+  what the new test actually asserts:
+```
+fr/nl contain all 240 B2 keys                 -> [] missing
+every interpolation keeps its arity           -> 15 fn keys, arg counts equal
+fr.moduleCrm "Ventes" / nl "Verkoop"          -> not the English word
+fr.crmRaisedTitle(crmDocumentDraft("invoice")) -> "Votre brouillon de facture
+                                                  est prêt" (both branches)
+nl.billingScheduleRunDrafted(2)               -> contains "2 concepten"
+```
+
+Reconciliation — what B2 did NOT ship, now written down rather than implied:
+
+- **Payment links on invoices via an EU PSP** (`[B2]`, billing): not shipped,
+  no code written toward it. It needs a contract and credentials with a payment
+  provider — a human item, like Peppol.
+- **Role-based access per module** (`[B2]`, cross-cutting): deliberately
+  deferred to **B4.12**, where the accountant is the first scoped role and the
+  pattern gets designed on Spaces once instead of invented twice. Until then
+  every member of a tenant sees every deal, which the design note says out loud.
+- **"What's stalled in my pipeline?"**: the CRM agent's *answer* half. Deals are
+  not in the workspace index — the identical cut B1.25 recorded for invoices,
+  and the same standing human item (index business records for retrieval).
+- **The lead-import screen** (B2.09's own named cut) and **`.xlsx`** remain
+  cut; the import arc is API-only.
+- **A next step does not surface in Agenda.** It is a real task with a due
+  date; whether dated tasks appear in the calendar is Agenda's question, and
+  CRM writes no calendar event.
+
+Cuts and flags:
+
+- **Cut: no fr/nl for the Mail agent's own card strings** (`agentActDraft`,
+  `agentFieldTo`, `agentSendCaution`, 26 keys). They are ADR 0034's mail wave,
+  not B2 — but the five *shared* chrome keys the CRM card cannot render without
+  (`agentProposedAction`, `agentApprove`, `agentDiscard`, `agentDone`,
+  `agentFailed`) were translated here, because a French approval dialog that
+  says "Approve" is not a translated surface. The mail agent gains those five
+  for free; its own 26 are a small item for whoever reviews that wave.
+- **Cut: no fr/nl sweep of Tasks, Drive, Base, Home or Agenda.** 343 English
+  keys remain in the catalogs outside B1/B2. Those are other waves' surfaces
+  and other tracks' files; a review item translates its own wave.
+- **Flagged: the server's refusal sentences are still English in every
+  language** — unchanged from B1.27, and still the same cross-cutting item (a
+  typed error vocabulary across `StoreError`) that belongs to a human's roadmap
+  call rather than to a wave review.
+- **Flagged: no `sites*` key was touched.** They are the other loop's; the
+  catalogs took only additive lines at the end of each file.
+- **Flagged: B2 was built ahead of its own ROADMAP gate** ("B1 live with ≥1
+  real tenant"), as every B2 entry since B2.02 has said. Nothing is deployed;
+  the note is now on the ROADMAP itself so a reader of that file sees it too.
+- **Standing human actions, unchanged:** the `/billing`, `/crm` and `/audit`
+  Caddyfile prefixes at the next deploy, a deploy, and the B2 gate decision.
+
+Next item: BI1.01 (the alo Insights design note — ChartSpec, the whitelisted
+semantic layer over billing+crm views, tiles and dashboards, chart-library
+choice; ADR 0037, inserted by owner decision ahead of wave B3).

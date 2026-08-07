@@ -394,6 +394,14 @@ EU models, suggest-only where the EU AI Act calls a use high-risk.
 
 ### [B2] CRM & Sales — deals that live on real email
 
+> Wave B2 is built. `docs/design/crm.md` § "What B2 promised, and what
+> B2 shipped" reconciles every `[B2]` line — here, in Billing above, and
+> the two cross-cutting ones below — against the code: each is shipped,
+> or a cut with its reason. Two are **not** shipped and are named there:
+> payment links via a PSP (a human contract, not loop work) and
+> role-based access per module (queued as B4.12, where it gets designed
+> once rather than invented twice).
+
 - [B2] ★ **CRM agent** — "turn this thread into a deal", "what's stalled in my pipeline?", "draft a follow-up for every deal quiet >1 week" — the mail-native advantage no standalone CRM has
 - [B2] Lead/deal record: company + contact, value, currency, expected close, stage, owner, source
 - [B2] Pipeline board: drag-between-stages kanban (same interaction as Tasks board), per-team pipelines
