@@ -65,6 +65,18 @@ conflict you cannot resolve cleanly → `LOOP HALT`.
    then `LOOP HALT` rather than leave the item unpushed.
 9. Exit. The wrapper starts the next iteration.
 
+## Headless discipline (learned the hard way)
+
+You run as a single non-interactive invocation: **when your turn ends, you
+cease to exist** — there is no "later". Therefore: NEVER background a build,
+test, or any gate command and end your turn waiting for it; run gates in the
+foreground and wait for their real exit codes inside the same turn. An ended
+turn with uncommitted work means the work is DISCARDED by the wrapper. If the
+remaining gates cannot finish in this iteration's budget, cut the item's
+scope (LOOP rule: cut scope, never depth), gate the narrower slice fully,
+commit and push it, and journal the remainder as the next item's starting
+point.
+
 ## If stuck
 
 - Two honest failed attempts at a gate → mark the item `[!] blocked: <one
