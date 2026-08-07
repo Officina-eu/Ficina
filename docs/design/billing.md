@@ -666,6 +666,59 @@ the note around it is a message between two people. fr/nl join both at B1.27.
 needs it added at the next deploy. That is a human action recorded in
 `docs/autonomy/STATE.md`, never a change the loop makes to `deploy/`.
 
+### The billing agent (as built, B1.25)
+
+Three tools, added to the one agent of ADR 0034 rather than to a second
+assistant: `create_invoice_draft`, `quote_to_invoice`,
+`draft_payment_reminder`. The framework is unchanged — a product agent is a
+**tool list plus a paragraph** (`alo-ai/src/agent_billing.rs`, spliced into the
+system prompt by `alo_ai::system_prompt`) and **executors** in the product's own
+module (`alo-jmap/src/agent_billing.rs`, dispatched from the one
+`POST /ai/agent/execute`). `alo_ai::is_agent_tool` is the single allowlist
+across products, so a tool cannot be described to a model without being
+executable, or the reverse; a test asserts the two sets are equal.
+
+Every tool ends in a **draft**. None issues a document, assigns a number, or
+puts mail on the wire — the three irreversible acts of billing stay where a
+human performs them deliberately, which is the same rule `/send` follows above.
+There is no agent-only write path either: each executor calls the store
+function the corresponding `/billing/*` route calls, so a document raised by the
+agent obeys the same rules as one raised by the screen.
+
+**Names in, ids out.** A model is given the words the user said and never an
+opaque id. A customer or product name is resolved against *this tenant's* active
+records — exact match first (so "Acme" reaches the customer literally called
+Acme even when "Acme Holding BV" exists), then a unique containment; two matches
+are a `422` **listing them**, never a guess, because an invoice sent to the
+wrong company cannot be unsent. A document is found by its **number**
+(`billing_invoice_id_by_number` / `billing_quote_id_by_number`, case-insensitive
+and trimmed, otherwise exact). Numbers are per-tenant, so two tenants hold the
+same number and the lookup is a tenancy boundary like any other — proven by
+`billing_by_number.rs`, where B asking for A's number gets B's own document.
+
+**Money arrives whole.** Prices are integer cents and VAT rates basis points; a
+price with a decimal point is refused, never rounded. A quantity may be written
+`1.5` and is read into milli-units **by its digits** (`milli_from_decimal`) — no
+float multiplication anywhere, an exponent or a fourth decimal place refused.
+Totals are the store's, computed before the header is written so a mistake in
+the last line leaves no empty draft behind.
+
+The reminder (`billing_reminder.rs`) is its own module and its own string
+table, because it is a different letter from the covering note: it states how
+late the document is, what is still owed, and what has already arrived. It
+refuses everything that owes nothing — a draft, a void document, a settled one,
+a credit note, or one with nothing outstanding — each a `409` naming the state.
+It is deliberately **text only**: the customer already has the invoice, and
+B1.26 is where the manual dunning view decides whether to re-attach it.
+
+Two limits worth naming. Documents are **not in the agent's retrieval sources**
+(the workspace index holds mail, files, tasks and events), so a billing tool is
+proposed from what the user *said* — the prompt says so, and an unknown number
+is a `422` rather than an invented document. And the propose path is not
+grounded with the tenant's customer and product names, which would cost a read
+on every agent turn for every user; a name that resolves to nothing comes back
+with the candidates instead.
+
 ## Data model
 
 New `billing_*` store modules in `platform/alo-store` (one file per

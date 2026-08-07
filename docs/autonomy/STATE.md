@@ -3449,3 +3449,186 @@ Next item: B1.25 (★ the billing agent tools — `create_invoice_draft`,
 `quote_to_invoice`, `draft_payment_reminder` in the allowlist, with executors
 reusing the B1 store functions, propose-then-approve, and structural
 wire-verification with no model calls).
+
+---
+
+## B1.25 — the billing agent: three tools, and every one of them ends in a draft
+
+ADR 0034's shape is "one framework, many thin agents": a product agent is a
+tool set and a paragraph, not a second system. This is the first product to
+prove that seam, and the shape it took is the shape B2–B6 will copy.
+
+What shipped:
+
+- **`alo-ai/src/agent_billing.rs`** (new) — billing's contribution to the one
+  agent: `BILLING_TOOLS` (the three names), `BILLING_TOOL_DOC` (what each takes)
+  and `BILLING_GUIDANCE` (the paragraph that stops a model inventing a document
+  number). Text and names only; nothing in the crate acts.
+- **`alo-ai/src/agent.rs`** — the system prompt is now *assembled*
+  (`system_prompt()`: head → core tools → each product's tools → its guidance →
+  the output contract) instead of being one constant, and `is_agent_tool()` is
+  the single allowlist across products. A test asserts the described set and the
+  executable set are **equal**, so a tool cannot exist in one and not the other.
+- **`alo-store`** — `billing_invoice_id_by_number` and
+  `billing_quote_id_by_number`: the lookup that turns the name a person uses
+  ("INV-2026-00042") into something the store can act on. Case-insensitive,
+  trimmed, otherwise exact; a draft has no number and is unreachable by it.
+- **`alo-jmap/src/agent_billing.rs`** (new) — the three executors, the name
+  resolution, and the argument rules. **No agent-only write path**: each one
+  calls the same store function the corresponding `/billing/*` route calls.
+- **`alo-jmap/src/billing_reminder.rs`** (new) — what a reminder *says*, as its
+  own module and its own string table, because B1.26's manual dunning view will
+  send through this same template.
+- **`alo-jmap/src/agent.rs`** — three dispatch arms and the allowlist call. A
+  product's rules live in the product's module; this match stays a dispatcher.
+- **Web** — `AgentActionCard` previews the three (customer + line list for an
+  invoice, the quote number, the invoice number), each with a plain note saying
+  what approving does. The card shows **no money at all**: quantities and
+  descriptions only, because the totals are the server's.
+
+The decisions, recorded as as-built in `docs/design/billing.md`:
+
+- **Names in, ids out.** A model never sees an id. A customer or product name
+  resolves against *this tenant's active* records: exact match first (so a
+  customer literally called "Acme" is reachable even when "Acme Holding BV"
+  exists), then a unique containment. **Two matches is a `422` that lists
+  them** — an agent that picked one would eventually invoice the wrong company,
+  and a document sent to the wrong party cannot be unsent.
+- **Money arrives whole; a quantity is read by its digits.** Prices are integer
+  cents and rates basis points, and `119.99` in `unitPriceCents` is refused
+  rather than rounded. A quantity may be written `1.5`, and `milli_from_decimal`
+  turns it into 1500 by reading the characters — no float multiplication touches
+  anything that later multiplies a price. An exponent, a fourth decimal place,
+  a thousands separator or a quantity past the store's cap are all `None`.
+- **Every tool ends in a draft.** A draft invoice, a draft invoice from an
+  accepted quote, a mail draft. Nothing issues, numbers, or sends — the three
+  irreversible acts of billing stay where a human performs them.
+- **The reminder is text only.** The customer already has the invoice; whether
+  the manual dunning view re-attaches the PDF is B1.26's decision, not one to
+  pre-empt here.
+- **An unknown document number is a `422`, not a `404`.** The route exists and
+  the request is well formed; it is the *name in it* that resolves to nothing —
+  the same class of answer an unknown customer name gets.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-ai -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings); `cargo test` green across all three
+crates, including the new `billing_by_number.rs` tenancy suite and 12 new pure
+tests over the argument rules, the reminder letter and the prompt/allowlist
+agreement. Web: `npx tsc --noEmit`, `npx eslint`, `npm run build` all clean.
+
+Tenancy, at the store: two tenants number from their own sequences, so A and B
+**both** hold `INV-2026-00001` — that is what a per-tenant gapless series means,
+and it makes this lookup the one place where a leak would hand a stranger a real
+document rather than a `None`. The test proves B asking for that number gets
+**B's own** document, that A's id is not readable through B's door even when B
+holds it, and that a number only A has is nothing at all to B.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `agentwire`, `agentwireb`).
+No model was called anywhere: `/ai/agent` (propose) answers `unconfigured` as it
+should, and every line below is the **execute** path, which is the acting one.
+
+```
+POST /ai/agent/execute                      (no token)  -> 401
+POST … {"tool":"delete_invoice"}                        -> 400 "unknown tool"
+create_invoice_draft, no customer           -> 422 "which customer this is for is required"
+create_invoice_draft, "Hovercraft BV"       -> 422 "no customer of yours is called Hovercraft BV"
+create_invoice_draft, "Kunde"               -> 422 "more than one customer matches Kunde: Kunde
+                                                    Nord GmbH, Kunde & Söhne GmbH — say which"
+create_invoice_draft, lines: []             -> 422 "an invoice needs at least one line"
+line product "consult"                      -> 422 "line 1: more than one product matches consult:
+                                                    Consulting, Consulting retainer — say which"
+line product + unitPriceCents               -> 422 "line 1: state a product or a price, not both…"
+line unitPriceCents 119.99                  -> 422 "line 1: unitPriceCents must be a whole number
+                                                    of cents, not 119.99"
+line quantity "1.2345"                      -> 422 "line 1: … at most three decimal places"
+create_invoice_draft (the real one)         -> 200  draft gSRhaJSX… · EUR · 3 lines
+       "kunde & söhne gmbh" (lower case) → Kunde & Söhne GmbH
+       7.5 × Consulting from the price list, 120 km travel stated, −1 discount
+       net 83040 · gross 98213   (hand-check: 90000 + 5040 − 12000 = 83040 net;
+       19% of 78000 = 14820, 7% of 5040 = 353 → VAT 15173 → gross 98213)
+GET  /billing/invoices/{id}                 -> 200  the same figures, lines in the order proposed,
+                                                    qtyMilli 7500/120000/−1000, status draft,
+                                                    number null — the agent numbered nothing
+quote_to_invoice, no number                 -> 422 "the quote number is required"
+quote_to_invoice "QUO-2026-09999"           -> 422 "no quote of yours is numbered QUO-2026-09999"
+quote_to_invoice "  quo-2026-00001  "       -> 200  draft PX7mWWhO… from QUO-2026-00001,
+                                                    net 190000 · gross 226100 (the offer's prices)
+quote_to_invoice (the same, again)          -> 409 "a quote cannot become accepted while it is
+                                                    accepted; it is closed and cannot change again"
+draft_payment_reminder "INV-2026-00099"     -> 422 "no invoice of yours is numbered INV-2026-00099"
+draft_payment_reminder (due today)          -> 200  draft u--o68Bc… · daysOverdue 0 ·
+                                                    outstanding 181500 · to buchhaltung@kunde.test
+draft_payment_reminder (14 days late)       -> 200  daysOverdue 14
+  (payment of 500.00 recorded)
+draft_payment_reminder (part paid)          -> 200  daysOverdue 14 · outstanding 131500
+draft_payment_reminder (settled in full)    -> 409 "this invoice is settled; there is nothing to
+                                                    remind about"
+draft_payment_reminder (a credit note)      -> 409 "a credit note is money owed to the customer…"
+draft_payment_reminder (a void invoice)     -> 409 "a void invoice has been cancelled…"
+draft_payment_reminder (customer w/o email) -> 422 "this customer has no email address"
+draft_payment_reminder (a 501-char note)    -> 422 "the added note may be at most 500 characters"
+  the neighbour's door (tenant B's token):
+draft_payment_reminder "INV-2026-00001"     -> 422 "no invoice of yours is numbered INV-2026-00001"
+quote_to_invoice "QUO-2026-00001"           -> 422 "no quote of yours is numbered QUO-2026-00001"
+create_invoice_draft "Kunde & Söhne GmbH"   -> 422 "no customer of yours is called Kunde & Söhne
+                                                    GmbH"   (B holds 0 billing rows, 0 messages)
+```
+
+The letter itself, read back out of the stored blob (base64-decoded from the
+saved draft, not from the response):
+
+```
+Dear Kunde & Söhne GmbH,
+
+Invoice INV-2026-00001 for EUR 1 815.00 was payable by 2026-07-24 and is now 14 days overdue.
+
+EUR 500.00 has been received against it, leaving EUR 1 315.00 outstanding.
+
+Your reference: PO-2026-4
+
+If you have already sent the payment, please accept our thanks and ignore this message.
+
+Kind regards,
+Alo Werkplaats B.V.
+```
+
+`psql` afterwards: **exactly three** messages exist in the tenant — the three
+successful reminders — every one in **Drafts** with the `$draft` keyword and
+none anywhere else. No refusal wrote a draft. (To exercise the overdue wording
+the due date of one local row was moved back 14 days with `psql`; the invoice
+was otherwise issued through the ordinary route.)
+
+Cuts and flags:
+
+- **CUT — documents are not in the agent's retrieval sources.** The workspace
+  index holds mail, files, tasks and events, so a billing tool is proposed from
+  what the user *said*, not from a source number; the prompt says so and an
+  unknown number is a clean `422`. Indexing invoices and quotes for retrieval is
+  a real item (it would also let the agent answer "what is Acme's oldest unpaid
+  invoice") and a human should schedule it.
+- **CUT — the propose path is not grounded with customer and product names**,
+  the way `move_to_folder` is grounded with folder names. That is a read per
+  agent turn for every user, billing or not; instead a name that resolves to
+  nothing comes back with the candidates. Revisit if real use shows the model
+  guessing names badly.
+- **NOT VERIFIED WITH A MODEL, by design** (the loop's no-paid-API rail): the
+  prompt is asserted by tests, and everything downstream of the proposal is
+  verified on the wire. Whether a real model reliably emits `unitPriceCents`
+  rather than `119.99` is the one thing only a human with a configured backend
+  can settle — worth ten minutes at the first model wiring.
+- **A quantity is the only decimal the model may write.** If that turns out to
+  be a mistake in practice, the fix is to make it integer milli-units too, not
+  to start rounding.
+- **fr/nl** for the reminder's own string table (and the card's new strings)
+  join at the B1.27 wave review, with the rest of billing.
+- **`cargo fmt` was NOT run crate-wide**, per the standing note: only the files
+  this item wrote or touched were formatted (which reordered one pre-existing
+  `use` line in `alo-ai/src/agent.rs` into 2024 style).
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05. This item adds **no new route at all**: the three tools
+  ride the existing `POST /ai/agent/execute`.
+
+Next item: B1.26 (manual dunning — a reminder draft per overdue invoice from the
+overdue view, one click, reusing the `billing_reminder` template this item
+built).

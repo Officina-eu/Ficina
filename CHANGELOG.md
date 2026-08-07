@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- **Ask alo can now do the billing paperwork — and never more than paperwork.**
+  Three new things you can ask for in plain language: *"invoice Kunde for 7.5
+  hours of consulting and 120 km travel"* raises a **draft** invoice, pricing
+  each line from your price list when you name a product; *"the customer
+  accepted QUO-2026-00001"* closes that quote and raises the draft invoice for
+  it, with the offer's own prices; *"remind them about INV-2026-00042"* writes a
+  reminder — how late it is, what is still owed, what has already arrived — into
+  your **Drafts** for you to read and send. As always, alo shows you what it
+  will do and waits for you to approve; and as with every billing action, none
+  of these issues a document, assigns a number, or sends any mail. If it cannot
+  tell which customer or product you meant, it says which ones it found and asks
+  — it never picks one. A settled, cancelled or unissued invoice, or a credit
+  note, is refused with the reason instead of being chased.
+
 - **alo Billing: a supplier's e-invoice can now be read in, not just written
   out.** Upload the XML file a supplier sent — Factur-X (CII) or XRechnung
   (UBL) — and it becomes a **bill**: their company and address, their number
