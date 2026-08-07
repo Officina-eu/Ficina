@@ -479,6 +479,8 @@ fast-follow · **[S+]** = later. Built by the Sites track loop
 - [S1] ★ Privacy-first analytics: daily aggregate visits + referrer domains, no IPs, no cookies, no consent banner — proven by tests
 - [S1] ★ AI copy tools per section: rewrite, tone, shorten/lengthen — propose-then-approve
 - [S2] ★ Whole-site AI translation (multilingual EU sites in one click) with language switcher
+- [S2] ★ **Collections — structured content from alo Base** (the CMS layer): repeatable content (menu items, team members, portfolio projects, FAQs) lives as an alo Base table, and a collection-backed section renders its rows — add a row, the site updates on next publish. One brain: the tables product IS the CMS; AI can fill/translate rows propose-then-approve. Includes per-collection field mapping (column → card title/image/price) and empty-state handling.
+- [S2] **Site-editor role**: invite a colleague (e.g. the marketing person) who can edit and publish the site — and only the site: no mail, no files, no workspace admin (on Spaces permissions, same pattern as the accountant role).
 - [S2] Version history + rollback UI; scheduled publishing; password-protected pages
 - [S2] Image handling: crop/focus, AI alt-text, responsive srcset
 - [S+] Simple catalog storefront (order-by-form, no checkout); booking-page section (ties to Agenda); custom-code blocks (sandboxed); template gallery
