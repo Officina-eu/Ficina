@@ -19,6 +19,29 @@ contracts.
   `alo-sites` container with `SITES_DOMAIN` and wildcard DNS pointed at it;
   nothing else changes.)
 
+- **alo Billing: invoice in another currency, and keep your books in yours.**
+  Your billing details now name the **currency you keep books in** — euro unless
+  you say otherwise — and you can invoice a customer in any currency alongside
+  it. Under that setting you keep the **exchange rates**: paste the European
+  Central Bank's published rate file (the daily one, or its whole history), or
+  type a single rate by hand. Nothing is fetched on your behalf, so the rates
+  your books are converted at are a file you chose, and a file with one bad value
+  changes nothing at all rather than importing half of itself.
+  When you issue a foreign-currency invoice, the rate of that day is **frozen on
+  the document** — the day's published rate, or the last one published before it,
+  which is what the VAT rules ask for. The document then prints its VAT a second
+  time in your own currency with the rate beside it, which is what makes it a
+  valid invoice outside the euro; the same figures appear on screen and in the
+  PDF. A credit note converts at the rate of the invoice it corrects, so the two
+  cancel exactly in your books. An invoice in a currency you have no rate for is
+  **not** issued: it says so and stays a draft, rather than being numbered at a
+  rate nobody published.
+  The **VAT report** now ends with the whole period in your accounting currency —
+  every document at the rate frozen on it — which is the figure a return is
+  copied from. Each currency still gets its own table above it, and if anything
+  in the period could not be converted the report says how many documents that
+  is, on screen and in the CSV, instead of quietly leaving them out.
+
 - **alo Billing: the VAT figures for a period, in one screen.** Billing has a
   new **VAT report** tab: pick two dates — or click **This quarter** or **Last
   quarter** — and see what you billed at each VAT rate between them, with the

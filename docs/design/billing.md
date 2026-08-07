@@ -258,7 +258,8 @@ extractor, registered in `server.rs`):
 | `POST /billing/invoices/{id}/issue` | assign number, freeze (B1.10) |
 | `POST /billing/invoices/{id}/void` | cancel an issued document, keeping its number (B1.10) |
 | `POST /billing/invoices/{id}/credit-note` | create the crediting invoice (B1.10) |
-| `GET /billing/settings`, `PATCH /billing/settings` | the issuer's own identity and bank details (B1.16) — **as built** |
+| `GET /billing/settings`, `PATCH /billing/settings` | the issuer's own identity, bank details and accounting currency (B1.16, B1.21) — **as built** |
+| `GET /billing/fx/rates`, `PUT /billing/fx/rates`, `POST /billing/fx/rates/import` | the exchange rates a tenant's foreign-currency documents are converted at (B1.21) — **as built** |
 | `GET /billing/invoices/{id}/print[?lang=]`, `GET /billing/quotes/{id}/print[?lang=]` | the printable document as one self-contained HTML page (B1.16) — **as built** |
 
 As-built (B1.10), for the invoice routes specifically:
@@ -380,8 +381,13 @@ is a figure a human is legally answerable for once they copy it onto a return:
   customers hold; recomputing it from the total would differ by cents from the
   paperwork, and a return that disagrees with its own invoices is the defect
   this rule exists to prevent.
-- **Currencies are never added together.** One group per currency, each
-  self-contained, until the rate snapshots of B1.21 make a conversion honest.
+- **Currency groups are never added together** — one group per currency, each
+  self-contained — **and then the whole period is stated once in the tenant's
+  accounting currency** (B1.21), which is the figure a return is actually filed
+  from. Every document is converted at the rate frozen on *it*, never at
+  today's rate, and a document whose snapshot cannot be applied is counted as
+  **unconverted** rather than being assigned a rate nobody used: the surface says
+  how many, because a tax total quietly missing a document is worse than none.
 
 Both `from` and `to` are **required** (`422` otherwise, naming which end is
 wrong): a report that defaulted to a period would put a figure under a heading
@@ -395,6 +401,83 @@ accountant's own tooling, so it does not move with the user's interface
 language. It is served as an `attachment`, `nosniff`, `no-store`, like the PDF.
 It carries **no customer data at all** — currencies, rates, amounts and counts,
 and nothing that names anybody.
+
+### Invoicing in another currency (as built, B1.21)
+
+A document may be raised in any currency; the tenant's books are kept in one
+(`billing_settings.base_currency`, defaulted to `EUR` — a tenant that has said
+nothing still keeps books in something). What joins the two is a **rate frozen on
+the document when it is issued**, and everything else here follows from that
+choice.
+
+**Why a snapshot and not a lookup.** EU VAT Directive art. 91 fixes the
+conversion rate at the moment the tax becomes chargeable — the issue date, under
+the invoice-based scheme this report already lives by — and art. 230 requires the
+VAT payable to be expressed in the member state's own currency on the document
+itself. Both are facts about the document, so both live on it, exactly like its
+number and its dates. Re-deriving the rate at read time would restate last
+year's invoice the moment a rate row was corrected.
+
+**The rate is an integer, quoted the way the ECB quotes it**: micro-units of the
+document's currency per one unit of the accounting currency (`1 EUR = 1.162600
+USD` is `1162600`). Money never touches a float, and keeping the published
+direction preserves the precision of the far currencies (the yen's six honest
+decimals rather than its reciprocal's four). Crossing an amount is therefore a
+division, rounded **half away from zero** — the one rounding convention
+`billing_totals` already uses, so a credit note stays the exact mirror of its
+original *after* conversion and a corrected period still sums to zero in the
+books. A document is converted **per VAT-rate subtotal**, and its restated total
+is the sum of those rows, because a return is filed per rate.
+
+**The rate table is tenant-scoped**, although published rates are a public fact:
+a tenant is audited against the file *it* imported, some member states prescribe
+a different published series than the ECB's, and a shared table would let one
+tenant's import restate another's books (law 1). The volume is about thirty rows
+per working day.
+
+**Nothing is ever fetched.** `POST /billing/fx/rates/import` parses a
+reference-rate file the caller supplies (the ECB's `eurofxref` CSV — the daily,
+90-day and full-history files share one layout), and `PUT /billing/fx/rates`
+takes one rate by hand as the decimal it was published as. An import is **all or
+nothing**: one bad cell changes nothing and answers a `422` naming the row and
+the column, because half an imported day would convert the next document from
+rates the tenant believes it imported in full. A data row with more values than
+the header names currencies is refused too — that is what a rate written with a
+`,` decimal separator looks like, and importing it as a whole number would
+misstate every amount it touched.
+
+**Which rate a document gets.** The last publication at or before the issue date
+— art. 91(2)'s "last preceding date of publication", which is what makes a
+Sunday invoice convert at Friday's rate — and **never** one more than seven days
+old (the longest real gap in the series is four days: Easter, Christmas). A
+document in the accounting currency takes the identity rate and needs no table at
+all. An issuer that keeps books outside the euro gets the **cross** of two euro
+quotes *from the same publication day*, computed once and snapshotted, so the
+number on the document is the number that was applied.
+
+**Issuing is refused when no rate is available** (`422`, naming the currency and
+the day): without one the document cannot state its VAT in the member state's
+currency, so it would be legally incomplete, and the draft is left unnumbered
+rather than issued at a guessed rate.
+
+**A credit note inherits its original's rate**, not the rate of the day it was
+raised. The correction relates to the supply the original invoiced, and at one
+rate the pair cancels exactly while at two it leaves a residue in the books that
+nothing on either document explains. This is the strict reading flagged for human
+review in `docs/autonomy/STATE.md`: member-state practice varies, and a tenant
+whose authority requires the correction's own date would need a per-tenant
+choice, which is deliberately not invented here.
+
+**On the paper**, a foreign-currency invoice prints its VAT a second time in the
+accounting currency, with the rate and the publication day beside it, in both the
+HTML page and the PDF — so the figure can be recomputed from the document alone.
+A document already in that currency prints one figure, not the same figure twice.
+
+**Not built here:** the ECB's daily *XML* file (the CSV covers every published
+period, and a second parser is a second thing to be wrong), a per-tenant choice
+of credit-note rate, and ISO 4217 minor-unit exponents — every amount is stored
+in hundredths, which is right for conversion and is a *display* question the
+e-invoice of B1.22 has to answer.
 
 ### Sending an invoice (as built, B1.18)
 
@@ -450,18 +533,17 @@ column, struct field, or computation anywhere in this module.
   `billing_customers`, so the `/archive` route and the pickers behave
   identically across the module). Prices are in the tenant's default
   currency; the document carries the currency it was raised in, and
-  B1.21's FX snapshot converts. A price-list *source* for lines, not a
+  B1.21's FX snapshot converts it for the books. A price-list *source* for lines, not a
   foreign key the line depends on — see the line snapshot rule below.
 - **`billing_invoices`** — customer ref, status
   `draft | issued | paid | void`, currency, optional number (NULL while
   draft), issue date, due date, payment terms snapshot, credit-note
   type flag with a nullable `credits_invoice_id` self-reference, and
-  the stored FX rate snapshot for multi-currency (B1.21).
+  the stored FX rate snapshot for multi-currency (B1.21 — **as built**).
   As-built (B1.06): also `reference` (the customer's PO number) and
   `note`, both printed on the document; the currency and terms are
   snapshotted from the customer when the draft is raised, and a new
-  document cannot be raised for an **archived** customer. The FX column
-  is not in the table yet — it arrives, additively, with B1.21. The
+  document cannot be raised for an **archived** customer. The
   status/number/date invariants are enforced by CHECK constraints as
   well as in Rust: a draft is exactly a document with no number and no
   dates, so an abandoned draft can never consume a number, and

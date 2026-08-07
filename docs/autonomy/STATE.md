@@ -2662,3 +2662,225 @@ Cuts and flags:
 Next item: B1.21 (multi-currency: currency on customer/invoice, an ECB
 reference-rate table with a rate snapshot taken at issue, and the VAT report
 converting with it).
+
+## B1.21 — invoicing in another currency, and the rate frozen on the document
+
+Multi-currency, end to end: the currency a tenant keeps books in, the reference
+rates it imports, the rate **frozen on a document when it is issued**, and the
+VAT summary stating the whole period once in the accounting currency — the
+figure a return is actually filed from.
+
+The queue item's own wording ("currency on customer/invoice") was already true
+from B1.02/B1.06, so what this iteration built is everything that makes those
+columns mean something.
+
+What shipped:
+
+- **`0110_billing_fx.sql`** — additive and expand-only: `base_currency` on
+  `billing_settings` (default `EUR`, shape-checked), the tenant-scoped
+  `billing_fx_rates` table (currency × publication day → integer micro-units per
+  euro, with `source` `ecb|manual`), and the three snapshot columns on
+  `billing_invoices` (`fx_base_currency`, `fx_rate_micro`, `fx_rate_date`)
+  constrained to move together and never to sit on a draft. Existing issued
+  documents are backfilled with the identity rate **only where that is
+  demonstrably true** — where the document's currency equals the tenant's base
+  currency — so a foreign-currency document from before the snapshot existed
+  keeps NULL and is reported as unconverted rather than being handed a rate
+  nobody applied.
+- **`billing_fx.rs`** (pure) — what a rate *is* and how an amount crosses. A rate
+  is an integer of micro-units of the quoted currency per one unit of the base,
+  the direction the ECB publishes in (so the yen keeps six honest decimals rather
+  than its reciprocal's four); crossing is therefore a division, in `i128`,
+  rounded **half away from zero** — `billing_totals`' own convention, made
+  `pub(crate)` and shared rather than restated, because it is what keeps a credit
+  note the exact mirror of its original *after* conversion. A document is
+  converted **per VAT-rate subtotal** and its restated total is the sum of those
+  rows, since a return is filed per rate. `parse_rate`/`format_rate` read and
+  print the published decimal with no float anywhere.
+- **`billing_fx_ecb.rs`** (pure) — the published `eurofxref` file: the daily,
+  90-day and full-history variants share one layout, so one parser reads all
+  three. `N/A` and blank cells are gaps, a `EUR` column is the identity and is
+  ignored, and a malformed rate fails the **whole** import naming its row and
+  column. A data row with more values than the header names currencies is refused
+  too — that is exactly what `1,1626` looks like after a `,`-decimal file is
+  saved, and importing it as `1.0` would misstate every amount it touched.
+- **`billing_fx_rates.rs`** — the rows: manual upsert, all-or-nothing import (one
+  transaction, deduplicated per currency-day, chunked `unnest` insert), a bounded
+  list read, and `snapshot_at`, which answers the one question an issue asks.
+  "On this day" is the last publication **at or before** it (art. 91(2)'s "last
+  preceding date of publication", which is why a Sunday invoice converts at
+  Friday's rate) and never more than **7 days** old — the longest real gap in the
+  series is four days, so anything longer is a missing import, not a holiday. A
+  non-euro issuer gets the **cross of two euro quotes of the same publication
+  day**, computed once and snapshotted, so the document states one auditable
+  figure rather than a pair a reader has to re-cross.
+- **Issuing freezes it** (`billing_invoices.rs`): the base currency and the rate
+  are read inside the same transaction as the number and the dates. A document in
+  the accounting currency takes the identity rate and needs no table at all; a
+  foreign-currency one with no usable rate is **refused** (`422`) and stays an
+  unnumbered draft, because an invoice that cannot state its VAT in the member
+  state's currency is legally incomplete. `InvoiceDocument::base_totals()` /
+  `InvoiceSummary::base_totals()` are the one place a surface asks "what is this
+  worth in the books".
+- **The VAT summary** (`billing_vat_report.rs`) keeps its per-currency groups —
+  the paperwork — and adds the period once in the accounting currency, each
+  document converted at **its own** frozen rate, never at today's. A document
+  whose snapshot cannot be applied (none stored, or one naming a different base)
+  is counted as `unconvertedCount` and is in **no** base figure; the JSON, the
+  CSV and the screen all say how many, because a tax total quietly missing a
+  document is worse than no total.
+- **HTTP** — `GET /billing/fx/rates` (currency/period filters), `PUT
+  /billing/fx/rates` (one rate as the published decimal — a **string**, never a
+  JSON float), `POST /billing/fx/rates/import` (`text/csv` body, 8 MiB cap).
+  `baseCurrency` joins `/billing/settings`; every invoice response carries `fx`
+  and, when there is something to restate, `baseTotals`; the report answers
+  `base` plus per-group base figures, and the CSV grows a `baseRate`/`baseTotal`
+  row kind and an appended `unconverted` column (additive: a consumer reading by
+  name is unaffected).
+- **On the paper** — the HTML print view and the PDF both print a `VAT in EUR`
+  row and the sentence "VAT converted at 1 EUR = 1.1626 USD, the reference rate
+  published on …". This is not decoration: art. 230 permits any currency on the
+  document *provided* the VAT payable is also expressed in the member state's
+  own. A document already in the accounting currency prints one figure, not the
+  same figure twice; a quote prints none (an offer is not a tax point).
+- **Web** — the accounting currency and a compact **exchange rates** panel
+  (list, one-rate form, paste-a-file import) in the billing settings page, under
+  the setting that gives them meaning; the VAT report ends with the period in the
+  accounting currency, rendered **only** when it says something the tables above
+  do not, with the unconverted count shown as an alert. The browser still
+  computes no money: it renders the server's cents and the server's formatting of
+  the stored rate integer.
+
+How it was verified — the gate, then the wire against the local backend (docker
+`alo-pg` + the debug `alo-jmap` on 127.0.0.1:8080, two freshly bootstrapped
+tenants `wireb121`/`wireb121b`, real password-grant tokens):
+
+```
+Rust:  rustfmt on the changed files only (see the note below); clippy
+       -p alo-store -p alo-jmap --all-targets clean; cargo test both crates
+       green — incl. the new billing_fx suites (store: import/correction/
+       all-or-nothing, art. 91 look-back and the 7-day bound, issue freezes
+       + refuses, credit-note inheritance nets to zero, a PLN issuer's cross
+       rate, and one tenant's rates never reaching another's documents;
+       http: the three routes' 401s and 422s, the arc, the settings surface).
+Web:   npx tsc --noEmit; npx eslint (changed files); npm test (168);
+       npm run build — clean.
+
+GET  /billing/fx/rates                        (no token)  -> 401
+PUT  /billing/fx/rates                        (no token)  -> 401
+POST /billing/fx/rates/import                 (no token)  -> 401
+GET  /billing/settings                                    -> 200 baseCurrency EUR, stated false
+POST /billing/fx/rates/import  (the daily file, 3 quotes) -> 200 {rates 3, days 1,
+                                                                 currencies 3, from=to=today}
+GET  /billing/fx/rates                                    -> 200 JPY 171.42 / PLN 4.2755 /
+                                                                 USD 1.1626, source "ecb"
+PUT  /billing/fx/rates {CHF, today, "0.9385"}             -> 200 CHF 938500 "0.9385" manual
+PUT  … rate "1,1626"                                      -> 422 "…positive decimal with at most
+                                                                 6 decimal places…"
+PUT  … rate "0"                                           -> 422 (same wording, not micro-units)
+PUT  … currency EUR                                       -> 422 "reference rates are quoted
+                                                                 against the EUR…"
+PUT  … currency "US"                                      -> 422 "…three-letter ISO 4217 code"
+PUT  … date "07/08/2026"                                  -> 422 "date must be a day of the form
+                                                                 YYYY-MM-DD"
+PUT  … rate 1.1626 (a JSON number)                        -> 400 malformed request body
+POST /billing/fx/rates/import  (JPY cell "17O.98")        -> 422 "row 2, column JPY: …"
+       and the stored USD rate is untouched afterwards    -> 1.1626
+POST /billing/fx/rates/import  ("1,1626")                 -> 422 "row 2: more values than the
+                                                                 header names currencies…"
+GET  /billing/fx/rates?from=07/08/2026                    -> 422 "from must be a date …"
+
+  the arc (customer in USD, 1 × $500.00 at 21 %):
+GET  /billing/invoices/{draft}                            -> 200 fx null, no baseTotals
+POST /billing/invoices/{id}/issue                         -> 200 INV-2026-00001
+                                                 fx {EUR, 1162600, "1.1626", today}
+                                                 totals   50 000 / 10 500 / 60 500 (USD)
+                                                 baseTotals 43 007 /  9 031 / 52 038 (EUR)
+POST /billing/invoices/{SEK draft}/issue                  -> 422 "no exchange rate for SEK
+                                                 published on or within 7 days before …"
+       and it is still a draft with no number             -> status draft, number null
+GET  /billing/invoices/{id}/print                         -> 200 "VAT in EUR</th><td>EUR 90.31"
+                                                 + "VAT converted at 1 EUR = 1.1626 USD, the
+                                                    reference rate published on 2026-08-07."
+GET  /billing/invoices/{id}/pdf                           -> 200 %PDF-, 6 203 bytes
+       rate moved to 1.30, then:
+POST /billing/invoices/{id}/credit-note + /issue          -> 200 INV-2026-00002 fx "1.1626"
+                                                 baseTotals −43 007 / −9 031 (the pair cancels)
+POST /billing/invoices/{next}/issue                       -> 200 fx "1.3" (per document, not
+                                                                 per tenant)
+GET  /billing/reports/vat?from=today&to=today             -> 200 EUR group 25 000/2 250 → base
+                                                                 25 000/2 250
+                                                                 USD group 130 000/27 300 → base
+                                                                 100 000/21 000
+                                                                 base EUR 125 000/23 250/148 250,
+                                                                 byRate [(900,25 000,2 250),
+                                                                         (2100,100 000,21 000)],
+                                                                 unconverted 0
+  a legacy document (its snapshot nulled by hand in psql, which is the only way
+  to make one):
+GET  /billing/reports/vat                                 -> 200 USD group base 56 993,
+                                                                 unconverted 1; base 81 993/
+                                                                 14 219, unconverted 1
+GET  /billing/reports/vat.csv                             -> 200 total,…,USD,,1300.00,273.00,
+                                                                 1573.00,2,1,1
+                                                                 baseTotal,…,EUR,,819.93,142.19,
+                                                                 962.12,,,1
+GET  /billing/invoices/{that one}                          -> 200 fx null, no baseTotals
+
+  tenant B (its own door):
+GET  /billing/fx/rates                                    -> 200 []            (A imported; B has none)
+GET  /billing/reports/vat                                 -> 200 currencies [], base EUR 0
+POST /billing/invoices/{B's USD draft}/issue              -> 422 "no exchange rate for USD…"
+PATCH/billing/settings {baseCurrency:"pln"}               -> 200 baseCurrency PLN
+PATCH/billing/settings {baseCurrency:"ZLOTY"}             -> 422 "…three-letter ISO 4217 code"
+POST /billing/invoices/{B's USD draft}/issue  (after B's own import)
+                                                          -> 200 fx {PLN, 271921, "0.271921"}
+                                                 $100.00 → zł 367.75  (1.1626 / 4.2755, crossed
+                                                 once from one publication day)
+GET  /billing/reports/vat  (B)                            -> 200 base PLN 36 775, unconverted 0
+```
+
+Cuts and flags:
+
+- **HUMAN REVIEW (compliance) — a credit note inherits its original's rate.**
+  The strict reading taken here: art. 91 fixes the rate at the tax point of the
+  supply, the correction relates to that supply, and at one rate the pair cancels
+  exactly while at two it leaves a residue in the books that nothing on either
+  document explains. Member-state practice varies, and a tenant whose authority
+  requires the correction's *own* date would need a per-tenant choice. That
+  choice is deliberately **not** invented; it is recorded in
+  `docs/design/billing.md` and needs a human decision before any tenant outside
+  the euro-area default relies on it.
+- **HUMAN REVIEW (compliance) — the 7-day rate look-back.** Art. 91(2) says the
+  last preceding publication and states no limit. Refusing to reach further than
+  seven days is *our* guard against converting from a stale import (the longest
+  real gap in the published series is four days). It can only ever refuse an
+  issue, never misstate money, but it is a rule we invented and a human should
+  confirm it rather than discover it.
+- **The ECB's daily XML file is not parsed** — the CSV covers every published
+  period (daily, 90-day, full history) and a second parser is a second thing to
+  be wrong. Recorded in the design note as a deliberate cut.
+- **ISO 4217 minor-unit exponents are not modelled.** Every amount is stored in
+  hundredths, which is *correct for conversion* (both sides cancel), but a yen
+  document displays two decimals it does not have. It is a display question and
+  it belongs with B1.22, where the e-invoice has to state the exponent.
+- **A per-tenant choice of rate source** (a national authority's series instead
+  of the ECB's) is representable — the table is the tenant's own and `source`
+  records where a row came from — but there is no UI for saying "these are HMRC
+  rates". Cut deliberately; the import surface already accepts any file in that
+  layout.
+- **fr/nl are missing for the new strings**, on the same seam as the rest of the
+  wave: they land together at B1.27.
+- **`cargo fmt` was NOT run crate-wide**, per the standing note on this machine:
+  rustfmt 1.9.0 rewrites hundreds of pre-existing lines. Only the files this item
+  touched were formatted, after checking each was already clean at `HEAD` — and
+  running rustfmt on `lib.rs` reformatted seven unrelated modules it reaches
+  through `mod`, which were reverted. Worth knowing before the next iteration:
+  **never hand rustfmt a `lib.rs` here.**
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05: the production Caddyfile must add it at the next deploy.
+  This item adds no new prefix (the rate routes are under `/billing/fx/*`).
+
+Next item: B1.22 (★ Factur-X: EN 16931 CII XML from an issued invoice, embedded
+into the PDF as a PDF/A-3 attachment, with golden-file tests against the official
+sample set and schematron validation in the suite).
