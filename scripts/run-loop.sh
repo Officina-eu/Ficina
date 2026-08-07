@@ -32,21 +32,34 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "[loop] halted by the agent — fix the reason in STATE.md, remove the marker, restart."; break
   fi
 
-  # One iteration, with a hang guard: a stalled API stream once froze the
-  # Windows loop for a whole night, so the worker runs in the background and
-  # is killed if it exceeds the timeout — the item is redone next iteration.
+  # One iteration, with an IDLE-based hang guard: a truly hung worker goes
+  # silent (its session transcript stops growing) while an honest long item
+  # keeps writing — a duration-only guard once executed 90 min of honest
+  # work. Kill after IDLE_KILL_MIN of transcript silence; the ceiling is the
+  # absolute backstop. The killed item is redone next iteration.
   # --dangerously-skip-permissions is required for unattended runs; the hard
   # safety rails live in LOOP.md and the repo's deny rules.
+  proj_key="$(printf '%s' "$REPO" | sed 's#[/: ]#-#g')"
+  transcripts="$HOME/.claude/projects/$proj_key"
+  start_epoch=$(date +%s)
+
   claude -p "$PROMPT" --dangerously-skip-permissions &
   cpid=$!
-  waited=0
-  tmo=$(( ${ITERATION_TIMEOUT_MIN:-90} * 60 ))
+  idle_kill=$(( ${IDLE_KILL_MIN:-20} * 60 ))
+  ceiling=$(( ${ITERATION_CEILING_MIN:-240} * 60 ))
   code=""
   while kill -0 "$cpid" 2>/dev/null; do
     sleep 30
-    waited=$((waited + 30))
-    if [ "$waited" -ge "$tmo" ]; then
-      echo "[loop] iteration exceeded $((tmo / 60)) min — killing the hung worker."
+    now=$(date +%s)
+    newest=$(find "$transcripts" -name '*.jsonl' -newermt "@$((start_epoch - 60))" 2>/dev/null \
+      -exec stat -f %m {} \; 2>/dev/null | sort -rn | head -1)
+    if [ -z "$newest" ]; then newest=$start_epoch; fi
+    idle=$(( now - newest ))
+    reason=""
+    if [ "$idle" -ge "$idle_kill" ]; then reason="silent for $((idle / 60)) min"; fi
+    if [ $(( now - start_epoch )) -ge "$ceiling" ]; then reason="hit the $((ceiling / 60))-min ceiling"; fi
+    if [ -n "$reason" ]; then
+      echo "[loop] killing the worker — $reason."
       kill -TERM "$cpid" 2>/dev/null; sleep 10; kill -KILL "$cpid" 2>/dev/null
       # Drop half-done uncommitted state so the next iteration starts clean.
       git rebase --abort >/dev/null 2>&1

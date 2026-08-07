@@ -11,7 +11,8 @@ param(
   [string]$RepoPath = "C:\dev\Ficina",
   [string]$Track = "business",       # business | sites (LOOP.md Tracks table)
   [int]$MaxIterations = 500,         # hard backstop against runaway loops
-  [int]$IterationTimeoutMin = 90     # a hung worker is killed after this long
+  [int]$IdleKillMin = 20,            # kill a worker SILENT this long (true hang)
+  [int]$IterationCeilingMin = 240    # absolute per-iteration backstop
 )
 $ErrorActionPreference = "Continue"
 Set-Location $RepoPath
@@ -38,11 +39,13 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
   if ($state -match "LOOP COMPLETE") { Write-Host "[loop] queue complete - stopping."; break }
   if ($state -match "LOOP HALT")     { Write-Host "[loop] halted by the agent - fix the reason in STATE.md, remove the marker, restart."; break }
 
-  # One iteration, with a hang guard: a stalled API stream once froze the loop
-  # for a whole night, so the worker runs as a child process that gets killed
-  # if it exceeds the timeout — the item is simply redone next iteration.
-  # --dangerously-skip-permissions is required for unattended runs; the hard
-  # safety rails live in LOOP.md and the repo's deny rules.
+  # One iteration, with an IDLE-based hang guard: a truly hung worker goes
+  # silent (its session transcript stops growing), while an honest long item
+  # keeps writing constantly — a duration-only guard once executed 90 minutes
+  # of honest work. So: kill after $IdleKillMin of transcript silence, with
+  # $IterationCeilingMin as the absolute backstop. The killed item is simply
+  # redone next iteration. --dangerously-skip-permissions is required for
+  # unattended runs; the hard safety rails live in LOOP.md + repo deny rules.
   if ($claude -like "*.ps1") {
     $file = "powershell"
     $cliArgs = @("-ExecutionPolicy","Bypass","-File",$claude,"-p","`"$prompt`"","--dangerously-skip-permissions")
@@ -50,14 +53,35 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
     $file = $claude
     $cliArgs = @("-p","`"$prompt`"","--dangerously-skip-permissions")
   }
+  # Transcript dir for this repo (path with [:\ ] as '-'), where activity shows.
+  $projKey = ($RepoPath -replace "[:\\ ]", "-")
+  $transcripts = Join-Path $env:USERPROFILE ".claude\projects\$projKey"
+  $started = Get-Date
+
   $proc = Start-Process -FilePath $file -ArgumentList $cliArgs -NoNewWindow -PassThru
-  if (-not $proc.WaitForExit($IterationTimeoutMin * 60 * 1000)) {
-    Write-Host "[loop] iteration exceeded $IterationTimeoutMin min - killing the hung worker."
-    taskkill /PID $proc.Id /T /F 2>$null | Out-Null
-    # Drop any half-done, uncommitted state so the next iteration starts clean
-    # (local commits survive — only unpushed edits of the killed run are lost).
-    git rebase --abort 2>$null | Out-Null
-    git checkout -- . 2>$null | Out-Null
+  $killed = $false
+  while (-not $proc.WaitForExit(30 * 1000)) {
+    $now = Get-Date
+    $newest = Get-ChildItem "$transcripts\*.jsonl" -ErrorAction SilentlyContinue |
+      Where-Object { $_.LastWriteTime -gt $started.AddSeconds(-60) } |
+      Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $idleMin = if ($newest) { ($now - $newest.LastWriteTime).TotalMinutes }
+               else { ($now - $started).TotalMinutes }
+    $reason = $null
+    if ($idleMin -ge $IdleKillMin) { $reason = "silent for $([int]$idleMin) min" }
+    elseif (($now - $started).TotalMinutes -ge $IterationCeilingMin) { $reason = "hit the $IterationCeilingMin-min ceiling" }
+    if ($reason) {
+      Write-Host "[loop] killing the worker - $reason."
+      taskkill /PID $proc.Id /T /F 2>$null | Out-Null
+      # Drop half-done, uncommitted state so the next iteration starts clean
+      # (local commits survive - only unpushed edits of the killed run are lost).
+      git rebase --abort 2>$null | Out-Null
+      git checkout -- . 2>$null | Out-Null
+      $killed = $true
+      break
+    }
+  }
+  if ($killed) {
     $code = 124
   } else {
     # PS quirk: after a timed WaitForExit, ExitCode can read null until a
