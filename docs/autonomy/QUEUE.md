@@ -68,7 +68,7 @@ small, or a `[!]` note for the human if large.
 ## Wave B3 — alo Projects & Timesheets
 
 - [x] B3.01 Design note `docs/design/projects.md` (client-project typing over existing task projects, time model, approval, rates).
-- [ ] B3.02 Store: client-project extension (customer link, budget hours/cents, hourly rate) on existing task projects + tests.
+- [x] B3.02 Store: client-project extension (customer link, budget hours/cents, hourly rate) on existing task projects + tests.
 - [ ] B3.03 Migration + store: `time_entries` (user, project, task nullable, started/minutes, billable, note, rate snapshot cents) + CRUD + tests incl. wrong-tenant.
 - [ ] B3.04 Timer routes: start/stop (one running per user, stop writes entry) + manual entry + weekly list; wire transcript.
 - [ ] B3.05 Approval: weekly submit → manager approve/reject; approved entries lock (edit → typed error). Tests for the lock.

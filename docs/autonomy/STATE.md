@@ -7347,3 +7347,132 @@ Next item: B3.02 (the client-project extension — migration `0122_project_clien
 plus the `project_clients` store module: customer link, currency, hourly rate,
 budget in hours or money, start date, the `team`-only rule, and the mandatory
 wrong-tenant test).
+
+## 2026-08-08 — B3.02 client projects (migration + store)
+
+The first B3 code, and the first row alo has that says *this board is work we
+bill somebody for*. A client project is a `task_projects` row with one
+`project_clients` row beside it — a second lens on rows that already exist,
+never a second project list (`docs/design/projects.md`, "One project list,
+extended").
+
+- **Migration `0122_project_clients.sql`** — one table, tenant-scoped,
+  `PRIMARY KEY (tenant_id, project_id)`: the project *is* the key, so "which
+  client facts apply here" has exactly one answer and the question cannot be
+  asked twice. Two **composite** foreign keys —
+  `(tenant_id, project_id) → task_projects` and
+  `(tenant_id, customer_id) → billing_customers`, both `ON DELETE CASCADE` —
+  so an engagement can only ever name a board and a customer of its **own**
+  tenant; the tenancy rule is in the schema, not only in the query predicate.
+  Four defence-in-depth CHECKs the store also enforces in Rust (currency
+  shape, and the rate/budget-minutes/budget-cents ranges), plus
+  `project_clients_by_customer` for the read B3.06 will make. Money is
+  integer cents, time is integer minutes: **the table has no floating-point
+  column at all**.
+- **`platform/alo-store/src/project_clients.rs`** — `NewProjectClient`
+  (with `for_customer`, the "everything else is honestly absent"
+  constructor), `ProjectClient` (`is_priced()`), the pure `normalize`, and
+  five functions on `AccountStore`: `set_project_client` (the idempotent
+  whole-record set behind `PUT /projects/{id}/client`), `project_client`,
+  `project_clients`, `project_clients_for_customer`, `clear_project_client`.
+  Two public bounds on `lib.rs`: `BUDGET_MINUTES_MAX` (10^7 minutes,
+  ~19 person-years) and `BUDGET_CENTS_MAX` (10^11 cents). No new id newtype
+  — the key is the existing `ProjectId`.
+
+Five decisions worth naming, all in the module docs:
+
+- **`tasks.rs` was not touched, and that was the point.** A side table means
+  the file that owns boards never learns about money (law 3), and the join is
+  a `LEFT JOIN` — a project with no row here *is* an internal project, with no
+  sentinel value to misread.
+- **A personal board gets two different denials depending on whose it is.**
+  Client facts may only hang on a `team` project (the design note's rule: work
+  somebody else approves and a customer is billed for is not private work).
+  Your **own** personal board answers `Validation("client facts can only be
+  attached to a team project")` — you can already see it, so the honest answer
+  is the rule you broke. A **colleague's** answers `NotFound`, because naming
+  the rule would confirm a row you have no right to know exists. Both are
+  proven by tests.
+- **The rate borrows `billing_field::unit_price_cents`'s ceiling rather than
+  growing one of its own.** A rate becomes an invoice line's unit price at the
+  handoff (B3.06), and a rate and a price must not disagree about what a legal
+  amount is.
+- **An unstated currency is the customer's own, snapshotted.** Copied at write
+  time and thereafter the engagement's, so a customer who later changes billing
+  currency never silently restates a running project — the reason a billing
+  line snapshots its price instead of joining the price list.
+- **An unpriced engagement is legal; an archived one cannot be started.**
+  Client facts without a rate are normal (the person logging the hour is often
+  not the person who prices it); what is refused is *billing* an unrated hour,
+  and that guard lives in B3.06. Attaching facts to an archived project or an
+  archived customer is a `Validation` naming the rule — but archiving a
+  customer afterwards never retracts a running engagement, the rule an issued
+  invoice already lives by (tested).
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store --all-targets` clean
+(zero warnings); `cargo test -p alo-store` green against the local Postgres —
+30 suites, no failures, including **8 new unit tests** (currency resolution
+from either source and its rejection, the shared rate ceiling at both ends,
+both budgets carried at once, absent-is-not-zero, `is_priced`) and the new
+`project_clients_tenancy` suite (**6 tests**). That suite proves the whole arc
+(attach → read → replace → detach), that a replace is one engagement and not
+two and keeps its `created_at` while clearing unstated fields, that detaching
+twice is a clean denial and leaves the board itself standing, that **another
+tenant gets `NotFound`/empty on every path** — read, list, list-by-customer,
+set, clear — that a ghost id is indistinguishable from a foreign one, that our
+customer cannot be attached to their board nor theirs to ours, that a
+co-tenant reads the same engagement while a personal board never appears in
+the list, that every bound is refused before the column sees it and that the
+ceilings are inclusive, and that deleting the project — or the tenant — takes
+the client facts with it, read back with a direct `count(*)` rather than
+through the store's own tenant predicate. `\d project_clients` inspected on
+the live local database: all three cascades, the four CHECKs and both indexes
+are on the table as written. `rustfmt --edition 2024` applied to the two new
+files only (the standing finding that `cargo fmt` on this machine rewrites
+hundreds of pre-existing lines).
+
+No new routes (B3.04), so no wire verification applies; nothing user-visible
+yet, so no CHANGELOG line — the first B3 one lands with B3.04's routes.
+
+Cuts and flags:
+
+- **FLAG — the wave gate is still unmet, and this item shipped a migration
+  anyway.** `ROADMAP.md` gates B2 on "B1 live with ≥1 real tenant"; B1, B2 and
+  BI-1 remain code-complete and undeployed, and deploying is a human action the
+  loop is forbidden to take (LOOP.md safety rails). Same judgement B2.02
+  recorded: the gate is about *shipping* to users, and this migration is
+  additive, unreleased and reversible by not deploying it. **A human should
+  confirm or move the gate**; if the answer is "hold", nothing built from B2.02
+  onward has left this repository.
+- **HUMAN ACTION (standing, unchanged) — `/projects` becomes a new top-level
+  route prefix at B3.04**, needing the production Caddyfile entry and the
+  `API_PATHS` line in `web/vite.config.ts`. Still no route exists.
+- **`tasks.rs` has no archive-a-project function**, so the "an archived project
+  cannot take on client work" test writes `task_projects.archived` with direct
+  SQL rather than through a store call. The *reader* is production code and is
+  what the test exercises; the missing writer is a Tasks gap, not a B3 one, and
+  is left where it is rather than growing this item into `tasks.rs` — the one
+  file this wave promised not to touch.
+- **`created_by` is deliberately absent from `project_clients`.** The design
+  note lists the columns and does not include it; who made a project client
+  work is an audit question, and `projects` joins `AUDITED_MODULES` at B3.04
+  where the mutating routes exist to be audited. A provenance column with no
+  reader is a column that drifts.
+- **Deferred to the items that create the rows, not forgotten:** the engagement
+  list's *hours to date* and *budget consumption* (B3.03 writes the entries,
+  B3.08 folds them), and the route layer's zip of `task_projects()` with
+  `project_clients()` so an internal project appears with no client facts
+  rather than not at all (B3.04). Everything B3.02 could actually check, it
+  checks.
+- **`docs/design/projects.md` is untouched by this item.** The queue assigns
+  "design docs as-built" to the wave review (B3.11), and nothing built here
+  deviates from the note — the table, the bounds, the team-only rule, the
+  snapshotted currency and the advisory budgets are all exactly as designed.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`) —
+  unchanged. A pinned `rust-toolchain.toml` is still the fix and still a human
+  item.
+
+Next item: B3.03 (migration `0123_time_entries.sql` plus the `time_entries`
+store module — the caller's own entries through the account door, the
+`work_date` grain, the 1…1440-minute bound, the rate/currency snapshot, the
+`proposed` state, and the mandatory wrong-tenant **and wrong-user** tests).
