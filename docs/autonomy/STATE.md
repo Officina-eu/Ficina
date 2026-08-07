@@ -6754,3 +6754,148 @@ Cuts and flags:
 Next item: BI1.06 (the gallery of prebuilt specs and the zero-setup Business
 overview, seeded per tenant on first visit — the item that makes the empty state
 above disappear).
+
+## 2026-08-07 — BI1.06: the board that is already there
+
+A tenant that opens Insights for the first time is handed a **Business
+overview** that is already answering: seven prebuilt questions over its own
+invoices and deals, no builder, no setup form, no clicks. Beside it, a gallery
+of ten ready-made charts that pin to any board.
+
+`platform/alo-store/src/insight_overview.rs` — the prebuilt questions and the
+seed:
+
+- **The questions are built from the typed model, never from JSON literals.**
+  `revenue_by_month`, `outstanding`, `overdue_aging`, `vat_by_quarter`,
+  `top_customers`, `payments_by_month`, `pipeline_by_stage`, `won_this_month`,
+  `win_rate_by_quarter`, `won_by_month` — each a `fn() -> ChartSpec` over the
+  closed catalog, so a question the compiler accepts is a question the catalog
+  offers. A unit test walks the *whole* gallery through the same write gate a
+  caller's spec meets, round-trips it through the stored JSON, and checks it
+  dates itself the way it reads (a chart that narrows on one date while drawing
+  another is a sentence nobody could read off the screen; `won_this_month` says
+  `period_on: closed_at`, because "won this month" is about the day a deal
+  closed).
+- **The overview is real rows**, seven of them, written with the board in one
+  transaction — the design note's decision, unchanged: a virtual board would be
+  a second kind of dashboard, one nobody can rename, reorder or extend.
+- **No English in the store.** The board's name and each tile's caption arrive
+  from the edge, in the language of whoever opened Insights first, the CRM
+  pipeline-seed seam exactly (`insights_gallery.rs`, en/fr/nl). The store
+  validates them as strictly as anything a user types and invents nothing.
+
+**The design note's guard was not enough, and the item fixed it rather than
+restating it.** The partial unique index on `(tenant_id, system_key)` makes the
+seed race-free but cannot make it *once*: delete the overview and the key is
+free again, so every following visit would hand it back — which the note had
+already promised would not happen. Migration `0121_insight_seeds.sql` adds the
+two-column ledger the promise needs (`tenant_id, system_key`, primary key,
+`ON DELETE CASCADE` with the tenant), written in the same transaction as the
+board with `ON CONFLICT DO NOTHING`. The primary key decides a race — exactly
+one inserter goes on to write the board — and the row's permanence is what
+makes a thrown-away overview stay thrown away. `insert_dashboard` and
+`insert_tile` became `pub(crate)` transaction helpers so a seeded board and a
+typed one are the same rows through the same gate (`insert_stage`'s shape, for
+its reason).
+
+At the edge, `products/mail/alo-jmap/src/insights_gallery.rs`:
+
+- `GET /insights/gallery` → each entry's `key`, `module`, `viz`, `span` and the
+  **spec itself** — and no words at all. The client translates the key, and the
+  caption a reader was looking at is what the tile stores; pinning is the
+  ordinary `POST …/tiles`, so the gallery is a set of good defaults rather than
+  a privileged path into the store.
+- `GET /insights/dashboards[?lang=]` is now **the route that seeds**, the one
+  Insights route that writes. It is a first-use rule, not an every-read one.
+- *Deviation from the note, recorded:* the gallery is its own route rather than
+  part of `GET /insights/catalog`. The catalog is a *builder's* vocabulary and
+  BI-1 ships no builder — the ask (BI1.07) proposes whole specs and the gallery
+  offers whole specs — so the catalog route arrives with its first caller. A
+  route serving a vocabulary nothing consumes is a contract nobody checks.
+
+`web/src/insights/GalleryDialog.tsx` + `BoardGrid` — **Add a chart** on every
+board and on a board's empty state, entries grouped by module, the words from
+`i18n/en.ts` keyed by the server's key (an entry this build has no words for is
+shown under its key rather than hidden), and the picked spec sent straight back
+for the server to validate. `api.dashboards()` now carries `?lang=` from the
+interface locale, because that read is the one that writes.
+
+Verified:
+
+```
+cargo fmt -p alo-store -p alo-jmap                              clean
+   (fmt also reformatted six unrelated alo-jmap files it found
+    already unformatted — reverted, not this item's)
+SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap --all-targets   zero warnings
+cargo test -p alo-store -p alo-jmap  (real Postgres)   93 suites, 1250 tests, green
+  · insight_overview unit tests — 5 new (the whole gallery through the gate)
+  · tests/insight_overview_seed.rs — 4 new: the first visit, a concurrent
+    first visit (tokio::join! → exactly one board, whole), every prebuilt
+    question answering on a fresh tenant, and the ledger purged with the tenant
+  · tests/insights_http.rs — 2 new (seed arc + gallery), 3 updated
+npx tsc --noEmit · npx eslint src/insights src/i18n/en.ts · npm run build   clean
+npx vitest run                                31 files, 259 tests, green
+  · src/insights/InsightsModule.test.tsx — 4 new (first visit lands on the
+    seeded board and asks in the reader's language; the gallery's words are
+    ours and the pinned spec is the server's verbatim; closing pins nothing;
+    a refusal stays on screen)
+```
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, a tenant bootstrapped for the run, rows read back with psql:
+
+```
+GET /insights/gallery · GET /insights/dashboards   (no bearer)   → 401 ×2
+POST /billing/customers → 200 · POST /billing/invoices → 200
+POST /billing/invoices/{id}/issue → 200  net 25000 vat 5250 INV-2026-00001
+
+GET /insights/dashboards?lang=fr-BE                → 200  boards 1
+    "Aperçu de l'activité" · seeded true · systemKey business_overview
+GET /insights/dashboards/{id}                      → 200  tiles 7, in order:
+    Créances en cours (number, span 1, pos 1) · Gagné ce mois-ci (number, 2)
+    Chiffre d'affaires par mois (bar, 3) · Retards par ancienneté (bar, 4)
+    Pipeline par étape (bar, 5) · TVA par trimestre (bar, 6)
+    Taux de réussite par trimestre (line, 7) — all readable:true
+GET /insights/tiles/{id}/data  (all seven)         → 200 ×7
+    revenue this month 25000  == the invoice's net, to the cent
+    VAT this quarter   5250   == the invoice's VAT
+    outstanding        30250  == its gross, unpaid
+GET /insights/dashboards?lang=nl                   → 200  still 1 board,
+    still "Aperçu de l'activité" (the captions are the tenant's data now)
+GET /insights/gallery                              → 200  10 entries,
+    each key/module/viz/span/spec and NO title field · overview lists the 7
+POST …/tiles ×10 (every gallery spec, own board)   → 200 ×10, viz as offered
+POST /insights/eval ×10 (the same specs, ad hoc)   → 200 ×10
+422: a spec from the future ("unsupported chart schema_version 2") ·
+     an invented measure (the message lists the vocabulary)
+psql: insight_seeds 1 · insight_dashboards 1 · insight_tiles 7 for the tenant
+DELETE the overview → 200; GET /insights/dashboards → 0 boards, and the
+     insight_seeds row is still there: it does not come back.
+```
+
+Cuts and flags:
+
+- **No tile builder, still.** BI-1's way to pin a question is the gallery; a
+  dataset→measure→dimension builder has no queue item and would need the
+  catalog route. Both wait for BI1.07's neighbourhood or BI-2.
+- **A CRM tile on a brand-new tenant reads "Nothing to show for this period",
+  not "€0".** Deal money is grouped per currency, and a tenant with no deals has
+  no currency — so the series is empty rather than a zero in a currency nobody
+  chose. That is the engine's honesty rule from BI1.03 and it is right, but it
+  means two of the seven tiles are wordy on day one; whether the *screen* should
+  render an empty money series as a dashed zero is a product call, flagged for
+  the wave review (BI1.08).
+- **The seed does not respect the 30-board cap**, deliberately: a tenant that
+  hand-made thirty boards before ever listing them still gets its overview. A
+  runaway guard is not worth withholding the one board the product promises.
+- **fr/nl of the new *client* strings are untranslated** — BI1.08 owns them, as
+  for CRM. The *seeded board's* words are already en/fr/nl, because the store
+  writes them once and a wrong language there is permanent.
+- Standing human actions, unchanged: **`/insights` must be added to the
+  production Caddyfile at the next deploy** (beside `/billing`, `/crm`,
+  `/audit`), and the ROADMAP gate on B2 ("B1 live with ≥1 real tenant") is still
+  unmet.
+
+Next item: BI1.07 (ask-to-chart — NL → ChartSpec through alo-ai, strict parse
+with one repair retry, fixture-verified with no live model calls, and the
+propose-then-approve card that pins the preview).

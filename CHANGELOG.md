@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **Insights now opens on your business, with nothing to set up.** The first
+  time anyone in your company opens Insights, a **Business overview** board is
+  already there and already answering: what you are owed, what you won this
+  month, revenue month by month, how overdue your money is, the pipeline by
+  stage, VAT by quarter and your win rate — live figures from your own invoices
+  and deals, without a single click, a builder or a setup form. It is an
+  ordinary board from the moment it exists: rename it, widen a chart, take one
+  off, and if you delete the board it stays deleted. It is written once, in the
+  language you were using when you opened Insights, and the captions are yours
+  to rename after that. Beside it, an **Add a chart** picker offers ten
+  ready-made questions across Billing and Sales — top customers, payments
+  received, deals won by month among them — that pin to any board in one click.
+
 - **Insights: your numbers now have a screen.** A new tab in the workspace,
   beside Billing and Sales, where the figures your business already produces are
   charts you can look at: boards you name and arrange, each holding tiles that
@@ -17,8 +30,7 @@ contracts.
   Charts draw in your language, down to the months on an axis, and every chart
   is also present as a table for a screen reader. Widen a tile, move it, rename
   it or take it off the board; a chart pinned by a newer version of alo says so
-  instead of leaving a hole. Choosing *which* questions to pin — the gallery and
-  the ready-made business overview — arrives in the next slice.
+  instead of leaving a hole.
 
 - **Your website can now keep what visitors send it.** Under the surface, every
   site gained a place for contact forms and their submissions: each message a

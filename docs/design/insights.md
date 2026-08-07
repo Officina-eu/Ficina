@@ -44,8 +44,9 @@ All under one new top-level prefix, `/insights` (RFC 9457 `Problem` bodies,
 
 | Route | Does |
 |---|---|
-| `GET /insights/catalog` | the whitelisted datasets, measures, dimensions, filters, allowed pairings, and the gallery entries — the single source of truth the builder UI offers from |
-| `GET /insights/dashboards` | the tenant's dashboards (seeding the Business overview on first read, BI1.06) |
+| `GET /insights/catalog` | the whitelisted datasets, measures, dimensions, filters and allowed pairings — the single source of truth a builder UI would offer from. **Not built in BI-1**: it has no caller until a builder exists (see below) |
+| `GET /insights/gallery` | the prebuilt questions and the keys the Business overview is built from (as-built, BI1.06) |
+| `GET /insights/dashboards[?lang=]` | the tenant's dashboards, **seeding the Business overview on the first read** (BI1.06); `lang` names that board and its tiles, and does nothing on any later read |
 | `POST /insights/dashboards` | create |
 | `GET /insights/dashboards/:id` | one dashboard with its tiles, in layout order |
 | `PATCH /insights/dashboards/:id` | rename |
@@ -279,13 +280,39 @@ worse than a slow number. Caching is a BI-2 question with an invalidation
 design behind it.
 
 **The Business overview (BI1.06)** is a set of prebuilt specs in Rust —
-revenue by month, outstanding, overdue aging, VAT by period, pipeline by
-stage, won this month, win rate — materialised into real dashboard and tile
-rows the first time a tenant opens Insights, inside one transaction guarded
-by the `system_key` index. *Rejected: rendering the overview virtually from
-code on every visit.* It would be a second kind of dashboard that cannot be
-edited, reordered or extended, and the first user request would be to change
-one tile on it. Seeding rows means there is exactly one dashboard model.
+outstanding, won this month, revenue by month, overdue aging, pipeline by
+stage, VAT by quarter, win rate — materialised into real dashboard and tile
+rows the first time a tenant opens Insights, inside one transaction.
+*Rejected: rendering the overview virtually from code on every visit.* It
+would be a second kind of dashboard that cannot be edited, reordered or
+extended, and the first user request would be to change one tile on it.
+Seeding rows means there is exactly one dashboard model.
+
+**As-built at BI1.06: "once" is its own row.** This note first guarded the
+seed with the `system_key` index alone. That index makes the seed *race-free*,
+but it cannot make it *once*: the moment a tenant deletes the overview, the
+key is free again and every following visit would hand it back. So migration
+`0121_insight_seeds.sql` adds a two-column ledger — `insight_seeds
+(tenant_id, system_key)`, written in the same transaction as the board,
+`ON CONFLICT DO NOTHING` — and the seed asks that table rather than the
+dashboards table. The primary key is what decides a race (exactly one
+inserter writes the board); the row's permanence is what makes a thrown-away
+overview stay thrown away. The tile *specs* are built from the typed
+[`ChartSpec`] model rather than JSON literals, and a unit test walks every
+prebuilt question through the same write gate a caller's spec meets, because
+a prebuilt chart that fails validation is a dead tile on a board nobody asked
+for.
+
+**The gallery is `GET /insights/gallery`,** not part of the catalog route.
+The catalog (datasets, measures, dimensions, the compatibility matrix) exists
+for a *builder*, and BI-1 ships no builder — the ask (BI1.07) proposes whole
+specs, and the gallery offers whole specs. A route serving a vocabulary
+nothing consumes is a contract nobody checks, so the catalog route arrives
+with its first caller. An entry carries `key`, `module`, `viz`, `span` and
+the spec itself, **and no words**: the client translates the key, and the
+caption a reader picked is what the tile stores. Pinning one is the ordinary
+`POST …/tiles` with the ordinary write gate — the gallery is a set of good
+defaults, never a privileged path into the store.
 
 ## The ask (BI1.07)
 
@@ -415,8 +442,9 @@ use:
 - `platform/alo-store/src/insight_overview.rs` — the prebuilt specs and the
   idempotent per-tenant seed.
 - `products/mail/alo-jmap/src/insights.rs` (dashboards/tiles),
-  `insights_eval.rs` (eval + tile data), `insights_catalog.rs` (catalog +
-  gallery), `insights_ask.rs` (BI1.07).
+  `insights_eval.rs` (eval + tile data), `insights_gallery.rs` (as-built: the
+  gallery route and the seed's words in en/fr/nl), `insights_ask.rs`
+  (BI1.07).
 - `platform/alo-ai/src/insights.rs` — the NL → ChartSpec envelope.
 - `web/src/insights/**` — the tab, the grid, five renderers, the builder, the
   ask card, and the single `chart/` wrapper around ECharts.
