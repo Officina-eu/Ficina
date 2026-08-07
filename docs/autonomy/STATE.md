@@ -3966,3 +3966,11 @@ Cuts and flags — the honest end-of-wave list:
   real user. This item adds no route of its own.
 
 Next item: B2.01 (the CRM design note, `docs/design/crm.md`) — wave B2 begins.
+
+*Correction, same iteration:* commit `eb80850` went out **without** the
+`Co-Authored-By: Claude …` trailer — the transparency record of which agent made
+the change (CLAUDE.md, "one agent per working tree"). Same slip as `0364163` at
+B1.09, and the same resolution: it was already pushed when noticed, rewriting
+pushed history is forbidden by the loop's safety rails, so the commit stands and
+the gap is recorded here. The authorship itself is correct (the repository
+owner, as configured). The trailer is present on this correction.
