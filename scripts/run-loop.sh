@@ -51,9 +51,18 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   while kill -0 "$cpid" 2>/dev/null; do
     sleep 30
     now=$(date +%s)
-    newest=$(find "$transcripts" -name '*.jsonl' -newermt "@$((start_epoch - 60))" 2>/dev/null \
-      -exec stat -f %m {} \; 2>/dev/null | sort -rn | head -1)
-    if [ -z "$newest" ]; then newest=$start_epoch; fi
+    # Newest transcript write overall (macOS stat -f, GNU stat -c fallback).
+    # The worker creates/writes its transcript within seconds of starting, so
+    # newest-overall tracks the CURRENT session almost immediately.
+    newest=$(find "$transcripts" -name '*.jsonl' -exec stat -f %m {} \; 2>/dev/null | sort -rn | head -1)
+    if [ -z "$newest" ]; then
+      newest=$(find "$transcripts" -name '*.jsonl' -exec stat -c %Y {} \; 2>/dev/null | sort -rn | head -1)
+    fi
+    if [ -z "$newest" ] || [ "$newest" -lt "$start_epoch" ] 2>/dev/null && [ $(( start_epoch + 120 )) -gt "$now" ]; then
+      # First two minutes: give the worker time to open its transcript.
+      newest=$start_epoch
+    fi
+    [ -z "$newest" ] && newest=$start_epoch
     idle=$(( now - newest ))
     reason=""
     if [ "$idle" -ge "$idle_kill" ]; then reason="silent for $((idle / 60)) min"; fi
