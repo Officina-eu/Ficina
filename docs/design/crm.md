@@ -62,8 +62,8 @@ extractor, registration in `server.rs`, and the store-error map in
 | `GET /crm/deals/{id}/thread-suggestions[?limit]` | candidate conversations, computed over the **requesting user's own** mail (B2.05). *As built:* `limit` is a page size and is **clamped** (1…50, default 10) rather than refused — it is not an assertion about the data, so the strict-filter rule does not apply to it |
 | `GET/POST /crm/deals/{id}/activities`, `DELETE /crm/activities/{id}` | notes and logged calls (B2.06). *As built:* there is no `PATCH` — an activity is written once, and a correction is another note |
 | `GET/POST /crm/deals/{id}/next-steps` | the tasks linked to the deal, and the door that creates one (B2.06). *As built:* **plural, with a `GET`**, rather than the `POST …/next-step` this note first wrote. The drawer has to read them back — "shows due in deal" is half the item — and every other CRM collection (`/threads`, `/stages`) is a plural noun carrying both verbs; two spellings of one relationship is a contract nobody can guess |
-| `POST /crm/deals/{id}/quote`, `POST /crm/deals/{id}/invoice` | the won-deal handoff to billing: a **draft** quote or invoice for the deal's customer, answering the created document (B2.08) |
-| `GET /crm/reports/pipeline?pipelineId&from&to[&format=csv]` | value by stage and win/loss for a period (B2.08) |
+| `POST /crm/deals/{id}/quote`, `POST /crm/deals/{id}/invoice` | the won-deal handoff to billing: a **draft** quote or invoice for the deal's customer, answering the created document **and the deal** (B2.08) — raising one can give a lead a customer, so the card comes back changed. Body: `{vatRateBp?, country?}`; **not restricted to won deals** (quoting an open deal is how it is won), only a deal recorded as *lost* is refused |
+| `GET /crm/reports/pipeline?pipelineId&from&to`, `GET /crm/reports/pipeline.csv?…` | value by stage and win/loss for a period (B2.08). *As built:* **two paths, not a `?format=`** — the shape billing's VAT summary settled on, because a URL that names its representation is the one a browser saves under a sensible name and a script quotes without a query string, and two modules answering "give me the CSV" two different ways is a seam a reader has to remember |
 | `POST /crm/imports/leads/preview`, `POST /crm/imports/leads` | CSV mapping preview, then the commit (B2.09) |
 
 Five conventions the CRM routes hold themselves to, so the surface
@@ -172,6 +172,33 @@ hands off to the mail module rather than rendering a message inside CRM.
   option, which would show the wrong column and turn an idle click into
   a move.
 
+*As built (B2.08) — closing a deal, and the report the tab now has.*
+
+- **The `reports` tab exists now**, as the third one, and it is the only
+  CRM screen that shows a total. It renders **two tables per currency**,
+  not one: the open board by stage, and what closed in the period. They
+  answer different questions — the first is a snapshot as it stands, the
+  second is bounded by the two days — and one table would invite reading
+  a column across both.
+- **The lost reason is a picker with a free-text field**, not a plain
+  prompt and not a closed list. The store takes any string, so a fixed
+  vocabulary here would be a rule invented by a screen; but a reason
+  nobody can answer in one click is a reason nobody enters. The
+  suggestions fill the field, and the field is what is sent.
+- **The handoff is offered from the deal drawer**, on any deal that is
+  not lost, as *Quote* and *Invoice*. It asks for exactly what the deal
+  cannot answer — the VAT rate of its line, and the country of a
+  customer about to be created from a lead — and nothing else; the
+  question is skipped entirely when the deal makes it unnecessary. It
+  shows the server's total and then hands off to `/billing/…/{id}`
+  rather than rendering a document a second time.
+- **`saveTextFile` moved from `web/src/billing` to `web/src/platform`.**
+  Saving a fetched export is a browser mechanism, not a module's rule,
+  and the pipeline report is its second caller — moving it was cheaper
+  and truer than a copy. `formatRate`, `quarterOf` and
+  `previousQuarterOf` stayed in billing and are read through its public
+  `index.ts`, because a quarter and a rate *are* rules billing owns.
+
 ## Data model
 
 New `crm_*` store modules in `platform/alo-store` (one file per
@@ -279,6 +306,68 @@ would mean picking today's rate for money that may arrive next quarter —
 a number that changes when nobody changed anything and reconciles
 against nothing. A tenant who wants one number can ask for it after the
 deal is invoiced, where a real rate exists.
+
+### What the report's period actually bounds (B2.08)
+
+**The period bounds the outcomes, and not the stage rows.** Won and lost
+are the deals whose `closed_at` falls inside `[from, to]` — the snapshot
+frozen on each of them, so re-flagging a column next year never rewrites
+last year's win rate. Value by stage is the **open board as it stands
+now**, unfiltered, and the answer says so out loud (`openAsOf`).
+
+**Rejected: applying the period to the open rows too.** A column has no
+history to date a deal by. The stage events say when a deal moved, so
+"what stood in Proposal on 31 March" is answerable — but it is a
+reconstruction over a different table with its own edge cases (a deal
+raised and closed inside the period, a column archived since), and it is
+a different report. Pretending the period applied here would put a
+figure under a heading it does not belong to, which is the one thing a
+number on a manager's screen must not do.
+
+The **win rate is counted by deals, not by value**, and it is basis
+points — an integer, like every other ratio in alo. "We win one in
+three" is the sentence a sales team acts on; a value-weighted rate
+swings on one large deal. Over no closed deals it is `null`, not zero: a
+rate over nothing is unanswered, and a client that drew `0` there would
+be saying "we lost everything".
+
+### Winning a deal raises a draft, and never more (B2.08)
+
+`POST /crm/deals/{id}/quote|invoice` is the one place CRM writes into
+billing, and three rules keep that seam narrow.
+
+- **It raises a draft.** No number is consumed from the gapless
+  sequence, nothing is issued, nothing is sent. What happens to the
+  document afterwards is billing's, through billing's own routes.
+- **A lead becomes a customer, once.** A deal that already names a
+  `billing_customers` row bills that row; one that does not creates it
+  from the deal's own company/contact fields and **writes it back onto
+  the deal**, so a second document bills the same company rather than a
+  twin of it. The company name is required — naming a customer after the
+  *opportunity* ("Renewal — Acme GmbH") would put a sentence where a
+  legal name belongs on every document that follows — and the country is
+  asked for, because it decides VAT treatment and is the one fact a
+  customer needs that a deal does not carry.
+- **The VAT rate is stated by the caller, never guessed.** A deal
+  carries one number and a line needs a rate; choosing one on the
+  tenant's behalf would be a compliance statement made by a machine. So
+  a priced deal demands `vatRateBp` and a deal worth nothing raises an
+  **empty** draft — a header for the right customer that a human prices,
+  rather than a line worth zero, which would be a zero-rated supply
+  nobody meant to declare.
+
+**Not restricted to won deals.** Quoting an open deal is ordinary sales
+— the quote is often how it is won — so the only lifecycle rule here is
+that a deal somebody has recorded as *lost* is not a thing to invoice
+for. Reopening it makes it billable again, as a reopen makes everything
+else about it true again.
+
+**Known, and deliberate:** billing's writes are not transactional with
+the deal's, so two callers racing the handoff on the same lead can leave
+one unused customer row behind (the link is written only while the deal
+still has none, so the loser bills the winner's customer rather than
+overwriting it). Holding a lock across another module's writes to avoid
+an archivable empty row would be the worse trade.
 
 ## Pipelines and stages — the decision
 
@@ -647,7 +736,12 @@ this one).
 | Listing with an `ownerUserId` who owns nothing (as built, B2.04) | — | `200`, empty |
 | A move (`POST …/stage`, `POST /crm/stages/{id}/move`) that does not say where (as built, B2.04) | — (route edge) | `422` |
 | Creating a deal without a `pipelineId` **or** without a `stageId` (as built, B2.04) | — (route edge) | `422` |
-| Report `from`/`to` malformed, or `from` after `to` | — (route edge) | `422` |
+| Report `from`/`to` malformed or absent, or a report with no `pipelineId` (as built, B2.08) | — (route edge) | `422` |
+| Report `from` after `to` (as built, B2.08) | `Validation` | `422` |
+| Raising a document from a deal recorded as **lost** (as built, B2.08) | `Validation` | `422` |
+| Raising a document from a **priced** deal without stating `vatRateBp` (as built, B2.08) | `Validation` | `422` |
+| Raising a document from a lead with no `companyName`, or with no valid two-letter `country` (as built, B2.08) | `Validation` | `422` |
+| Raising a document from a deal worth more than one line may carry (as built, B2.08: 10^9 cents) | `Validation` | `422` |
 | Import file that is not readable CSV, has no header row, or exceeds the row cap | `Validation` | `422` |
 | Import commit where any row is invalid (all-or-nothing) | `Validation` | `422` + the per-row report |
 

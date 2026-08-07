@@ -46,7 +46,7 @@ small, or a `[!]` note for the human if large.
 - [x] B2.05 ★ Deal↔mail linking: store table deal_threads; suggest-by-domain (pure fn over message from-addrs) requiring user confirm; routes; tests prove another tenant's thread can never be linked.
 - [x] B2.06 Activities on a deal: notes + next-step (creates a real Task via existing tasks store, linked); shows due in deal. Tests + routes.
 - [x] B2.07 Web: pipeline kanban (reuse Tasks board interaction), deal drawer (value, stage, activities, linked threads with open-in-mail), list view + filters. Build clean; manual path in STATE.md.
-- [ ] B2.08 Win/loss: closing flow (won → optional link to create quote/invoice B1; lost → reason picker), simple per-pipeline value-by-stage report + CSV.
+- [x] B2.08 Win/loss: closing flow (won → optional link to create quote/invoice B1; lost → reason picker), simple per-pipeline value-by-stage report + CSV.
 - [ ] B2.09 CSV/Excel lead import with mapping preview + dedupe by email domain; import report. Wire-verified with a fixture file.
 - [ ] B2.10 ★ CRM agent tools: `create_deal` (incl. from thread source), `move_deal_stage`, `draft_followup` — allowlist + executors + structural verify.
 - [ ] B2.11 Billing extension — recurring invoices: schedule table, due-run creates DRAFTS (never auto-issues), UI badge; time-based test with injected clock.

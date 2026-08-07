@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo CRM: win it, and bill it.** A won deal no longer stops at a card.
+  Open it and raise a **quote** or an **invoice**: alo creates the customer from
+  the lead if there is not one yet, copies the deal across as a line at its
+  stored value, and lands a **draft** in Billing for you to check — nothing is
+  issued, nothing is sent, and no invoice number is used up. It asks for the one
+  thing a deal cannot answer, the VAT rate, rather than guessing a rate onto
+  your invoice. Losing one is easier too: the reason is now a picker — Price,
+  Timing, Chose a competitor — that fills a field you can still type over.
+  And there is a **Report** tab: what is open on the board by stage, what you
+  won and lost between any two days, your win rate, and a **Download CSV** for
+  the spreadsheet your Monday meeting runs on. Each currency is reported on its
+  own, never converted into a forecast nobody can reconcile.
+
 - **alo CRM: your pipeline, on screen.** Sales is now a module you can open:
   a board of your deals, one column per stage, where you drag a card from
   Qualified to Proposal the same way you move a task. Moving one into your

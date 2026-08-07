@@ -4965,3 +4965,173 @@ Cuts and flags:
 Next item: B2.08 (win/loss — the closing flow, won → optionally raise a quote
 or invoice in billing, lost → the reason picker, plus the per-pipeline
 value-by-stage report and its CSV).
+
+## 2026-08-07 — B2.08 closing a deal: the handoff to billing, and the report
+
+The wave's first item that crosses a module boundary on purpose. B2.02–B2.07
+built a board and a drawer; a deal could be won, but winning it led nowhere and
+nobody could read what the board was worth. This item is both ends of that: the
+**handoff** (a won deal becomes a draft quote or invoice in billing) and the
+**report** (value by stage, and what was won and lost over a period, with a CSV).
+
+What shipped:
+
+- **`platform/alo-store/src/crm_report.rs`** — `crm_pipeline_report(pipeline,
+  from, to)`. Three tenant-scoped reads (the board's columns, the open deals
+  grouped by column and currency, the deals that closed in the period grouped by
+  outcome and currency), assembled by a pure `assemble()` that decides which
+  columns appear and in what order. Every sum is the database's, in integer
+  cents; the only ratio is `win_rate_bp`, an integer.
+- **`platform/alo-store/src/crm_handoff.rs`** — `crm_deal_quote` /
+  `crm_deal_invoice`. Resolves the deal (404 for a neighbour's, `422` for a lost
+  one), resolves or **creates** the customer from the lead and links it back onto
+  the deal, then raises a draft with one line at the deal's value in the deal's
+  own currency.
+- **`products/mail/alo-jmap/src/crm_reports.rs`** — `GET /crm/reports/pipeline`
+  and `GET /crm/reports/pipeline.csv`.
+- **`products/mail/alo-jmap/src/crm_handoff.rs`** — `POST /crm/deals/{id}/quote`
+  and `POST /crm/deals/{id}/invoice`, answering `{quote|invoice, deal}`.
+- **`web/src/crm`** — a third tab (`ReportView.tsx`), the lost-reason picker
+  (`LostReasonDialog.tsx`, a `useLostReason()` hook so `moveDeal` stays the one
+  place that knows a losing column has a question), and the handoff form
+  (`RaiseDocumentDialog.tsx`) on the drawer. `saveTextFile` moved from
+  `web/src/billing` to `web/src/platform`; `formatRate` / `quarterOf` /
+  `previousQuarterOf` are now read through billing's public `index.ts`.
+
+The decisions worth writing down (all recorded as-built in `docs/design/crm.md`):
+
+- **The period bounds the outcomes, not the stage rows.** Won and lost are the
+  deals whose `closed_at` falls in `[from, to]`; value by stage is the open board
+  as it stands, and the answer says so with `openAsOf`. Reconstructing "what
+  stood in Proposal on 31 March" from the stage events is a different report over
+  a different table — pretending the period applied to these rows would put a
+  figure under a heading it does not belong to.
+- **Two paths, not `?format=csv`.** The design note sketched a query parameter;
+  billing's VAT summary had already settled on `/…/vat` + `/…/vat.csv` with a
+  stated reason, and two modules answering "give me the CSV" two different ways
+  is a seam a reader has to remember. Recorded in the route table.
+- **The VAT rate is stated, never guessed.** A priced deal demands `vatRateBp`;
+  a deal worth nothing raises an *empty* draft rather than a line worth zero,
+  which would be a zero-rated supply nobody meant to declare. This is the
+  compliance line the loop protocol says to read strictly: alo does not put a
+  rate on an invoice that no human chose.
+- **Not restricted to won deals.** Quoting an open deal is how it is often won,
+  so only a deal recorded as *lost* is refused. Reopening makes it billable again.
+- **A lead becomes a customer once, and the link is written back.** The `UPDATE`
+  is guarded on `customer_id IS NULL`, so two racing callers cannot overwrite each
+  other; the loser re-reads and bills the winner's customer. **Flagged:** that
+  race leaves one unused (archivable) customer row behind. Holding a lock across
+  billing's own writes to avoid it would be the worse trade — stated in the
+  design note rather than left as a surprise.
+- **The company name is required** for a lead: naming a customer after the
+  opportunity ("Renewal — Acme GmbH") would put a sentence where a legal name
+  belongs on every document that follows.
+
+How it was verified:
+
+- `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+  --all-targets` — clean, zero warnings; `cargo test -p alo-store -p alo-jmap` —
+  green.
+- **New suites:** `crm_report_tenancy.rs` (2), `crm_handoff_tenancy.rs` (5),
+  `crm_closing_http.rs` (7), plus 12 store unit tests and 14 route unit tests.
+  The wrong-tenant proofs are explicit: a neighbour working an identically-named
+  board in the same currency with far larger numbers shifts not one cent of ours,
+  their board and their deal both answer `404`, and a refused handoff writes
+  nothing on either side.
+- **Web:** `npx tsc --noEmit`, `npx eslint`, `npm run build`, and the whole
+  vitest suite (28 files, 221 tests) — clean. `CrmModule.test.tsx` grew 8 tests
+  driving the real router, module, client and dialogs.
+- **Wire-verified against the local backend** (docker `alo-pg`, debug `alo-jmap`
+  on 127.0.0.1:8080, a bootstrapped tenant), real curl, real rows:
+
+```
+  the handoff, from a won lead worth 2 500,00 EUR:
+POST /crm/deals/{won}/invoice {country only}   -> 422 'a document raised from a deal
+                                                      needs the VAT rate its line is
+                                                      billed at'
+POST … {vatRateBp only, deal is a lead}        -> 422 'country must be a two-letter
+                                                      ISO 3166-1 code'
+POST … {"vatRateBp":19.5}                      -> 400  (never a rounded document)
+POST … {"vatRateBp":1900,"country":"de"}       -> 200  draft, number=null, EUR,
+                                                       1 line: 1000 milli × 250000c @1900
+                                                       net 250000 vat 47500 gross 297500
+                                                       deal.customerId now set
+POST /crm/deals/{won}/quote {vatRateBp}        -> 200  draft, SAME customerId, gross 297500
+GET  /billing/customers                        -> 200  1 row: Acme GmbH DE
+                                                       ada@acme.example EUR
+POST /crm/deals/{lost}/invoice                 -> 422 'this deal was lost; reopen it…'
+POST /crm/deals/{id}/quote  (no token)         -> 401
+
+  the report, over a board with 3 deals (1 won, 1 lost, 1 open in USD):
+GET  /crm/reports/pipeline?pipelineId&from&to  -> 200  EUR: open 0, won 1/250000,
+                                                       lost 1/50000, winRateBp 5000
+                                                       USD: open 1/700000, winRateBp null
+GET  … a period nothing closed in              -> 200  open unchanged, won 0,
+                                                       winRateBp null
+GET  …  (no pipelineId)                        -> 422 'pipelineId is required…'
+GET  …  (no from / no to)                      -> 422 'from|to is required…'
+GET  …?from=01/01/2026                         -> 422 'from must be a date of the form…'
+GET  …?from=2026-03-03&to=2026-03-02           -> 422 'the period ends before it starts'
+GET  …?pipelineId=pip_nope                     -> 404
+GET  /crm/reports/pipeline  (no token)         -> 401
+GET  /crm/reports/pipeline.csv?…               -> 200 text/csv; charset=utf-8
+                                                      attachment; filename="pipeline-<id>-
+                                                        2026-01-01-to-2026-12-31.csv"
+                                                      nosniff, no-store
+      row,pipeline,periodFrom,periodTo,currency,stage,deals,value,winRatePercent
+      stage,Sales,2026-01-01,2026-12-31,EUR,New,0,0.00,
+      …
+      open,Sales,2026-01-01,2026-12-31,EUR,,0,0.00,
+      won,Sales,2026-01-01,2026-12-31,EUR,,1,2500.00,50.00
+      lost,Sales,2026-01-01,2026-12-31,EUR,,1,500.00,
+      stage,Sales,2026-01-01,2026-12-31,USD,New,1,7000.00,
+      …
+```
+
+Cuts and flags:
+
+- **Cut: linking the raised document back to the deal as a record.** The queue
+  says "won → optional link to create quote/invoice", and what is durable is the
+  **customer** the deal now names — from which billing already lists every
+  document. A `crm_deal_documents` table would be a new contract for a
+  back-pointer nothing yet asks for; if a "documents raised from this deal" panel
+  is wanted, it is its own item with its own migration.
+- **Cut: an activity written on the deal when a document is raised.** Tempting,
+  and it would be server-authored i18n text written into user data — the same
+  seam `billing_send` already carries at the edge. Worth doing deliberately, not
+  as a side effect of this item.
+- **Cut: offering the handoff straight after a drag into the winning column.**
+  It lives on the drawer, where it is a standing affordance rather than a modal
+  that appears once and is gone. A post-move prompt can be added later without
+  changing anything below it.
+- **Cut: the customer's address.** A lead becomes a customer with a name, a
+  country, an email and a currency — everything the deal actually knows. The
+  address is left blank for a human to complete in billing, which billing already
+  allows and the print view already handles; inventing one from nothing would be
+  worse than an empty field.
+- **No manual browser click-path was run** — this loop has no browser. What
+  stands in its place: 19 tests driving the real router and dialogs, and the curl
+  transcript above proving the client's URLs, bodies and read keys against the
+  real server. A human should still click through it once.
+- **Two copies of the modal-form chrome still exist** (`billing/parts.tsx` and
+  `crm/parts.tsx`) — unchanged since B2.07, still flagged for a human, still a
+  design-system change with a visual blast radius that does not belong inside a
+  CRM item.
+- **Flagged: `alo-jmap` is 63 files short of `cargo fmt --check` at HEAD**, under
+  the toolchain `rust-toolchain.toml` pins (1.97.1 / rustfmt 1.9.0). It is
+  pre-existing — mostly 2024-style import ordering in files this item never
+  opened — and running the gate's `cargo fmt -p alo-jmap` reformatted seven of
+  them as a side effect. **Those seven were reverted**: a formatting sweep is its
+  own commit, not a rider on a feature, and carrying 400 unrelated lines would
+  have maximised the rebase-conflict surface with the sites loop. A human (or a
+  dedicated one-line item) should run `cargo fmt --all` once and commit it alone.
+  Everything this item wrote or edited **is** formatted.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with ≥1
+  real tenant"), unchanged since B2.02. Nothing here is deployed.
+- **Standing human actions:** the `/billing` and `/crm` Caddyfile prefixes at the
+  next deploy (this item adds **no new top-level prefix** — both routes live
+  under `/crm/*`, which is already the standing one), a deploy, and a real
+  tenant. fr/nl for the new `crm*` strings are the wave review's (B2.14).
+
+Next item: B2.09 (CSV/Excel lead import with mapping preview and dedupe by email
+domain, plus the import report, wire-verified with a fixture file).
