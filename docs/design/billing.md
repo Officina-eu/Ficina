@@ -295,11 +295,41 @@ named):
 
 | Route | Purpose |
 |---|---|
-| `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17, B1.23) |
-| `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) |
+| `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17 — **as built**, B1.23) |
+| `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
 | `GET/POST /billing/payments` | record full/partial payments (B1.19) |
 | `GET /billing/reports/vat?from&to` | VAT summary + CSV (B1.20) |
+
+### Sending an invoice (as built, B1.18)
+
+`POST /billing/invoices/{id}/send` **drafts, and never sends.** It renders the
+invoice PDF, composes a short covering note, and saves the message in the
+user's Drafts with `$draft`; the user reads it and sends it themselves through
+the ordinary submission path — the one path that DKIM-signs, records, and is
+audited. A billing route that put mail on the wire would be a second send path
+drifting from the audited one, for no gain a review step does not already give.
+It is the rule the agent's draft tools already follow (ADR 0034).
+
+Three things are the server's, because a request must not be able to choose
+where an invoice goes: the **recipient** (the customer's stored invoice
+address — there is no `to` field on the route), the **author** (the caller's
+own canonical address), and the **attachment** (rendered here, now, from the
+stored document — never uploaded, never a client-supplied blob id). The only
+caller input is `?lang=`, which picks the words of both the note and the
+document, exactly as on `/print` and `/pdf`.
+
+The refusals come from the document's own state: a **draft** carries no number
+and prints a DRAFT banner, and a **void** invoice has been cancelled — both are
+`409` naming the state. **Issued and paid** may be sent (re-sending a paid
+invoice as a copy for the customer's records is legitimate). A customer with no
+email address is `422`. Sending twice writes two drafts and changes no billing
+record: the invoice has no "sent" state, and the mailbox is the record of what
+was sent.
+
+The covering note is its own small string table (`billing_send.rs`), separate
+from the document's: the document's wording is fixed by what it is in law, and
+the note around it is a message between two people. fr/nl join both at B1.27.
 
 `/billing` is a **new top-level route prefix**: the production Caddyfile
 needs it added at the next deploy. That is a human action recorded in

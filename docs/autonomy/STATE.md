@@ -2244,3 +2244,127 @@ Cuts and flags:
 Next item: B1.18 (send an invoice: `POST /billing/invoices/{id}/send` drafts an
 email to the customer with this PDF attached, landing in Drafts for review —
 the loop never sends mail).
+
+---
+
+## B1.18 — send an invoice: the email alo writes and never sends
+
+`POST /billing/invoices/{id}/send` renders the invoice PDF, composes a short
+covering note to the customer, and leaves the message in the user's **Drafts**
+with `$draft`. It does not send. Sending stays the ordinary submission path
+that the user triggers — the one path that DKIM-signs, records and is audited —
+so billing gains no second way onto the wire. It is the rule the agent's draft
+tools already follow (ADR 0034), and it is why the loop could build this item
+at full depth without ever touching the safety rail against sending mail.
+
+Three things are the server's, because a request must not be able to choose
+where an invoice goes:
+
+- **the recipient** — the customer's stored invoice address; there is no `to`
+  field on the route at all;
+- **the author** — the caller's own canonical address, read from the store;
+- **the attachment** — rendered here, now, from the stored document; never
+  uploaded, never a client-supplied blob id.
+
+The only caller input is `?lang=`, which picks the words of both the note and
+the document, exactly as `/print` and `/pdf` already do.
+
+The refusals come from the document's own state, not from a flag: a **draft**
+carries no number and prints a DRAFT banner, and a **void** invoice has been
+cancelled — both `409`, each naming its state, because "409" alone leaves a
+user guessing whether to issue this document or raise a new one. **Issued and
+paid** may both be sent: re-sending a paid invoice as a copy for the customer's
+records is a normal thing to do. A customer with no email address is a `422`
+saying exactly that. Sending twice writes two drafts and changes no billing
+record — the invoice has no "sent" state, and the mailbox is the record of what
+was sent.
+
+**What was extracted rather than duplicated.** The draft machinery lived inside
+`agent.rs` as three private functions. Billing needed the same three, and a
+billing route reaching into the AI agent module for them would have been the
+dependency pointing the wrong way, so they moved to a new
+`products/mail/alo-jmap/src/drafts.rs` — get-or-create a role mailbox, resolve
+the caller's own send address, save an outgoing message into Drafts with
+`$draft`. `agent.rs` now calls it and is 60 lines shorter; B1.26's dunning
+reminders will call the same three. The rule that made the extraction worth
+doing is written where the functions now are: **the author is resolved
+server-side**, so nothing that composes a message — model, route or client —
+can choose who it is from.
+
+New code: `billing_send.rs` (route, the covering-note string table, the state
+gate, the recipient check), `drafts.rs` (the shared machinery),
+`tests/billing_send_http.rs`. `billing_invoices.rs` opened `Printable` to the
+crate so the note, the page and the file are all rendered from one read of the
+document rather than three.
+
+Verified — `cargo clippy -p alo-jmap --all-targets` clean, `cargo test -p
+alo-jmap` green (149 unit + every integration suite, 7 new), then on the wire
+against the debug `alo-jmap` on `127.0.0.1:8080` over docker `alo-pg` (fresh
+tenants `wireb118` and `wireb118b`):
+
+```
+POST /billing/invoices/{id}/send   (no token)            -> 401
+POST /billing/invoices/no-such-id/send                   -> 404 "no such invoice"
+POST /billing/invoices/{draft}/send                      -> 409 "a draft is not sent
+                                                            to a customer — issue it first"
+POST /billing/invoices/{id}/issue                        -> INV-2026-00001, due 2026-08-21,
+                                                            gross 191310 cents
+POST /billing/invoices/{issued}/send                     -> 200
+     {"draft":{"id":"VCZ9jcPtO9-0Ukc_ciMbow",
+               "to":"buchhaltung@kunde.test",
+               "subject":"Invoice INV-2026-00001 — Alo Werkplaats B.V.",
+               "attachment":{"name":"Invoice-INV-2026-00001.pdf","sizeBytes":8258}}}
+POST /billing/invoices/{no-email customer}/send          -> 422 "this customer has no
+                                                                 email address"
+POST /billing/invoices/{void}/send                       -> 409 "a void invoice is not sent"
+POST /billing/invoices/{A's invoice}/send  as tenant B   -> 404 (byte-identical to a ghost id)
+```
+
+Then the draft was read back **as a mail client reads it**, not asserted:
+`Mailbox/get` shows `Drafts role=drafts total=1` and **no Sent folder at all**
+— nothing was sent, and nothing created the folder that would say otherwise.
+`Email/get` returns `keywords:{"$draft":true}`, `to:[{"email":
+"buchhaltung@kunde.test","name":"Kunde & Söhne GmbH"}]`, `from` the caller's
+own address, the subject above, `hasAttachment:true`, and with
+`fetchTextBodyValues` the note itself —
+
+```
+Dear Kunde & Söhne GmbH,
+
+Please find attached Invoice INV-2026-00001 for EUR 1 913.10, payable by 2026-08-21.
+```
+
+— beside one attachment, `application/pdf`, `Invoice-INV-2026-00001.pdf`, 8258
+bytes. `GET /jmap/download/{acc}/{blob}~a0/…` served those bytes: `%PDF-1.7`,
+`pdfinfo` reading `Title: Invoice INV-2026-00001 · Producer: alo workplace`,
+and `pdftotext -layout` showing both parties, both VAT rates and the total. The
+same download **as tenant B is a 404**. The figure in the note and the figure
+on the page are the same one because both come from the document's own
+formatter — asserted in the suite, and true on the wire here.
+
+Cuts and flags:
+
+- **No web UI.** The item's done-when is the draft existing on the wire, and it
+  does. A "Send to customer" button beside **Print** and **Download PDF** is a
+  small follow-on and belongs with the other billing UI work; nothing in
+  `web/` was touched, so no gate there was run.
+- **No `sentAt` on the invoice.** Recording that a document was sent would be a
+  migration and a new field, and the queue does not ask for one here. The
+  mailbox is the record: the draft, and then the sent copy, are both in it.
+  Worth a human's decision before B1.26 (dunning) invents its own answer.
+- **The note is English-only**, on the same seam as the document's strings
+  (`mail_strings_for`, pinned by a test): fr/nl land together at B1.27 without
+  touching a caller.
+- **A quote is not sent.** `POST /billing/quotes/{id}/send` already exists and
+  means something else entirely — a lifecycle transition, no mail. The two are
+  a genuine naming collision in the contract; the route module and the design
+  note both say so in as many words, and renaming either would be a breaking
+  change to a public surface for a cosmetic gain. Flagged, not fixed.
+- **The covering note is plain text.** No HTML alternative: the document is the
+  attachment, and a plain note is the one that renders identically everywhere.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05: the production Caddyfile must add it at the next
+  deploy, or every billing request gets the SPA. This item adds no new prefix.
+
+Next item: B1.19 (payments: `billing_payments`, partial payments, the derived
+paid / partially-paid state, and the overdue view).

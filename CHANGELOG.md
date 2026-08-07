@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: email an invoice to your customer, without leaving the
+  invoice.** An issued invoice can now be sent to the customer it names: alo
+  writes the email for you — addressed to that customer, with the PDF attached
+  and a short note stating the number, the total and when it is payable — and
+  puts it in your **Drafts**. It does not send it. You open it, change a word
+  if you want to, and send it yourself like any other message, so nothing ever
+  leaves your mailbox without you seeing it first. A draft invoice cannot be
+  sent (it has no number yet — issue it first), nor can a voided one, and a
+  customer with no email address is told so plainly. Sending the same invoice
+  twice simply writes a second draft: nothing about the invoice changes.
+
 - **alo Billing: an invoice as a PDF you can send.** Any invoice can now be
   fetched as a **PDF file** — the same document as the Print view, laid out for
   A4, with the pages numbered when there is more than one so nobody can mislay
