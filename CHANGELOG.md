@@ -19,6 +19,15 @@ contracts.
   email domain (never Gmail's), and skipped rather than merged. Today it is
   reachable from the API; the import screen follows.
 
+- **alo Sites: press the button, go live.** Publishing is now in the editor.
+  A draft site shows exactly where it will go live — `your-name.alosites.com`
+  — and one click puts the current pages and theme on the air, frozen as
+  published, so you can keep editing without touching the live site until you
+  press **Publish changes**. A live site shows its address as a link you can
+  open, and **Take offline** (with an are-you-sure second click) brings it
+  back down whenever you want. The new-site form now previews the full
+  address while you type it.
+
 - **alo Sites: your look, your logo.** Every site now has a theme you pick in
   the editor: seven designed color-and-type looks, each checked for readable
   contrast, applied to the whole site with one click. Upload your logo and it

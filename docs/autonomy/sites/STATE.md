@@ -740,3 +740,63 @@ Human-action inbox (things the loop must not do itself):
     aligning rustfmt versions at wave review stands.
 - **Next:** S1.15 (publish UI: publish button + "goes live at" copy +
   status chips; STATE human-inbox note for production serving).
+
+## S1.15 — publish UI + the web learns the sites domain (2026-08-07)
+
+- **Shipped:** publishing becomes a button. **Edit API:** one new route,
+  `GET /sites/config` → `{"domain": <SITES_DOMAIN>}` — the deployment-wide
+  apex the web composes "goes live at" copy and live links from, instead of
+  hardcoding a domain (the missing piece S1.11 recorded; publish/unpublish
+  routes existed since S1.10). Authenticated like every `/sites/*` route.
+  Rejected alternative (recorded in the module doc + this entry): a per-site
+  `url` field in site JSON — duplicates a derivable composition and leaves
+  the create form (no site yet) without a domain source; one config route
+  serves both consumers. **Web:** the site view gains a publish bar — draft:
+  **Publish** + "Publishing puts this site live at `<sub>.<domain>`."; live:
+  "Your site is live at" + the address as a real `https://` link
+  (new-tab, noreferrer) + **Publish changes** + **Take offline** with the
+  module's two-click-confirm pattern (first click arms and turns the button
+  red, second acts). A refused publish shows the store's 422 sentence
+  verbatim inline (`role="alert"`), never swallowed; a failed config fetch
+  degrades — the address copy stays off, publishing still works. The
+  new-site dialog now previews "Your site will live at `<sub>.<domain>`."
+  under the live check (the copy S1.11 deferred here). Live/draft chips were
+  already shipped in S1.11 and are unchanged; they now flip through the
+  publish flow on this screen. `SitesApi` gains `config` / `publishSite` /
+  `unpublishSite`; 9 new `i18n/en.ts` strings (additive block).
+- **Verified:** `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-jmap
+  --all-targets` zero warnings; **full `cargo test -p alo-jmap` green** on
+  docker Postgres (298 unit + all suites; sites_http now 11 — the 401
+  barrage extended with `/sites/config`, plus `config_names_the_sites_domain`).
+  Web: `npx tsc --noEmit` clean, eslint zero warnings on all changed files,
+  **full `npm test` green — 231 tests / 29 files** incl. 4 new (draft shows
+  the composed goes-live copy and Publish POSTs `/publish` then renders the
+  live chip + the address as a link with the exact href; a 422 refusal shows
+  the server's sentence and stays draft; Take offline writes nothing on the
+  first click and POSTs `/unpublish` on the confirm click; the create form
+  previews the lowercased typed label against the fetched domain);
+  `npm run build` clean. Manual wire pass, real curl against the rebuilt
+  debug binary + docker `alo-pg`: `/sites/config` no token → 401 +
+  `www-authenticate: Bearer`; with token → 200 `{"domain":"alosites.com"}`;
+  fresh site → publish-no-pages → 422 "site has no pages to publish" (the
+  sentence the UI shows verbatim); home page + publish →
+  `{"publishId":…,"status":"live"}`; GET site → status live +
+  `publish{id, publishedAt}`; unpublish → draft + `publish: null`; fixture
+  site deleted after.
+- **Cuts/flags:**
+  - No publish-history UI and no published-at display — the chip + link are
+    the S1.15 ask; history stays the S2 rollback substrate.
+  - The sites list keeps showing the bare subdomain (no config fetch there);
+    the full address lives where publishing happens. Revisit on complaints.
+  - `/sites/config` currently carries one key; later deployment facts the
+    web needs (e.g. AI availability for S1.28) can ride the same route
+    additively.
+- **Human inbox (unchanged, re-confirmed for this item):** production
+  serving still needs the alo-sites container in compose (+`ALO_BLOB_DIR`
+  mount), Caddy wildcard/on-demand-TLS routing `*.alosites.com` → alo-sites,
+  and `SITES_DOMAIN=alosites.com` in both services' env — the domain itself
+  is purchased and its DNS is live (see inbox top). Until that deploy, a
+  "live" site is only reachable in local dev; the UI truthfully says where
+  it WILL serve.
+- **Next:** S1.16 (forms backend: public POST `/f/:form_id` on alo-sites,
+  submissions store, internal-delivery notification, rate limit + tests).
