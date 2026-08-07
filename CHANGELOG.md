@@ -6,6 +6,23 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: record what your customers have actually paid.** An issued
+  invoice now has a **Payments** section: enter what arrived, the day your bank
+  shows it, how it came and the reference on the statement line. Part payments
+  are the ordinary case — a customer settling a large bill in instalments — so
+  the invoice shows what has been received and what is **still owed** after each
+  one, and only flips to **Settled** when the whole amount is in. Nothing about
+  that state is typed by anyone: it is worked out from the payments themselves,
+  so what the invoice says and what the ledger under it holds can never
+  disagree. A payment keyed wrongly is **removed** and entered again, which puts
+  the invoice back to owed. The invoice list gains a **Still owed** column and
+  an **Overdue** view — issued, past its date, not yet settled — judged against
+  the server's date, so no clock but ours decides who is late. Two refusals
+  worth knowing: an invoice that money has been received against can no longer
+  be **voided** (correct it with a credit note, so both movements stay
+  visible), and a credit note takes no payments at all, because it is money
+  owed the other way.
+
 - **alo Billing: email an invoice to your customer, without leaving the
   invoice.** An issued invoice can now be sent to the customer it names: alo
   writes the email for you — addressed to that customer, with the PDF attached

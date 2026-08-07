@@ -2368,3 +2368,166 @@ Cuts and flags:
 
 Next item: B1.19 (payments: `billing_payments`, partial payments, the derived
 paid / partially-paid state, and the overdue view).
+
+---
+
+## B1.19 — payments: money received, and the state derived from it
+
+Shipped: a payment ledger under every invoice, and the settlement the whole
+wave now reads from it.
+
+**Store** — `platform/alo-store/src/billing_payments.rs` (new) over migration
+`0108_billing_payments.sql`: `billing_payments` (invoice ref, `paid_on`,
+amount cents, method, reference, `created_by`), composite FK on
+`(tenant_id, invoice_id)` so a cross-tenant attachment is refused by the
+database and not only by a `WHERE` clause, and a DB `CHECK` that an amount is
+strictly positive. `record_billing_payment`, `delete_billing_payment`,
+`billing_payments`, plus the pure `Settlement::of(gross, paid)`.
+
+Four decisions, each recorded in `docs/design/billing.md`:
+
+- **The paid-state is a projection, not a field.** `billing_invoices.status`
+  moves to `paid` (and back to `issued`) only inside the transaction that
+  inserts or removes a payment, under the invoice's row lock, recomputed from
+  every payment row that then exists. No request can set it. Two payments
+  arriving at once serialise on that lock, so a document cannot be left
+  `issued` because two half-payments each thought they were alone.
+- **"Partially paid" is deliberately not a fifth status.** It is a fact about
+  money, reported as a computed `settlement` (`grossCents`, `paidCents`,
+  `outstandingCents`, `state`) on every invoice response. A half-paid document
+  is still `issued`, still owed, still overdue when its date passes — which is
+  exactly why `Invoice::is_overdue` needed no new case.
+- **Amounts are strictly positive; overpayment counts as settled.** A payment
+  that "un-pays" a document is the *removal* of one recorded wrongly, so a typo
+  is never indistinguishable from a refund. `outstandingCents` then goes
+  negative on an overpayment, which is the figure a refund starts from. A
+  document worth nothing or less is `Unpaid` until money actually arrives —
+  `paid >= gross` is true of zero against zero, and that must not read as paid.
+- **Money only attaches to a document that is owed.** Draft, void and **credit
+  note** are refused (`Conflict`); a `paid` one still accepts more, which is how
+  a duplicate transfer is recorded honestly rather than hidden.
+
+Two behaviour changes to existing code, both in the same area and both tested:
+
+- **An invoice with any payment against it can no longer be voided** (409,
+  "correct it with a credit note instead"). Voiding it would leave received
+  money attached to a document owing nothing. Counted under the same row lock
+  the void writes through. A fully paid one was already refused by its status;
+  this catches the partially paid one, which is still `issued`.
+- **`Invoice::is_overdue` now excludes credit notes.** Money owed *to* the
+  customer makes nobody late; an issued credit note past its stamped date was
+  previously reported overdue for ever. Fixed here rather than left, because
+  the overdue view this item adds would otherwise have inherited it.
+
+**HTTP** — `products/mail/alo-jmap/src/billing_payments.rs` (new), registered
+in `server.rs`:
+
+```
+GET    /billing/invoices/{id}/payments
+POST   /billing/invoices/{id}/payments
+DELETE /billing/invoices/{id}/payments/{payment_id}
+GET    /billing/invoices?overdue=1
+```
+
+The routes hang **under the invoice** rather than at the flat
+`GET/POST /billing/payments` the design note originally planned: a payment does
+not exist on its own, and addressing it through its document is what makes an
+id from another invoice a plain `404` instead of a write landing somewhere
+unexpected. The rejected shape and the reason are now in the note. `POST` and
+`DELETE` both answer with the **document** as well, so a caller that posted the
+last instalment learns in the same response that it is now `paid`.
+`GET /billing/invoices/{id}` gained a `payments` array beside `creditNotes`,
+and every invoice response — list entry, document, and the answer to a payment
+— carries the same computed `settlement`.
+
+One correctness fix at the edge, found by its own test: `paidOn` was parsed
+with `Iso8601::DATE`, which accepts `2026-08-07T10:00:00Z` and quietly keeps
+the day — so a client sending its own local midnight would have a payment
+dated on the wrong side of it. `billing.rs` now has `parse_iso_date`, the strict
+mirror of `iso_date`: exactly ten characters, `YYYY-MM-DD`, or a `422`.
+
+**Web** — `web/src/billing/PaymentsPanel.tsx` (new) on the issued-invoice
+screen: received / still owed / state chip, the ledger rows, a record-payment
+dialog (amount pre-filled with what is outstanding, date box empty meaning the
+*server's* today), and a remove action. Not offered at all on a draft, a void
+document or a credit note — the panel is absent rather than a button that
+409s. The invoice list gains a **Still owed** column and an **Overdue** choice
+in the same filter control, which calls the server's overdue view rather than
+filtering a loaded page. All strings through `i18n/en.ts` (fr/nl at B1.27).
+
+Verified — store: `cargo test -p alo-store` 200 unit + every integration suite
+green, including the new `tests/billing_payments.rs` (4 tests): the
+partial → full → remove arc with the status flipping each way, every refusal,
+the void-with-money refusal, the overdue view (unpaid **and** partially paid in
+it; settled, not-yet-due, draft and credit note out of it), and the mandatory
+wrong-tenant proof on **all three** payment paths plus the "A's payment id on
+B's invoice" and "A's payment id on A's *other* invoice" cases, with the row's
+`tenant_id` re-checked in raw SQL. Web: `tsc`, `eslint`, `npm run build` and
+157 vitest tests green, six of them the new `Payments.test.tsx`.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `payloop`, `payloopb`):
+
+```
+GET    /billing/invoices/x/payments        (no token)            -> 401
+POST   /billing/invoices/x/payments        (no token)            -> 401
+DELETE /billing/invoices/x/payments/y      (no token)            -> 401
+GET    /billing/invoices?overdue=1         (no token)            -> 401
+POST   .../{draft}/payments                                      -> 409  "a draft invoice is owed by nobody; issue it before
+                                                                          recording money against it"
+POST   .../{id}/issue                                            -> 200  INV-2026-00001, gross 121000,
+                                                                          settlement {paid 0, outstanding 121000, unpaid}
+POST   .../payments  {"amountCents":0}                           -> 422  "a payment amount must be greater than zero"
+POST   .../payments  {"amountCents":-500}                        -> 422  same
+POST   .../payments  {"amountCents":1000000000001}               -> 422  "a payment amount must be at most 1000000000000 cents"
+POST   .../payments  {"paidOn":"2030-01-01"}                     -> 422  "a payment cannot be dated in the future"
+POST   .../payments  {"paidOn":"07/08/2026"}                     -> 422  "paidOn must be a date of the form YYYY-MM-DD"
+POST   .../payments  {"amountCents":19.99}                       -> 400  "malformed request body"
+POST   .../payments  50000, SEPA direct debit, paidOn 2026-08-01 -> 200  invoice still ISSUED,
+                                                                          settlement {paid 50000, outstanding 71000, partiallyPaid}
+GET    .../payments                                              -> 200  1 payment, same settlement
+POST   .../{id}/void  (while part-paid)                          -> 409  "money has been received against this invoice; correct
+                                                                          it with a credit note instead of voiding it"
+POST   .../payments  71000, bank transfer                        -> 200  invoice now PAID, outstanding 0
+GET    /billing/invoices?status=paid                             -> 200  [INV-2026-00001, paid, 121000]
+GET    /billing/invoices?status=issued                           -> 200  0
+DELETE .../payments/{second}                                     -> 200  invoice back to ISSUED, partiallyPaid, 71000 owed
+DELETE .../payments/{same again}                                 -> 404
+GET    /billing/invoices?overdue=1  (due backdated 9 days)       -> 200  [INV-2026-00001, overdue true, partiallyPaid, 71000]
+GET    /billing/invoices?overdue=1&status=sent                   -> 422  (a bad status is still refused)
+POST   .../{credit note INV-2026-00002}/payments                 -> 409  "a credit note is money owed to the customer; a refund
+                                                                          is not recorded as a payment against it"
+GET    /billing/invoices?overdue=1  (credit note backdated 60d)  -> 200  [INV-2026-00001] only — a credit note is never overdue
+```
+
+Then the same calls as **tenant B**, byte-identical to a ghost id:
+
+```
+B: GET    A's .../payments                       -> 404
+B: POST   A's .../payments                       -> 404
+B: DELETE A's .../payments/{A's payment id}      -> 404
+B: GET    A's invoice                            -> 404
+B: GET    /billing/invoices?overdue=1            -> 200  0 rows
+A's ledger afterwards                            -> 1 payment, unchanged settlement
+```
+
+Cuts and flags:
+
+- **No refunds, and no payment on a credit note.** A refund is a movement in
+  the other direction and belongs in the ledger (B4), not in this table
+  pretending to settle a debt. Recorded in the design note as a decision.
+- **A payment is in the document's own currency, by construction** — there is
+  no currency column. Cross-currency settlement is B1.21's problem and is
+  deliberately not representable here.
+- **No `If-Match` on the payment routes.** Same as the rest of billing: last
+  writer wins on the header, and payments are append/remove only, so there is
+  nothing to lose to a stale form.
+- **fr/nl are missing for the new strings**, on the same seam as the rest of
+  the wave: they land together at B1.27.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05: the production Caddyfile must add it at the next
+  deploy, or every billing request gets the SPA. This item adds no new prefix
+  (the payment routes are under `/billing/invoices/*`).
+
+Next item: B1.20 (VAT summary per period: the store aggregation,
+`/billing/reports/vat?from&to`, CSV export and a minimal UI).

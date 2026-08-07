@@ -298,8 +298,52 @@ named):
 | `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17 — **as built**, B1.23) |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
-| `GET/POST /billing/payments` | record full/partial payments (B1.19) |
 | `GET /billing/reports/vat?from&to` | VAT summary + CSV (B1.20) |
+
+### Payments (as built, B1.19)
+
+The routes hang **under the invoice**, not at a flat `/billing/payments`:
+
+| Route | Purpose |
+|---|---|
+| `GET /billing/invoices/{id}/payments` | the ledger of one document, and what it adds up to |
+| `POST /billing/invoices/{id}/payments` | record money received; answers the payment **and** the document it changed |
+| `DELETE /billing/invoices/{id}/payments/{paymentId}` | remove one recorded wrongly |
+
+**Rejected: the flat `GET/POST /billing/payments` this note originally
+planned.** A payment does not exist on its own — it settles one document — and
+addressing it through that document is what makes an id belonging to another
+invoice (or another tenant) a plain `404` rather than a write landing somewhere
+unexpected. The flat shape would have needed an `invoiceId` in the body, which
+is a second place a request could name a document.
+
+Four decisions the rest of the wave inherits:
+
+- **The paid-state is derived, never written.** `billing_invoices.status` moves
+  to `paid` (and back to `issued`) only as a **projection** the store recomputes
+  inside the transaction that inserts or removes a payment, under the invoice's
+  row lock. No request can set it, and it cannot drift from the rows beneath it.
+- **"Partially paid" is not a status.** It is a fact about money — the sum of
+  the payments against the computed gross — reported as `settlement` on every
+  invoice response (`grossCents`, `paidCents`, `outstandingCents`, `state` of
+  `unpaid | partiallyPaid | paid`). A half-paid document is still `issued`,
+  still owed, and still overdue when its date passes.
+- **Amounts are strictly positive**, so a typo is never indistinguishable from a
+  refund: a payment recorded wrongly is removed and re-entered, and a debt that
+  genuinely changed is a credit note. **Overpayment counts as settled**, with
+  `outstandingCents` going negative — the figure a refund starts from.
+- **Money only attaches to a document that is owed.** A draft, a void document
+  and a **credit note** are all refused (`409`); a `paid` one still accepts more,
+  which is how a duplicate transfer is recorded honestly rather than hidden.
+  Conversely, an invoice with any payment against it can no longer be **voided**
+  — that would leave received money attached to a document owing nothing — so it
+  is corrected with a credit note instead.
+
+The **overdue view** is `GET /billing/invoices?overdue=1`: issued, past its due
+date, not settled, and **not a credit note** — money owed to the customer makes
+nobody late. It is judged against the database's own date inside the same
+statement, so no client clock can clear or invent a late invoice, and it shares
+the predicate with the per-row `overdue` flag so the two can never disagree.
 
 ### Sending an invoice (as built, B1.18)
 
@@ -473,10 +517,15 @@ column, struct field, or computation anywhere in this module.
   stays refused. The invoice is a **draft**: what was offered is what
   will be billed, but when, and whether in one go, is the tenant's
   decision, and the legal number comes only from `/issue`.
-- **`billing_payments`** — invoice ref, date, amount cents, method,
-  reference. Invoice paid-state is **derived** from the sum of its
-  payments against its gross total, never stored as an independently
-  writable field that could disagree with the ledger.
+- **`billing_payments`** (B1.19) — invoice ref, `paid_on` (the day the
+  bank shows, not the day it was keyed in), amount cents (strictly
+  positive, DB `CHECK`), method (free text — the set varies per member
+  state, and B4 maps methods to ledger accounts with a per-tenant table
+  rather than a hardcoded enum), reference. Invoice paid-state is
+  **derived** from the sum of its payments against its gross total,
+  never stored as an independently writable field that could disagree
+  with the ledger; the `status` column carries the one settled/not bit
+  as a projection recomputed under the invoice's row lock.
 - **`billing_sequences`** — `(tenant_id, kind, year, next_value)`, the
   row-locked counter behind legal numbering (below).
 - **`billing_settings`** (B1.16) — **one row per tenant**, the issuer
@@ -543,7 +592,11 @@ route edge to the existing `Problem` shape. The full map:
 | Moving a credit note off its original's customer or currency | `Validation` | `422` |
 | Creating an invoice without naming a customer (`customerId` absent or blank) | — (route edge) | `422` |
 | Listing with a `status` filter that is not one of the four states | — (route edge) | `422` |
-| Payment amount ≤ 0, or recorded against a draft | `Validation` | `422` |
+| Payment amount ≤ 0, or beyond the ceiling, or dated in the future | `Validation` | `422` |
+| `paidOn` that is not exactly `YYYY-MM-DD` | — (route edge) | `422` |
+| Recording a payment against a draft, a void invoice, or a credit note | `Conflict` | `409` |
+| Voiding an invoice money has been received against | `Conflict` | `409` |
+| Removing a payment that is absent, another document's, or another tenant's | `NotFound` | `404` |
 | Invalid quote transition (e.g. `declined` → `accepted`) | `Conflict` | `409` |
 | Editing, replacing the lines of, or deleting a non-draft quote | `Conflict` | `409` |
 | Sending a quote with no lines | `Validation` | `422` |
