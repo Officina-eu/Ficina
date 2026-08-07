@@ -6293,3 +6293,110 @@ Cuts and flags:
 Next item: BI1.02 (migration `0119_insight_dashboards.sql` + the
 `insight_dashboards` / `insight_tiles` store modules with typed-spec validation
 on write and the mandatory wrong-tenant tests).
+
+## 2026-08-07 — BI1.02 the tile that holds a question, not an answer
+
+Migration `0119_insight_dashboards.sql` plus four store modules: the boards, the
+tiles, the closed catalog every chart is built from, and the ChartSpec envelope
+that validates against it. No routes, no UI — BI1.04 and BI1.05 own those.
+
+What shipped, and the one decision inside each file:
+
+- **`0119_insight_dashboards.sql`** — `insight_dashboards` (tenant, id, name,
+  `system_key`, created_by, timestamps) with a **partial unique index on
+  `(tenant_id, system_key)`**, and `insight_tiles` (title, `spec` JSONB, `viz`,
+  fractional `position`, `span` 1–4) keyed to its board by the tenant-pinned
+  composite FK with `ON DELETE CASCADE`. Nothing computed is stored: no results
+  table, no snapshot column, no cache — the design note's reason holds, a stored
+  subtotal outlives the rows that justify it.
+- **`insight_catalog.rs`** — the semantic layer as pure data: four datasets
+  (`billing.documents`, `billing.receivables`, `billing.payments`, `crm.deals`),
+  their measures with units and allowed aggregates, their dimensions with
+  time-grain lists, their filters with value shapes, and the **compatibility
+  matrix** as declared tables rather than assumptions. No SQL in the file. Six
+  tests walk the whole catalog: every measure's breakdowns exist on its own
+  dataset, every time dimension declares grains, nothing is listed twice, units
+  match meaning, and the wire vocabulary is pinned (`billing.documents`,
+  `win_rate`, `not_in` …) so the builder UI and the AI keep speaking one
+  language.
+- **`insight_spec.rs`** — `ChartSpec`: `deny_unknown_fields` everywhere, version
+  checked before shape, and validation over the catalog — measure must belong to
+  the dataset, aggregate must be allowed, breakdown must be allowed *for that
+  measure*, a time dimension needs an allowed grain and a category takes none,
+  filters are unique/bounded/shape-checked per value kind, and the chart form
+  has to agree with the breakdown (a number tile takes none, a line needs time,
+  a pie needs a category). Bounds: 50 categories, 400 buckets, a 5-year window,
+  8 filters, 25 values, 8 KB of envelope.
+- **`insight_dashboards.rs` / `insight_tiles.rs`** — tenant-scoped CRUD through
+  `AccountStore`, caps (30 boards, 40 tiles), fractional move, and the seeded
+  board (`create_seeded_insight_dashboard`, `insight_dashboard_by_key`) BI1.06
+  will call. Tiles are **strict on write, tolerant on read**: the stored spec is
+  the canonical serialisation of the parsed value, `viz` is derived from it and
+  never taken from the caller, and a spec this build cannot parse comes back
+  `TileSpec::Unreadable { raw, reason }` so one tile from the future never
+  breaks a board.
+
+Two rules the code enforces that are worth naming, because both are places a
+plausible chart would have lied:
+
+- **A document count may not be broken down by VAT rate.** An invoice with a
+  21 % line and a 0 % line is one document with two rate subtotals; counting per
+  rate would report more invoices than the tenant raised. Its *money* does split
+  per rate, and still may.
+- **A win rate is not broken down by outcome or stage.** Every closed deal sits
+  in a won or a lost column, so those breakdowns answer 100 % and 0 %. Owner,
+  source and closed-at are the three questions a win rate is actually asked.
+
+Verified:
+
+```
+cargo fmt -p alo-store                                          clean
+SQLX_OFFLINE=true cargo clippy -p alo-store --all-targets       zero warnings
+cargo test -p alo-store  (DATABASE_URL=…@127.0.0.1:5432/alo)    all green
+  · 424 lib unit tests (32 of them new, in the four modules)
+  · tests/insight_dashboards_tenancy.rs — 5 tests, all new
+```
+
+The mandatory wrong-tenant proof, on the real Postgres, both directions and
+every path: tenant B gets empty/`NotFound` on read, list, read-by-system-key,
+rename, delete, pin, edit, move and unpin of A's board and tiles, and A gets
+`NotFound` pinning onto B's board (the composite FK is what refuses it, so the
+denial is structural rather than a check someone can forget). An id that never
+existed answers identically to another tenant's id. A deleted tenant leaves no
+row in either table. Also proven live: the cascade (deleting a board takes its
+tiles), both caps at their inclusive edge, the seed's second run losing on the
+partial unique index and the board being ordinary — renamable, tileable —
+afterwards, and a spec planted directly in the column with
+`{"schema_version":2,…}` reading back marked unreadable *while the rest of the
+board renders*, then healing when the spec is replaced.
+
+Cuts and flags:
+
+- **Scope note, not a cut:** the item says "typed spec JSON validated on write",
+  and validating a spec requires the compatibility matrix — so
+  `insight_catalog.rs` landed here rather than at BI1.03. It contains no SQL and
+  no persistence; BI1.03 still owns `insight_query.rs` (the only file with SQL)
+  and `insight_series.rs` (the only file that adds money up), and the catalog
+  route's gallery entries are still BI1.06's.
+- **No CHANGELOG line.** Nothing a user can see changed — no route, no screen.
+  The same call B2.02/B2.03 made for their store-only items.
+- **The dashboard cap is a guard, not an invariant.** It is counted and enforced
+  in one transaction; under READ COMMITTED two simultaneous creates could both
+  see room and land a tenant on 31 boards. Written down in the code, because
+  paying for a table lock on every create to make a typo-guard exact is the
+  wrong trade.
+- **Period `all` is unbounded by construction.** A spec cannot know how much
+  history a tenant holds, so the row cap at evaluation (BI1.03) is what bounds
+  the work — noted here so BI1.03 does not assume the spec already bounded it.
+- **Ids in filters are shape-checked only.** `insight_spec` refuses anything
+  that is not an opaque token; whether the id is *this tenant's* is resolved
+  against the tenant's own records at evaluation, which is BI1.03's 422.
+- Standing human actions unchanged, and `/insights` still needs the production
+  Caddyfile prefix at the next deploy (added at BI1.04, alongside `/billing`,
+  `/crm` and `/audit`). The unmet ROADMAP gate on B2 ("B1 live with ≥1 real
+  tenant") still stands: this is the first BI-1 item that wrote a migration, and
+  a human should confirm or move that gate.
+
+Next item: BI1.03 (the query engine — ChartSpec → safe SQL over the whitelisted
+views only, tenant-bound by construction, with the golden series tests and the
+foreign-tenant evaluation proof).
