@@ -253,3 +253,50 @@ Human-action inbox (things the loop must not do itself):
     only; fr/nl land at the wave review (S1.31).
   - CHANGELOG untouched: rendering library only, no served surface yet.
 - **Next:** S1.07 (stylesheet generation from theme tokens + byte budgets).
+
+## S1.07 — stylesheet from theme tokens + the behavior script (2026-08-07)
+
+- **Shipped:** new pure module `alo_sites::stylesheet` — `stylesheet(&SiteTheme)
+  -> String`, the complete CSS document served at `/assets/site.css`: a
+  generated `:root` custom-property block from the resolved preset's
+  palette/typography tokens over one static mobile-first sheet (single 48rem
+  breakpoint, contained images, section layouts for all twelve `s-<kind>`
+  hooks, honeypot visually hidden, skip-link focus reveal). Color use sticks
+  to store-proven WCAG pairings; the two pairings the sheet adds (links/
+  secondary buttons: `primary` on `background`/`surface`) are now pinned in
+  the store's contrast test — all presets clear ≥ 4.5:1. Plus the page's
+  **entire JS budget**: a static `render/script.rs` block (menu toggle via
+  `aria-expanded` + fetch form-submit that swaps in the `data-success`
+  message, native-submit fallback on any failure), **inlined** — rejected
+  alternative recorded in the module doc: a fourth `/assets/site.js` path
+  would widen the public-path contract for a script with zero user data.
+  Appended only when the page has a nav or a live form; both behaviors are
+  progressive enhancement (no-JS menu renders expanded — collapse only
+  exists under the script's `js` class; forms post natively). Forms now
+  always carry `data-success` (custom or the new externalized
+  `form_success` default string).
+- **Verified:** `cargo fmt --check`; `SQLX_OFFLINE=true cargo clippy -p
+  alo-sites -p alo-store --all-targets` zero warnings; `cargo test -p
+  alo-sites` green (21 tests: new stylesheet_rules suite — site.css golden
+  for the default preset, per-preset token wiring + brace balance +
+  **CSS < 50KB budget**, self-containment (no `@import`/`@font-face`/`url(`/
+  absolute URL — the zero-external-requests promise, mechanically), contract
+  selectors incl. the toggle's `[aria-expanded="true"] + ul` pair, pristine-
+  theme fallback; render_rules gains script-inclusion exactness + default
+  data-success; full-page golden now asserts **HTML < 100KB** — actual:
+  CSS 7.6KB, page 5.9KB). Full `cargo test -p alo-store` green on local
+  docker Postgres (200 unit + isolation suites) with the extended contrast
+  test. Manual pass: read the re-blessed golden diffs byte-for-byte — the
+  only change is the script block between `</footer>` and `</body>`, and
+  site.css's `:root` carries the north tokens exactly. No storage/routes
+  touched → wrong-tenant and wire-verify gates don't apply (pure library).
+- **Cuts/flags:**
+  - Feature-icon rendering still absent (S1.06 flag stands) — the sheet
+    styles no icon slot; retire-or-ship decision at wave review (S1.31).
+  - The nav collapse honors only screen width, not menu length; fancy
+    behaviors (sticky nav, scroll effects) are out — the JS budget is the
+    two behaviors, by design.
+  - CHANGELOG untouched: still a rendering library, nothing served yet
+    (first user-visible surface lands with S1.09/S1.10).
+- **Next:** S1.08 (publish flow: immutable per-page published snapshots +
+  site publish state).

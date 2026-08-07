@@ -197,7 +197,14 @@ fn full_page_golden_with_theme_logo_and_seo() {
         seo_description: Some("Small-batch coffee roastery on the harbour, shipping on roast day."),
         sections: &value,
     };
-    assert_golden("full_page.html", &render_page(&site, &page));
+    let html = render_page(&site, &page);
+    // The design note's byte budget for the golden site's page.
+    assert!(
+        html.len() < 100 * 1024,
+        "full page is {} bytes, budget is 100KB",
+        html.len()
+    );
+    assert_golden("full_page.html", &html);
 }
 
 #[test]

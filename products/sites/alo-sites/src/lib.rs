@@ -2,10 +2,12 @@
 //!
 //! This crate is a **library first**: the pure [`render`] module turns a
 //! page's typed sections plus a site's theme into one complete static HTML
-//! document. The public `alo-sites` service (the Host-resolving axum binary)
-//! serves that output from published snapshots; `alo-jmap` reuses the same
-//! library for the authenticated draft preview — one renderer, so preview and
-//! production HTML cannot drift (`docs/design/sites.md`).
+//! document, and [`stylesheet`] turns the same theme into the one CSS file
+//! that document links. The public `alo-sites` service (the Host-resolving
+//! axum binary) serves that output from published snapshots; `alo-jmap`
+//! reuses the same library for the authenticated draft preview — one
+//! renderer, so preview and production HTML cannot drift
+//! (`docs/design/sites.md`).
 //!
 //! What this crate owns: rendering and (from the service slice) anonymous
 //! public serving of published sites. What it does not own: editing, storage,
@@ -25,6 +27,9 @@
 //! - `/f/<form_id>` — contact-form submission target.
 //!
 //! These are a contract: the service must serve them, and changing them means
-//! re-rendering every published snapshot.
+//! re-rendering every published snapshot. The page's only JavaScript (menu
+//! toggle + form submit) is a static block **inlined** in the document, not a
+//! fourth path — see `render::script`.
 
 pub mod render;
+pub mod stylesheet;

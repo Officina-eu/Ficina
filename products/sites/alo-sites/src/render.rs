@@ -15,6 +15,7 @@
 //! for assistive technology, which outranks literal ordering.
 
 mod html;
+mod script;
 mod sections;
 mod strings;
 
@@ -121,8 +122,22 @@ pub fn render_page(site: &SiteRenderContext<'_>, page: &PageRenderContext<'_>) -
     out.push_str(&main);
     out.push_str("</main>\n");
     out.push_str(&footer);
+    if wants_script(&parsed) {
+        out.push_str(script::BEHAVIOR_SCRIPT);
+    }
     out.push_str("</body>\n</html>\n");
     out
+}
+
+/// Whether the page has anything for the behavior script to do: a nav (menu
+/// toggle) or a form with a working submit. A page without either ships zero
+/// JavaScript.
+fn wants_script(sections: &[Section]) -> bool {
+    sections.iter().any(|section| match section {
+        Section::Nav(_) => true,
+        Section::ContactForm(form) => form.form_id.is_some(),
+        _ => false,
+    })
 }
 
 /// The `<head>`: charset/viewport, title, description, canonical, OG tags,

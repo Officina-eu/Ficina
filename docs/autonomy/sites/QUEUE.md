@@ -16,7 +16,7 @@ Do not touch billing/crm/business areas — that's the Mac's track.
 - [x] S1.04 Migration + store: `site_pages` (slug, title, ordered sections JSON validated against S1.03, SEO meta, nav order, home flag) CRUD + slug rules + wrong-tenant tests.
 - [x] S1.05 Theme model: palette+typography presets (≥6 shipped) + logo/favicon blob refs; validation + tests.
 - [x] S1.06 Renderer: `products/sites/alo-sites` crate, `render` module — page JSON + theme → complete HTML document (semantic landmarks, alt required on images, meta/OG/canonical) — golden HTML tests per section type and a full-page golden.
-- [ ] S1.07 Stylesheet generation from theme tokens (one CSS file, responsive, no JS beyond menu toggle + form submit); byte-budget test (CSS < 50KB, page HTML < 100KB for the golden site).
+- [x] S1.07 Stylesheet generation from theme tokens (one CSS file, responsive, no JS beyond menu toggle + form submit); byte-budget test (CSS < 50KB, page HTML < 100KB for the golden site).
 - [ ] S1.08 Publish flow in store: immutable per-page published snapshots + site publish state; republish creates new snapshot; tests prove drafts never leak to the published set.
 - [ ] S1.09 `alo-sites` public service: axum, resolves Host header (`<sub>.<SITES_DOMAIN>` env) → tenant site → serves published snapshots with in-memory cache + proper cache headers; 404 page; /healthz; in-process integration tests incl. Host isolation (site A's host can never serve site B).
 - [ ] S1.10 Edit API in alo-jmap: `/sites/*` — site CRUD, page CRUD, section ops (add/update/move/remove), theme set, publish — auth + Problem errors + wire transcript (401/422/happy paths) in sites/STATE.md.

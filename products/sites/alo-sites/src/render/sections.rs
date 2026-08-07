@@ -17,7 +17,8 @@ use super::html::{esc, img_src, safe_href};
 
 /// A `nav` section, rendered as a `<header>` landmark. The brand link shows
 /// the theme logo when one is set, the site name otherwise; the toggle
-/// button is inert markup until the stylesheet slice ships its script.
+/// button is wired by the behavior script and hidden (menu expanded) when
+/// JavaScript is unavailable.
 pub(super) fn nav(out: &mut String, site: &SiteRenderContext<'_>, s: &NavSection, index: usize) {
     let menu_id = format!("nav-menu-{index}");
     out.push_str("<header class=\"s-nav\">\n");
@@ -292,14 +293,14 @@ fn contact_form(
     }
     if let Some(form_id) = &s.form_id {
         let t = site.strings;
+        // data-success is always present (custom message or the localized
+        // default) — it is the script's only success copy.
+        let success = s.success_message.as_deref().unwrap_or(t.form_success);
         out.push_str(&format!(
-            "<form action=\"/f/{}\" method=\"post\"",
-            esc(form_id)
+            "<form action=\"/f/{}\" method=\"post\" data-success=\"{}\">\n",
+            esc(form_id),
+            esc(success)
         ));
-        if let Some(success) = &s.success_message {
-            out.push_str(&format!(" data-success=\"{}\"", esc(success)));
-        }
-        out.push_str(">\n");
         out.push_str(&format!(
             "<p class=\"hp\" aria-hidden=\"true\"><label for=\"form-{index}-website\">{}</label><input id=\"form-{index}-website\" name=\"website\" type=\"text\" tabindex=\"-1\" autocomplete=\"off\"></p>\n",
             esc(t.form_website)

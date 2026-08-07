@@ -30,6 +30,9 @@ pub struct UiStrings {
     pub form_website: &'static str,
     /// Contact form: submit button text.
     pub form_send: &'static str,
+    /// Contact form: confirmation shown after a successful submission when
+    /// the section sets no custom `success_message`.
+    pub form_success: &'static str,
 }
 
 /// English chrome strings — the v1 default.
@@ -44,4 +47,5 @@ pub const EN: UiStrings = UiStrings {
     form_message: "Message",
     form_website: "Website",
     form_send: "Send",
+    form_success: "Thanks — your message has been sent.",
 };

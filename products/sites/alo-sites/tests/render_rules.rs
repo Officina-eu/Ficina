@@ -166,6 +166,49 @@ fn contact_form_without_form_id_renders_text_only() {
     let html = render(&stored);
     assert!(html.contains("<h2>Write us</h2>"));
     assert!(!html.contains("<form"));
+    // A form with no submit is nothing for the script to do.
+    assert!(!html.contains("<script"));
+}
+
+#[test]
+fn contact_form_without_custom_message_gets_the_default_data_success() {
+    let stored = json!({
+        "schema_version": 1,
+        "sections": [{"type": "contact_form", "form_id": "f4K9sL2wN7qR5tYx8vB1cA"}]
+    });
+    let html = render(&stored);
+    assert!(html.contains("data-success=\"Thanks — your message has been sent.\""));
+}
+
+/// The page's entire JavaScript is one static inline block, present only
+/// when there is a menu to toggle or a form to submit — a page with neither
+/// ships zero JS.
+#[test]
+fn behavior_script_is_included_exactly_when_needed() {
+    let with_nav = render(&hero_page());
+    assert_eq!(with_nav.matches("<script>").count(), 1);
+    let script_at = with_nav.find("<script>").unwrap();
+    assert!(script_at > with_nav.find("</footer>").unwrap());
+    assert!(script_at < with_nav.find("</body>").unwrap());
+    for wired in [
+        "classList.add(\"js\")",
+        "aria-expanded",
+        "form[action^=\"/f/\"]",
+    ] {
+        assert!(with_nav.contains(wired), "script lost its {wired} wiring");
+    }
+
+    let with_form = render(&json!({
+        "schema_version": 1,
+        "sections": [{"type": "contact_form", "form_id": "f4K9sL2wN7qR5tYx8vB1cA"}]
+    }));
+    assert_eq!(with_form.matches("<script>").count(), 1);
+
+    let static_only = render(&json!({
+        "schema_version": 1,
+        "sections": [{"type": "hero", "heading": "Quiet"}]
+    }));
+    assert!(!static_only.contains("<script"));
 }
 
 #[test]
