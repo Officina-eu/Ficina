@@ -5735,3 +5735,190 @@ Cuts and flags:
 
 Next item: B2.12 (billing extension — SEPA pain.001 export for approved bills
 from B1.24, with schema-valid XML golden tests).
+
+## B2.12 — paying suppliers: one upload instead of forty typed IBANs (2026-08-07)
+
+**Shipped.** The other direction of B1.24. A supplier's e-invoice arrives, is
+approved, and now becomes *money leaving*: the approved bills of a **payment
+run** are written as one ISO 20022 `pain.001` customer-to-bank credit-transfer
+file — the file every European bank's upload form takes — instead of an IBAN and
+an amount typed into online banking per bill, with a typo waiting at each one.
+
+- **Store** — `platform/alo-store/src/billing_sepa.rs` (new): `PaymentFile` /
+  `CreditTransfer`, `plan_sepa_payment_file`, `record_sepa_payment_file`,
+  `payable_billing_bills`. Migration **0117** stamps `exported_at`,
+  `exported_by`, `export_message_id` on `billing_bills` (expand-only, all-null
+  today, all-or-nothing by CHECK) plus a partial index for "approved and not yet
+  in a file".
+- **The message** — `products/mail/alo-jmap/src/billing_pain001.rs` (new):
+  both versions, the scheme's character set, the standard's own date/amount
+  formats, over the shared `billing_xml::Xml` emitter.
+- **The checker** — `billing_pain001_rules.rs` (new): the schema subset and the
+  EPC narrowings, checked over the *rendered bytes*.
+- **The route** — `billing_sepa.rs` (new): `POST /billing/bills/sepa.xml`, plus
+  `GET /billing/bills?payable=true` and three new fields on a bill's JSON.
+
+**The six decisions**, recorded as as-built in `docs/design/billing.md`
+§ "Paying suppliers — the SEPA file (as built, B2.12)":
+
+- **A bill goes into one payment run.** The mirror of 0111's "the same document
+  is never imported twice", on the way out. The second run over a bill is a
+  `409` naming the run it is already in; `"repeat": true` is a deliberate,
+  different act (the bank rejected that file) and reads as one in the record.
+- **The mark is not a payment.** Nothing sets a bill to *paid*: a file handed to
+  a bank is an instruction, and the settlement is a statement line reconciled in
+  B4.09. The rejected alternative — a `paid` status — books money that may still
+  be refused.
+- **Plan → write → record**, in that order and never merged. Planning writes
+  nothing, so a renderer that failed cannot leave a liability looking paid;
+  recording re-checks every rule under each bill's row lock, so two bookkeepers
+  exporting the same bill at the same moment still produce exactly one
+  instruction (proven by a test that plans twice and records twice).
+- **Euro only, positive only, approved only — refused by name, never skipped.**
+  A run that quietly paid *fewer* bills than the person selected is how a
+  supplier goes unpaid. Refusals carry the bill's opaque id (which the caller
+  sent) and nothing else about the document.
+- **Two `pain.001` versions**, because which one is needed is a fact about the
+  tenant's *bank*: `.03` (the EPC guidelines to 2023, what nearly every upload
+  form still takes — the default) and `.09` (the 2019 ISO version some banks now
+  require). They differ in three places: the namespace, `ReqdExctnDt` gaining a
+  `<Dt>` wrapper, `BIC` → `BICFI`. Both written from one model.
+- **The character set is presentation, so it lives with the writer.**
+  `sepa_text` folds `Müller & Söhne` → `Muller + Sohne`, `Straße` → `Strasse`,
+  `Kraków` → `Krakow`, `Ærø Håndværk` → `AEro Handvaerk`; what has no reading at
+  all becomes a space, and the scheme's slash rules are applied. The store keeps
+  the supplier's name as their document wrote it — what a bank can spell and who
+  was actually paid are two different facts.
+
+**How it was verified.**
+
+- `alo-store/billing_sepa.rs` — 10 unit tests over the pure plan: the run's
+  shape and control sum, the remittance fallback, every refusal (not approved,
+  rejected, already exported, non-euro, credit note, zero, no IBAN, IBAN with a
+  bad check digit — and that the refusal never quotes the account), the
+  tenant's own missing name/IBAN, the account holder, the forward-only date and
+  its one-year edge, one bill asked for twice paid once, and the `MsgId`'s three
+  properties (unique, dated, spellable).
+- `alo-store/tests/billing_sepa.rs` — 6 integration tests on real Postgres,
+  including the **mandatory wrong-tenant test**: B planning over A's bill id, B
+  planning a never-existing id, B mixing A's id in with its own, and B
+  *recording* a file it forged to name A's bill — all `NotFound`, A's bill
+  unmarked afterwards, and A's own run then working normally.
+- `alo-jmap` — 18 unit tests over the writer and the checker (including that a
+  correct message breaks nothing and that each rule catches its own break), 6
+  golden tests over 3 pinned files (`sepa-standard.xml`, `sepa-edge.xml`,
+  `sepa-pain001-09.xml`), every one of them run through the checker before it is
+  compared and again as stored bytes, and 5 HTTP tests through the real router.
+- Gate: `cargo fmt` on everything this item wrote; `SQLX_OFFLINE=true cargo
+  clippy -p alo-store -p alo-jmap --all-targets` clean (zero warnings);
+  `cargo test -p alo-store` 569 green, `cargo test -p alo-jmap` 546 green, twice
+  each. Web untouched, so no `tsc`/`eslint`/`build` in this item.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `sepawire`, `sepawireb`).
+Amounts hand-computed: 8 h at €125.00 is €1000.00 net, 21 % is €210.00, gross
+€1210.00 per bill.
+
+```
+POST /billing/bills/sepa.xml           (no token)  -> 401
+POST .../sepa.xml, bill still 'received'           -> 409  "bill FHXClQp0… has not been approved
+                                                            yet; only an approved bill is paid"
+POST /billing/bills/{id}/approve  (x2)             -> 200
+GET  /billing/bills?payable=true                   -> 200  2 bills, exportedAt null
+  the run:
+POST .../sepa.xml {2 bills, 2026-12-31}            -> 200  2085 bytes
+    content-type: application/xml; charset=utf-8
+    content-disposition: attachment;
+        filename="sepa-credit-transfer-ALO20260807-513FB11F7998.xml"
+    x-content-type-options: nosniff · cache-control: no-store
+    <MsgId>ALO20260807-513FB11F7998</MsgId>
+    <NbOfTxs>2</NbOfTxs>  <CtrlSum>2420.00</CtrlSum>   (twice: header and block)
+    <ReqdExctnDt>2026-12-31</ReqdExctnDt>  <ChrgBr>SLEV</ChrgBr>
+    <IBAN>NL91ABNA0417164300</IBAN>                    (ours, the money leaves here)
+    <EndToEndId>R-2026-77</EndToEndId> <InstdAmt Ccy="EUR">1210.00</InstdAmt>
+    <Nm>Muller + Sohne GmbH</Nm> <IBAN>DE89370400440532013000</IBAN>
+    <EndToEndId>R-2026-78</EndToEndId> <InstdAmt Ccy="EUR">1210.00</InstdAmt>
+    <Nm>Muller + Sohne GmbH</Nm> <IBAN>PL61109010140000071219812874</IBAN>
+  what the run recorded:
+GET  /billing/bills/{id}                           -> 200  approved · exportMessageId
+                                                            ALO20260807-513FB11F7998 (the file's own)
+psql billing_bills (both rows)                     ->      approved | ALO20260807-513FB11F7998 | t | t
+GET  /billing/bills?payable=true                   -> 200  0 left
+  not twice:
+POST .../sepa.xml, same bill again                 -> 409  "…is already in a payment file; repeat it
+                                                            deliberately if the bank never executed"
+POST .../sepa.xml {repeat:true}                    -> 200  a new MsgId ALO20260807-58D138B73756
+  the version the bank asked for:
+POST .../sepa.xml {version pain.001.001.09}        -> 200  ns …pain.001.001.09, <BICFI>ABNANL2A,
+                                                            <Dt>2026-08-07</Dt>
+POST .../sepa.xml {version pain.001.001.11}        -> 422  "version must be pain.001.001.03 or …09"
+  every refusal, and nothing recorded by any of them:
+POST .../sepa.xml, supplier stated no IBAN         -> 422  "bill hsDoU… states no IBAN to pay into;
+                                                            ask the supplier for one"
+POST .../sepa.xml {billIds: []}                    -> 422  "a payment file must pay at least one bill"
+POST .../sepa.xml {executionDate 2020-01-01}       -> 422  "a payment cannot be dated before today"
+POST .../sepa.xml {executionDate "31/12/2026"}     -> 422  "executionDate must be … YYYY-MM-DD"
+POST .../sepa.xml {billIds: ["never-existed"]}     -> 404  not found
+POST .../sepa.xml, body that is not JSON           -> 400  malformed request body
+GET  /billing/bills/{id} after all of them         -> 200  exportedAt null
+  the neighbour's door (tenant B):
+POST .../sepa.xml (B) naming A's bill              -> 404  {"detail":"not found","status":404,…}
+POST .../sepa.xml (B) id that never existed        -> 404  identical, byte for byte
+GET  /billing/bills?payable=true       (B)         -> 200  0 bills
+GET  /billing/bills/{A's bill}         (B)         -> 404
+GET  /billing/bills/{A's bill}         (A, after)  -> 200  approved, its own run, untouched
+  and the bytes are a document:
+python xml.etree parse of both files               ->      ns pain.001.001.03 / pain.001.001.09
+```
+
+Cuts and flags:
+
+- **Cut: no screen.** B1.24 shipped bills as an API with no web surface, and
+  this item does not invent one for the payment run either: a "pay these"
+  selection needs a bills list, an approval queue and a run dialog, which is a
+  bills *module*, not a button. Everything is curl-verifiable and the shapes are
+  final; the UI is a real item a human should schedule (with B4's reconciliation
+  screen, which is where the other half of this story lives).
+- **Cut: no structured creditor reference.** An `RF…` (ISO 11649) reference is
+  carried in the unstructured remittance line the scheme guarantees delivery of,
+  not in `Strd/CdtrRefInf` — claiming a reference is *structured* means
+  validating its check digits first, which is its own small item.
+- **Cut: no `pain.008` direct debits.** Collecting money is a different product
+  with mandates behind it; this item is only paying.
+- **Cut: no creditor BIC.** Bills state an account and almost never a BIC, and a
+  SEPA transfer has been IBAN-only since 2016 — a BIC derived from an IBAN would
+  be an invention inside a payment instruction. `NOTPROVIDED` is the scheme's
+  own word for it and is what our own bank gets when the tenant has stated none.
+- **Flagged for a human: validate the golden files against the normative XSD**,
+  offline, and upload one to a bank's test facility before any tenant sends a
+  real file. `billing_pain001_rules.rs` is a hand-written subset for the same
+  reason the e-invoice checker is (an XSD processor is a third language and a
+  downloaded artefact in a public repo, `CLAUDE.md`); it narrows what that
+  one-off check could find, it does not replace it. This sits beside the same
+  standing item for the EN 16931 schematron.
+- **Flagged: a hand-entered bill is still not writable** — `billing_bills`
+  stores `source_syntax` `NOT NULL` with a `('cii','ubl')` CHECK (0111), so
+  `create_billing_bill` with no syntax, which its own rustdoc offers for "a
+  supplier who still sends paper", fails on the constraint. Found while writing
+  this item's fixtures and deliberately **not** fixed here: it is B1.24's gap,
+  it needs its own expand-only migration, and folding it into a payment commit
+  would hide it. No live path reaches it today (the only door is the file
+  import).
+- **Fixed in passing: a pre-existing flaky test.**
+  `billing_schedules::one_run_is_bounded_and_the_rest_follows_on_the_next`
+  asserted an *exact* total of drafts for an arrangement that is deliberately a
+  year overdue, while the same suite's cross-tenant sweep test runs concurrently
+  over every tenant and may legitimately raise a third batch for it. It failed
+  4 runs in 6 of that binary alone, at HEAD, with nothing of this item involved.
+  The assertion now states what the test is actually about — one run never
+  raises more than the cap, both runs' documents are stored, and no period is
+  billed twice however many runs raised it.
+- **No new route prefix**: `/billing/bills/sepa.xml` sits under the existing
+  `/billing`, so the production Caddyfile needs nothing new. The standing
+  `/billing` and `/crm` prefix actions are unchanged.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged since B2.02. Nothing here is deployed.
+
+Next item: B2.13 (audit log — an append-only record of create/update/status
+events for billing and CRM entities, `GET /audit?entity=`, a UI tab on records,
+with a test that every mutating route writes exactly one entry).

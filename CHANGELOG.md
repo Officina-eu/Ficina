@@ -6,6 +6,24 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: pay your suppliers in one upload.** The bills you have approved
+  can now be handed to your bank as one **SEPA credit-transfer file** — the same
+  `pain.001` file your bank's own upload form expects — instead of being typed
+  into online banking one payment at a time. Pick the bills, pick the day the
+  bank should execute, and alo writes the instruction: your account, each
+  supplier's account, each amount, and each supplier's own invoice number as the
+  reference, so their ledger recognises the payment when it lands. Names your
+  bank cannot spell are folded on the way in (`Müller & Söhne` becomes
+  `Muller + Sohne`) rather than refused, and euro-only, positive-only,
+  approved-only are checked before you download anything. **A bill goes into one
+  payment run**: the second attempt at the same one is refused, and tells you
+  which run it was already in — you can still repeat it deliberately, for the
+  file the bank never executed. Ask your bank which version they want: alo writes
+  `pain.001.001.03` by default and `pain.001.001.09` on request. Handing the file
+  over is not the same as being paid, and alo does not pretend otherwise: it
+  records that you instructed the payment, and the money is reconciled when the
+  bank says it moved.
+
 - **alo Billing: bill it once, bill it every month.** Anything you charge on a
   rhythm — a retainer, a subscription, a hosting fee — can now bill itself.
   Open the invoice you already send, choose **Repeat this invoice**, pick weekly,

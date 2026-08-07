@@ -310,7 +310,8 @@ The rest of the surface, with the wave item that landed each:
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
 | `POST /billing/invoices/{id}/reminder` | draft a payment reminder for a late invoice (B1.26) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
-| `POST /billing/bills/import`, `GET /billing/bills[/{id}]`, `POST .../{approve,reject}`, `DELETE .../{id}` | receiving a supplier's e-invoice (B1.24) — **as built** |
+| `POST /billing/bills/import`, `GET /billing/bills[/{id}][?status=|?payable=true]`, `POST .../{approve,reject}`, `DELETE .../{id}` | receiving a supplier's e-invoice (B1.24), and what is waiting to be paid (B2.12) — **as built** |
+| `POST /billing/bills/sepa.xml` | the approved bills of a run as one SEPA `pain.001` credit-transfer file, and the record that the instruction was given (B2.12) — **as built** |
 | `GET/POST /billing/schedules`, `GET/PATCH/DELETE /billing/schedules/{id}`, `POST .../{pause,resume}`, `POST /billing/schedules/run` | recurring invoices: the standing arrangements and the run that raises the drafts they are due for (B2.11) — **as built** |
 
 ### Receiving an e-invoice (as built, B1.24)
@@ -846,6 +847,92 @@ what supplies the customer, the currency, the terms and the lines: a
 standalone form would need a second line editor, and a second line editor
 is a second place for a price to be typed differently from the one on the
 paper.
+
+### Paying suppliers — the SEPA file (as built, B2.12)
+
+The other direction of B1.24. A bill arrives, somebody approves it, and
+then somebody has to actually pay it — which today means typing an IBAN
+and an amount into online banking, per bill, with a typo waiting at every
+one of them. Instead, the approved bills of a **payment run** become one
+ISO 20022 `pain.001` customer-to-bank credit-transfer file, which is what
+every European bank's upload form takes.
+
+| Module | What it owns |
+|---|---|
+| `alo-store/billing_sepa.rs` | which bills may be paid, what the bank is told to move, and the record that we asked |
+| `alo-jmap/billing_pain001.rs` | the message: element order, the two versions, the scheme's character set |
+| `alo-jmap/billing_pain001_rules.rs` | the schema subset + EPC rules, checked over the bytes we emit |
+| `alo-jmap/billing_sepa.rs` | the one route |
+
+Six decisions, each of which could have gone the other way:
+
+- **A bill goes into one payment run.** Paying a supplier twice is the
+  accident this record type exists to prevent — `billing_bills` already
+  refuses the same document being *imported* twice (0111), and this is the
+  mirror of that rule on the way out. Migration 0117 stamps the run, the
+  moment and the person on every bill a file covered, and a second run
+  over one of them is a `409` naming the run it is already in. A
+  deliberate `"repeat": true` is allowed and is a different act — the bank
+  rejected the file, the file was lost — which reads as one in the record.
+- **The mark is not a payment.** Nothing here sets a bill to *paid*: a
+  file handed to a bank is an instruction, and the money moves when the
+  bank says it moved, which arrives back as a statement line and is
+  reconciled in B4.09. Calling this "paid" would book a settlement that
+  may still be refused.
+- **Plan, write, then record — in that order.** The store plans (reads,
+  refuses, mints the run's `MsgId`) and writes nothing; the message is
+  written and checked above the store; only then does the store record,
+  re-checking every rule under each bill's row lock. So a renderer that
+  failed can never leave a liability looking paid, and two bookkeepers
+  exporting the same bill at the same moment still produce exactly one
+  instruction. The rejected alternative — mark inside the planning
+  transaction — is one panic away from a bill nobody will pay again.
+- **Euro only, positive only, approved only — refused by name.** A
+  foreign-currency bill is a different payment product a bank prices
+  differently; a credit note is money coming back; an undecided bill is a
+  claim rather than a liability. Each is refused with the bill's id, never
+  silently skipped: a run that quietly paid *fewer* bills than the person
+  selected is how a supplier goes unpaid.
+- **Two versions, because it is a fact about the tenant's bank.**
+  `pain.001.001.03` is what the EPC's implementation guidelines used until
+  the 2023 rulebook and what nearly every bank's upload form still takes;
+  `pain.001.001.09` is the 2019 ISO version some now require. They differ
+  in three places — the namespace, `ReqdExctnDt` gaining a `<Dt>` wrapper,
+  and `BIC` being renamed `BICFI` — so both are written from one model and
+  pinned by golden files that differ in exactly those places. The default
+  is `.03`; `"version"` on the request body chooses.
+- **The character set is a presentation rule, so it lives with the
+  writer.** A SEPA message carries only `a–z A–Z 0–9 / - ? : ( ) . , ' +`
+  and space, and a tenant's data is not written in that set. `sepa_text`
+  folds accents to their base letter, spells `ß` as `ss`, turns `&` into
+  `+`, and replaces what has no reading at all with a space —
+  `Müller & Söhne` reaches the bank as `Muller + Sohne`, recognisable
+  rather than refused. The **store** keeps the supplier's name as their
+  document wrote it: what a bank can spell and who was actually paid are
+  two different facts.
+
+`GET /billing/bills?payable=true` is the read a run is prepared from —
+approved, not yet in a file, oldest liability first — kept as a flag
+rather than a fourth status, because "already paid out" is not a decision
+somebody made about the document, it is what has happened to it since.
+
+**What the file does not carry**, each a deliberate cut: no `CdtrAgt`
+without a BIC (a SEPA transfer has been IBAN-only since 2016, and a BIC
+guessed from an IBAN would be an invention in a payment instruction); no
+structured `Strd/CdtrRefInf` creditor reference (an `RF…` reference is
+carried in the unstructured line the scheme guarantees delivery of —
+claiming it is structured means validating it first, which is its own
+item); and no direct debits (`pain.008` is collecting money, a different
+mandate-bearing product).
+
+**Not the XSD.** `billing_pain001_rules.rs` is a hand-written subset of
+the schema and the EPC guidelines checked over the rendered bytes — every
+required element, in the schema's sequence, with its data type, length and
+character set — for the same reason the e-invoice checker is one: running
+the normative artefacts means an XML Schema processor and a downloaded
+binary in a public repository (`CLAUDE.md`). Validating the golden files
+against the real XSD once, offline, and uploading one to a bank's test
+facility are open human items in `docs/autonomy/STATE.md`.
 
 ## Data model
 
