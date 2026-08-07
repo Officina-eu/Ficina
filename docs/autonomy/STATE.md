@@ -7156,3 +7156,9 @@ Cuts and flags:
 Wave BI-1 is complete. Next item: B3.01 (the alo Projects & Timesheets design
 note — client-project typing over the existing task projects, the time model,
 approval, rates).
+
+**Trailer note (BI1.08).** Commit `c6c8d87` went out without the
+`Co-Authored-By` line every other loop commit carries — the same slip B1.27's
+`eb80850` made. Pushed history is not rewritten (LOOP.md's hard rail), so the
+gap is journalled here instead. The author is the repository owner, as it
+should be; only the co-author trailer is missing.
