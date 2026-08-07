@@ -63,7 +63,7 @@ small, or a `[!]` note for the human if large.
 - [x] BI1.05 Web: Insights rail tab (workspace surface), dashboard grid, tile renderers (number, bar, line, pie, table) via the chosen embedded chart lib under alo chrome; i18n en.
 - [x] BI1.06 Gallery + the ★ zero-setup "Business overview": prebuilt specs (Billing: revenue by month, outstanding, overdue aging, VAT by period; CRM: pipeline by stage, won this month, win rate) and the default dashboard auto-built per tenant on first visit. Done when: a seeded tenant opens Insights and sees live numbers with zero clicks.
 - [x] BI1.07 ★ Ask-to-chart: alo-ai NL→ChartSpec envelope (strict parse + one repair retry, fixture tests, NO live calls) + propose-then-approve UI (chart preview → Approve pins to dashboard).
-- [ ] BI1.08 Wave review: fr/nl strings, CHANGELOG, design as-built, features [BI-1] reconciliation.
+- [x] BI1.08 Wave review: fr/nl strings, CHANGELOG, design as-built, features [BI-1] reconciliation.
 
 ## Wave B3 — alo Projects & Timesheets
 

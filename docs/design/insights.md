@@ -1,6 +1,7 @@
 # Design note — alo Insights (ChartSpec, the semantic layer, dashboards)
 
-Status: designing · 2026-08 · ADR 0037 · Business track wave BI-1
+Status: **as built** (BI1.08, the BI-1 wave review) · 2026-08 · ADR 0037 ·
+Business track wave BI-1
 
 alo Insights is the cross-module analytics surface: a top-level tab where a
 business sees the numbers of all its processes, pre-built from day one, with
@@ -12,8 +13,10 @@ and CRM, the zero-setup **Business overview** dashboard, and ask-to-chart.
 This note records the decisions before the first migration lands: what a
 **ChartSpec** is, what the **semantic layer** whitelists, where money is
 allowed to be added up, how a tile and a dashboard are stored, the error
-map, the tenancy story, the chart library, and the cuts. It is updated to
-as-built at the BI-1 wave review (BI1.08).
+map, the tenancy story, the chart library, and the cuts. Every "as-built"
+paragraph was written by the item that shipped that part, and the wave review
+(BI1.08) closed the note with the reconciliation table at the end: **what BI-1
+promised, and what BI-1 shipped**.
 
 The one sentence the rest of the note serves: **the AI never writes SQL, and
 neither does the user — a chart is a typed envelope over a closed catalog,
@@ -83,6 +86,20 @@ period → filters, every option from `/insights/catalog`), and the
 ask-to-chart card: preview, **Approve** pins it to a dashboard, discard
 leaves nothing behind (ADR 0034). All strings through `i18n/en.ts`; fr/nl at
 the wave review.
+
+**As-built at BI1.08: the tile builder is not in BI-1, and the arrangement is
+a menu.** A reader gets a chart two ways — from the gallery of ready-made
+questions (BI1.06) or by asking for one (BI1.07) — and both hand over a whole
+spec, so nothing this wave needed the dataset → measure → dimension form or
+the `/insights/catalog` route that would feed it. Both are BI-2's, together
+(§ the gallery is `GET /insights/gallery`). Tiles are rearranged from the
+tile's own menu — **make wider / make narrower / move earlier / move later**,
+each one `PATCH` or `POST …/move` — rather than by dragging: the ordering is
+fractional and the span is 1–4 columns, so the grid has no free coordinates a
+drag could write, and a keyboard reader gets the same four commands the mouse
+does. Dragging is a nicety over a layout model that already exists, not a
+missing capability. The whole surface, including every axis label and period
+abbreviation, is en/fr/nl (BI1.08).
 
 ## The ChartSpec
 
@@ -525,7 +542,15 @@ use:
   to restate into from the first visit, exactly as the VAT summary does.
   Whether Insights should *prompt* a tenant billing in several currencies to
   confirm that default before showing a restated total is a product call, not
-  a code one, and is left to the wave review.
+  a code one, and is left to the wave review. **Answered at BI1.08: no prompt,
+  and nothing is hidden.** A restated total already says which currency it is
+  in, and a period that could not be restated in full says so on the tile
+  (`unconverted_documents`), so the reader is never shown a figure whose
+  currency or completeness is implied. A modal in front of the first chart a
+  business ever sees, to confirm a setting it can change in Billing at any
+  time, would buy nothing that honesty on the tile does not already buy. It
+  stays a product call a human may overturn — the code needs no change either
+  way, since the currency comes from `billing_settings`.
 - **The ROADMAP gate on wave B2 ("B1 live with ≥1 real tenant") is still
   unmet** — B1 and B2 are code-complete but nothing is deployed, and BI-1 was
   inserted ahead of B3 by owner decision (ADR 0037). This note is exactly the
@@ -533,3 +558,38 @@ use:
   writes a migration**, and the standing human actions (the `/billing`,
   `/crm`, `/audit` — and now `/insights` — Caddyfile prefixes, and a deploy)
   are unchanged.
+
+## What BI-1 promised, and what BI-1 shipped (BI1.08)
+
+Every `[BI-1]` line of `docs/features.md` § alo Insights, reconciled against
+the code. Nothing on that list is silently missing: each is either shipped, or
+a cut with the reason and where it goes instead.
+
+| `[BI-1]` feature | State | Where / why |
+|---|---|---|
+| ★ **The zero-setup "Business overview"** — a pre-built dashboard that exists from day one; no connectors, no ETL, no data person | **Shipped** | BI1.06. Seven prebuilt specs — outstanding, won this month, revenue by month, overdue aging, pipeline by stage, VAT by quarter, win rate — materialised into real board and tile rows in one transaction the first time a tenant opens Insights, in the reader's own language. It is an ordinary board from that moment: rename it, resize a tile, delete it and it stays deleted (`insight_seeds`). Live figures with zero clicks, proven on the wire. |
+| **Insights tab**: dashboards of tiles (number, bar, line, pie, table), **drag-arranged**; **shared via Spaces permissions** | **Shipped**, two narrowings | BI1.05 (the tab, the grid, the five renderers, each chart also present as a table for a screen reader) and BI1.02/BI1.04 (the model and the routes). **Narrowed:** arrangement is the tile's own menu — wider / narrower / earlier / later — not a drag; the layout model is a fractional order plus a 1–4 column span, so there are no free coordinates to drag to, and the keyboard gets exactly what the mouse gets (§ Web surface, as-built). **Not shipped:** Spaces-scoped sharing. Every member of a tenant sees every board, said out loud in § Tenancy — the same roles question CRM deferred and **B4.12** owns, where the first scoped role (the accountant) is designed once rather than invented from its narrowest caller. |
+| **Gallery of ready-made tiles per module** (Billing: revenue by month, overdue aging, VAT; CRM: pipeline by stage, win rate) — one click each | **Shipped**, wider than promised | BI1.06: ten entries, six Billing and four CRM — the five named plus top customers, payments received, outstanding, won this month and won by month. `GET /insights/gallery` sends a key, a shape and the spec and **no words**; the client translates the key, and pinning is the ordinary `POST …/tiles` through the ordinary write gate. |
+| ★ **Ask-to-chart**: plain language → chart → Approve pins it; a typed ChartSpec, never SQL, over a whitelisted layer; propose-then-approve (ADR 0034) | **Shipped** | BI1.07. `alo-ai` gets the catalog rendered from the very enums the validator checks against (`insight_prompt.rs`), one strict parse, exactly one repair turn carrying the validator's own sentence, and a model refusal believed at once rather than repaired. The route stores nothing; **Approve** writes the tile, captioned with the reader's own question. Verified against a scripted local backend — no live model call, ever, unattended. |
+| **Chart rendering via an embedded Apache-2.0 chart library under alo chrome** — never a from-scratch chart engine | **Shipped** | BI1.05: Apache ECharts, canvas rendering, no network at runtime, imported by **exactly one file** (`web/src/insights/chart/`) so the engine is a dependency and not an architecture. Rejected alternatives recorded in § Chart rendering. |
+
+**Languages.** The Insights tab is translated end to end in en/fr/nl (BI1.08)
+— boards and tiles, the gallery, the ask dialog, the empty and error states,
+and every word a chart draws with: table headers, statuses, age brackets, and
+the quarter and week abbreviations, which are `T1`/`S3` in French and
+`K1`/`W3` in Dutch rather than English `Q`/`W` on a European axis. Bucket
+labels were never English to begin with — the server sends ISO keys and
+catalog ids, and the browser formats them per locale (§ The series that comes
+back), which is why an axis translates without a round trip. The seeded
+Business overview is written server-side in the reader's language
+(`insights_gallery.rs`), and `locale.test.ts` asserts its seven captions are
+**the same words** the gallery offers, so a chart does not change its name
+depending on where it came from. A key added to the Insights surface without
+fr/nl turns the suite red.
+
+**What is not in BI-1** stays as § Out of scope records it: the tile builder
+and its catalog route, exports and printing, caching, comparisons and
+targets, drill-through, free-form layout, and any data alo does not already
+hold. The one **human item** this wave adds is unchanged: `/insights` must be
+added to the production Caddyfile at the next deploy, beside `/billing`,
+`/crm` and `/audit`.

@@ -7052,3 +7052,107 @@ Cuts and flags:
 Next item: BI1.08 (the BI-1 wave review — fr/nl for every Insights string
 including this item's, CHANGELOG sweep, design note as-built, and the
 features.md [BI-1] reconciliation).
+
+## BI1.08 — the BI-1 wave review: Insights in three languages, and the wave reconciled
+
+Shipped: alo Insights speaks en/fr/nl end to end, `docs/design/insights.md` is
+as-built and closes with a reconciliation table, `docs/features.md` § alo
+Insights carries the pointer blockquote B1 and B2 have, ROADMAP's bare BI-1
+heading became a real wave section with its boxes, and the CHANGELOG gained the
+user-voice line for the translation.
+
+**The interface: 88 keys per language** (`web/src/i18n/fr.ts`, `nl.ts`). Boards
+and their rename/delete confirmations, the tile menu, the gallery of ten
+ready-made questions, the ask dialog, every empty and error state — and the
+words a *chart* is drawn with, which is the half of this surface that is easy
+to miss: table headers, the "Other" remainder, the age brackets on overdue
+money, issued/paid, won/lost/open, and the quarter and week abbreviations.
+
+Three wording decisions rather than transliterations:
+
+- **A "board" is a `tableau de bord` in French and a `dashboard` in Dutch.**
+  Dutch already spends the word *bord* on the kanban board of Taken and CRM, so
+  reusing it for a chart surface would have made two different things share a
+  noun in the same rail. French has no such collision and takes the natural
+  phrase, used consistently from the tab strip to the delete confirmation.
+- **`Q1` and `W03` are English on a European axis.** French quarters and weeks
+  render `T1 2026` / `S3 2026`, Dutch `K1 2026` / `W3 2026`. This is the kind
+  of string that survives a translation pass because it looks like punctuation;
+  the locale suite now asserts all three forms.
+- **The module is `Analyses` in French and `Inzichten` in Dutch**, the same
+  translate-the-name rule `moduleCrm` follows (*Ventes* / *Verkoop*), not the
+  loan word.
+
+**The overview and the gallery now agree, character for character.** The seeded
+Business overview is written server-side (`insights_gallery.rs`) and the gallery
+offers the same seven charts from the browser catalog; if the two disagree,
+pinning a chart a tenant already has looks like a different chart. The French
+seed used typewriter apostrophes (`l'activité`, `d'affaires`) where every
+catalog string uses the typographic one, so the seed was corrected — the only
+production change in this item — and `locale.test.ts` now asserts all seven
+captions in both languages against the seed's own words. A future caption that
+drifts turns the suite red on both sides.
+
+`locale.test.ts` gains the third completeness suite, mirroring B1.27's and
+B2.14's: every `insights*` key must exist in fr and nl, every interpolation must
+keep its argument count (a dropped argument prints a sentence with the number
+missing), the words must really change language, and both branches of the
+unconverted-documents note are exercised in both languages.
+
+Docs, in the shape the earlier waves set:
+
+- `docs/design/insights.md` — status **as built**; a new "as-built at BI1.08"
+  paragraph in § Web surface recording that **the tile builder is not in BI-1**
+  (the gallery and the ask both hand over whole specs, so nothing needed the
+  dataset → measure → dimension form or the `/insights/catalog` route that
+  feeds it — both are BI-2's, together) and that **arrangement is a menu, not a
+  drag** (the layout is a fractional order plus a 1–4 column span, so there are
+  no free coordinates to drag to, and the keyboard gets what the mouse gets);
+  the open question on the accounting currency **answered** (no prompt: a
+  restated total names its currency and an incomplete period says so on the
+  tile, so a modal in front of a business's first chart buys nothing honesty
+  does not); and the closing table **What BI-1 promised, and what BI-1 shipped**
+  — a row per `[BI-1]` feature, each shipped or a named cut.
+- `docs/features.md` § alo Insights — the pointer blockquote, naming the two
+  narrowings a reader of that list would otherwise assume shipped.
+- `ROADMAP.md` — Wave BI-1 was one heading with no boxes; it is now five ticked
+  slices plus the unticked, deliberately-deferred sixth (Spaces-scoped sharing
+  → B4.12), with the languages paragraph B1 and B2 carry.
+
+Verified:
+
+```
+npx tsc --noEmit                                        clean
+npx eslint src/i18n/{fr,nl,locale.test}.ts              clean
+npx vitest run                                          271 passed / 31 files
+  src/i18n/locale.test.ts                               24 passed (was 20)
+npm run build                                           built in 10.85s
+cargo clippy -p alo-jmap --all-targets                  clean
+cargo test -p alo-jmap --lib insights                   26 passed
+cargo test -p alo-jmap --test insights_http             7 passed
+```
+
+Cuts and flags:
+
+- **Not shipped, and said plainly in the design note and features.md:**
+  Spaces-scoped board sharing. Every member of a tenant sees every board until
+  **B4.12** designs the first scoped role on Spaces. Half-building a tile
+  permission here would have shipped an access rule nobody tested.
+- **Drag-arranged tiles** are a nicety over a layout model that already exists,
+  not a missing capability — recorded as a narrowing rather than a gap.
+- **The server's own refusal sentences are still English**, the standing
+  cross-cutting item B1.27 and B2.14 both left for a human. Insights adds no new
+  instance of it: the ask dialog says "the assistant is not switched on for this
+  workspace" in our words, not the server's code.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`): a
+  `cargo fmt -p alo-jmap` rewrote six unrelated files and was reverted; only the
+  two apostrophes in `insights_gallery.rs` are in the diff. A pinned
+  `rust-toolchain.toml` is still the fix, and still a human item.
+- Standing human actions, unchanged: **`/insights` must be added to the
+  production Caddyfile at the next deploy** (beside `/billing`, `/crm`,
+  `/audit`), and the ROADMAP gate on B2 ("B1 live with ≥1 real tenant") is still
+  unmet — BI-1 is code-complete and undeployed, like B1 and B2 before it.
+
+Wave BI-1 is complete. Next item: B3.01 (the alo Projects & Timesheets design
+note — client-project typing over the existing task projects, the time model,
+approval, rates).

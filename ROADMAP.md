@@ -341,6 +341,21 @@ nothing outside the browser to translate.
 ### Wave B5 — Purchasing & Inventory — products, stock, PO/SO chains
 ### Wave B6 — HR — records, leave, recruitment-lite (payroll calc = permanent non-goal)
 ### Wave BI-1 — alo Insights first slice ⇄ inserted after B2 (ADR 0037: zero-setup overview dashboard, tile gallery, ask-to-chart)
+
+Inserted ahead of B3 by owner decision. Built on the same terms as B2: code,
+migrations and tests, none of it deployed.
+
+- [x] BI-1.1 The ChartSpec and the semantic layer: a typed envelope over a closed catalog of four datasets (invoices, receivables, payments, deals) — the AI and the user both choose from it, and neither writes SQL. Money is folded in the same Rust the invoice and the VAT return use, so a chart and a tax return cannot disagree about a cent
+- [x] BI-1.2 Boards and tiles: tenant-scoped dashboards, specs validated on write, fractional order and a 1–4 column span, `/insights/*` on the wire — a spec from another tenant is not a capability
+- [x] BI-1.3 The Insights tab: number, bar, line, pie and table tiles under alo chrome, drawn by one embedded Apache-2.0 library, every chart also a table for a screen reader
+- [x] BI-1.4 ★ The zero-setup **Business overview**: seven live figures on a real board the first time a tenant opens Insights, with a gallery of ten ready-made questions beside it
+- [x] BI-1.5 ★ Ask-to-chart: plain language → a proposed chart you look at before it is pinned; strict parse, one repair, a refusal believed rather than repaired
+- [ ] BI-1.6 Spaces-scoped board sharing (finance sees finance, sales sees pipeline) — *deliberately deferred to B4.12, where the first scoped role is designed on Spaces rather than invented twice; boards are tenant-wide until then*
+
+The module is translated end to end in en/fr/nl — interface, chart labels,
+the seeded overview's own captions, down to the quarter and week
+abbreviations on an axis (BI1.08).
+
 ### Wave BI-2 — alo Insights full — after B4 (finance depth, module-embedded strips, digest mail)
 
 Later waves (post-traction, unordered): manufacturing-lite, POS, subscriptions,

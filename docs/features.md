@@ -466,6 +466,14 @@ EU models, suggest-only where the EU AI Act calls a use high-risk.
 
 ### alo Insights — see the whole business (ADR 0037) · waves [BI-1] after B2, [BI-2] after B4
 
+> Wave BI-1 is built. `docs/design/insights.md` § "What BI-1 promised, and
+> what BI-1 shipped" reconciles every `[BI-1]` line against the code: each is
+> shipped, or a cut with its reason. Two narrowings are named there — tiles
+> are rearranged from a menu rather than by dragging (the layout is an order
+> plus a 1–4 column span, so there is nowhere to drag *to*), and **Spaces-
+> scoped sharing is not shipped**: every member of a tenant sees every board
+> until the first scoped role lands with **B4.12**.
+
 - [BI-1] ★ **The zero-setup "Business overview"**: a pre-built dashboard that exists from day one — revenue, outstanding invoices, pipeline value, and more as modules land. No connectors, no ETL, no data person: everything already lives in one tenant-scoped database, which is the 80% of BI-tool complexity alo customers never pay for.
 - [BI-1] **Insights tab**: dashboards of tiles (number, bar, line, pie, table), drag-arranged; shared via Spaces permissions (finance sees finance, sales sees pipeline).
 - [BI-1] Gallery of ready-made tiles per module (Billing: revenue by month, overdue aging, VAT; CRM: pipeline by stage, win rate) — one click each.

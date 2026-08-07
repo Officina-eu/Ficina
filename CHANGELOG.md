@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- **Insights now speaks French and Dutch, down to the labels on an axis.**
+  Switch the language and the whole tab follows: your boards and the charts on
+  them, the picker of ready-made questions, the box you type a question into,
+  the empty screens and every confirmation before something is removed. The
+  charts themselves change language too — the months and quarters along an
+  axis, the age brackets on your overdue money, the column headings in the
+  table version of every chart — so a French quarter reads *T1 2026* and a
+  Dutch one *K1 2026*, rather than an English abbreviation on a European
+  report. The **Business overview** a workspace is handed on its first visit is
+  written in the language of whoever opened it, and it carries the same names
+  as the ready-made charts it was built from, so pinning one you already have
+  does not quietly produce a differently-named twin. Renaming any of them
+  changes nothing but the name.
+
 - **Contact forms on live sites now actually send.** A visitor pressing Send on
   a published site's contact form has their message stored with the site it was
   written to — nothing more: in keeping with the no-tracking promise, only the
