@@ -5922,3 +5922,120 @@ Cuts and flags:
 Next item: B2.13 (audit log — an append-only record of create/update/status
 events for billing and CRM entities, `GET /audit?entity=`, a UI tab on records,
 with a test that every mutating route writes exactly one entry).
+
+## B2.13 — every record now remembers who changed it (2026-08-07)
+
+**Shipped.** The cross-cutting trail: every mutation of a billing or CRM record
+leaves exactly one entry naming the act, the record, the person and the moment,
+and each record shows its own history on the record itself.
+
+The design decision worth reading first is **derived, not declared**. The
+obvious build is a `record_audit` call in each of the ~57 mutating handlers;
+that was rejected, because "every mutating route writes exactly one entry" kept
+by hand is kept until the fifty-eighth route, whose author has no reason to know
+the promise exists. Instead one axum layer over the router derives the entry
+from the **matched route template** — so a `POST /billing/…` registered next
+year is audited the moment it is registered, and a test reads the router's own
+source to prove there is no gap. `docs/design/audit-trail.md` (new) is the note
+`docs/design/crm.md` promised this item would write.
+
+- **Store** — migration **0118** adds `entity_type` + `entity_id` to the
+  existing `audit_log` (0015), both nullable, no backfill, plus a partial index
+  on `(tenant, type, id, created_at DESC)`. One log, not two: a trail that lives
+  in two tables is a trail with two answers.
+  `platform/alo-store/src/audit.rs` gains `Store::record_entity_audit` and
+  `TenantStore::list_entity_audit`; `record_audit` keeps its signature.
+  `AuditEntry` gains the two fields (additive).
+- **The vocabulary** — `products/mail/alo-jmap/src/audit_action.rs` (new, pure):
+  `(method, template, path) → {entity_type, entity_id, action}`.
+  `POST /billing/invoices` → `billing.invoice.create`;
+  `POST /billing/invoices/{id}/issue` → `billing.invoice.issue`;
+  `POST /billing/invoices/{id}/payments` → `billing.invoice.payment.create`
+  filed **on the invoice**, which is what makes a record's history complete.
+- **The layer** — `products/mail/alo-jmap/src/audit_record.rs` (new): only
+  successes, only writes, actor from the bearer token, entry written after the
+  response and best-effort (an audit failure must never undo the act). A
+  create's id is read from the response body, the only place it exists.
+- **The read** — `products/mail/alo-jmap/src/audit.rs` (new):
+  `GET /audit?entity=<type>:<id>&limit=` , tenant-scoped, not admin-gated
+  (it is the history of a record the caller can already edit).
+- **Web** — `web/src/audit/` (new): `RecordHistory` panel + its own tiny client,
+  mounted on the invoice editor, the quote editor and the deal drawer. 37 new
+  `audit*` strings in `i18n/en.ts`; labels are **verbs** ("Issued", "Payment
+  recorded") because the record kind is the page the reader is already on.
+
+Verified (local Postgres `alo-pg`, real router, no production touched):
+
+```
+cargo clippy -p alo-store -p alo-jmap --all-targets     -> clean, zero warnings
+cargo test -p alo-store -p alo-jmap                     -> all green
+npx tsc --noEmit / npx eslint <changed> / npm run build -> clean
+```
+
+  the arc, one entry per act (tests/audit_http.rs):
+```
+POST /billing/customers                    -> 200  history: customer.create
+POST /billing/invoices                     -> 200  id taken from the RESPONSE
+PATCH /billing/invoices/{id}               -> 200  + invoice.update
+POST  /billing/invoices/{id}/issue         -> 200  + invoice.issue
+POST  /billing/invoices/{id}/payments      -> 200  + invoice.payment.create
+DELETE .../payments/{pid}                  -> 200  + invoice.payment.delete
+GET /audit?entity=billing.invoice:{id}     -> 200  the five, newest first,
+                                                   each naming the user's email
+GET /audit?entity=billing.payment:{pid}    -> 200  0 — a payment has no page
+```
+  what leaves no trace:
+```
+GET the invoice / the list / the history   -> 200  history unchanged
+PATCH with a body that is not JSON         -> 400  no entry
+PATCH an id that never existed             -> 404  no entry
+PATCH an ISSUED invoice                    -> 4xx  no entry
+POST /crm/imports/leads/preview (dry run)  -> 200  no entry
+POST /crm/imports/leads (the commit)       -> 200  exactly one
+```
+  the guards and the neighbour's door:
+```
+GET /audit (no token)                      -> 401
+GET /audit?entity=  / =billing.invoice
+    / =:abc / =billing.invoice:            -> 422  "entityType:entityId"
+GET /audit?entity=billing.invoice:nope     -> 200  0 entries, never a 404
+tenant B naming tenant A's invoice         -> 200  byte-for-byte identical to
+                                                   an invented id (asserted)
+tenant A naming tenant B's customer        -> 200  0
+store-level id COLLISION across tenants    ->      each sees only its own
+```
+
+Cuts and flags:
+
+- **Cut: no field-level diff.** The trail says who and when, never what the
+  field said before. A log that quotes the old value is a second copy of the
+  record kept under different access rules — the exact leak Law 1 exists to
+  prevent. It is a real feature, with its own retention question, and it is
+  listed as out of scope in the design note rather than half-built here.
+- **Cut: history panels on three record types, not all of them.** Invoice,
+  quote and deal have the tab; customers, products, bills, schedules and
+  pipelines are recorded but have no panel yet, because customers and products
+  are dialogs rather than pages and bills have no screen at all (B1.24's own
+  cut). The component is one line to mount when those screens exist.
+- **Flagged: `/audit` is a NEW top-level prefix** — the production Caddyfile
+  needs it added at the next deploy, alongside the standing `/billing` and
+  `/crm` actions. The vite dev proxy already has it (the S1.11 lesson). Nothing
+  here is deployed.
+- **Flagged: agent-executed actions are recorded only when they go through a
+  billing/CRM route.** An ADR 0034 executor that calls the store directly leaves
+  its own approval record instead. Unifying the two is worth its own item.
+- **Flagged, pre-existing and NOT this item's: `web/src/i18n/locale.test.ts`
+  fails 4 tests at HEAD.** B2.11 added 37 `billingSchedule*`/`billingCadence*`
+  strings without fr/nl, and the B1.27 completeness test catches it. Confirmed
+  pre-existing by re-running with this item's `en.ts` change stashed. It is
+  **B2.14's listed work** (fr/nl for the wave), so it was left there rather than
+  silently absorbed — but the web suite is red until B2.14 runs. This item's own
+  strings are en-only by protocol (LOOP step 6: fr/nl at wave reviews).
+- **Note for B2.14: `/admin/audit` now shows business events too.** Same log,
+  same 200-entry cap, so administrative actions can now be pushed off the first
+  page of a busy tenant. Deliberate (one log is the correct model), but the
+  admin console will want a filter — worth a line in the wave review.
+
+Next item: B2.14 (wave review — fr/nl for every B2 string including B2.11's
+untranslated schedule strings above and this item's `audit*` keys, CHANGELOG
+sweep, design docs as-built, features.md `[B2]` reconciliation).

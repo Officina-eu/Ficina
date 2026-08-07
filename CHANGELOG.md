@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- **Every invoice, quote and deal now remembers who changed it.** Each record in
+  Billing and CRM carries a **History**: created, edited, issued, paid,
+  credited, moved, linked — each line naming the colleague who did it and when.
+  It fills itself in as people work; there is nothing to switch on and nothing
+  anyone can write into it by hand. Only things that actually happened are
+  recorded — a change the system refused, or a page somebody merely looked at,
+  leaves no line — and the history never keeps a copy of what a field said
+  before, so it answers "who and when" without becoming a second copy of your
+  data. Your tenant's history is yours alone: another organisation asking about
+  one of your records is told the same nothing as somebody asking about a record
+  that never existed. Administrators keep the tenant-wide log they already had
+  under Admin → Audit log, which now shows these business events alongside
+  administrative ones.
+
 - **alo Billing: pay your suppliers in one upload.** The bills you have approved
   can now be handed to your bank as one **SEPA credit-transfer file** — the same
   `pain.001` file your bank's own upload form expects — instead of being typed
