@@ -16,6 +16,18 @@ contracts.
   The message landing in your inbox and the submissions screen arrive in the
   next slices.
 
+- **Ask Insights for a chart in your own words.** A new **Ask for a chart**
+  button on any board: type "how much did we invoice each month this year?" and
+  the assistant proposes a chart — which you then *look at*, drawn from your own
+  invoices and deals, before anything is added to the board. Pin it and it
+  becomes an ordinary tile, captioned with your own question; discard it and
+  nothing was ever stored. The assistant chooses from the same closed list of
+  datasets, measures and breakdowns the ready-made charts use — it never writes
+  a query, and never sees another company's data — so a question it cannot chart
+  comes back as a plain "no chart could be built from that" rather than a chart
+  that looks right and is not. Workspaces with no AI model configured see the
+  button say so and lose nothing else.
+
 - **Insights now opens on your business, with nothing to set up.** The first
   time anyone in your company opens Insights, a **Business overview** board is
   already there and already answering: what you are owed, what you won this

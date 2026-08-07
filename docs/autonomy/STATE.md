@@ -6899,3 +6899,156 @@ Cuts and flags:
 Next item: BI1.07 (ask-to-chart — NL → ChartSpec through alo-ai, strict parse
 with one repair retry, fixture-verified with no live model calls, and the
 propose-then-approve card that pins the preview).
+
+---
+
+## BI1.07 — ask-to-chart: a question in, a chart to look at, and only then a tile
+
+Shipped: `POST /insights/ask` takes a sentence in the reader's own language and
+answers a **proposed** ChartSpec, the drawing it wants, the width it wants, and
+the figures it would show right now — evaluated against the tenant's own
+documents through exactly the function `POST /insights/eval` uses. It stores
+nothing. A chart becomes a tile only when a person pins it, through the ordinary
+`POST /insights/dashboards/{id}/tiles`, where the write gate validates the same
+spec a second time (ADR 0034, propose-then-approve).
+
+Four files, each with one job:
+
+- **`platform/alo-store/src/insight_prompt.rs` (new)** — the closed catalog
+  *rendered* for a model: every dataset with its own date, every measure with
+  its unit, aggregates and permitted breakdowns, every dimension with its
+  grains, every filter with the shape of its values, and the bounds — generated
+  from the same enums `insight_spec` validates against. It lives in the store
+  because `alo-ai` cannot see those types, and a hand-written copy of the
+  vocabulary in the inference layer would drift the first time a measure is
+  added. Tests walk the whole catalog and assert every name appears, that the
+  bounds are the validator's own constants, and that the menu is deterministic
+  and under 8 KiB.
+- **Record-id filters are offered only to be refused.** `customer`, `pipeline`
+  and `owner` are listed to the model as **DO NOT USE**: it cannot know a
+  tenant's ids. An invented one was already a `422` at evaluation (BI1.03); this
+  stops the reach as well as the guess.
+- **`platform/alo-ai/src/insights.rs` (new)** — the conversation and nothing
+  else: the system prompt (head, catalog, then rules, so the output contract is
+  the last thing read — the agent prompt's order), the one repair turn, and a
+  strict read that tolerates a code fence but refuses anything that is not one
+  JSON object. A model may also answer `{"error":"…"}` to say it cannot chart
+  the question; that is **believed at once** rather than repaired, because
+  correcting a refusal is how a confident wrong chart gets made.
+- **`products/mail/alo-jmap/src/insights_ask.rs` (new)** — the two turns, the
+  write gate, the evaluation, the response. It decides nothing about charts: the
+  `Attempt` enum it reads a reply into is `Chart` / `CannotChart` / `Repair`,
+  and the `Repair` sentence handed back to the model is the *validator's own*
+  ("unknown variant `profit`, expected one of `net`, `vat`, `gross`, …"), which
+  is what makes one retry enough. The log line carries catalog ids and whether a
+  repair happened — never the question, the reply, or a figure.
+- **Web** — `AskDialog.tsx` (question → preview → Pin / Discard) and
+  `Figures.tsx`, the renderer extracted from `TileCard` so a preview and the
+  tile it becomes are drawn by the same code. The stored caption is **the
+  reader's own question**, not a phrase the model wrote; the client never
+  inspects or edits the spec, it hands it straight back.
+
+Verified:
+
+```
+cargo fmt -p alo-store -p alo-ai -p alo-jmap             clean
+   (fmt again reformatted six unrelated alo-jmap files it found already
+    unformatted — reverted, not this item's; the BI1.06 trap, unchanged)
+SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-ai -p alo-jmap --all-targets
+                                                         zero warnings
+cargo test -p alo-store -p alo-ai -p alo-jmap (real Postgres)
+                                        96 suites, 1306 tests, green
+  · insight_prompt         — 4 new (totality, id filters refused, the
+                             validator's bounds, deterministic and bounded)
+  · alo-ai insights        — 6 new (prompt shape, repair turn, fences,
+                             a stated refusal, nothing-that-is-not-an-object)
+  · insights_ask (unit)    — 9 new (fixture replies through the real write
+                             gate: good, fenced, invented measure, crossed
+                             pairing, a spec from the future, prose, a stated
+                             refusal, an SQL-shaped id, the spans)
+  · tests/insights_ask_http.rs — 7 new, against a scripted LOCAL socket that
+                             answers fixture completions in order: the arc, the
+                             repair turn's exact contents, a twice-refused ask
+                             that pins nothing, a believed refusal, the 503
+                             with no model, the bounds, the 401
+npx tsc --noEmit · npx eslint src/insights src/i18n/en.ts · npm run build  clean
+npx vitest run                                31 files, 264 tests, green
+  · InsightsModule.test.tsx — 5 new (preview then pin, discard pins nothing,
+    a 422 says why and draws nothing, a 503 in our words not the server's
+    code, a corrected proposal says so)
+```
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, a tenant bootstrapped for the run, rows read with psql. **No
+live model call:** the tenant's AI provider row points at a scripted local
+python stub that answers fixture completions in order (first an invented
+measure, then a valid spec), so the repair turn is exercised on the wire with
+no external API in the picture.
+
+```
+POST /insights/ask  (no bearer)                                   → 401
+POST /insights/ask  {}                    → 422 "q is required: …"
+POST /insights/ask  {q: 501 chars}        → 422 "at most 500 characters"
+POST /insights/ask  (no AI provider row)  → 503 {"detail":"ai-unavailable"}
+
+POST /billing/customers → 200 · POST /billing/invoices → 200 (net 50000)
+POST /billing/invoices/{id}/issue → 200
+psql: INSERT ai_providers → base_url http://127.0.0.1:9310, is_default
+
+psql: SELECT count(*) FROM insight_tiles → 0
+POST /insights/ask {"q":"how much have we billed in total?"}      → 200
+    repaired true · viz "number" · span 1
+    spec {billing.documents, net/sum, period all, viz number}
+    series EUR total 50000  == the invoice's net, to the cent
+stub turns: 2 · roles [system, user, assistant, user]
+    the repair turn reads: "That was refused: chart spec does not match
+    schema v1: unknown variant `profit`, expected one of `net`, `vat`,
+    `gross`, …" — the validator's sentence, verbatim
+    the system prompt carries the catalog and the DO NOT USE on id filters
+psql: SELECT count(*) FROM insight_tiles → 0   (the ask stored nothing)
+GET /insights/dashboards → 200, 1 board (the seeded overview)
+
+POST /insights/dashboards/{id}/tiles {title: the question, spec, span} → 200
+    readable true · viz number · span 1
+GET /insights/tiles/{id}/data                                     → 200
+    EUR total 50000 — the pinned tile answers what the preview showed
+psql: insight_tiles row → "how much have we billed in total?" | number | 1 |
+      {"id": "net", "agg": "sum"}
+```
+
+Cuts and flags:
+
+- **No model-written caption.** The tile is captioned with the reader's own
+  question; a model's idea of what language a reader speaks is not something to
+  store, and the reader can rename it like any tile. A shorter auto-caption is a
+  BI-2 nicety, not a BI-1 gap.
+- **The Ask button is always shown, even with no model configured**, and the
+  dialog says so on the first ask (our sentence, not the server's
+  `ai-unavailable` code). Hiding it would need the JMAP session flag inside the
+  Insights module; the newer modules (the alo Doc composer) do not gate either,
+  so this matches what is already there. Worth revisiting once one hook serves
+  every module.
+- **Still no tile builder.** BI-1 pins a question from the gallery or from the
+  ask; a dataset→measure→dimension builder (and the `/insights/catalog` route it
+  needs) has no queue item. BI-2's.
+- **`POST /insights/eval` still has no client caller.** The ask has its own
+  route, so the client method stays unwritten until the builder needs it.
+- **Local-environment gotcha, recorded so the next wire run does not lose an
+  hour:** a python `HTTPServer` binds only after `socket.getfqdn()` returns, and
+  on this machine that reverse lookup blocks for tens of seconds — the stub
+  looks up while nothing is listening, and the first ask comes back `502
+  ai-backend`. The stub in the scratchpad overrides `server_bind`; any future
+  local fake backend should too.
+- **A pre-existing, unrelated web flake**: `src/App.test.tsx` intermittently
+  reports one unhandled rejection after teardown (`LoginPage.tsx`'s
+  `signupDomains()` resolving into an unmounted tree). It appears on `main`
+  without this change and does not fail the run; flagged for whoever touches
+  LoginPage next.
+- Standing human actions, unchanged: **`/insights` must be added to the
+  production Caddyfile at the next deploy** (beside `/billing`, `/crm`,
+  `/audit`), and the ROADMAP gate on B2 ("B1 live with ≥1 real tenant") is still
+  unmet.
+
+Next item: BI1.08 (the BI-1 wave review — fr/nl for every Insights string
+including this item's, CHANGELOG sweep, design note as-built, and the
+features.md [BI-1] reconciliation).

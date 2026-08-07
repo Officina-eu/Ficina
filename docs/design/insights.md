@@ -331,6 +331,46 @@ a spec that fails validation, and a real evaluation against the local
 database. No live model call is made unattended, and an unconfigured AI key
 degrades to the manual builder, which is the whole surface minus the ask.
 
+**As-built at BI1.07, in five parts.**
+
+*The menu is generated, not written.* `alo-store/src/insight_prompt.rs`
+renders the catalog — every dataset, every measure with the aggregates and
+breakdowns it allows, every grain, every filter with the shape of its values,
+and the bounds — from the very enums `insight_spec` validates against. It
+lives in the store rather than in `alo-ai` because `alo-ai` cannot see those
+types, and a hand-written copy of the vocabulary in the inference layer would
+drift the first time a measure is added. Two tests hold it: one walks the
+whole catalog and asserts each name appears, one asserts the bounds are the
+validator's own constants.
+
+*Record-id filters are offered only to be refused.* `customer`, `pipeline`
+and `owner` are listed to the model as **DO NOT USE** — it cannot know a
+tenant's ids, and a guessed one is already a `422` at evaluation. The rule is
+belt and braces: the prompt stops the reach, the engine stops the guess.
+
+*The conversation is `alo-ai`'s, the decision is the store's.*
+`alo-ai/src/insights.rs` builds the two turns and reads the reply strictly
+(tolerating a fence, refusing anything that is not one JSON object); the
+route hands whatever came back to `ChartSpec::from_value` — the same write
+gate a hand-built spec meets — and only a spec that survives is evaluated. A
+model may also answer `{"error":"…"}` to say it cannot chart the question:
+that is **believed at once** rather than repaired, because correcting a
+refusal is how a confident wrong chart gets made.
+
+*The route answers `{spec, viz, span, series, repaired}` and stores nothing.*
+`viz` and `span` are derived server-side so the client never parses the
+envelope; the caption stored on approval is **the reader's own question**, not
+a phrase the model wrote — a model's idea of what language a reader speaks is
+not something to store. `repaired` is shown on the preview, because how the
+chart on screen came about is the reader's business.
+
+*Verified with a scripted local backend, never a live model.*
+`tests/insights_ask_http.rs` points the tenant's AI provider at a socket that
+answers fixture completions in order, which is what makes the two-turn shape
+testable at all: the repair turn is asserted to carry the model's own bad
+reply **and** the validator's sentence, and the previewed figures are asserted
+equal to the invoice underneath them, to the cent.
+
 ## Chart rendering
 
 **Apache ECharts (Apache-2.0), embedded as a library, imported tree-shaken.**
@@ -441,13 +481,16 @@ use:
   and ordering.
 - `platform/alo-store/src/insight_overview.rs` — the prebuilt specs and the
   idempotent per-tenant seed.
+- `platform/alo-store/src/insight_prompt.rs` — the catalog rendered as the
+  menu a model chooses from (as-built, BI1.07).
 - `products/mail/alo-jmap/src/insights.rs` (dashboards/tiles),
   `insights_eval.rs` (eval + tile data), `insights_gallery.rs` (as-built: the
   gallery route and the seed's words in en/fr/nl), `insights_ask.rs`
-  (BI1.07).
+  (as-built: the two turns, the write gate, the preview).
 - `platform/alo-ai/src/insights.rs` — the NL → ChartSpec envelope.
-- `web/src/insights/**` — the tab, the grid, five renderers, the builder, the
-  ask card, and the single `chart/` wrapper around ECharts.
+- `web/src/insights/**` — the tab, the grid, five renderers, the shared
+  `Figures` renderer, the gallery and ask dialogs, and the single `chart/`
+  wrapper around ECharts.
 
 ## Out of scope for BI-1 (cuts are decisions)
 
