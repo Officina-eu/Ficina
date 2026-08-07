@@ -4188,3 +4188,18 @@ Cuts and flags:
 
 Next item: B2.03 (migration + store: `crm_deals` with the stage-move and its
 history rows).
+
+### Correction — the co-author trailer on 66f4686
+
+`66f4686` (B2.02) was pushed **without** its `Co-Authored-By: Claude Opus 5
+(1M context) <noreply@anthropic.com>` trailer: the message was written from a
+file, which bypasses the harness's trailer append. The same slip as `eb80850`
+(recorded in `ae626f2`). It is recorded here rather than amended — the loop's
+rails forbid rewriting pushed history, and a truthful note costs less than a
+force-push. The commit is authored by the repository owner, as every commit in
+this checkout is; the work in it was done by Claude Opus 5 (1M context) under
+`docs/autonomy/LOOP.md`.
+
+**Fix for the next iteration:** put the trailer in the commit message itself
+rather than relying on the harness to add it when the message comes from a
+file or heredoc.
