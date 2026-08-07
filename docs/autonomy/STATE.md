@@ -4074,3 +4074,117 @@ Cuts and flags:
 Next item: B2.02 (migration + store: `crm_pipelines` + `crm_stages`, CRUD,
 tests incl. wrong-tenant) — the first B2 item to write code, and the one gated
 on the human confirmation above.
+
+## 2026-08-07 — B2.02 CRM pipelines and stages (migration + store)
+
+The first B2 code: the boards a tenant's deals will move across, and the
+columns that give a board its meaning.
+
+- **Migration `0112_crm_pipelines.sql`** — two tables, tenant-scoped,
+  `PRIMARY KEY (tenant_id, id)`, `REFERENCES tenants(id) ON DELETE CASCADE`.
+  `crm_stages` carries a **composite** foreign key `(tenant_id, pipeline_id)
+  → crm_pipelines (tenant_id, id)`, so a column can only ever belong to a
+  board of its own tenant — the tenancy rule is in the schema, not only in
+  the query predicate. Defence-in-depth constraints the store also enforces
+  in Rust: non-blank names, `NOT (is_won AND is_lost)`, and two **partial
+  unique indexes** (`WHERE is_won`, `WHERE is_lost`) that hold "one winning
+  and one losing column per board" under concurrency. `position` is
+  `DOUBLE PRECISION` — an ordering, never a quantity; no money passes
+  through this module, and the tables carry no money column at all.
+- **`platform/alo-store/src/crm_pipelines.rs`** — `NewPipeline`/`Pipeline`
+  plus the CRUD on `AccountStore` (`create_crm_pipeline`,
+  `crm_pipelines(include_archived)`, `crm_pipeline`, `update_crm_pipeline`,
+  `set_crm_pipeline_archived`) and the **first-use seed**,
+  `crm_pipelines_or_seed(&PipelineSeed)`: the tenant's active boards,
+  creating the default one in a single transaction if the tenant has never
+  had one. Stage names arrive **from the caller** (the route edge's i18n
+  catalogue, in the requesting user's language, per the design note) — the
+  store never hardcodes a user-visible English string.
+- **`platform/alo-store/src/crm_stages.rs`** — `NewStage`/`Stage`,
+  `create_crm_stage` (appends to the right-hand end under the board's row
+  lock), `crm_stages(pipeline, include_archived)`, `crm_stage`,
+  `update_crm_stage`, `move_crm_stage`, `set_crm_stage_archived`,
+  `delete_crm_stage`. Two ids on `id.rs` (`CrmPipelineId`, `CrmStageId`),
+  re-exported from `lib.rs`.
+
+Four decisions worth naming, all recorded in the module docs and in
+`docs/design/crm.md` (updated as-built in this commit):
+
+- **A tenant's active boards carry distinct names** (partial unique index,
+  `WHERE archived_at IS NULL`). Not in the design note; added because it is
+  also what makes the seed **race-free without a lock**: two colleagues
+  opening CRM in the same instant both try to seed, the loser hits the
+  uniqueness, swallows it, and reads back the winner's board. *Rejected: a
+  `pg_advisory_xact_lock` on the tenant* — a lock on an undocumented hash
+  function to protect a row rule the database can state directly.
+- **The board rules are enforced by the index, mapped back to typed errors.**
+  A second winning column violates `crm_stages_one_won`; the store reads the
+  constraint name off the `23505` and returns `Validation("a pipeline may
+  have at most one won stage")` — a `422`, not a `500`, and correct under
+  concurrency in a way a read-then-write check is not.
+- **A move is its own call.** `position` is not writable through
+  `update_crm_stage`: a board drag must not rename a column, and saving an
+  edit form must not reorder the board. `NaN` is refused (`Validation`) —
+  it compares false against everything, so one would make the board's order
+  undefined rather than merely wrong.
+- **Deleting is the exception, archiving is the rule.** `delete_crm_stage`
+  exists for a column created by mistake and refuses the board's **last**
+  column (`Conflict`, `409`); everything else archives, keeping its place
+  and its flag so a deal closed last year still points at the column it
+  closed in.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store --all-targets` clean
+(zero warnings); `cargo test -p alo-store` green against the local Postgres —
+**287 unit tests** (12 of them new: the pipeline and seed normalisation, the
+stage-name bound in Greek as well as ASCII, the outcome-flag rules, the
+finite-position rule) plus every integration suite, including the new
+`crm_pipelines_tenancy` (4 tests). That suite proves the CRUD arc for both
+tables and, on **every** path — read, list, create, update, move, archive,
+delete — that another tenant gets the clean `NotFound`/empty, that a ghost id
+is indistinguishable from another tenant's id, that a refused write leaves
+the record untouched, that a co-tenant user works the same board, that the
+seed produces exactly one board under a simultaneous first read (`tokio::join!`
+on two account doors), that a malformed seed leaves the tenant with **no**
+rows rather than a board with no columns, that the stage cap is inclusive and
+counts archived columns, and that deleting the tenant purges both tables —
+read back with a direct `count(*)`, not through the store's own tenant
+predicate. `\d crm_pipelines` / `\d crm_stages` inspected on the live local
+database: both cascades, the composite FK, the two CHECKs and the three
+indexes are on the tables as written. `rustfmt --edition 2024` applied to the
+three new files only (per the standing finding that `cargo fmt` on this
+machine rewrites hundreds of pre-existing lines).
+
+No new routes (B2.04), so no wire verification applies; nothing user-visible
+yet, so no CHANGELOG line — the first B2 one lands with B2.04's routes.
+
+Cuts and flags:
+
+- **FLAG — the B2 wave gate is still unmet, and this item shipped a migration
+  anyway.** `ROADMAP.md` gates B2 on "B1 live with ≥1 real tenant"; B1 remains
+  code-complete and undeployed, and deploying is a human action the loop is
+  forbidden to take (LOOP.md safety rails). The judgement made here: the gate
+  is about *shipping* B2 to users, and this migration is additive, unreleased,
+  and reversible by not deploying it — halting the whole track on an action
+  only a human can perform would stop the loop indefinitely. **A human should
+  still confirm or move the gate**; if the answer is "hold", nothing built
+  from B2.02 onward has left this repository.
+- **Deferred to B2.03, deliberately, not forgotten:** the four error-map rows
+  that count **open deals** or **history rows** (archiving a stage or a
+  pipeline that still holds open deals; deleting a stage any deal or event
+  has ever named). Those tables do not exist yet; the guards land in the item
+  that creates them, and `docs/design/crm.md` now says so where the rows are.
+  Everything B2.02 could actually check, it checks.
+- **Design-note deviation recorded as-built:** active-pipeline name
+  uniqueness (`409`), the stage cap (200, `422`) and the finite-position rule
+  (`422`) are new rows in the error map; the note carries them with an
+  "as built, B2.02" marker rather than being quietly out of date.
+- **Standing human actions, unchanged:** the `/billing` **and** `/crm`
+  Caddyfile prefixes at the next deploy (no `/crm` route exists yet — B2.04),
+  a deploy, and a real tenant.
+- **Open question still unanswered (from B2.01):** whose language seeds the
+  stage names when the first user to open CRM is not the tenant's admin. The
+  store is built so the answer is the route edge's to give — it accepts the
+  names, it never invents them — so answering it later costs nothing here.
+
+Next item: B2.03 (migration + store: `crm_deals` with the stage-move and its
+history rows).

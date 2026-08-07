@@ -127,7 +127,13 @@ onwards); the sites track continues in `00xx`.
   pipeline it was won in), `created_by`, timestamps. A tenant's first
   pipeline and its stages are **seeded on first use** (see below), so a
   new tenant opens the module onto a working board rather than a setup
-  form.
+  form. *As built (B2.02):* a tenant's **active** boards carry distinct
+  names — a partial unique index on `(tenant_id, lower(name)) WHERE
+  archived_at IS NULL`. Two tabs called "Sales" mean nothing to the
+  person reading them, and that same uniqueness is what makes the
+  first-use seed race-free without a lock (below). An archived board
+  frees its name; restoring it into an occupied name is the `409` the
+  error map carries.
 - **`crm_stages`** — pipeline ref, name, `position` (fractional, like a
   task's), `is_won`, `is_lost`, `archived_at`. The two flags are what
   make a column mean "closed"; a stage may set at most one of them
@@ -233,6 +239,18 @@ not hardcoded English in the store: the store is handed the names it
 should write. Stage names are user data from that moment on — renaming
 "Qualified" is a rename, not a schema change, which is exactly why the
 board's meaning lives in the two flags and not in the names.
+
+*As built (B2.02):* the seed writes the board and all its columns in
+**one transaction**, so a tenant is never left holding a board with half
+its columns, and two colleagues opening the module in the same instant
+get **one** board: the loser of the race hits the active-name
+uniqueness, swallows it, and reads back what the winner wrote. Seeding
+is a first-use rule, not an every-read one — a tenant that archived its
+only board is not handed a new one the next morning. A column's *place*
+on the board moves through its own store call (`move_crm_stage`),
+separate from the edit that renames it or changes its flags: a board
+drag must not be able to rename a column, and saving an edit form must
+not be able to reorder the board.
 
 ## Moving a deal, and the history of it
 
@@ -417,6 +435,9 @@ this one).
 | Moving a deal into an `is_lost` stage without a reason | `Validation` | `422` |
 | Naming a customer that is absent, archived, or another tenant's | `NotFound` / `Validation` | `404` / `422` |
 | A stage flagged both won and lost, or a second won/lost stage in one pipeline | `Validation` | `422` |
+| Creating or renaming a pipeline onto the name of another **active** pipeline (as built, B2.02) | `Conflict` | `409` |
+| More stages on one pipeline than the cap allows (as built, B2.02: 200) | `Validation` | `422` |
+| A stage position that is not a finite number (as built, B2.02) | `Validation` | `422` |
 | Deleting the last remaining stage of a pipeline | `Conflict` | `409` |
 | Deleting a stage any deal or history row has ever named (archive it instead) | `Conflict` | `409` |
 | Archiving a stage that still holds open deals | `Conflict` | `409` |
@@ -434,6 +455,13 @@ this one).
 The wrong-tenant case returns the **same `404`** as a truly absent id:
 no existence oracle across tenants, the doctrine documented in
 `platform/alo-store/src/error.rs` and followed by every billing route.
+
+Four rows of this table name **open deals** or **history rows**, and
+those tables arrive in B2.03. As built, B2.02 ships every guard it can
+actually check — the last-stage `409`, the board rules, the caps, the
+wrong-tenant `404`s — and the deal-dependent guards land with the table
+they count, in the same item that creates it. A guard written against a
+table that does not exist is a guess, not defence in depth.
 
 ## Tenancy
 
