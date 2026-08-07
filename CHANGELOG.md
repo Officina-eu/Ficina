@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing now speaks French and Dutch — including the documents your
+  customers receive.** Switch the language and the whole module follows:
+  every screen, every button, every confirmation. So does the paperwork
+  itself. An invoice, credit note or quote prints in your language, with the
+  amounts written the way that language writes them — `1.234.567,89` in
+  Dutch, `1 234 567,89` in French — and the covering email and the payment
+  reminder are written in the same language as the document they carry, so a
+  French invoice can never arrive under an English note. A language we do not
+  ship yet prints in English rather than refusing, and country codes stay
+  codes: `DE` reads the same in every member state. The one thing still in
+  English everywhere is a refusal from the server ("the check digit of this
+  DE VAT id does not match") — that is next.
+
 - **alo Billing: chase a late invoice in one click.** The invoice list has an
   **Overdue** view, and every late row now carries a **Remind** button. It
   writes the letter for you — what the invoice is worth, when it was payable,

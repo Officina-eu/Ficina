@@ -3767,3 +3767,202 @@ Cuts and flags:
 Next item: B1.27 (the wave review — fr/nl for all billing strings, CHANGELOG
 sweep, `docs/design/billing.md` as-built, ROADMAP B1 boxes, and the
 features.md [B1] reconciliation).
+
+---
+
+## 2026-08-07 — B1.27 the wave review: fr/nl everywhere, and B1 reconciled
+
+Wave B1 closes. This item translated the module end to end, brought the design
+note to as-built, ticked the ROADMAP boxes B1 has actually earned, and
+reconciled every `[B1]` line of `docs/features.md` against the code.
+
+**The interface — 293 keys, twice.** `web/src/i18n/fr.ts` and `nl.ts` gained
+every `billing*` string, `moduleBilling`, and the eleven agent-card keys for the
+billing tools: the customer and price-list screens, the invoice and quote
+editors, the whole lifecycle's confirmations, payments, the VAT report, the
+issuer settings, the FX panel and the dunning notice. French uses *avoir* /
+*devis* / *HT* / *TTC*, Dutch *creditnota* / *offerte* / *btw*, because those
+are the words on the documents these screens produce — not glosses of the
+English. The interpolations were re-authored rather than transliterated where
+the grammar differs (`billingTermsDays(1)` is "1 jour" / "1 dag", not "1 jours").
+
+**The documents — three tables, server-side.** `billing_print::Strings` (the
+printed invoice/credit note/quote), `billing_send::MailStrings` (the covering
+email) and `billing_reminder::ReminderStrings` (the dunning letter) each gained
+an `FR` and an `NL`, and `strings_for`/`mail_strings_for`/`reminder_strings_for`
+now select on the primary subtag. These three tables were the *only* place a
+customer-facing string is emitted by Rust; every one of them had a "fr/nl at
+B1.27" comment, and none of them has one now.
+
+Three decisions worth recording:
+
+- **The separators are per-language data, and that is load-bearing.** Dutch
+  groups thousands with `.` and decimals with `,`; a document that borrowed
+  another table's separators would print `1.124,93` as `1 124.93` — or worse,
+  read a thousandfold wrong to the person holding it. Pinned by a test that
+  formats the same cents in all three tables.
+- **The letters open with the document's heading, not an article.** `la
+  facture` / `l'avoir` and `de factuur` / `het document` are genders a format
+  string cannot know, so every sentence is built as `{heading} de {money}, …`.
+  One shape per language instead of one per document type that would eventually
+  be wrong.
+- **A reminder stays a courtesy in all three languages.** No interest, no
+  recovery costs, no formal notice — a *mise en demeure* is a decision a person
+  takes. A test reads each language's letter for those words so a later
+  "helpful" edit has to face it.
+
+**The web now asks for its language.** `documentHtml` and `remindInvoice` send
+`?lang=` from the active locale (`langQuery()` in `web/src/billing/api.ts`),
+read at call time so switching language and printing again gives the other
+document. Every other billing route is untouched: they answer with data, and
+their refusals are the server's English sentences, which are **not** translated
+(flagged below). The document language is the *interface* language of whoever
+clicks; a per-customer document language belongs on the customer record and is
+a different feature.
+
+**Docs.** `docs/design/billing.md` is now `Status: as built`, its three "fr/nl
+at B1.27" promises are closed as shipped, the country-code decision is settled
+(a code stays a code — EN 16931 BT-40/BT-55 are codes anyway, and 27 country
+names × 3 languages buys nothing), and it ends with a new section, **"What B1
+promised, and what B1 shipped"** — a row per `[B1]` feature, each shipped or a
+named cut. `docs/features.md` points at it above the `[B1]` list. CHANGELOG
+gained the user-voice line for this item; the sweep found every earlier B1
+slice already had one.
+
+**ROADMAP.** B1.1, B1.2, B1.3, B1.5, B1.6, B1.7, B1.8 ticked. **B1.4 and B1.9
+deliberately left unticked**, each with an inline note saying exactly what is
+missing — see the flags below. The **exit gate stays unticked**: it is a real
+business running a real month, which is not loop work.
+
+Verified. `SQLX_OFFLINE=true cargo clippy -p alo-jmap --all-targets` clean (zero
+warnings); `cargo test -p alo-jmap` fully green against local Postgres — 250
+unit tests (6 new) and every integration suite, including the two whose
+assertions this item necessarily changed: `billing_print_http`'s language case
+now checks that the page's `lang` attribute *and* its heading agree per language
+(a French page announcing itself as English breaks a screen reader and PDF text
+extraction alike), and `billing_pdf_http`'s asserts a French PDF says *Facture*
+while an unknown tag still produces a valid PDF in English. New unit tests: the
+per-language money formatting; a table-completeness check that no shipped
+language leaves a word blank *and* that every sentence actually places what it
+was given (a due date silently vanishing off a translated page is the failure
+this shape exists to prevent); the note-and-document agreement; the reminder
+plural; the no-threat check. Web: `npx tsc --noEmit`, `npx eslint` on the six
+changed files, `npx vitest run` (198 tests, 27 files) and `npm run build` all
+clean — including four new i18n tests that make this item's completeness
+mechanical: every billing key present in fr and nl, every interpolation still a
+function of the same arity, and a guard that the key filter itself is not
+vacuous, so a billing string added later without a translation is a red suite.
+`rustfmt --edition 2024 --check` clean on all five touched Rust files, and the
+diff hunks were checked to be inside this item's own lines (the pre-existing
+rustfmt divergence in the inbox above is untouched).
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenant `langwire`). No mail left
+the building; every line below renders a page or writes a Drafts row.
+
+```
+GET  /billing/invoices/{id}/print                 -> lang="en" · "Invoice INV-2026-00001"  · EUR 1 124.93
+GET  …/print?lang=en                              -> lang="en" · "Invoice INV-2026-00001"
+GET  …/print?lang=fr                              -> lang="fr" · "Facture INV-2026-00001"  · EUR 1 124,93
+GET  …/print?lang=nl                              -> lang="nl" · "Factuur INV-2026-00001"  · EUR 1.124,93
+GET  …/print?lang=fr-BE                           -> lang="fr" (primary subtag)
+GET  …/print?lang=zz                              -> lang="en" (a preference never refuses a document)
+  the French page, in full: Date d'émission · Échéance · Votre référence · Facturé à ·
+  Désignation · Qté · Prix unitaire · TVA · Montant HT · Total HT EUR 950,40 ·
+  TVA 7% EUR 3,53 · TVA 19% EUR 171,00 · Total TTC EUR 1 124,93 · Paiement ·
+  "À régler avant le 2026-09-06 sur le compte ci-dessous, en rappelant le numéro
+  de facture." · IBAN · BIC · Titulaire du compte · N° de TVA · N° d'immatriculation
+  the Dutch page: Uitgiftedatum · Vervaldatum · Uw referentie · Factuuradres ·
+  Omschrijving · Aantal · Stukprijs · Btw · Netto · Totaal netto EUR 950,40 ·
+  Totaal EUR 1.124,93 · "Te voldoen vóór 2026-09-06 op onderstaande rekening,
+  onder vermelding van het factuurnummer." · Rekeninghouder · Btw-nummer · Registratienr.
+POST …/reminder?lang=fr   (1 day late)            -> 200 "Rappel : Facture INV-2026-00001 — Alo Werkplaats B.V."
+POST …/reminder?lang=nl   (1 day late)            -> 200 "Herinnering: Factuur INV-2026-00001 — …"
+POST …/reminder?lang={en,fr,nl} (14 days late)    -> 200 · daysOverdue 14 · outstanding 112493
+POST …/send?lang=fr                               -> 200 "Facture INV-2026-00001 — …" · Facture-INV-2026-00001.pdf 8172 B
+POST …/send?lang=nl                               -> 200 "Factuur INV-2026-00001 — …" · Factuur-INV-2026-00001.pdf 8117 B
+GET  /billing/invoices/{credit note}/print?lang=fr -> "Le présent avoir corrige la facture INV-2026-00001.
+                                                      Le montant indiqué vous est crédité ; rien n'est à
+                                                      payer sur ce document."   (no IBAN printed)
+                                        ?lang=nl  -> "Deze creditnota corrigeert factuur INV-2026-00001.
+                                                      Het getoonde bedrag wordt u gecrediteerd; op dit
+                                                      document is niets verschuldigd."   (no IBAN printed)
+GET  /billing/quotes/{id}/print?lang=fr           -> "La présente offre est valable jusqu'au 2026-09-06.
+                                                      Ce n'est pas une facture et rien n'est à payer."
+                                        ?lang=nl  -> "Deze offerte is geldig tot 2026-09-06. Het is geen
+                                                      factuur en er is niets op verschuldigd."
+```
+
+The reminder letters read back out of the **stored blob** on disk (the MIME, not
+the response):
+
+```
+Bonjour Kunde 2,
+
+Facture INV-2026-00001 de EUR 1 124,93 était à régler avant le 2026-07-24 et accuse désormais 14 jours de retard.
+
+Votre référence : PO-2026-4
+
+Si vous avez déjà effectué le règlement, nous vous en remercions et vous prions de ne pas tenir compte de ce message.
+
+Cordialement,
+Alo Werkplaats B.V.
+```
+
+```
+Beste Kunde 2,
+
+Factuur INV-2026-00001 van EUR 1.124,93 moest vóór 2026-07-24 zijn voldaan en is nu 14 dagen over de vervaldatum.
+
+Uw referentie: PO-2026-4
+
+Hebt u de betaling al gedaan, dan danken wij u daarvoor en kunt u dit bericht als niet verzonden beschouwen.
+
+Met vriendelijke groet,
+Alo Werkplaats B.V.
+```
+
+Cuts and flags — the honest end-of-wave list:
+
+- **CUT — the server's refusals are still English in every language.** "the
+  check digit of this DE VAT id does not match" reaches a French user as
+  written. The whole module is built on the rule that a refusal is shown in the
+  *server's own words* so the two doors cannot disagree (B1.05), which means
+  translating them is not a catalogue entry — it needs the store to answer with
+  a code plus data that the client renders, i.e. a typed error vocabulary across
+  `StoreError`. That is a real item and a cross-cutting one (CRM, projects and
+  finance will all want it); a human should schedule it rather than have this
+  item invent half of it. Named in the CHANGELOG line so nobody is surprised.
+- **NOT SHIPPED — B1.4 is one route short.** A **quote** cannot be emailed:
+  `POST /billing/quotes/{id}/send` is the lifecycle transition, and only
+  invoices have a covering-mail route (B1.18). `/print` renders the quote, so
+  the gap is the draft-with-PDF route, additive and small. ROADMAP B1.4 is left
+  unticked with that note rather than ticked-with-an-asterisk.
+- **NOT SHIPPED — B1.9 Peppol.** A contract and credentials with a certified
+  access point; the loop can obtain neither and never touches production. The
+  formats it would carry (Factur-X, XRechnung) are done and schematron-clean.
+  Human item, in the inbox at the top of this file.
+- **NOT SHIPPED — the cross-cutting `[B1]` line "every record links to its mail
+  threads, files, tasks".** No billing record links to a thread, file or task.
+  Deal↔thread linking is B2.05 and is where that pattern gets designed; billing
+  should join it there rather than inventing a second one. Recorded in the
+  reconciliation table so it is not mistaken for an oversight.
+- **NOT SHIPPED — the cross-cutting `[B1]` line "every module's numbers visible
+  to Ask alo".** B1.25's documented cut: the workspace index holds mail, files,
+  tasks and events, not documents. Indexing invoices and quotes for retrieval is
+  a real item a human should schedule.
+- **NOTE — a quote prints its validity sentence under a "Payment" heading**
+  (in all three languages, and in English before this item). It reads oddly
+  above "nothing is payable on it". Pre-existing B1.16 layout, not a translation
+  bug, and changing the English document's structure is not this item's business
+  — worth five minutes at the next print-view touch.
+- **CUT — country names are not translated.** The printed address keeps the ISO
+  code cross-border. Reasoning recorded in `docs/design/billing.md`.
+- **The exit gate is a human milestone.** B1 is code-complete but not
+  *live*: the gate asks for a real business running a real month, which needs
+  the Caddyfile prefix, a deploy, and a tenant. All three are human actions.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05, and now the last thing standing between this wave and a
+  real user. This item adds no route of its own.
+
+Next item: B2.01 (the CRM design note, `docs/design/crm.md`) — wave B2 begins.

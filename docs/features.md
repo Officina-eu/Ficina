@@ -365,6 +365,12 @@ EU models, suggest-only where the EU AI Act calls a use high-risk.
 
 ### [B1] Billing — Quotes & Invoices (the wedge: EU e-invoicing mandates)
 
+> Wave B1 is built. `docs/design/billing.md` § "What B1 promised, and what
+> B1 shipped" reconciles every line below against the code — each one is
+> shipped, or a cut with its reason. Two are **not** shipped and are named
+> there: Peppol via an access point (a human contract, not loop work) and
+> the cross-cutting record ↔ thread/file/task links (designed in B2).
+
 - [B1] ★ **Billing agent** — "invoice Acme €2,400 for July consulting", "make that quote an invoice", "chase everyone overdue >14 days, politely" — drafts, user approves, alo Mail sends
 - [B1] Customer records: billing address, VAT ID (VIES format check), payment terms, default currency — linked to existing Contacts
 - [B1] Products/services price list: name, unit, price, VAT rate — the reusable line-item source

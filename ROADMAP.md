@@ -297,15 +297,18 @@ tracks the build order and gates.
 
 Slices, in order — each shippable and wire-verified alone:
 
-- [ ] B1.1 Foundations: customer billing records (VAT ID, terms) on Contacts; product/price list; money as integer cents end-to-end
-- [ ] B1.2 Invoices: record + lines + server-computed VAT/totals; draft → issue with gapless per-tenant legal numbering; immutable once issued; credit notes
-- [ ] B1.3 Quotes: same line model; draft → sent → accepted/declined/expired; accept → invoice
-- [ ] B1.4 PDF: branded invoice/quote PDF, sent via alo Mail
-- [ ] B1.5 ★ E-invoice out: Factur-X + XRechnung/UBL, schematron-validated (EN 16931)
-- [ ] B1.6 E-invoice in: inbound Factur-X/XRechnung → parsed bill record
-- [ ] B1.7 Payments: mark paid / partial, overdue view, manual reminders; VAT summary per period
-- [ ] B1.8 ★ Billing agent: create/convert/chase by plain language, propose-then-approve, wired into Ask alo
-- [ ] B1.9 Peppol via a certified access point (integrate first — open decision on own membership)
+- [x] B1.1 Foundations: customer billing records (VAT ID, terms) on Contacts; product/price list; money as integer cents end-to-end
+- [x] B1.2 Invoices: record + lines + server-computed VAT/totals; draft → issue with gapless per-tenant legal numbering; immutable once issued; credit notes
+- [x] B1.3 Quotes: same line model; draft → sent → accepted/declined/expired; accept → invoice
+- [ ] B1.4 PDF: branded invoice/quote PDF, sent via alo Mail — *PDF and the invoice covering-mail draft are built; a **quote** cannot yet be mailed (its `/send` is the lifecycle transition). One additive route short of done.*
+- [x] B1.5 ★ E-invoice out: Factur-X + XRechnung/UBL, schematron-validated (EN 16931)
+- [x] B1.6 E-invoice in: inbound Factur-X/XRechnung → parsed bill record
+- [x] B1.7 Payments: mark paid / partial, overdue view, manual reminders; VAT summary per period
+- [x] B1.8 ★ Billing agent: create/convert/chase by plain language, propose-then-approve, wired into Ask alo
+- [ ] B1.9 Peppol via a certified access point (integrate first — open decision on own membership) — *human item: needs a contract and credentials with a certified AP. The formats it carries (Factur-X, XRechnung) are done.*
+
+The module is translated end to end in en/fr/nl — interface, printed document,
+covering note and reminder letter (B1.27).
 
 ### Exit gate — B1 done when:
 

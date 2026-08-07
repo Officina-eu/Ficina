@@ -35,7 +35,7 @@ small, or a `[!]` note for the human if large.
 - [x] B1.24 E-invoice receiving: parse inbound Factur-X/XRechnung (from an uploaded file first) into a `billing_bills` record (supplier, lines, totals, due) for approval; malformed → typed 422. Done when: the official samples import; totals match.
 - [x] B1.25 ★ Billing agent tools (ADR 0034): `create_invoice_draft`, `quote_to_invoice`, `draft_payment_reminder` in the agent allowlist + executors reusing B1 store fns; propose-then-approve; source-resolution for "invoice X" by number; structural wire-verify (no model calls). Done when: execute paths verified with curl like the Mail agent's were.
 - [x] B1.26 Dunning (manual): reminder email drafts per overdue invoice (template with days-overdue), one click from the overdue view → Drafts. Done when: draft content correct on the wire.
-- [ ] B1.27 Wave review: fr/nl translations for all billing strings; CHANGELOG sweep; docs/design/billing.md updated to as-built; ROADMAP B1 boxes ticked; note remaining human items (Peppol AP account, Caddyfile prefix, deploy). Done when: no [B1] feature in features.md is silently missing — each is shipped or listed as a cut with a reason.
+- [x] B1.27 Wave review: fr/nl translations for all billing strings; CHANGELOG sweep; docs/design/billing.md updated to as-built; ROADMAP B1 boxes ticked; note remaining human items (Peppol AP account, Caddyfile prefix, deploy). Done when: no [B1] feature in features.md is silently missing — each is shipped or listed as a cut with a reason.
 
 ## Wave B2 — alo CRM (+ billing extensions)
 

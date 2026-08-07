@@ -1,14 +1,17 @@
 # Design note — alo Billing (customers, products, quotes, invoices, payments)
 
-Status: building · 2026-08 · ADR 0035 · Business track wave B1
+Status: **as built** · 2026-08-07 · ADR 0035 · Business track wave B1
 
 alo Billing is the first Work OS module: the quote → invoice → payment
 arc for EU SMEs, with legal sequential numbering and EN 16931
 e-invoicing as the wedge. It is built from scratch on the tenant-scoped
 store, money is integer cents everywhere, and every total is computed
 server-side. This note records the surface, data model, error map,
-tenancy, and the numbering decision before the first migration lands;
-it is updated to as-built at the B1 wave review (B1.27).
+tenancy, and the numbering decision before the first migration lands.
+It was written ahead of the first migration and brought to as-built at
+the B1 wave review (B1.27); every section marked *as built* describes
+code that exists. What B1 promised and what B1 shipped are reconciled
+line by line at the end of this note.
 
 ## Surface
 
@@ -141,11 +144,15 @@ Rules the renderer holds itself to:
 - **Its words are a table, not literals in the markup**
   (`billing_print::Strings`), keyed by document language — the same
   externalisation rule as the web catalogues, in the one place a
-  customer-facing string is emitted by Rust. `en` ships now; fr/nl at
-  the wave review (B1.27). An unknown language falls back to the
-  default rather than refusing: a filter may be strict, but a document
-  that will not print because of a display preference is worse than a
-  document printed in English.
+  customer-facing string is emitted by Rust. **en, fr and nl all ship
+  (B1.27)**; an unknown language falls back to the default rather than
+  refusing: a filter may be strict, but a document that will not print
+  because of a display preference is worse than a document printed in
+  English. Matching is on the primary subtag, so `fr-BE` prints in
+  French. The **separators are part of the table**, not a constant:
+  Dutch groups thousands with the character English reads as a decimal
+  point, and a document that borrowed another language's separators
+  would print an amount a thousandfold wrong to the person holding it.
 
 **The issuer's own details** — who is billing, their VAT and
 registration numbers, and the bank the money goes to — are a *tenant*
@@ -169,8 +176,12 @@ As-built (B1.16), the decisions the page itself forced:
 - **A domestic address does not print its country.** Postal convention
   names the country only when the document crosses a border, and a lone
   `NL` under a Dutch address reads like a stray field. Cross-border it
-  is the line that decides the VAT treatment, so it stays. (Country
-  *names* rather than codes need a table per language — B1.27.)
+  is the line that decides the VAT treatment, so it stays. **The code
+  stays a code (B1.27).** Printing `Deutschland` / `Allemagne` /
+  `Duitsland` would need 27 country names in each shipped language, and
+  the one place the country is legally load-bearing — BT-40 and BT-55 of
+  EN 16931 — is a code anyway; `DE` under an address is read the same
+  way in every member state.
 - **A quote and a credit note print no bank details.** Both say
   explicitly that nothing is payable; an IBAN under that sentence is
   how a document gets paid twice. An invoice with no due date yet (a
@@ -661,7 +672,10 @@ was sent.
 
 The covering note is its own small string table (`billing_send.rs`), separate
 from the document's: the document's wording is fixed by what it is in law, and
-the note around it is a message between two people. fr/nl join both at B1.27.
+the note around it is a message between two people. **Both ship in en, fr and
+nl (B1.27)**, and one `?lang=` picks the pair, so a French invoice can never
+arrive under an English covering note — asserted by a test that compares the
+two tables' tags for the same tag.
 
 `/billing` is a **new top-level route prefix**: the production Caddyfile
 needs it added at the next deploy. That is a human action recorded in
@@ -697,7 +711,14 @@ this is the manual click a person makes when they decide to chase.
 
 The reminder's words are their own small table (`billing_reminder.rs`) beside
 the covering note's, because they are a different letter with a different job.
-Both are picked by the same `?lang=`, and fr/nl join both at B1.27. The agent's
+Both are picked by the same `?lang=`, and both ship in en, fr and nl (B1.27) —
+in the *interface* language of whoever clicks, which the web sends on the print
+and reminder routes. A per-customer document language is a real want and a
+different feature: it belongs on the customer record, not on the button. A
+first reminder is deliberately a courtesy in all three languages — no interest,
+no recovery costs, no formal notice, all of which are a decision a person takes
+rather than a template (pinned by a test that reads the letter for those
+words). The agent's
 `draft_payment_reminder` (below) resolves an invoice *number* and then walks
 through the same function, so the letter a person clicks for and the letter a
 model proposes are one letter.
@@ -1099,3 +1120,34 @@ Deliberate cuts, each a decision rather than an omission:
 - **Live AI model calls in the loop** — the billing agent (B1.25) is
   verified structurally: routes exist, guards return 401/422, executors
   run against the local DB. Model wiring is a human step.
+
+## What B1 promised, and what B1 shipped (B1.27)
+
+Every `[B1]` line of `docs/features.md` § Business modules, reconciled
+against the code. Nothing on that list is silently missing: each line is
+either shipped, or a cut with the reason and where it goes instead.
+
+| `[B1]` feature | State | Where / why |
+|---|---|---|
+| ★ Billing agent (draft, convert, chase) | **Shipped**, narrowed | B1.25: `create_invoice_draft`, `quote_to_invoice`, `draft_payment_reminder`, propose-then-approve. **Two narrowings:** the agent *drafts* the mail and never sends it (ADR 0034 + the note above), and "chase everyone overdue >14 days" is one invoice per call — a bulk chase writes a dozen letters from one approval, which needs its own confirmation and is a B2 item. |
+| Customer records (address, VAT id, terms, currency, Contacts link) | **Shipped** | B1.02, B1.03, B1.05. VAT id is a **format** check (14 member states also check-digit-verified); a live VIES *existence* lookup is a network call and its own item. |
+| Products/services price list | **Shipped** | B1.04, B1.05. |
+| Quote record with server-side totals, integer cents | **Shipped** | B1.11 on the shared line model and `billing_totals`. |
+| Quote lifecycle draft → sent → accepted/declined/expired; accept → invoice | **Shipped**, one gap | B1.11, B1.12, B1.15. **Gap:** "sent *as PDF via alo Mail*" — a quote's `/send` is the lifecycle transition, not an email. `/print` renders the quote and `/billing/invoices/{id}/send` exists for invoices; the covering-mail route for quotes is a small additive item, not built. |
+| Invoice record (line model, issue/due dates, terms) | **Shipped** | B1.06. |
+| Legal gapless per-tenant numbering, immutable once issued | **Shipped** | B1.08, with the 100-parallel-issue test and a rollback test. **Flagged:** no backdated issuing — the strict reading (numbers and dates ascend together). |
+| Credit notes referencing the original | **Shipped** | B1.09. **Cut:** no over-credit guard (needs B1.19's derived state; the read it would use exists). |
+| PDF with tenant branding (logo, footer, bank details) | **Shipped**, one cut | B1.16, B1.17. **Cut:** the logo is a **monogram** drawn from the legal name — a real logo is a Drive file plus an upload surface, which is its own item. |
+| ★ EN 16931: Factur-X + XRechnung, schematron-validated | **Shipped** | B1.22 (CII in PDF/A-3), B1.23 (UBL 2.1), both schematron-clean in the test suite. |
+| ★ Peppol send/receive via an access point | **NOT SHIPPED — human item** | Needs a contract with a certified access point and credentials; the loop cannot obtain either, and never touches production. ROADMAP B1.9, and the standing human-action entry in `docs/autonomy/STATE.md`. The file formats it would carry are done. |
+| E-invoice **receiving** → bill record | **Shipped**, one cut | B1.24, both official sample sets. **Cut:** the XML *inside* a supplier's PDF is not extracted — upload the XML itself, and a PDF says so plainly. |
+| Payment tracking: paid/partial, method, reference, overdue view | **Shipped** | B1.19. |
+| Reminders/dunning: manual first, then scheduled sequences | **Manual shipped; scheduled deferred** | B1.26 is the manual click. A first/second/final-notice schedule needs state on the document and a job that acts unattended — explicitly B2. |
+| VAT summary per period + CSV | **Shipped** | B1.20. |
+| Multi-currency with a stored ECB rate at issue | **Shipped**, one cut | B1.21 stores the rate on the document at issue. **Cut:** nothing is fetched — rates are seeded by hand or imported from an eurofxref-shaped file, deliberately, so what the books are converted at is a file the tenant chose. |
+| *Cross-cutting:* tenant-scoped with mail-grade isolation tests | **Shipped** | Every billing store module has a wrong-tenant suite; the routes re-prove it through the real router. |
+| *Cross-cutting:* every record links to its mail threads, files, tasks | **NOT SHIPPED** | No billing record links to a thread, file or task in B1. Deal↔thread linking is B2.05 and is where the pattern is designed; billing joins it there rather than inventing a second one. |
+| *Cross-cutting:* every module's numbers visible to Ask alo | **NOT SHIPPED** | B1.25's cut: the workspace index holds mail, files, tasks and events, not documents, so the agent acts on what the user *said* and an unknown number is a clean `422`. Indexing invoices and quotes for retrieval is a real item a human should schedule. |
+
+Not in the table because they are not `[B1]`: recurring invoices, payment
+links and SEPA export are tagged `[B2]`, and the customer portal `[B+]`.
