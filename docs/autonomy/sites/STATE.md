@@ -157,3 +157,47 @@ Human-action inbox (things the loop must not do itself):
     bounded input everywhere — revisit with quotas if it ever binds).
 - **Next:** S1.05 (theme model: palette+typography presets + logo/favicon
   blob refs).
+
+## S1.05 — typed theme model + theme setter (2026-08-07)
+
+- **Shipped:** `platform/alo-store/src/site_theme.rs` — the theme envelope
+  `SiteTheme { schema_version, preset, logo?, favicon? }` with the same
+  gate pattern as S1.03 (`from_value` = version-before-shape strict parse →
+  content rules; `deny_unknown_fields`; absent options stored as absent
+  keys) plus `from_stored`, the never-fail read spelling that maps the
+  pristine `{}` column default to the default theme. Seven shipped presets
+  (`north` default, `ink`, `terra`, `fern`, `plum`, `carbon`, `midnight`),
+  each palette (7 hex tokens) + typography (system-font stacks ONLY — a
+  published site loads no third-party font, that's the privacy promise —
+  plus heading weight), as static tokens the S1.07 stylesheet generator
+  will read. Deferred-from-S1.02 setter landed: `set_site_theme` on the
+  account door, storing the canonical serialization; schema violations map
+  to named `Conflict`s like the sections gate. `site_model`'s id-token rule
+  is now shared (`pub(crate) valid_id_token`) so "a valid id" means one
+  thing across the sites schema family.
+- **Verified:** `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-store
+  --all-targets` zero warnings; full `cargo test -p alo-store` green on the
+  local docker Postgres (90 unit incl. 8 new theme tests — ≥6-presets +
+  unique-wellformed-ids, hex format + **WCAG AA contrast ≥4.5:1 enforced on
+  every text pairing of every shipped palette**, full/minimal round-trips,
+  version-error precedence, unknown prop/preset/blob-ref rejection,
+  from_stored pristine + defensive paths; isolation suite 22 with the sites
+  test extended: outsider `set_site_theme` cleanly denied, co-tenant write
+  lands canonically and reads back, four off-schema payloads rejected
+  without touching the stored value). Manual pass: psql shows real rows
+  with the pristine `{}` default; the terra write was read back from the
+  real DB through the store inside the isolation test.
+- **Cuts/flags:**
+  - v1 is presets-only, no free-form colors — rejected alternative recorded
+    in the module doc: arbitrary user hex would break the build-time
+    contrast guarantee the preset test enforces.
+  - Logo/favicon blob refs are shape-checked only (same posture as S1.03's
+    `SiteImage.blob_id`); ownership resolves through the tenant-scoped blob
+    door at render/serve time.
+  - Preset display names ("North", "Terra", …) are product proper nouns,
+    deliberately not i18n'd — documented on `ThemePreset`.
+  - `Site.theme` stays an opaque `Value` on read; renderers use
+    `SiteTheme::from_stored`. CHANGELOG untouched (no user-visible surface
+    until S1.10/S1.14).
+- **Next:** S1.06 (renderer crate `products/sites/alo-sites`, page JSON +
+  theme → full HTML document, golden tests).
