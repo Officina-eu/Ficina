@@ -482,6 +482,8 @@ fast-follow · **[S+]** = later. Built by the Sites track loop
 - [S2] Version history + rollback UI; scheduled publishing; password-protected pages
 - [S2] Image handling: crop/focus, AI alt-text, responsive srcset
 - [S+] Simple catalog storefront (order-by-form, no checkout); booking-page section (ties to Agenda); custom-code blocks (sandboxed); template gallery
+- [S+] ★ **Sell domains in-product** — buy `acme.com` inside alo and mail + site + ERP are live on it in minutes, zero DNS steps, because alo hosts the zone from second one. Built as a **reseller** over an EU wholesale-registrar API (Openprovider / Realtime Register / INWX class — never own ICANN accreditation at this scale); honest flat pricing, no first-year-bait renewals. Thin margin by design: this is the onboarding/retention closer, not a profit line. **Prerequisites:** the EU PSP checkout (B2 billing extension) and alo-run authoritative DNS (below). ADR to write before build.
+- [S+] **alo-run authoritative DNS** — host customer zones ourselves (integrate a proven server, PowerDNS-class, as a sealed container per ADR 0009; alo's Rust control plane owns records). The enabler for domain selling AND the universal mail onboarding (NS-delegation instead of per-registrar record copying), one zone infrastructure for both.
 
 ---
 
