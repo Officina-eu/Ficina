@@ -800,3 +800,43 @@ Human-action inbox (things the loop must not do itself):
   it WILL serve.
 - **Next:** S1.16 (forms backend: public POST `/f/:form_id` on alo-sites,
   submissions store, internal-delivery notification, rate limit + tests).
+
+## LOOP HALT — concurrent editor detected on this checkout (2026-08-07)
+
+- **LOOP HALT: a second agent/loop iteration is editing this working tree
+  concurrently; work cannot be trusted or committed (CLAUDE.md: one agent
+  per working tree).**
+- What happened, in order, while this iteration was mid-way through S1.16
+  (forms backend — migration, `site_forms` store module, public POST
+  `/f/:form_id`, notification sweep, all three crates compiling and
+  `cargo test -p alo-store` green):
+  1. The reflog shows a `git pull --rebase -q origin main` this iteration
+     did not run (`HEAD@{0}`, fast-forward a1d4666 → 586165e) — the `-q`
+     pull is the loop protocol's own step 1, i.e. a second iteration
+     started while this one was still running.
+  2. Every tracked-file modification of this iteration was then discarded
+     (a `git checkout -- .`-style wipe; leaves no reflog trace). Untracked
+     files survived.
+  3. Minutes later the same S1.16 surfaces reappeared in the tree —
+     `site_forms` module registration, an `rfc2047::encode`, a
+     `PublishedSite::tenant()` accessor — with the same shapes but
+     *reworded documentation*: an independent implementation by another
+     model run of the same queue item, written file-by-file (mtimes
+     seconds-to-minutes old, one file 57 s before probing).
+- No sync-folder markers found on `C:\dev\Ficina-loop` (no OneDrive/
+  Dropbox attributes); the double-fired wrapper is the likelier cause, but
+  a cross-machine sync of this folder would look identical and should be
+  ruled out by the human.
+- Actions taken: **no code committed** — the working tree holds
+  ambiguously-authored, uncommitted work (four modified alo-store files +
+  four untracked new files) and is left untouched for human review. Only
+  this HALT note is committed, so both wrappers stop at their next
+  iteration.
+- To resume after fixing the environment: discard or salvage the working
+  tree explicitly, ensure exactly ONE loop wrapper runs for the sites
+  track on exactly one machine, then remove/date this HALT and restart.
+  S1.16 remains the next queue item; this iteration's design decisions are
+  reproducible (public write-set = submission insert only; notification
+  delivered by an alo-jmap background sweep through the account door;
+  forms auto-provisioned on section save; POST gated to the published
+  reference set like images).
