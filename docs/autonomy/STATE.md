@@ -5135,3 +5135,20 @@ Cuts and flags:
 
 Next item: B2.09 (CSV/Excel lead import with mapping preview and dedupe by email
 domain, plus the import report, wire-verified with a fixture file).
+
+### Correction — the co-author trailer on 27dc5b4
+
+`27dc5b4` (B2.08) was pushed **without** its `Co-Authored-By: Claude Opus 5
+(1M context) <noreply@anthropic.com>` trailer — the third time (after `eb80850`
+and `66f4686`), and the same cause each time: the message was written from a
+heredoc, which bypasses the harness's trailer append. B2.02's own correction
+already stated the fix and this iteration did not follow it, which is the part
+worth recording. Not amended: the loop's rails forbid rewriting pushed history,
+and a truthful note costs less than a force-push. The commit is authored by the
+repository owner, as every commit in this checkout is; the work in it was done
+by Claude Opus 5 (1M context) under `docs/autonomy/LOOP.md`.
+
+**Fix, restated so the next iteration cannot miss it:** write the trailer as the
+last line of the commit message itself — `Roadmap: …` then a blank line then
+`Co-Authored-By: …` — whenever the message comes from a file, a heredoc, or
+anything other than an inline `-m`.
