@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: chase a late invoice in one click.** The invoice list has an
+  **Overdue** view, and every late row now carries a **Remind** button. It
+  writes the letter for you — what the invoice is worth, when it was payable,
+  how many days late it is, what has already been received and what is still
+  owed — and leaves it in your **Drafts**. Nothing is emailed: you read it,
+  change a word, and send it yourself. Clicking twice writes two drafts and
+  changes nothing about the invoice, and the figures in the letter are the
+  invoice's own, so the two can never disagree. A settled or cancelled invoice,
+  a draft, or a credit note is not offered the button, and a customer with no
+  email address says so rather than failing quietly.
+
 - **Ask alo can now do the billing paperwork — and never more than paperwork.**
   Three new things you can ask for in plain language: *"invoice Kunde for 7.5
   hours of consulting and 120 km travel"* raises a **draft** invoice, pricing

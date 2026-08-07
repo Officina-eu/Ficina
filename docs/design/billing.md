@@ -297,6 +297,7 @@ The rest of the surface, with the wave item that landed each:
 |---|---|
 | `GET /billing/invoices/{id}/pdf`, `.../facturx.xml`, `.../xrechnung.xml` | the three renderings (B1.17, B1.22, B1.23) — **as built** |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
+| `POST /billing/invoices/{id}/reminder` | draft a payment reminder for a late invoice (B1.26) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
 | `POST /billing/bills/import`, `GET /billing/bills[/{id}]`, `POST .../{approve,reject}`, `DELETE .../{id}` | receiving a supplier's e-invoice (B1.24) — **as built** |
 
@@ -665,6 +666,41 @@ the note around it is a message between two people. fr/nl join both at B1.27.
 `/billing` is a **new top-level route prefix**: the production Caddyfile
 needs it added at the next deploy. That is a human action recorded in
 `docs/autonomy/STATE.md`, never a change the loop makes to `deploy/`.
+
+### Chasing late money (as built, B1.26)
+
+`POST /billing/invoices/{id}/reminder` is `/send`'s sibling: the letter that
+asks for money instead of presenting a document, written into the caller's
+Drafts and **never sent**. The overdue view of the invoice list carries the
+click — one per late row, no confirmation, because writing a draft is not an
+act on the document.
+
+The request states nothing that matters. Who the letter goes to, what the
+document is worth, what has already arrived, what is left and how many days
+late it is are all read off the stored invoice, so a reminder and the invoice
+it chases cannot disagree; the only caller inputs are `?lang=` and an optional
+`note` bounded at 500 characters. The letter's figures come from the document's
+own formatters (`billing_print`), and the day it is judged against is the
+server's (`billing_document::today`) — a browser with a wrong clock can neither
+invent nor clear a late invoice.
+
+The refusals are the four documents that owe nothing: a **draft** was never
+issued, a **void** invoice was cancelled, a **settled** one is settled, and a
+**credit note** is money owed to the *customer*. Each is a `409` naming the
+state rather than a letter nobody should send. A customer with no usable
+address is `422`, and a foreign id is the `404` it is on every billing route.
+
+Reminding twice writes two drafts and changes no billing record — proven on the
+wire: the invoice row is byte-identical after two calls. There is no "reminded
+on" column and no dunning schedule; automatic escalation is a B2 question, and
+this is the manual click a person makes when they decide to chase.
+
+The reminder's words are their own small table (`billing_reminder.rs`) beside
+the covering note's, because they are a different letter with a different job.
+Both are picked by the same `?lang=`, and fr/nl join both at B1.27. The agent's
+`draft_payment_reminder` (below) resolves an invoice *number* and then walks
+through the same function, so the letter a person clicks for and the letter a
+model proposes are one letter.
 
 ### The billing agent (as built, B1.25)
 

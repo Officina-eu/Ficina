@@ -3632,3 +3632,138 @@ Cuts and flags:
 Next item: B1.26 (manual dunning — a reminder draft per overdue invoice from the
 overdue view, one click, reusing the `billing_reminder` template this item
 built).
+
+## B1.26 — dunning: one click on a late row, and the letter is in Drafts
+
+Shipped the manual dunning path end to end. B1.25 built the letter
+(`billing_reminder.rs`) behind the agent tool; this item gave it its own door
+and the click that opens it.
+
+**`POST /billing/invoices/{id}/reminder[?lang=]`** — `/send`'s sibling. It
+writes the payment reminder for one invoice into the caller's own Drafts and
+answers `{"draft":{"id","invoice","to","subject","daysOverdue",
+"outstandingCents"}}`. The optional JSON body carries a `note` and nothing else;
+no body at all is the ordinary case (`Option<Json<ReminderRequest>>`, so a
+bodyless `POST` is not an error). Who the letter goes to, what the document is
+worth, what has arrived, what is left and how late it is are all read off the
+stored invoice — there is no field on this route through which a request could
+reach any of them, and a test asserts that a body naming `to`,
+`outstandingCents` and `daysOverdue` deserialises to the empty request.
+
+**Web** — the invoice list is now also the collections screen. Every row the
+server marks `overdue` carries a **Remind** button; one click, no confirmation
+(writing a draft is not an act on a document), and the answer is reported once
+above the list in the server's own figures. The empty **Overdue** view now says
+"Nothing is overdue" instead of reading as an empty ledger. Five new tests
+(`Dunning.test.tsx`) prove the one click makes exactly one write to the
+document's own route with an empty body, that the notice repeats the server's
+`outstandingCents` and `daysOverdue` rather than a browser sum or day count,
+that it says "Nothing has been sent", that the list is **not** reloaded (a
+reminder changes no invoice), that a settled document is not offered the button
+at all, and that a refusal appears in the server's words with no notice claimed.
+
+Gates: `cargo clippy -p alo-jmap --all-targets` clean; `cargo test -p alo-jmap`
+green — 244 unit + every integration suite (the DB-backed ones need
+`DATABASE_URL`; without it they fail at "connect to test postgres", which is the
+harness, not the code). Web: `npx tsc --noEmit`, `npx eslint` on the changed
+files, `npx vitest run src/billing` (91 tests, 10 files) and `npm run build` all
+clean.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `dunwire`, `dunwireb`).
+No mail left the building: every line below writes a Drafts row or refuses.
+
+```
+POST …/reminder                       (no token)  -> 401
+POST /billing/invoices/aaaa…/reminder            -> 404 "no such invoice"
+reminder on a DRAFT invoice                      -> 409 "a draft has not been issued, so nobody
+                                                        owes it yet — issue it first"
+  (INV-2026-00001 issued: 2026-08-07, due 2026-08-21, gross 181500)
+reminder, not late yet                           -> 200 daysOverdue 0 · outstanding 181500 ·
+                                                        to buchhaltung@kunde.test ·
+                                                        "Reminder: Invoice INV-2026-00001 —
+                                                         Alo Werkplaats B.V."
+reminder, note of 501 chars                      -> 422 "the added note may be at most 500 characters"
+  (due date moved back 28 days with psql, to make the document 14 days late)
+reminder + note                                  -> 200 daysOverdue 14 · outstanding 181500
+  (payment of 500.00 recorded → partiallyPaid)
+reminder                                         -> 200 daysOverdue 14 · outstanding 131500
+reminder on an issued CREDIT NOTE                -> 409 "a credit note is money owed to the
+                                                        customer; there is nothing to remind them of"
+  (the remaining 1315.00 recorded → status paid)
+reminder on a settled invoice                    -> 409 "this invoice is settled; there is nothing
+                                                        to remind about"
+reminder on a VOID invoice                       -> 409 "a void invoice has been cancelled…"
+reminder, customer with no email address         -> 422 "this customer has no email address"
+  the neighbour's door (tenant B's token, tenant A's invoice id):
+POST /billing/invoices/{A's id}/reminder         -> 404 "no such invoice"
+  the invoice is untouched by being chased (INV-2026-00005):
+  before: issued | INV-2026-00005 | 2026-07-22 | 2026-08-07 05:32:10.585588+00
+  two reminders                                  -> 200, 200
+  after:  issued | INV-2026-00005 | 2026-07-22 | 2026-08-07 05:32:10.585588+00   (byte-identical)
+```
+
+`psql` on the tenant afterwards: every reminder that answered `200` is a row in
+**Drafts** with the `$draft` keyword, addressed to
+`Kunde & Söhne GmbH <buchhaltung@kunde.test>`, and **no refusal wrote one**
+(three drafts for the three successful calls, then five after the two
+untouched-invoice calls). Read back out of the stored blob — the MIME on disk,
+not the response:
+
+```
+Dear Kunde & Söhne GmbH,
+
+Invoice INV-2026-00001 for EUR 1 815.00 was payable by 2026-07-24 and is now 14 days overdue.
+
+EUR 500.00 has been received against it, leaving EUR 1 315.00 outstanding.
+
+Your reference: PO-2026-4
+
+If you have already sent the payment, please accept our thanks and ignore this message.
+
+Kind regards,
+Alo Werkplaats B.V.
+```
+
+…and with a note, carried verbatim above the polite escape hatch:
+
+```
+Invoice INV-2026-00001 for EUR 1 815.00 was payable by 2026-07-24 and is now 14 days overdue.
+
+Your reference: PO-2026-4
+
+We can arrange payment in two instalments if that helps.
+```
+
+Cuts and flags:
+
+- **CUT — the note is not in the UI.** The route takes one, and the agent tool
+  sends one, but the button sends none: a click that opened a text box would not
+  be one click, and the draft it writes is editable in the composer anyway,
+  which is a better place to add a sentence than a list row. The field exists
+  the moment a screen wants it.
+- **CUT — no reminder history on the invoice.** Nothing records that a document
+  was chased, or when. Adding a "reminded on" column would be a write on a
+  frozen legal document for a fact the mailbox already holds; the sent reminder
+  in the user's own Sent folder is the record. If dunning ever escalates
+  automatically (first/second/final notice), that schedule is the thing that
+  will need state — and it is a B2 question, not this one.
+- **CUT — the button is only on the invoice list.** Not in the invoice detail
+  view, and not as a bulk "remind everyone" over the overdue view. A bulk button
+  that writes twelve drafts in one click is a different feature with a different
+  confirmation, and the item asked for the row click.
+- **NOTE — `/billing/invoices/{id}/send` (B1.18) still has no UI.** Unchanged
+  by this item, and still worth a human's ten minutes: the covering-email route
+  exists and is wire-verified, but nothing on the invoice screen calls it.
+- **fr/nl** for the five new strings join at B1.27 with the rest of billing.
+- **`cargo fmt` was NOT run crate-wide**, per the standing note: only the two
+  files this item touched were formatted (which rewrapped the `use crate::{…}`
+  list in `server.rs`).
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05: the production Caddyfile needs the prefix at the next
+  deploy. This item adds a route **under** that prefix, so it needs nothing
+  further of its own.
+
+Next item: B1.27 (the wave review — fr/nl for all billing strings, CHANGELOG
+sweep, `docs/design/billing.md` as-built, ROADMAP B1 boxes, and the
+features.md [B1] reconciliation).
