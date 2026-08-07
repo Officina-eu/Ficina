@@ -456,6 +456,17 @@ EU models, suggest-only where the EU AI Act calls a use high-risk.
 - [B6] Expense/leave/timesheet approvals unified in one "approvals" inbox for managers
 - [B+] Performance check-ins; training records; **payroll data export to local providers — payroll calculation itself is a permanent non-goal (ADR 0035)**
 
+### alo Insights — see the whole business (ADR 0037) · waves [BI-1] after B2, [BI-2] after B4
+
+- [BI-1] ★ **The zero-setup "Business overview"**: a pre-built dashboard that exists from day one — revenue, outstanding invoices, pipeline value, and more as modules land. No connectors, no ETL, no data person: everything already lives in one tenant-scoped database, which is the 80% of BI-tool complexity alo customers never pay for.
+- [BI-1] **Insights tab**: dashboards of tiles (number, bar, line, pie, table), drag-arranged; shared via Spaces permissions (finance sees finance, sales sees pipeline).
+- [BI-1] Gallery of ready-made tiles per module (Billing: revenue by month, overdue aging, VAT; CRM: pipeline by stage, win rate) — one click each.
+- [BI-1] ★ **Ask-to-chart**: "revenue per customer this quarter as bars" → chart → Approve pins it. The AI emits a typed ChartSpec (measure/dimension/period/filters — never SQL), compiled against a whitelisted semantic layer; propose-then-approve (ADR 0034).
+- [BI-1] Chart rendering via an embedded Apache-2.0 chart library under alo chrome (ADR 0033 precedent) — never a from-scratch chart engine.
+- [BI-2] Finance depth after B4: profit, cash flow, aged receivables/payables tiles; projects utilization + stock tiles.
+- [BI-2] ★ Module-embedded overview strips (the same tiles atop Billing/CRM/Inventory) and the **Monday digest mail** — your numbers in your own inbox.
+- [BI-2] Tile → CSV/PNG export; dashboard on a Meet/TV view (auto-refresh, no chrome).
+
 ### Cross-cutting (every business module gets these for free)
 
 - [B1] Everything is tenant-scoped records with the same isolation guarantees (and tests) as mail
