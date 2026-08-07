@@ -60,8 +60,8 @@ extractor, registration in `server.rs`, and the store-error map in
 | `GET /crm/deals/{id}/history` | the stage history of one deal, oldest first (B2.03) |
 | `GET /crm/deals/{id}/threads`, `POST /crm/deals/{id}/threads`, `DELETE /crm/deals/{id}/threads/{threadId}` | the conversations linked to a deal (B2.05). *As built:* the `POST` is **idempotent** — it answers `{"created":false}` for a conversation already linked, because linking twice is the same link |
 | `GET /crm/deals/{id}/thread-suggestions[?limit]` | candidate conversations, computed over the **requesting user's own** mail (B2.05). *As built:* `limit` is a page size and is **clamped** (1…50, default 10) rather than refused — it is not an assertion about the data, so the strict-filter rule does not apply to it |
-| `GET/POST /crm/deals/{id}/activities`, `DELETE /crm/activities/{id}` | notes and logged calls (B2.06) |
-| `POST /crm/deals/{id}/next-step` | create a Task in the tasks module, linked back to the deal (B2.06) |
+| `GET/POST /crm/deals/{id}/activities`, `DELETE /crm/activities/{id}` | notes and logged calls (B2.06). *As built:* there is no `PATCH` — an activity is written once, and a correction is another note |
+| `GET/POST /crm/deals/{id}/next-steps` | the tasks linked to the deal, and the door that creates one (B2.06). *As built:* **plural, with a `GET`**, rather than the `POST …/next-step` this note first wrote. The drawer has to read them back — "shows due in deal" is half the item — and every other CRM collection (`/threads`, `/stages`) is a plural noun carrying both verbs; two spellings of one relationship is a contract nobody can guess |
 | `POST /crm/deals/{id}/quote`, `POST /crm/deals/{id}/invoice` | the won-deal handoff to billing: a **draft** quote or invoice for the deal's customer, answering the created document (B2.08) |
 | `GET /crm/reports/pipeline?pipelineId&from&to[&format=csv]` | value by stage and win/loss for a period (B2.08) |
 | `POST /crm/imports/leads/preview`, `POST /crm/imports/leads` | CSV mapping preview, then the commit (B2.09) |
@@ -489,6 +489,41 @@ actually opens every morning, and the CRM's copy rots. The task lands in
 a project the user picks — defaulting to their personal project, because
 the next step belongs to the person who will do it.
 
+*As built (B2.06) — six things the note left open, decided in code.*
+
+- **The log is bounded per deal, not paged** (`DEAL_ACTIVITIES_MAX`, 500),
+  enforced under the deal's row lock exactly as the conversation cap is. The
+  drawer reads the log whole, so the read is bounded by the record rather than
+  by a cursor nobody would page; a deal that has collected five hundred notes
+  has stopped being one opportunity. A note is ≤ 10 000 characters, as the
+  Bounds section already said.
+- **`happened_at` is an instant, and it is not `created_at`.** A call logged an
+  hour later is dated the hour it took place, and the log is ordered by *when it
+  happened*; the row still records when it was entered. The route parses it as
+  full RFC 3339 (`parse_rfc3339`, the deliberate opposite of the `YYYY-MM-DD`
+  rule a deal's `expectedClose` lives under) and normalises to UTC.
+- **`kind` is a closed vocabulary** (`note` | `call` | `meeting`) with a `CHECK`
+  behind it: an unrecognised word is a `422` and never a silent `note`, because
+  a log that quietly demotes a call to a note is worse than one that refuses the
+  word.
+- **A next step's *source* is written by us, never by the caller.** Whatever a
+  request says about `sourceKind`/`sourceId`/`state` is overwritten with this
+  deal, `active`: a "next step" that points somewhere else is not one, and a
+  person clicking is not the agent proposing (ADR 0023 stays in Tasks).
+- **A next step is only as visible as the task it is.** Reading a tenant-wide
+  deal does not widen a personal project by one row: a colleague sees the next
+  steps on team projects plus anything assigned to them. It is the same
+  asymmetry a linked conversation has, and the read applies the tasks module's
+  own visibility rule rather than a second one CRM invented
+  (`AccountStore::tasks_for_source`, which the mail surface can reuse for
+  `source_kind = 'email'`).
+- **Deleting a deal deletes its log and leaves its next steps standing.** The
+  activities are the deal's own rows and cascade with it; the tasks are the
+  *user's* rows, and a task must not vanish out of somebody's morning list
+  because a salesperson tidied up a board. Their source link then points at a
+  deal that is gone — which is what an ADR 0021 source link has always been: a
+  pointer that may not resolve, never a foreign key.
+
 ## Importing leads (B2.09)
 
 `POST /crm/imports/leads/preview` takes an uploaded file and a column
@@ -557,6 +592,12 @@ this one).
 | Archiving a stage that still holds open deals (as built, B2.03) | `Conflict` | `409` |
 | Archiving a pipeline that still has open deals (as built, B2.03) | `Conflict` | `409` |
 | Deleting an activity written by somebody else | `Forbidden` | `403` |
+| An activity with a blank body, or one over 10 000 characters (as built, B2.06) | `Validation` | `422` |
+| An activity `kind` that is not note/call/meeting (as built, B2.06) | — (route edge) | `422` |
+| `happenedAt` / `dueAt` that is not a full RFC 3339 instant (as built, B2.06) | — (route edge) | `422` |
+| More activities on one deal than the cap allows (as built, B2.06: 500) | `Conflict` | `409` |
+| A next step with a blank title (as built, B2.06) | — (route edge) | `422` |
+| A next step filed on a project the caller cannot see (as built, B2.06) | `NotFound` | `404` |
 | Linking a thread that is absent, another tenant's, **or one the requesting user has no message in** | `NotFound` | `404` |
 | Linking a thread already linked to this deal | — | `200`, idempotent (`created:false`) |
 | Linking beyond the per-deal thread cap (as built, B2.05: 100) | `Conflict` | `409` |

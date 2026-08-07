@@ -44,7 +44,7 @@ small, or a `[!]` note for the human if large.
 - [x] B2.03 Migration + store: `crm_deals` (title, customer/contact link, value cents, currency, expected close, stage, owner, source, lost reason nullable) + stage-move with history rows + tests.
 - [x] B2.04 HTTP `/crm/*` routes for pipelines/stages/deals + wire transcript.
 - [x] B2.05 ★ Deal↔mail linking: store table deal_threads; suggest-by-domain (pure fn over message from-addrs) requiring user confirm; routes; tests prove another tenant's thread can never be linked.
-- [ ] B2.06 Activities on a deal: notes + next-step (creates a real Task via existing tasks store, linked); shows due in deal. Tests + routes.
+- [x] B2.06 Activities on a deal: notes + next-step (creates a real Task via existing tasks store, linked); shows due in deal. Tests + routes.
 - [ ] B2.07 Web: pipeline kanban (reuse Tasks board interaction), deal drawer (value, stage, activities, linked threads with open-in-mail), list view + filters. Build clean; manual path in STATE.md.
 - [ ] B2.08 Win/loss: closing flow (won → optional link to create quote/invoice B1; lost → reason picker), simple per-pipeline value-by-stage report + CSV.
 - [ ] B2.09 CSV/Excel lead import with mapping preview + dedupe by email domain; import report. Wire-verified with a fixture file.

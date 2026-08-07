@@ -4649,3 +4649,157 @@ Cuts and flags:
 
 Next item: B2.06 (activities on a deal — notes and a next step that creates a
 real Task through the existing tasks store, with its source link back).
+
+## 2026-08-07 — B2.06 what was said on a deal, and what happens next
+
+Two records that look like one item and are not. **The log** is a CRM table
+with a tenant-wide read and one rule inside the tenant. **The next step** is
+deliberately *not* a CRM table at all: it is a real task, carried by ADR 0021's
+source link, so the workspace keeps one to-do list instead of two. One
+migration, two store files, two route files, and no `next_step` column
+anywhere.
+
+- **`0115_crm_activities.sql`** — `crm_activities` (deal, `kind`, `body`,
+  `happened_at`, `author_user_id`, `created_at`), PK `(tenant_id, id)`, deal FK
+  `ON DELETE CASCADE` within the tenant, `CHECK`s on the kind vocabulary and a
+  non-blank body. Plus **`tasks_by_source`**, the partial index that makes "the
+  next steps of this deal" a lookup rather than a scan of every task the tenant
+  owns — the source link read backwards for the first time.
+- **`crm_activities.rs` (store)** — `ActivityKind` (`note` | `call` |
+  `meeting`, parsed and printed by one function so a word means one thing on
+  both sides), `add_crm_activity` (deal row lock → cap → insert),
+  `crm_activities` (newest first *by when it happened*), `delete_crm_activity`
+  (author-only). Bounds: body ≤ 10 000 chars, ≤ 500 entries per deal
+  (`DEAL_ACTIVITIES_MAX`), the second one enforced under the same row lock the
+  conversation cap uses so a concurrent write cannot walk past it.
+- **`crm_next_steps.rs` (store)** — the bridge, owning no table:
+  `create_crm_deal_next_step` (deal resolved first, project defaulting to the
+  caller's personal one, `source_kind`/`source_id`/`state` **overwritten** with
+  this deal and `active`) and `crm_deal_next_steps`. The generic half lives in
+  `tasks.rs` as `tasks_for_source(kind, id)` — the tasks module's own
+  visibility rule applied by the tasks module, reusable the day mail wants
+  "the tasks from this email".
+- **`crm_activities.rs` / `crm_next_steps.rs` (routes)** — `GET/POST
+  /crm/deals/{id}/activities`, `DELETE /crm/activities/{id}`, `GET/POST
+  /crm/deals/{id}/next-steps`. Registered under the existing `/crm` prefix, so
+  **no new top-level prefix** and nothing new for the Caddyfile beyond the
+  `/crm` line already standing. The next-step answer is the tasks module's own
+  task JSON (`tasks::task_json`, made `pub(crate)`), reused rather than
+  re-spelled: one card shape wherever a task appears.
+- **`billing.rs` gained `parse_rfc3339`** — the deliberate opposite of
+  `parse_iso_date`. A day must never arrive as a timestamp (an invoice date);
+  an instant must never arrive as a bare day (a call, a task's due date). Both
+  rules now have one home each, shared by CRM and billing.
+
+Six decisions the design note did not carry, now recorded in it as-built: the
+per-deal cap instead of a cursor, `happened_at` ≠ `created_at`, the closed
+`kind` vocabulary, the source link being ours to write and never the caller's,
+a next step being only as visible as the task it is, and — the one worth a
+human's eye — **deleting a deal deletes its log and leaves its next steps
+standing**, because a task must not vanish out of somebody's morning list
+because a salesperson tidied a board.
+
+Verified: `cargo clippy -p alo-store -p alo-jmap --all-targets` clean; **76
+test binaries green, zero failures**, including the new
+`crm_activities_tenancy.rs` (6 tests over a real Postgres — the tenant
+boundary, the author-only delete, the bounds, the 500-entry cap, and the
+visibility of a next step) and `crm_activities_http.rs` (7 tests through the
+real router, including a second real logged-in user for the `403`).
+`rustfmt --edition 2024` on the new/changed files only — never on `lib.rs`,
+which reformats every module it declares (the trap recorded at B2.04).
+
+Wire-verified with real curl against the debug `alo-jmap` on `127.0.0.1:8080`
+over docker `alo-pg` (fresh tenants `wire-b206`, `wire-b206b`, plus a real
+second user of A created through `/admin/users`):
+
+```
+POST /crm/deals  (the deal under test)        -> 200 Renewal — Acme GmbH
+  the door, with no token:
+GET  /crm/deals/{id}/activities  (no token)   -> 401
+POST /crm/deals/{id}/activities  (no token)   -> 401
+DEL  /crm/activities/{id}        (no token)   -> 401
+GET  /crm/deals/{id}/next-steps  (no token)   -> 401
+POST /crm/deals/{id}/next-steps  (no token)   -> 401
+  the log:
+GET  .../activities  (nothing yet)            -> 200 0 entries
+POST .../activities  (a call, dated January)  -> 200 kind=call
+                                                     happenedAt=2026-01-07T14:05:00Z
+                                                     (sent as +02:00, stored UTC)
+     the body is stored trimmed               -> 200 'Ada wants 40 seats quoted.'
+POST .../activities  (a bare note)            -> 200 kind=note, happened now
+GET  .../activities  (newest first)           -> 200 ['Sent the deck.', 'Ada wants 40…']
+                                                     — by WHEN IT HAPPENED, not when typed
+  what a caller may not say:
+POST .../activities {}                        -> 422 'body must not be empty'
+POST .../activities {"body":"   "}            -> 422 'body must not be empty'
+POST .../activities {"kind":"email"}          -> 422 'kind must be one of note, call, meeting'
+POST .../activities {"happenedAt":"2026-01-07"}-> 422 'happenedAt must be an RFC 3339 timestamp'
+  next steps:
+POST .../next-steps                           -> 200 sourceKind=deal sourceId=<the deal>
+                                                     state=active due=2026-08-14T09:00:00Z
+                                                     project=proj_personal_<user>
+                                                     title trimmed
+GET  .../next-steps                           -> 200 1 step, with its due date
+GET  /tasks/{id}  (the SAME row)              -> 200 sourceId=<the deal> — one to-do list
+POST .../next-steps {}                        -> 422 'title is required'
+POST .../next-steps {"title":"  "}            -> 422 'title is required'
+POST .../next-steps {"dueAt":"next tuesday"}  -> 422 'dueAt must be an RFC 3339 timestamp'
+POST .../next-steps {"projectId":"proj_nope"} -> 404 'not found'
+  the neighbour's door (tenant B):
+GET  A's deal /activities         (B)         -> 404 'not found'
+GET  a ghost deal /activities     (B)         -> 404 'not found'   (identical)
+POST A's deal /activities         (B)         -> 404 'not found'
+DEL  A's activity                 (B)         -> 404 'not found'
+DEL  a ghost activity             (B)         -> 404 'not found'   (identical)
+GET  A's deal /next-steps         (B)         -> 404 'not found'
+POST A's deal /next-steps         (B)         -> 404 'not found'
+GET  B's own deal /activities                 -> 200 0 entries — untouched
+  a colleague of tenant A (a second real login):
+GET  .../activities  (they read the log)      -> 200 1 entry — it is tenant-wide
+DEL  somebody else's note                     -> 403 'insufficient role' — not a 404
+POST .../activities  (their own entry)        -> 200 kind=meeting
+DEL  their own note                           -> 200
+GET  .../next-steps  (mine)                   -> 200 ['Draft the quote', 'Chase the PO']
+GET  .../next-steps  (theirs)                 -> 200 ['Chase the PO'] — the private one
+                                                     is not theirs to read
+  the record's end:
+DEL  my own note                              -> 200 True
+DEL  the same note again                      -> 404 'not found'
+DEL  the deal itself                          -> 200 True
+GET  .../activities after that                -> 404 'not found' — the log went with it
+GET  /tasks/{id}                              -> 200 'Send the renewal quote' — the task
+                                                     lives on, in the user's own list
+```
+
+Cuts and flags:
+
+- **Nothing was cut from the item.** Notes, the next step as a real task, the
+  due date shown in the deal, tests and routes all shipped, plus the per-deal
+  cap and the source index the drawer needs.
+- **The route is `next-steps`, plural, with a `GET`** — the note first wrote
+  `POST …/next-step`. Reason recorded in the note and above; a human may
+  disagree, and it is one line in `server.rs` either way. Nothing has been
+  deployed, so no contract is broken by changing it.
+- **A deleted deal leaves its next steps standing**, with a source link that no
+  longer resolves. That is what an ADR 0021 source link has always been, and
+  the alternative (deleting a colleague's task because somebody tidied a board)
+  is worse — but **a human should confirm it**, because the deal drawer's
+  sibling question ("open the deal this task came from") will meet it in B2.07.
+- **The `403` is CRM's first**, and it is the one place the module does not use
+  the no-existence-oracle `404`: the entry is readable tenant-wide, so hiding
+  it from someone already looking at it would be theatre. Recorded in the error
+  map, which had carried this row since B2.01.
+- **No web work, no i18n strings.** The CRM UI is B2.07 (its deal drawer is
+  where this item becomes visible); the route details are the same English
+  `Problem` strings billing publishes.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged from B2.02–B2.05. Nothing here is deployed; the
+  migration is additive and reversible by not deploying it. **A human should
+  confirm or move the gate.**
+- **Standing human actions:** the `/billing` **and** `/crm` Caddyfile prefixes
+  at the next deploy (this item adds no new prefix), a deploy, and a real
+  tenant.
+
+Next item: B2.07 (the CRM web module — pipeline kanban on the Tasks board
+interaction, the deal drawer with value, stage, activities, next steps and
+linked threads, list view and filters).

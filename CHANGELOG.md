@@ -19,6 +19,18 @@ contracts.
   both before anyone else sees either. It is a preview of your draft: only
   you can see it, and nothing goes live until you publish.
 
+- **alo CRM: what was said, and what happens next.** A deal now keeps a log —
+  notes, calls and meetings, each dated when it *happened* rather than when you
+  typed it up, so a call you write up in the evening still reads in the right
+  place. Everyone in your company can read a deal's log and add to it; an entry
+  is written once and can be removed only by the colleague who wrote it, because
+  a record of what was said is not something anybody else gets to edit. And the
+  next step on a deal is a **real task**, not a CRM-only reminder: it lands in
+  your own task list (or a team project you choose), shows up in the deal with
+  the date it is due, and is the same task you tick off tomorrow morning — one
+  to-do list, not two. Assign it to a colleague and they see it on the deal too.
+  Tidying a deal away removes its log and leaves everybody's tasks alone.
+
 - **alo CRM: a deal can name the conversation it came from.** Every deal now
   carries the email threads it belongs to, and CRM will suggest them for you —
   it reads *your own* recent mail, matches it against the deal's contact and
