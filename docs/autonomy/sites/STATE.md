@@ -840,7 +840,7 @@ Human-action inbox (things the loop must not do itself):
   forms auto-provisioned on section save; POST gated to the published
   reference set like images).
 
-## LOOP HALT: concurrent editor detected AGAIN on this checkout (2026-08-07 ~15:56)
+## HALT(resolved): concurrent editor detected AGAIN on this checkout (2026-08-07 ~15:56)
 
 - **The same failure mode as the 13:45 incident recurred one iteration
   later.** This iteration started with a clean working tree (per the
@@ -868,3 +868,15 @@ Human-action inbox (things the loop must not do itself):
   wrappers/agent sessions for this track on every machine, (2) kill all
   but one, and (3) only then discard-or-salvage the tree and remove/date
   this HALT. S1.16 remains the next queue item.
+
+### Resolution of the second concurrent-editor halt (human, 2026-08-07 16:05)
+
+Root cause finally proven: this afternoon's "silently failed" PowerShell
+wrapper launches had actually SPAWNED DETACHED WORKERS whose transcripts were
+not where the supervisor looked — they survived every wrapper kill as ghosts
+and kept editing this tree, which is what every honest worker since 13:19 was
+colliding with. Both ghosts were found by command-line process hunt
+(sh.exe 36320 + claude.exe 1736), killed with their trees, and the checkout
+then proved quiet for 60 seconds. Ghost edits discarded. Single bash wrapper
+relaunched. S1.16 (attempt #6) is next — with, at last, an actually empty
+stage.
