@@ -4203,3 +4203,116 @@ this checkout is; the work in it was done by Claude Opus 5 (1M context) under
 **Fix for the next iteration:** put the trailer in the commit message itself
 rather than relying on the harness to add it when the message comes from a
 file or heredoc.
+
+## 2026-08-07 — B2.03 CRM deals and their stage history (migration + store)
+
+The record the boards exist for: a deal, the column it stands in, and the
+append-only history of every move it ever made.
+
+- **Migration `0113_crm_deals.sql`** — two tables, tenant-scoped,
+  `PRIMARY KEY (tenant_id, id)`, `REFERENCES tenants(id) ON DELETE CASCADE`.
+  `crm_deals` carries **composite** foreign keys within the tenant: the board
+  (`CASCADE`), the column (`RESTRICT`) and the customer (`CASCADE`, the shape
+  `billing_invoices` already uses); the address-book pointer is
+  `ON DELETE SET NULL`, because deleting a contact must unlink, never destroy
+  a deal. `crm_deal_stage_events` names its two stages `RESTRICT` as well, so
+  a column the past has named cannot be deleted even by a caller who bypasses
+  the store. Six `CHECK`s state in the schema what the store validates first:
+  a non-blank title, `0 ≤ value_cents ≤ 10^11`, a three-letter currency, a
+  known outcome, a closing snapshot that is whole or absent
+  (`(outcome IS NULL) = (closed_at IS NULL)`), and a lost reason that exists
+  exactly when the outcome is `lost`
+  (`(outcome IS NOT DISTINCT FROM 'lost') = (lost_reason IS NOT NULL)` — plain
+  `=` would be *unknown* on an open deal and let a stray reason through).
+  Money is `BIGINT` cents; the only `DOUBLE PRECISION` is `position`.
+- **`platform/alo-store/src/crm_deals.rs`** — `NewDeal`/`Deal`/`DealState`/
+  `DealFilter`/`StageMove`/`StageEvent` and the account-door API:
+  `create_crm_deal`, `crm_deal`, `crm_deals(&DealFilter)`, `update_crm_deal`,
+  `move_crm_deal`, `crm_deal_history`, `delete_crm_deal`. Two ids on `id.rs`
+  (`CrmDealId`, `CrmEventId`), re-exported from `lib.rs`.
+- **The guards B2.02 deferred are now built**, in the item that created the
+  table they count: archiving a stage or a pipeline that still holds **open**
+  deals is a `Conflict`, and deleting a stage any deal or history row has
+  ever named is a `Conflict` naming the archive as the way out.
+
+Five decisions worth naming, all recorded in the module docs and in
+`docs/design/crm.md` (updated as-built in this commit):
+
+- **A move writes exactly one history row — and a reposition writes none.**
+  Dragging a card up its own column is a position write; a row saying
+  Qualified → Qualified answers no question and would spoil every velocity
+  figure computed from these rows. The event is appended in the same
+  transaction as the move, never after it.
+- **The closing snapshot is stamped at the moment it is reached.** The
+  `UPDATE` computes `closed_at` from the **old** outcome
+  (`CASE WHEN $5 IS NULL THEN NULL WHEN outcome IS DISTINCT FROM $5 THEN
+  now() ELSE closed_at END`), so a reopen clears it, a won deal later marked
+  lost is re-stamped, and a card merely moving between two open columns keeps
+  its history intact. Reopening is allowed and leaves both events standing —
+  the deliberate contrast with a quote's terminal states, argued in the note.
+- **Moves and shape changes are serialised on the board row.** Creating or
+  moving a deal takes the pipeline row `FOR SHARE`; adding, archiving or
+  deleting a column, and archiving the board, take it `FOR UPDATE`. Card
+  moves never block each other, and no card can slip into a column between
+  the count that finds it empty and the archive that hides it — proved by a
+  `tokio::join!` test asserting the two can never both succeed, and that open
+  work never ends up standing in an archived column.
+- **The three links a deal carries are re-resolved under the tenant's own
+  door.** The customer must be this tenant's and not archived, the contact
+  this tenant's (`require_tenant_contact`, now shared with billing rather
+  than copied), the owner a **user of this tenant** — a guessed id from
+  another tenant is `NotFound`, never a cross-tenant link.
+- **A deal is deleted, not archived** — the one CRM record that is. It is our
+  own private note of an opportunity, not a document anybody else holds, so
+  one raised by mistake leaves no trace (its history cascades with it). A
+  deal that was really worked is *lost*, which is a move.
+
+Verified: `cargo clippy -p alo-store --all-targets` clean; the whole
+`alo-store` suite green (296 unit tests + every integration binary, zero
+failures), including the new `tests/crm_deals_tenancy.rs` — four tests run
+five times over for the race. Tenancy is proved on **every** path: another
+tenant reading, updating, moving, deleting, listing or reading the history of
+a deal, creating one on our board, or being named as its customer, contact or
+owner, each gets the clean `NotFound`/`Validation`/empty, and an id that never
+existed answers identically (no existence oracle). Purges are read back with a
+direct `count(*)` on both tables rather than through the store's own tenant
+predicate. `\d crm_deals` / `\d crm_deal_stage_events` inspected on the live
+local database: every foreign key, `CHECK` and index is on the tables as
+written, and the `RESTRICT` keys do not obstruct a tenant deletion (the purge
+assertions pass). `SQLX_OFFLINE=true cargo check --workspace` clean, so the
+additive store API breaks no caller. `rustfmt --edition 2024` applied to the
+touched files only (per the standing finding that `cargo fmt` on this machine
+rewrites hundreds of pre-existing lines).
+
+No new routes (B2.04), so no wire verification applies; nothing user-visible
+yet, so no CHANGELOG line — the first B2 one lands with B2.04's routes, as
+B2.02 recorded.
+
+Cuts and flags:
+
+- **Nothing was cut from the item.** The queue asked for the table, the
+  stage-move with history rows and the tests; all three shipped, plus the
+  three guards B2.02 had to defer.
+- **Judgement recorded, not hidden — a reposition writes no history row.**
+  The design note said a move "writes exactly one history row"; read
+  literally that would include a drag within one column. The narrower rule
+  is in the note as-built with its reason. If a human disagrees, the change
+  is one `if` in `move_crm_deal`.
+- **`crm_deals.customer_id` cascades** (the shape `billing_invoices` uses)
+  rather than unlinking. Customers are archived, never deleted, so in
+  practice it fires only with the tenant; `ON DELETE SET NULL` on a composite
+  key would have to name the column (PG 15+) and would leave a won deal
+  pointing at nobody.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged from B2.02: this migration is additive,
+  unreleased, and reversible by not deploying it, and only a human can deploy.
+  **A human should confirm or move the gate.**
+- **Standing human actions, unchanged:** the `/billing` **and** `/crm`
+  Caddyfile prefixes at the next deploy (no `/crm` route exists yet — B2.04),
+  a deploy, and a real tenant.
+- **Open question still unanswered (from B2.01):** whose language seeds the
+  stage names when the first user of a tenant to open CRM is not its admin.
+  Untouched by this item — the store still only writes the names it is handed.
+
+Next item: B2.04 (HTTP `/crm/*` routes for pipelines, stages and deals, with
+the wire transcript).

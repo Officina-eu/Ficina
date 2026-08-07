@@ -144,10 +144,20 @@ onwards); the sites track continues in `00xx`.
   and the lead fields (below), `value_cents`, `currency`,
   `expected_close` (a date), `owner_user_id`, `source`, `position`
   within the stage, the closing snapshot (`outcome`, `lost_reason`,
-  `closed_at`), `created_by`, timestamps.
+  `closed_at`), `created_by`, timestamps. *As built (B2.03):* the snapshot
+  is whole or absent (a `CHECK` ties `outcome` to `closed_at`) and a lost
+  reason exists exactly when the outcome is `lost` — the rule that makes
+  "lost reasons + win/loss reporting" a report rather than a wish. The
+  value ceiling, the currency shape and a non-blank title are `CHECK`s too:
+  the store validates all of them first, so a violation there is a bug in
+  our code rather than bad user input.
 - **`crm_deal_stage_events`** — append-only: deal ref, `from_stage_id`
   (NULL for the row written at creation), `to_stage_id`, `moved_by`,
-  `moved_at`. Written in the **same transaction** as the move.
+  `moved_at`. Written in the **same transaction** as the move. *As built
+  (B2.03):* its id type is `CrmEventId`; both stage foreign keys are
+  `RESTRICT`, so a column the past has named cannot be deleted even by a
+  caller who bypasses the store, and the rows go with the deal (`CASCADE`)
+  and with the tenant.
 - **`crm_deal_threads`** — deal ref, `thread_id`, `linked_by`,
   `linked_at`, unique on `(tenant_id, deal_id, thread_id)`. (The queue
   calls this table `deal_threads`; it takes the module prefix every
@@ -262,6 +272,27 @@ the closing snapshot if the target stage is flagged, and appends exactly
 one `crm_deal_stage_events` row. Creating a deal writes the same event
 with `from_stage_id = NULL`, so "how long did this sit in Qualified" is
 answerable from row one, not from row two.
+
+*As built (B2.03):* four things the note left open, decided in code and
+recorded here rather than left to be rediscovered.
+
+- **A reposition inside one column writes no event.** A history row saying
+  Qualified → Qualified answers no question and would spoil every velocity
+  figure computed from these rows, so the event is appended only when the
+  column actually changed. Dragging a card up its own column still writes
+  the position, in the same call.
+- **An archived column takes no new cards.** Moving a deal into one — or
+  creating a deal in one — is a `Validation` (`422`), which is what
+  "archived" was defined to mean when the column was archived.
+- **Moves and shape changes are serialised on the board row.** Creating or
+  moving a deal takes the pipeline row `FOR SHARE`; adding, archiving or
+  deleting a column, and archiving the board, take it `FOR UPDATE`. Card
+  moves therefore never block each other, and no card can slip into a column
+  between the count that finds it empty and the archive that hides it.
+- **A deal is deleted, not archived** — the one CRM record that is. It is our
+  own private note of an opportunity, not a document anybody else holds, so
+  one raised by mistake leaves no trace (its history goes with it). A deal
+  that was really worked is *lost*, which is a move.
 
 **Rejected: deriving stage history from the audit log (B2.13).** The
 audit log is administrative, best-effort by design (an audit failure
@@ -433,15 +464,19 @@ this one).
 | Creating a deal without naming a pipeline and stage | — (route edge) | `422` |
 | Moving a deal to a stage of a **different pipeline** | `Validation` | `422` |
 | Moving a deal into an `is_lost` stage without a reason | `Validation` | `422` |
+| A lost reason sent for a stage that is not `is_lost` (as built, B2.03) | `Validation` | `422` |
+| Moving a deal into, or creating one in, an **archived** stage (as built, B2.03) | `Validation` | `422` |
+| Naming an owner who is not a user of this tenant (as built, B2.03) | `Validation` | `422` |
+| A deal position that is not a finite number (as built, B2.03) | `Validation` | `422` |
 | Naming a customer that is absent, archived, or another tenant's | `NotFound` / `Validation` | `404` / `422` |
 | A stage flagged both won and lost, or a second won/lost stage in one pipeline | `Validation` | `422` |
 | Creating or renaming a pipeline onto the name of another **active** pipeline (as built, B2.02) | `Conflict` | `409` |
 | More stages on one pipeline than the cap allows (as built, B2.02: 200) | `Validation` | `422` |
 | A stage position that is not a finite number (as built, B2.02) | `Validation` | `422` |
 | Deleting the last remaining stage of a pipeline | `Conflict` | `409` |
-| Deleting a stage any deal or history row has ever named (archive it instead) | `Conflict` | `409` |
-| Archiving a stage that still holds open deals | `Conflict` | `409` |
-| Archiving a pipeline that still has open deals | `Conflict` | `409` |
+| Deleting a stage any deal or history row has ever named (archive it instead; as built, B2.03) | `Conflict` | `409` |
+| Archiving a stage that still holds open deals (as built, B2.03) | `Conflict` | `409` |
+| Archiving a pipeline that still has open deals (as built, B2.03) | `Conflict` | `409` |
 | Deleting an activity written by somebody else | `Forbidden` | `403` |
 | Linking a thread that is absent, another tenant's, **or one the requesting user has no message in** | `NotFound` | `404` |
 | Linking a thread already linked to this deal | — | `200`, idempotent (unique row) |
@@ -456,12 +491,12 @@ The wrong-tenant case returns the **same `404`** as a truly absent id:
 no existence oracle across tenants, the doctrine documented in
 `platform/alo-store/src/error.rs` and followed by every billing route.
 
-Four rows of this table name **open deals** or **history rows**, and
-those tables arrive in B2.03. As built, B2.02 ships every guard it can
-actually check — the last-stage `409`, the board rules, the caps, the
-wrong-tenant `404`s — and the deal-dependent guards land with the table
-they count, in the same item that creates it. A guard written against a
-table that does not exist is a guess, not defence in depth.
+The four rows that count **open deals** or **history rows** were deferred
+from B2.02 — a guard written against a table that does not exist is a
+guess, not defence in depth — and **landed with B2.03**, in the item that
+created the table they count. Each is enforced under the board's row lock,
+so a concurrent card move cannot walk past it, and each has a database
+backstop behind it (`RESTRICT` on both stage foreign keys).
 
 ## Tenancy
 
