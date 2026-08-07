@@ -335,6 +335,16 @@ Section-JSON model, static Rust rendering, a separate public `alo-sites`
 service, privacy-first analytics. Queue: `docs/autonomy/sites/QUEUE.md`
 (items S1.01–S1.32).
 
+### Wave S2 — after the S1 gate (queue authored at S1 wave review)
+
+Collections (CMS from alo Base tables, ADR 0037-adjacent), the site-editor
+role, whole-site AI translation, version history/rollback, richer images —
+and ★ **Site Insights** (features.md [S2]): the EU answer to Google
+Analytics — consent-free referrers/campaigns/geo/devices, aggregated
+click+scroll heatmaps, conversions, and full-funnel attribution
+(visit → form → CRM lead → invoice) surfaced in the Insights tab.
+Session replay / individual tracking: permanent non-goal.
+
 ### Exit gate — Sites v1 done when:
 
 - [ ] A real business site (Axon Group or aloworld itself) is generated from a description, edited, published on a custom domain, receives a form submission that lands in the owner's inbox, and publishes one blog post written in alo Docs — with analytics counting the visit and storing no personal data
