@@ -2074,3 +2074,173 @@ Cuts and flags:
 Next item: B1.17 (server-side PDF: the design decision between headless
 chromium in a pinned container and a pure-Rust HTML-to-PDF path, recorded in
 `billing.md` first, then `GET /billing/invoices/{id}/pdf`).
+
+---
+
+## 2026-08-07 — B1.17 the PDF, written by us
+
+`GET /billing/invoices/{id}/pdf` answers a real PDF file for any invoice of the
+tenant, draft or issued or credited.
+
+**The decision the item asked for, recorded in `docs/design/billing.md` before
+any code — and it is a rejection first.** Headless chromium renders our own
+page perfectly; what ruled it out is what it costs to own. It is a **new engine
+in the deployment** (a ~1 GB image and a browser process on the invoice path,
+which by our own doctrine needs an ADR and which the loop may not add, since it
+cannot touch `deploy/`); it puts a **second, unpinned layout engine** between
+the document and the paper, so the file a customer receives would depend on
+whichever chromium build was in the image; and its failure modes — sandbox,
+fonts, zombie processes, memory — are a browser's, in the one place where a
+failure means an invoice that cannot be sent.
+
+**Chosen: a pure-Rust writer, and precisely *not* an HTML-to-PDF path.** We do
+not parse our own HTML back. The PDF and the printed page are **two renderers
+over one model**: both are handed the same `PrintDocument`, the same `Strings`
+table and the same `amount`/`quantity`/`rate`/`date`/`document_heading`
+formatters, so neither can invent a figure the other does not have. A general
+HTML+CSS engine in Rust would be a project; laying out a document whose shape
+we already know is a page of arithmetic.
+
+Shipped:
+
+- **`platform/alo-pdf`** (new crate, **no dependencies**) — a minimal PDF 1.7
+  producer: `writer.rs` (objects, the cross-reference table, the trailer, the
+  font dictionaries), `canvas.rs` (one page and the marks on it), `text.rs`
+  (styles, alignment, wrapping), `font.rs`, `metrics.rs`, `encoding.rs`,
+  `color.rs`. In `platform/` because a PDF is not a billing concept — Drive
+  exports and Docs want the same writer. Callers work in **points from the
+  top-left, y downwards**; the flip into PDF's own space happens once, in the
+  canvas, so no layout ever computes `height - y`.
+- **`alo-jmap/src/billing_pdf.rs`** — the layout, quoting the print
+  stylesheet's own proportions (A4 margins, the 90/22/26/16/26 mm columns, the
+  same rules and palette), plus pagination, the response, and the file name.
+- **`billing_invoices.rs`** — a `Printable` struct now gathers the document and
+  both parties once, and *both* routes render from it, so `/print` and `/pdf`
+  cannot drift apart. `billing_print`'s formatters became `pub(crate)` and its
+  heading became `document_heading` for the same reason.
+
+Decisions worth recording, all as-built in `docs/design/billing.md`:
+
+- **The width tables are read, not remembered.** A PDF has no layout engine: a
+  producer that wants a money column to line up must know every character's
+  width before it places it. Both faces' WinAnsi advances were extracted from a
+  real Helvetica (`hmtx`/`cmap`, scaled from 2048 to 1000 units/em) and are
+  shipped **exactly as measured**, not hand-patched towards Adobe's AFM where
+  the two differ on a handful of symbols (`€`, `±`, `÷`, `µ`) — a table that is
+  "the measurement, except three values somebody remembered" is the one nobody
+  can check. For everything a document prints, the two agree exactly. The same
+  numbers are declared in the font dictionary, so a reader is told what we
+  measured.
+- **The file is an attachment, never inline**, and carries no CSP. A PDF
+  rendered inline is rendered by a viewer inside our own origin; `attachment`
+  closes that path, which is also the only path a policy would have bound.
+- **`created` is passed in, not read.** The renderer never touches a clock, so
+  one document renders to the same bytes every time — which is what makes a
+  golden test possible and a re-download identical to the file the customer
+  already holds.
+- **Page numbers are stamped at the end**, once the total is known: `1 / 3` is
+  the difference between a customer who can tell a page is missing and one who
+  cannot. A one-page document says nothing.
+- **A row never straddles a page, and a continuation page repeats the column
+  headings** — a column of figures with nothing above it is one a reader has to
+  guess at.
+
+Verified. `SQLX_OFFLINE=true cargo clippy -p alo-pdf -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings); `cargo test -p alo-pdf -p alo-jmap` fully
+green — **64 new tests**: 41 in `alo-pdf` (the cross-reference offsets checked
+by reading the table back and confirming each points at the object it claims;
+the declared stream length against the real one; determinism; the WinAnsi
+folding, one real name per member state the fonts cannot spell; wrapping,
+including a grouped amount that must never split and a column narrower than one
+character that must still terminate), 16 over the layout, and 7 through the
+real router. `rustfmt --edition 2024` clean on every file this item touched;
+the pre-existing divergence in the inbox above is untouched.
+
+**Every rendering assertion goes through an independent parser.** The tests do
+not grep our own content stream — they run `pdf-extract` (already in-tree for
+Drive search, now a dev-dependency here) over the bytes and assert on the words
+it reads back, so what is checked is what a *reader* sees, decoding and all.
+
+The **wrong-tenant proof** is `tests/billing_pdf_http.rs`: B holds a
+distinctive legal name and IBAN; A gets `404` — never `403`, which would
+confirm the id exists — for B's issued document *and* B's draft, no file is
+served, and the refusal body is searched for all four of B's secrets. A ghost
+id gets a byte-identical answer, so the status is not an existence oracle.
+Then the sharper half, which only a printed document raises: A's *own* file is
+rendered after B has filled the settings table in, and A's paper still prints
+A's blanks — the whole file, metadata included, is searched for B's name and
+account.
+
+Wire-verified with curl against the local debug `alo-jmap` on `127.0.0.1:8080`
+over docker `alo-pg` (fresh tenants `wireb117` and `wireb117b`):
+
+```
+GET  /billing/invoices/{id}/pdf   (no token)          -> 401
+GET  /billing/invoices/no-such-id/pdf                 -> 404
+GET  /billing/invoices/{draft}/pdf                    -> 200  8 506 bytes
+        content-type: application/pdf
+        content-disposition: attachment; filename="Invoice.pdf"
+        x-content-type-options: nosniff · cache-control: no-store
+POST /billing/invoices/{id}/issue                     -> INV-2026-00001
+GET  /billing/invoices/{issued}/pdf                   -> 200  8 475 bytes
+        content-disposition: attachment; filename="Invoice-INV-2026-00001.pdf"
+        magic %PDF-1.7 … trailer %%EOF
+GET  /billing/invoices/{credit}/pdf                   -> 200  7 997 bytes
+        filename="Credit-note-INV-2026-00002.pdf", bank account absent (grep: 0)
+GET  /billing/invoices/{A's invoice}/pdf   as tenant B -> 404 "no such invoice"
+GET  /billing/invoices/ghost/pdf           as tenant B -> 404 (byte-identical)
+```
+
+The served files were then **read back with poppler**, not asserted:
+`pdfinfo` reports `Pages: 1`, `595.276 x 841.89 pts (A4)`, `PDF version: 1.7`,
+`Title: Invoice INV-2026-00001`, `Producer: alo workplace`; `pdftotext -layout`
+shows the whole document — both parties, `12.5 hour × 120.00 = 1 500.00`,
+`VAT 9% EUR 8.10`, `VAT 21% EUR 315.00`, `Total EUR 1 913.10`, `Payable by
+2026-08-21`, `NL91 ABNA 0417 1643 00` — and `pdftoppm` renderings of the issued
+invoice, a draft, a credit note and a 30-line document were looked at as images.
+That last step earned its place twice: it caught the description column running
+under the quantity beside it (the description was given the full width left of
+the *quantity* column instead of the width of its own cell), which no assertion
+in the suite would have noticed, and it confirmed the repeated headings and the
+`2 / 3` footer on a continuation page.
+
+Cuts and flags:
+
+- **FLAGGED FOR HUMAN REVIEW — the PDF's character repertoire, and the font
+  decision behind it.** The standard-14 fonts are the only fonts we have
+  without shipping a font file, and they address WinAnsi (cp1252): Western
+  Europe exactly, and **not** Polish, Czech, Slovak, Hungarian, Romanian, the
+  Baltic languages, Greek or Cyrillic. Rather than print `?ukasz`, the encoder
+  folds a letter to its base Latin form (`Łukasz` → `Lukasz`, `Ștefan` →
+  `Stefan`); a non-Latin script is `?`. That is a lossy rendering of somebody's
+  name on a legal document and it is recorded as such, not buried. **It ends at
+  B1.22**: PDF/A-3, which Factur-X requires, forbids non-embedded fonts, so a
+  font file lands there and takes the limitation with it. **Which** font —
+  brand, licence, the weight of a binary in a public repository — is a human
+  decision, which is why the loop did not download one. The HTML print view is
+  unaffected and prints every one of those letters correctly.
+- **No web UI.** The item's done-when is the endpoint and a curl transcript, so
+  nothing in `web/` was touched and no gate there was run. A "Download PDF"
+  button beside the existing **Print** button is a small follow-on; B1.18's
+  **Send** is the surface that actually puts the file in front of a customer.
+- **No quote PDF.** `/billing/quotes/{id}/pdf` is not in this item, and the
+  queue is not a place to invent scope — but the renderer already lays a quote
+  out correctly (it must: a quote is the same `PrintDocument`), and there is a
+  unit test pinning that, so the route is a dozen lines whenever the queue asks.
+- **The content streams are uncompressed.** An invoice is a few kilobytes
+  either way, and a file a human can read in an editor is a file whose bugs can
+  be seen. `FlateDecode` is additive whenever size matters.
+- **Not PDF/A yet, deliberately.** No embedded font, no XMP metadata, no output
+  intent, no attached CII invoice — all four are B1.22's, and all four are
+  additions to this writer rather than changes to it.
+- **The em dash, the minus sign and the narrow no-break space** our own
+  formatters emit are folded to the WinAnsi characters nearest them (`–`/`—`
+  survive; `−` becomes `-`, the narrow space becomes a no-break space). Pinned
+  by tests so a later reading cannot quietly change what an amount looks like.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged from B1.05 onwards: the production Caddyfile must add it at the next
+  deploy, or every billing request gets the SPA. This item adds no new prefix.
+
+Next item: B1.18 (send an invoice: `POST /billing/invoices/{id}/send` drafts an
+email to the customer with this PDF attached, landing in Drafts for review —
+the loop never sends mail).

@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: an invoice as a PDF you can send.** Any invoice can now be
+  fetched as a **PDF file** — the same document as the Print view, laid out for
+  A4, with the pages numbered when there is more than one so nobody can mislay
+  half a bill. It is produced entirely by alo, on your own server: no browser,
+  no external service, and nothing about your customers leaves the machine to
+  make it. The file is named after the document inside it
+  (`Invoice-INV-2026-00001.pdf`), it downloads rather than opening in the
+  browser, and it is never cached. Emailing it to the customer arrives next.
+  One limitation, until the next release: the PDF is set in a font that covers
+  Western Europe, so Polish, Czech, Hungarian, Romanian, Baltic, Greek and
+  Cyrillic letters are simplified to their nearest Latin form on the **PDF**
+  (`Łukasz` prints as `Lukasz`). The Print view and everything on screen are
+  unaffected.
+
 - **alo Billing: the document your customer actually receives.** Every invoice,
   credit note and quote now has a **Print** button that puts a proper A4
   document in front of you: your name and address at the top, theirs beside it,

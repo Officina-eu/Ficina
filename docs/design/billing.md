@@ -185,6 +185,65 @@ As-built (B1.16), the decisions the page itself forced:
   a document that will not print because of a display preference is
   worse than one printed in English.
 
+### The PDF — the decision (B1.17)
+
+The queue offered two paths: render the B1.16 HTML page with **headless
+chromium in a build-time-pinned container**, or take a **pure-Rust**
+path. Both were considered against the same document.
+
+**Rejected: headless chromium.** Not because it renders badly — it
+renders our own page, so it renders perfectly — but because of what it
+costs to own:
+
+- It is a **new engine in the deployment**. Our engines (Synapse,
+  LiveKit, Collabora, Garage) are pinned upstream containers behind our
+  APIs, and adding one is an architecture decision with an ADR, a
+  ~1 GB image, and a browser process on the invoice path. A tenant who
+  self-hosts alo would have to run a browser to print a bill.
+- It puts a **second, unpinned layout engine** between the document and
+  the paper: the PDF a customer receives would depend on the chromium
+  build that happened to be in the image.
+- It is **operationally fragile in exactly the wrong place**: an invoice
+  that will not render is an invoice that cannot be sent, and the
+  failure modes (sandbox, fonts, zombie processes, memory) are a browser's,
+  not ours.
+
+**Chosen: a pure-Rust writer — and, precisely, *not* an HTML-to-PDF
+path.** We do not parse our own HTML back. The PDF and the HTML page are
+**two renderers over one model**: both are handed the same
+`billing_print::PrintDocument` (the same store figures, the same
+`Strings` table, the same `amount`/`quantity`/`rate`/`date` formatters),
+and neither can invent a value the other does not have. A general
+HTML-to-CSS-layout engine in Rust would be a project of its own; laying
+out a document whose shape we already know is a page of arithmetic.
+
+The writer is `platform/alo-pdf` — a **minimal PDF 1.7 producer**
+(objects, xref, pages, content streams, the standard-14 fonts) with no
+dependencies, in `platform/` because a PDF file is not a billing
+concept: Drive exports and Docs will want the same writer. The layout
+lives with the document that has the shape, in
+`alo-jmap/src/billing_pdf.rs`.
+
+The cost of the choice, stated plainly:
+
+- **Text is limited to the WinAnsi (cp1252) repertoire**, because the
+  standard-14 fonts are the only fonts we have without shipping a font
+  file. That covers Western Europe exactly and **misses Polish, Czech,
+  Slovak, Hungarian, Romanian, Baltic, Greek and Cyrillic letters**.
+  Rather than print `?ukasz`, the encoder folds Latin letters to their
+  base form (`Łukasz` → `Lukasz`, `Škoda` stays `Škoda` — that one *is*
+  in cp1252); a non-Latin script is the last resort, `?`.
+- **This is a stopgap with a deadline, not a position.** PDF/A-3 (B1.22,
+  Factur-X) *requires* every font to be embedded, so the font file lands
+  there and this fold disappears with it. **Which** font — brand,
+  licence, repository weight — is a human decision, recorded in
+  `docs/autonomy/STATE.md`, not one the build loop makes by downloading
+  a binary into a public repository.
+- The character-width tables are **read from a real Helvetica, not
+  remembered**: `platform/alo-pdf/src/metrics.rs` records how they were
+  extracted, and a test pins the values a misaligned money column would
+  betray.
+
 ### Routes
 
 All under the authenticated `alo-jmap` router, following the existing
