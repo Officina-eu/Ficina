@@ -3231,3 +3231,221 @@ Cuts and flags:
 Next item: B1.24 (e-invoice **receiving**: parse an uploaded Factur-X or
 XRechnung into a `billing_bills` record for approval — the mirror of the two
 renderers this item completes, and the first time we read somebody else's XML).
+
+---
+
+## B1.24 — receiving an e-invoice: somebody else's invoice, read
+
+The mirror of B1.22 and B1.23. Those two wrote our invoice down in the
+standard's two syntaxes; this reads a supplier's file back in and makes a
+**bill** of it — their company, their number, their dates, their lines, their
+totals — waiting to be approved. It is the first time we read XML somebody else
+wrote, which is a different job from writing our own, and the module split says
+so.
+
+What shipped:
+
+- **Migration `0111_billing_bills.sql`** — `billing_bills` + `billing_bill_lines`.
+  A separate table from `billing_invoices` on purpose: an invoice is a document
+  we author and are answerable for (it draws from our gapless series, it freezes
+  on issue); a bill carries *their* number, *their* dates and *their* totals,
+  and the only thing we decide about it is whether we accept it. Putting both in
+  one table would put a foreign number in the column our own series lives in.
+  `UNIQUE (tenant_id, supplier_key, number)` is the duplicate rule; the CHECKs
+  cover the syntax, the type code, the status, the currency shape, the hex
+  checksum, and that a decision is never half-recorded (`(status = 'received') =
+  (decided_at IS NULL)`).
+- **`billing_xml_tree.rs`** (store) — a bounded, defensive XML tree. Three
+  properties are load-bearing and each is a real accident or a real attack: a
+  `<!DOCTYPE>` is **refused unread** (so billion-laughs and external-entity
+  fetches cannot start), depth/element/text counts are capped, and matching is
+  on **local names** so two systems that chose different prefixes for the same
+  namespace both parse.
+- **`billing_einvoice_import.rs`** (store) — the EN 16931 semantic model
+  inbound, the exact-integer readers (cents, milli-units, basis points — no
+  float touches money), the unit-code → label table, and the consistency rules.
+- **`billing_cii_read.rs`**, **`billing_ubl_read.rs`** — where each syntax
+  writes things down, and nothing else. The seam is the same one B1.22 built:
+  the model decides what an invoice *is*, a syntax module only knows where to
+  look.
+- **`billing_bills.rs`** (store) — `import_billing_bill` (the single door: parse
+  → check → sign → write, so no caller can do half of it), list with a status
+  filter, read with lines, `decide` (approve/reject), delete.
+- **`billing_bills.rs`** (alo-jmap) + six routes in `server.rs`:
+  `POST /billing/bills/import` (the XML file as the body — what a user has is a
+  file, not a JSON string), `GET /billing/bills[?status=]`,
+  `GET /billing/bills/{id}`, `POST …/approve`, `POST …/reject`, `DELETE …/{id}`.
+
+The decisions, all recorded as as-built in `docs/design/billing.md`:
+
+- **The reader lives in the store, though the writers live in `alo-jmap`.** The
+  writers render from a `PrintDocument`, which belongs to the HTTP crate; the
+  reader depends on nothing but the tree it walks — and a supplier's invoice
+  mostly arrives **by email**, so the path that will one day book an attachment
+  is the delivery pipeline, which must not need the HTTP crate to do it.
+- **What is stored is what the document says.** The totals are copied across,
+  not recomputed: their paper is the authority on what they are charging. Every
+  response carries **both** — their `totals` and our `computed` figures over the
+  stored lines — and the import refuses a document where the two disagree, so
+  showing both makes that checkable by a person rather than only by a test.
+- **A figure we cannot represent exactly is a refusal, never an approximation.**
+  A bill that is a cent wrong is worse than a bill that was not imported,
+  because nobody looks for it again. So: more decimals than our units hold, a
+  price base quantity other than one, a line whose stated amount is not quantity
+  × price (`BT-131` — what a line-level allowance or charge looks like from
+  here), a rounding amount (`BT-114`), and any of the standard's own equations
+  failing (`BR-CO-10/13/15/16`, and `BR-CO-14/17` for the VAT following from the
+  lines) are each a typed `422` naming the term or the rule.
+- **A credit note is stored in ledger direction** — negative, exactly as our own
+  are (B1.09) — so a bill and the credit note against it sum to zero without
+  every later reader having to know the standard's positive-381 convention. The
+  flip happens once, after every check has run on the figures as stated.
+- **`(supplier, number)` is the document's identity**, not the file's checksum:
+  a supplier's number is unique within that supplier by law, so the same invoice
+  forwarded twice — or re-exported so it differs byte for byte — is one bill and
+  a `409`. The checksum is stored too, for the archive a bill will later be tied
+  to.
+- **A decision is final and deletion is undecided-only.** An approved bill is a
+  liability the accounts carry; a rejected one is the record of a refusal, which
+  is exactly what a supplier later disputes. The undo that exists is for the
+  wrong file, before anybody decided.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap --all-targets`
+clean (zero warnings); `cargo test -p alo-store` fully green against local
+Postgres — 275 unit tests (38 new: 7 over the XML tree reader, 10 over the
+inbound model and its exact-integer readers, 7 + 6 over the two syntaxes, and 8
+over the bill rules) and every integration suite, including the new `billing_bills.rs`
+(6 tests); `cargo test -p alo-jmap` green across all 24 test binaries, zero
+failures, including the new `billing_bills_http.rs` (4 tests). `rustfmt
+--edition 2024 --check` clean on all eight files this item wrote; no `lib.rs`
+was handed to rustfmt, per the standing note in the inbox above.
+
+The item's done-when — "the official samples import; totals match" — is met as
+far as it can be offline, and the way B1.22 already recorded: the official
+Factur-X sample set is not in the repo for licensing reasons, so the gate is
+**our own golden e-invoices**, all eight of them, in both syntaxes in law,
+imported back and checked figure by figure against what the invoices they were
+rendered from were worth (`every_e_invoice_we_write_imports_back_to_the_figures_
+it_was_written_from`). Nothing in the reader shares a line of code with the
+writer that made those files. The four documents: the standard invoice
+(1975.80 / 414.92 / 2390.72), the three-rate one (3684.00 / 693.06 / 4377.06,
+whose 0 %, 9 % and 21 % subtotals read back as three), the credit note
+(−1875.00 / −393.75 / −2268.75 in ledger direction), and the foreign-currency
+one (USD 1200.00 / 252.00 / 1452.00, where BT-110 is picked by its `currencyID`
+and not by its position).
+
+The **wrong-tenant proof** is in both suites. In the store: B gets `None`/empty
+from read and list on A's bill, `NotFound` — never `Conflict`, which would
+confirm the id exists *and* its state — from approve, reject and delete; a ghost
+id gets the identical answer; A's bill is unchanged down to its decision fields
+afterwards; B books the same supplier's same document under their own tenant
+cleanly (so the denial is about ownership, not the operation); no row of A's
+exists outside A's tenant, checked with a direct `count(*)` rather than through
+the store's own tenant predicate; and deleting the tenant purges the bills and
+their lines. Over HTTP: the refusal for B's id is **byte-identical** to the
+refusal for an id that never existed, and B's distinctive supplier name, VAT id
+and document number appear nowhere in any of A's answers.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `billwire`, `billwireb`):
+
+```
+GET  /billing/bills                        (no token)  -> 401
+POST /billing/bills/import                 (no token)  -> 401
+POST /billing/bills/import  (a PDF)        -> 422 "this is a PDF. A hybrid invoice carries its
+                                                   e-invoice as an XML attachment inside the PDF:
+                                                   upload that XML file (usually factur-x.xml…)"
+POST /billing/bills/import  (a JSON blob)  -> 422 "this file is not a well-formed XML document…"
+POST /billing/bills/import  (gross wrong)  -> 422 "BR-CO-15: the total with VAT stated on the
+                                                   document is not what its own figures add up to
+                                                   (off by 6000 cents)"
+POST /billing/bills/import  (category AE)  -> 422 "line 1: VAT category AE cannot be stored. alo
+                                                   holds a VAT rate on a line, not a category…"
+POST /billing/bills/import  (the invoice)  -> 200
+       status received · syntax cii · sha256 7fd484c28e37b4dc…
+       supplier Lieferant GmbH · DE811907980 · Berlin DE · DE02120300000000202051
+       number R-2026-77 · issued 2026-08-07 · due 2026-09-06 · EUR · ref PO-2026-4
+       stated   net 110080  vat 23117  payable 133197
+       computed net 110080  vat 23117  gross   133197
+       lines [(Beratung, hour, 8000, 12500, 100000), (Fahrtkosten, km, 240000, 42, 10080)]
+GET  /billing/bills?status=received        -> 200  1 bill: R-2026-77
+GET  /billing/bills?status=approved        -> 200  0 bills
+GET  /billing/bills?status=whenever        -> 422 "status must be received, approved or rejected"
+GET  /billing/bills/{id}                   -> 200
+GET  /billing/bills/never-existed          -> 404 "no such bill"
+POST /billing/bills/import  (same file)    -> 409 "this supplier's document with this number has
+                                                   already been imported"
+POST /billing/bills/{id}/approve           -> 200  approved, by WFLdrs6N at 2026-08-07T04:37:41
+POST /billing/bills/{id}/approve  (again)  -> 409 "…already been approved; a decision on a bill is
+                                                   final…"
+POST /billing/bills/{id}/reject            -> 409  (the same refusal — a decision is a decision)
+DEL  /billing/bills/{id}    (approved)     -> 409 "…is part of the record; it cannot be deleted"
+POST /billing/bills/import  (our own xrechnung-credit-note golden)
+                                           -> 200  INV-2026-00003 · ubl · creditNote true
+       stated payable -226875 · computed gross -226875 · line qty -15000 · price 12500
+DEL  /billing/bills/{that one}             -> 204
+GET  /billing/bills/{that one}             -> 404
+  the neighbour's door:
+GET  A's bill with B's token               -> 404 {"detail":"no such bill",…}
+GET  a ghost id with B's token             -> 404  byte-identical to the above
+POST A's bill /approve with B's token      -> 404
+DEL  A's bill with B's token               -> 404
+GET  /billing/bills with B's token         -> 200 {"bills":[]}  · A's supplier in it: 0 markers
+```
+
+Real rows read back with `psql` afterwards: `\d billing_bills` shows every
+CHECK, the unique constraint and the two indexes as written; the stored row is
+`R-2026-77 / approved / DE811907980 / EUR / 110080 / 23117 / 133197` with
+`pg_typeof(payable_cents)` **bigint**; the line rows carry milli-units and cents
+(`8000 × 12500`, `240000 × 42`), the unit labels translated back out of their
+UN/ECE codes (`hour`, `km`, `piece`), the CII two-part description stored as the
+two lines it was split into, and a credit note's quantities negative; and no
+line row anywhere is orphaned from its bill.
+
+Cuts and flags:
+
+- **CUT — reading the XML inside a hybrid PDF.** The file most suppliers send is
+  a PDF with the e-invoice attached, and pulling it out needs a PDF reader
+  (xref, object streams, Flate), which is a real piece of work and its own item.
+  What ships instead is honest: a PDF is recognised by its magic bytes and
+  answered with a `422` that says to upload the XML attachment. **This is the
+  one part of B1.24 that leaves a real gap for a user**, and a human should
+  schedule it as a queue item (it also unlocks booking an emailed attachment).
+- **CUT — the original file is not archived.** Several member states require the
+  received document itself to be kept. That is a Drive concern rather than a
+  column, and the stored SHA-256 is what will tie a bill to that archive when it
+  is built. Flagged for a human.
+- **HUMAN REVIEW (compliance) — the strict reading of the total rules.** A
+  supplier who rounds VAT per line instead of per rate subtotal produces a tax
+  total a cent or two from ours, and this import **refuses** their invoice
+  citing `BR-CO-14/17` rather than storing a figure that does not follow from
+  the lines. That is the strict reading of the standard (the category tax amount
+  *is* the category taxable amount times the rate), and no tolerance band was
+  invented for money. If real-world files turn out to violate it often, the fix
+  is a decision a human takes, not a quiet epsilon.
+- **The VAT-category gap is now blocking in both directions.** Outbound we
+  label every 0 % line `Z` (B1.22's flag); inbound we **refuse** any line whose
+  category is `AE`, `K`, `G` or `E` rather than flatten it, because storing a
+  reverse charge as zero-rated understates a return and hides that the buyer
+  owes the tax. A per-line VAT category is a migration + store + route + UI
+  change — a queue item a human has to schedule — and it is the single biggest
+  gap between what shipped and "an EU business can bill and be billed by anyone
+  with it".
+- **No web UI.** The item's done-when is the parser, the record and the routes;
+  `web/src/billing` gains no Bills tab, so nothing in `i18n/en.ts` changed
+  either. A small B1.27 or follow-up item.
+- **No supplier master record and no payment of a bill.** A bill copies its
+  supplier (B5.03 owns supplier records) and approving one does not pay it — the
+  SEPA pain.001 export of approved bills is B2.12, and the ledger postings are
+  B4.04. Both were designed for: the supplier key and the payable amount are the
+  columns those items start from.
+- **`cargo fmt` was NOT run crate-wide**, per the standing note: only the eight
+  files this item wrote were formatted, and no `lib.rs` was handed to rustfmt.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05: the production Caddyfile must add it at the next
+  deploy. This item adds no new prefix (`bills` is under `/billing/*`).
+
+Next item: B1.25 (★ the billing agent tools — `create_invoice_draft`,
+`quote_to_invoice`, `draft_payment_reminder` in the allowlist, with executors
+reusing the B1 store functions, propose-then-approve, and structural
+wire-verification with no model calls).

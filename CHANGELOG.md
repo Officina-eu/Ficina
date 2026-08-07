@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: a supplier's e-invoice can now be read in, not just written
+  out.** Upload the XML file a supplier sent — Factur-X (CII) or XRechnung
+  (UBL) — and it becomes a **bill**: their company and address, their number
+  and dates, their lines and their totals, waiting for you to approve or reject
+  it. Nothing is guessed at: if the document does not add up, or carries a
+  figure alo cannot hold exactly, the upload is refused and says which business
+  term or which rule of the standard is wrong — so you can tell the supplier
+  what to fix instead of discovering it at the year end. The same invoice is
+  never booked twice, whoever forwards it. A decision is final, and a bill
+  nobody has decided on can be deleted if the wrong file was uploaded. Reading
+  the XML **inside** a supplier's PDF is not there yet; upload the XML file
+  itself (the PDF's attachment) and you are told so plainly if you try.
+
 - **alo Sites: the visual page editor.** Open a page and build it from
   sections: pick a block from a gallery of twelve — hero, features, pricing,
   FAQ, contact form and more, each with a small preview sketch — fill in its

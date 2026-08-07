@@ -298,6 +298,69 @@ The rest of the surface, with the wave item that landed each:
 | `GET /billing/invoices/{id}/pdf`, `.../facturx.xml`, `.../xrechnung.xml` | the three renderings (B1.17, B1.22, B1.23) — **as built** |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
+| `POST /billing/bills/import`, `GET /billing/bills[/{id}]`, `POST .../{approve,reject}`, `DELETE .../{id}` | receiving a supplier's e-invoice (B1.24) — **as built** |
+
+### Receiving an e-invoice (as built, B1.24)
+
+The mirror of the two renderers: a supplier sends their Factur-X (CII) or
+XRechnung (UBL) file, and it becomes a **bill** — their document, waiting for
+us to approve or reject it.
+
+| Module | What it owns |
+|---|---|
+| `alo-store/billing_xml_tree.rs` | a bounded, defensive XML tree: no DTD (so no entity expansion), capped depth/elements/text, local names only |
+| `alo-store/billing_einvoice_import.rs` | the semantic model inbound, the exact-integer readers (cents, milli-units, basis points), and the consistency rules a document must satisfy |
+| `alo-store/billing_cii_read.rs`, `billing_ubl_read.rs` | where each syntax writes things down, and nothing else |
+| `alo-store/billing_bills.rs` | the `billing_bills` table, the duplicate rule, and the approval door |
+| `alo-jmap/billing_bills.rs` | the six routes |
+
+**The reader lives in the store, while the writers live in `alo-jmap`.** The
+writers render from a `PrintDocument`, which belongs to the HTTP crate; the
+reader depends on nothing but the tree it walks, and a supplier's invoice
+mostly arrives **by email** — the path that will one day book an attachment is
+the delivery pipeline, which must not depend on the HTTP crate to do it.
+
+Five decisions, each one a refusal rather than a guess:
+
+- **What is stored is what the document says.** The totals (BT-106 … BT-115)
+  are copied across, not recomputed: the supplier's paper is the authority on
+  what they are charging. Every response nevertheless carries **both** — their
+  `totals` and our `computed` figures over the stored lines — because the
+  import refuses a document where the two disagree.
+- **An incoherent document is refused at the door**, with the rule named:
+  a line whose stated amount is not quantity × price (`BT-131` — which is what
+  a line-level allowance, a charge, or a price base quantity looks like from
+  here), the standard's total equations (`BR-CO-10/13/15/16`), and the VAT
+  following from the lines at the rates stated (`BR-CO-14/17`). A rounding
+  amount (`BT-114`) is refused too: a few cents belonging to no line and no
+  rate cannot be stored, and paying a different figure from the one asked for
+  is worse than not importing.
+- **A VAT category we cannot express is refused, not flattened.** Our lines
+  carry a rate, not a category, so `AE` reverse charge, `K` intra-community
+  supply, `G` export and `E` exemption all look like 0 %. Storing one as
+  zero-rated would understate a return and hide that the **buyer** owes the tax.
+  (The outbound side has the same gap, recorded at B1.22.)
+- **A credit note is stored in ledger direction** — negative — exactly as our
+  own are (B1.09). The file states type 381 with positive amounts; the sign is
+  flipped once, after every check has run on the figures as stated.
+- **The same document is never booked twice.** `(supplier, number)` is the
+  document's identity — a supplier's number is unique within that supplier by
+  law — so the same invoice forwarded twice and imported by two people is one
+  bill and a `409`. The supplier key is their VAT id, or their name folded to
+  lower case when they state none. The SHA-256 of the imported bytes is stored
+  as well, but is **not** the identity: a re-export of the same document differs
+  byte for byte and is still the same document.
+
+**A decision is final** (`received → approved | rejected`, `409` on a second):
+an approved bill is a liability the accounts carry, and un-approving it would
+rewrite history — a bill accepted by mistake is corrected by the supplier's
+credit note, which arrives as a bill of its own. **Deletion is undecided-only**:
+the undo for the wrong file, not a way out of the record.
+
+**Not there yet:** reading the XML embedded in a hybrid PDF. A PDF upload is
+recognised by its magic bytes and answered with a `422` that says to upload the
+XML attachment instead. The original file is not archived either — that is a
+Drive concern; the stored checksum is what will tie a bill to that archive.
 
 ### The e-invoice (as built, B1.22 + B1.23)
 
@@ -749,6 +812,16 @@ column, struct field, or computation anywhere in this module.
   never stored as an independently writable field that could disagree
   with the ledger; the `status` column carries the one settled/not bit
   as a projection recomputed under the invoice's row lock.
+- **`billing_bills`** + **`billing_bill_lines`** (B1.24) — a supplier's
+  invoice, read out of the e-invoice file they sent: the syntax it
+  arrived in and the SHA-256 of those bytes, the supplier copied across
+  (no foreign key — a supplier master record is B5.03), their number,
+  their dates, their currency, the stated totals (BT-106 … BT-115) in
+  ledger direction, and `received | approved | rejected` with who
+  decided and when. `UNIQUE (tenant_id, supplier_key, number)` is what
+  makes the same invoice, forwarded twice, one bill. The lines are the
+  same shape as an invoice's, written by the same `billing_line`
+  module — their line and ours describe the same thing.
 - **`billing_sequences`** — `(tenant_id, kind, year, next_value)`, the
   row-locked counter behind legal numbering (below).
 - **`billing_settings`** (B1.16) — **one row per tenant**, the issuer
