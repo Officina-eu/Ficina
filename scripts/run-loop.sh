@@ -18,6 +18,23 @@ STATE_FILE="docs/autonomy/STATE.md"
 
 cd "$REPO"
 
+# SINGLE-WRAPPER LOCK: three concurrent-editor incidents traced to stopped
+# wrappers surviving as detached processes and spawning rival workers. A
+# wrapper now claims its track machine-wide and refuses to start if a live
+# owner exists; a stale lock (dead PID) is taken over.
+LOCK="$HOME/.alo-loop-$TRACK.lock"
+if [ -f "$LOCK" ]; then
+  oldpid="$(cat "$LOCK" 2>/dev/null)"
+  if [ -n "$oldpid" ] && kill -0 "$oldpid" 2>/dev/null; then
+    echo "[loop] another wrapper (PID $oldpid) owns track '$TRACK' on this machine — refusing to start."
+    echo "[loop] if that wrapper is truly dead, remove $LOCK and retry."
+    exit 3
+  fi
+  echo "[loop] stale lock from dead PID $oldpid — taking over."
+fi
+echo $$ > "$LOCK"
+trap 'rm -f "$LOCK"' EXIT
+
 for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   echo "============================================================"
   echo "[loop] iteration $i  $(date '+%Y-%m-%d %H:%M')"

@@ -881,7 +881,7 @@ then proved quiet for 60 seconds. Ghost edits discarded. Single bash wrapper
 relaunched. S1.16 (attempt #6) is next — with, at last, an actually empty
 stage.
 
-## LOOP HALT: concurrent editor detected a THIRD time — TWO live wrappers found (2026-08-07 18:20)
+## HALT(resolved): concurrent editor detected a THIRD time — TWO live wrappers found (2026-08-07 18:20)
 
 - **The cause is identified this time, with PIDs.** A process hunt run the
   moment the collision was detected shows **two `run-loop.sh
@@ -925,3 +925,13 @@ stage.
   refuse to start when another instance holds a lockfile, so a fourth
   incident is impossible rather than unlikely, (5) remove/date this HALT.
   S1.16a remains the next queue item unless the rival landed it.
+
+### Resolution of the third concurrent-editor halt (human, 2026-08-07 18:40)
+
+Same species, final specimen: STOPPED WRAPPERS survive as detached processes
+too (the earlier hunts only matched workers). A machine-wide sweep matching
+both wrapper and worker command lines found THREE live wrappers; all killed,
+zero survivors, tree clean. Permanent fix shipped in run-loop.sh: a per-track
+machine lock — a second wrapper now refuses to start while a live owner
+exists, and stale locks from dead PIDs are taken over. One wrapper relaunched
+under the lock. Next: S1.16a (the freshly split, single-turn store slice).
