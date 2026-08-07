@@ -6,6 +6,11 @@ contracts.
 
 ## Unreleased
 
+- **Sheets open faster and files get readable web addresses.** Opening a sheet
+  now loads the editor only when it is needed, shows the file name while it
+  opens, and keeps that file at a readable address that survives a browser
+  refresh.
+
 - **alo Sites: see the page as you build it.** The page editor now shows a
   live preview beside the section stack — the real page, rendered by the
   same engine that will serve it to the public, so what you see is what
