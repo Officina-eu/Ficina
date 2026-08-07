@@ -4316,3 +4316,185 @@ Cuts and flags:
 
 Next item: B2.04 (HTTP `/crm/*` routes for pipelines, stages and deals, with
 the wire transcript).
+
+## 2026-08-07 — B2.04 the `/crm/*` routes: boards, columns, and the deals on them
+
+The door the CRM UI (B2.07) and the CRM agent (B2.10) will both come
+through. Four new files in `products/mail/alo-jmap/src`, one responsibility
+each, all of billing's conventions and none of its code duplicated.
+
+- **`crm.rs`** — the only thing genuinely shared: the **first-use seed**
+  vocabulary (en/fr/nl), the same `?lang=` seam `billing_send.rs` uses. The
+  store-error map, `parse_body`, `iso`/`iso_date`/`parse_iso_date`,
+  `absent_or_null`, `blank_to_none` and `flag` are **used** from
+  `crate::billing`, not copied — it is a store-error map, not a billing rule,
+  and moving the file for no behaviour change would churn a contract for
+  nothing (recorded in `docs/design/crm.md` as-built).
+- **`crm_pipelines.rs`** — `GET/POST /crm/pipelines`, `GET/PATCH
+  /crm/pipelines/{id}`, `POST /crm/pipelines/{id}/archive`.
+- **`crm_stages.rs`** — `GET/POST /crm/pipelines/{id}/stages`,
+  `GET/PATCH/DELETE /crm/stages/{id}`, `POST /crm/stages/{id}/move`,
+  `POST /crm/stages/{id}/archive`.
+- **`crm_deals.rs`** — `GET/POST /crm/deals`, `GET/PATCH/DELETE
+  /crm/deals/{id}`, `POST /crm/deals/{id}/stage`, `GET /crm/deals/{id}/history`.
+
+Four decisions worth naming, all recorded in the module docs and in
+`docs/design/crm.md` (updated as-built in this commit):
+
+- **The open question from B2.01 is answered: the seed speaks the language of
+  the client that opened the module** — `?lang=` on `GET /crm/pipelines`,
+  falling back to English for a tag we do not ship. It is the only language
+  anybody is actually looking at, the words are ordinary user data from that
+  moment on, and `?lang=` on any later read does nothing at all. The three
+  tables live at the route edge; the store still only writes names it is
+  handed.
+- **The list route is the seeding route.** A tenant with no board is given
+  one; `includeArchived=1` re-reads afterwards rather than short-circuiting
+  the seed, because it asks a *different* question, not a wider one.
+- **Two routes exist purely to keep a drag and an edit apart.** `POST
+  /crm/stages/{id}/move` and `POST /crm/deals/{id}/stage` are the only doors
+  to `position`, `stageId` and the closing snapshot; `PATCH` ignores all of
+  them exactly as it ignores an unknown field, and answers with the stored
+  record so a caller sees that they did nothing. A move that does not say
+  where is a `422`, not a no-op.
+- **Filters are strict, with one deviation stated plainly.** `state` and the
+  `pipelineId`/`stageId` ids are resolved and a bad one is a `422`;
+  `ownerUserId` is an exact match, so an id that owns nothing answers `200`
+  with an empty list. Validating an owner would mean reaching for
+  `TenantStore::list_users` — the admin console's read, which carries per-user
+  mailbox usage — from a sales list, which is a worse trade than an empty
+  list. Both a foreign and an invented board id give the *same* `422`, so the
+  strictness is not an existence oracle.
+
+Verified: `cargo clippy -p alo-jmap --all-targets` clean; 274 `alo-jmap` unit
+tests green plus the new `tests/crm_http.rs` (11 tests over a real Postgres
+through the real router). `rustfmt --edition 2024` on the five new/changed
+CRM files only — note for the next iteration: passing `lib.rs` to `rustfmt`
+reformats **every** module it declares (it rewrote seven unrelated files,
+reverted with `git checkout`), which is the same trap as `cargo fmt` on this
+machine.
+
+Wire-verified with curl against the debug `alo-jmap` on `127.0.0.1:8080` over
+docker `alo-pg` (fresh tenants `crmwire2`, `crmwire2b`):
+
+```
+GET  /crm/pipelines            (no token)     -> 401
+POST /crm/deals                (no token)     -> 401
+GET  /crm/pipelines?lang=fr    (first read)   -> 200 Ventes (1 board)
+GET  /crm/pipelines/{id}/stages               -> 200 Nouveau, Qualifié, Proposition,
+                                                     Gagné*won, Perdu*lost
+GET  /crm/pipelines?lang=nl    (second read)  -> 200 Ventes — no second board
+POST /crm/pipelines                           -> 200 'Renouvellements' archived=False
+POST /crm/pipelines  (same name, other case)  -> 409 'a pipeline with that name already exists'
+POST /crm/pipelines  (blank name)             -> 422 'name must not be empty'
+PATCH /crm/pipelines/{id}  (rename only)      -> 200 Renouvellements 2027 · desc kept
+GET  /crm/pipelines/{the new one}/stages      -> 200 0 stages (one built by hand starts empty)
+GET  /crm/pipelines?includeArchived=1         -> 200 2 boards
+POST /crm/pipelines/{id}/stages               -> 200 'Négociation' position=6.0
+POST .../stages  (a second winning column)    -> 422 'a pipeline may have at most one won stage'
+POST .../stages  (won and lost at once)       -> 422 'a stage cannot be both won and lost'
+POST /crm/stages/{id}/move  {position:2.5}    -> 200 position=2.5 name='Négociation'
+POST /crm/stages/{id}/move  (no position)     -> 422 'position is required to move a stage'
+PATCH /crm/stages/{id} {name, position:99}    -> 200 name='Négociation finale' position=2.5
+GET  /crm/pipelines/{id}/stages  (the order)  -> 200 Nouveau, Qualifié, Négociation finale,
+                                                     Proposition, Gagné, Perdu
+DEL  /crm/stages/{id}  (nothing named it)     -> 200
+POST /crm/deals  (no pipelineId)              -> 422 'pipelineId is required'
+POST /crm/deals  (no stageId)                 -> 422 'stageId is required'
+POST /crm/deals  (blank title)                -> 422 'title must not be empty'
+POST /crm/deals  (valueCents 2500.5)          -> 400 'malformed request body'
+POST /crm/deals  (valueCents -1)              -> 422 'deal value must be between 0 and
+                                                     100000000000 cents'
+POST /crm/deals  (currency EURO)              -> 422 'currency must be a three-letter ISO 4217 code'
+POST /crm/deals  (expectedClose 31/12/2026)   -> 422 'expectedClose must be a date written
+                                                     YYYY-MM-DD'
+POST /crm/deals  (ownerUserId a stranger)     -> 422 'the owner must be a user of this tenant'
+POST /crm/deals  (customerId a stranger)      -> 404 'not found'
+POST /crm/deals  (the real one)               -> 200 'Renouvellement — Acme GmbH' 250000 EUR
+                                                     close=2026-09-30 state=open closedAt=None
+GET  /crm/deals/{id}/history   (row one)      -> 200 1 event, from=None
+PATCH /crm/deals/{id} {value, stageId:won}    -> 200 value=300000 stage unmoved=True state=open
+POST /crm/deals/{id}/stage  -> Qualifié       -> 200 state=open
+GET  /crm/deals/{id}/history                  -> 200 2 events
+POST .../stage  (same column, position 0.5)   -> 200 position=0.5
+GET  .../history  (a drag is not a move)      -> 200 still 2 events
+POST .../stage  -> Gagné                      -> 200 state=won closedAt=2026-08-07T07:10:14
+POST .../stage  -> Perdu, no reason           -> 422 'a lost deal needs a reason'
+POST .../stage  -> Qualifié, with a reason    -> 422 'a lost reason belongs only to a deal
+                                                     moved into a losing stage'
+POST .../stage  -> Perdu, with a reason       -> 200 state=lost reason='Prix'
+POST .../stage  -> Nouveau (a reopen)         -> 200 state=open closedAt=None reason=None
+GET  .../history  (every event standing)      -> 200 5 events: · → → → →
+GET  /crm/deals                               -> 200 1 deal
+GET  /crm/deals?state=open                    -> 200 1
+GET  /crm/deals?state=WON                     -> 200 0
+GET  /crm/deals?state=  (blank is no filter)  -> 200 1
+GET  /crm/deals?state=winning                 -> 422 'state must be one of open, won, lost'
+GET  /crm/deals?pipelineId=pip_nope           -> 422 'pipelineId is not a pipeline of this tenant'
+GET  /crm/deals?stageId=stg_nope              -> 422 'stageId is not a stage of this tenant'
+GET  /crm/deals?ownerUserId=nobody            -> 200 0 (an owner who owns nothing)
+GET  /crm/deals?pipelineId={A}&state=open     -> 200 1
+POST /crm/pipelines/{id}/archive (open work)  -> 409 'this pipeline still holds 1 open deal(s);
+                                                     move or close them first'
+POST /crm/stages/{Nouveau}/archive (open)     -> 409 'this stage still holds 1 open deal(s)…'
+DEL  /crm/stages/{Qualifié} (history named)   -> 409 'a deal has stood in this stage; archive it
+                                                     instead of deleting it'
+POST /crm/stages/{Qualifié}/archive (empty)   -> 200 archived=True
+POST .../stage  -> an archived column         -> 422 'that stage is archived; restore it before
+                                                     moving deals into it'
+POST /crm/stages/{Qualifié}/archive (restore) -> 200 archived=False
+  the neighbour's door (tenant B):
+GET  /crm/pipelines with B's token            -> 200 Sales (B is seeded its own board)
+GET  A's pipeline with B's token              -> 404 'no such pipeline'
+GET  a ghost pipeline with B's token          -> 404 'no such pipeline'   (byte-identical)
+PATCH A's pipeline with B's token             -> 404
+POST A's pipeline /archive with B's token     -> 404
+GET  A's pipeline /stages with B's token      -> 404
+POST A's pipeline /stages with B's token      -> 404
+GET  A's stage with B's token                 -> 404 'no such stage'
+GET  a ghost stage with B's token             -> 404 'no such stage'      (byte-identical)
+PATCH / move / archive / DELETE A's stage     -> 404 (each)
+GET  A's deal with B's token                  -> 404 'no such deal'
+GET  a ghost deal with B's token              -> 404 'no such deal'       (byte-identical)
+PATCH / stage / history / DELETE A's deal     -> 404 (each)
+POST /crm/deals on A's board with B's token   -> 404
+GET  /crm/deals?pipelineId=A's with B's token -> 422 (identical to the ghost-id 422)
+GET  /crm/deals?stageId=A's with B's token    -> 422 (identical to the ghost-id 422)
+GET  /crm/deals with B's token                -> 200 0 deals
+GET  /crm/pipelines?includeArchived=1 (B)     -> 200 Sales   (A's boards nowhere in it)
+  A's records after all of that:
+GET  A's deal                                 -> 200 title unchanged, stage unmoved, state=open
+GET  A's stage                                -> 200 'Nouveau' archived=False position=1.0
+GET  A's history                              -> 200 5 events
+DEL  A's deal (mine to delete)                -> 200
+GET  A's history after the delete             -> 404
+GET  /crm/deals (A, after the delete)         -> 200 0 deals
+```
+
+Cuts and flags:
+
+- **Nothing was cut from the item.** Every route B2.02/B2.03's store surface
+  can serve is built, plus `GET /crm/stages/{id}` and `POST
+  /crm/stages/{id}/move`, which the design note's table had not listed and the
+  board (B2.07) cannot work without. Both are in the note as-built.
+- **`/crm` is a NEW top-level route prefix** — the production **Caddyfile
+  needs `/crm` added at the next deploy**, exactly as `/billing` does. The
+  loop does not touch `deploy/`. Until that line exists, `/crm/*` on the live
+  host reaches the SPA and answers 405, the trap recorded for `/jmap/*`.
+- **A `?lang=` we do not ship seeds an English board rather than refusing.**
+  A tenant that opens CRM in German gets a working funnel it can rename, not
+  an error; fr/nl/en are the catalogues the product ships today, and the wave
+  review (B2.14) is where more are added.
+- **The `ownerUserId` filter deviates from the note's strictness rule**, with
+  the reason above. If a human disagrees, the fix is a tenant-user existence
+  check on `AccountStore` (the private `require_tenant_user` made public) plus
+  one line at the route edge.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged from B2.02/B2.03. Nothing here is deployed; the
+  routes are additive and reversible by not deploying. **A human should
+  confirm or move the gate.**
+- **Standing human actions:** the `/billing` **and** `/crm` Caddyfile
+  prefixes, a deploy, and a real tenant.
+
+Next item: B2.05 (deal ↔ mail linking: `crm_deal_threads`, suggest-by-domain,
+routes, and the tests that prove another tenant's thread can never be linked).

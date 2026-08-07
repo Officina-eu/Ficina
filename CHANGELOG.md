@@ -19,6 +19,21 @@ contracts.
   both before anyone else sees either. It is a preview of your draft: only
   you can see it, and nothing goes live until you publish.
 
+- **alo CRM has an API: the boards your deals move across, and the deals
+  themselves.** The first time anybody opens CRM your company is handed a
+  working funnel — a *Sales* board with New, Qualified, Proposal, Won and Lost —
+  named in the language of whoever opened it, and yours to rename from that
+  moment on. What a column *means* is a flag on it, not its name, so you can
+  call the winning column "Signed" or "Gagné" without breaking a single figure.
+  Deals are raised in a column, dragged across the board, and every move is kept:
+  a deal's history says where it went, when, and who moved it. Winning or losing
+  one is a move rather than a checkbox — a lost deal must say why — and a deal
+  can be reopened without the year's win rate being rewritten behind you. Moving
+  a card and editing it are deliberately different actions, so a stale edit form
+  can never win a deal by accident. Retiring a board or a column is an archive,
+  refused while live work is still standing in it, so nothing quietly disappears.
+  The screens for all of this come next; the API is here.
+
 - **alo Billing now speaks French and Dutch — including the documents your
   customers receive.** Switch the language and the whole module follows:
   every screen, every button, every confirmation. So does the paperwork

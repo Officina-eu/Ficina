@@ -53,8 +53,8 @@ extractor, registration in `server.rs`, and the store-error map in
 
 | Route | Purpose |
 |---|---|
-| `GET/POST /crm/pipelines`, `GET/PATCH /crm/pipelines/{id}`, `POST /crm/pipelines/{id}/archive` | pipeline CRUD (B2.02) |
-| `GET/POST /crm/pipelines/{id}/stages`, `PATCH/DELETE /crm/stages/{id}`, `POST /crm/stages/{id}/archive` | the ordered stage set of a pipeline, with its win/loss flags (B2.02). `DELETE` is for a stage created by mistake — one no deal and no history row has ever named; every other retirement is an archive, because a closed deal must keep pointing at the column it closed in |
+| `GET/POST /crm/pipelines`, `GET/PATCH /crm/pipelines/{id}`, `POST /crm/pipelines/{id}/archive` | pipeline CRUD (B2.02). *As built (B2.04):* the list route is also what **seeds** a tenant's first board, in the language `?lang=` asks for |
+| `GET/POST /crm/pipelines/{id}/stages`, `GET/PATCH/DELETE /crm/stages/{id}`, `POST /crm/stages/{id}/move`, `POST /crm/stages/{id}/archive` | the ordered stage set of a pipeline, with its win/loss flags (B2.02). `DELETE` is for a stage created by mistake — one no deal and no history row has ever named; every other retirement is an archive, because a closed deal must keep pointing at the column it closed in. *As built (B2.04):* `GET /crm/stages/{id}` reads one column, and `POST …/move` is the board drag — its own route, because the rule below says a drag may not rename and an edit may not reorder |
 | `GET/POST /crm/deals`, `GET/PATCH/DELETE /crm/deals/{id}` | deal CRUD; list filtered by pipeline, stage, owner, state (B2.03, B2.04) |
 | `POST /crm/deals/{id}/stage` | move a deal to a stage (and, on a board, to a position); writes exactly one history row (B2.03) |
 | `GET /crm/deals/{id}/history` | the stage history of one deal, oldest first (B2.03) |
@@ -86,6 +86,33 @@ cannot drift from billing's:
   screen, which is worse than an error.
 - **No route echoes mail content that the caller could not already
   read.** See "Deal ↔ mail thread".
+
+*As built (B2.04):* three more conventions the routes inherited from
+billing rather than inventing, recorded so the next module does the same.
+
+- **Archiving is its own `POST` with an `{"archived":bool}` body**, and
+  an *empty* body means archive — the route's name is already the intent.
+  A body that is present but does not state `archived` is a `400`, which
+  is billing's contract verbatim (`POST /billing/products/{id}/archive`).
+- **`PATCH` is a merge onto the stored record, and the answer carries
+  that record.** A field that is not writable — `archived`, `position`,
+  `stageId`, `state`, `closedAt` — is ignored exactly as an unknown field
+  is, and the caller sees in the answer that it did nothing.
+- **The store-error map is billing's** (`alo-jmap/src/billing.rs`), used
+  and not copied. It moves to a shared module when a third module needs
+  it; renaming a file for no behaviour change is not worth a contract's
+  churn.
+
+And one **deviation from the strictness rule above, stated plainly**: the
+`ownerUserId` filter is an exact match and is *not* resolved first, so a
+user id that owns nothing answers `200` with an empty list rather than
+`422`. An owner is a user of the tenant, not a CRM record; the only
+tenant-user listing the store publishes is the admin console's
+(`TenantStore::list_users`, which carries per-user mailbox usage), and
+reaching for it from a sales list would hand every salesperson an
+admin-shaped read. `pipelineId` and `stageId` *are* resolved — they are
+this module's own records, and both a foreign and an invented id answer
+with the same `422`, so the strictness is not an existence oracle.
 
 ### Web surface (planned, B2.07)
 
@@ -249,6 +276,16 @@ not hardcoded English in the store: the store is handed the names it
 should write. Stage names are user data from that moment on — renaming
 "Qualified" is a rename, not a schema change, which is exactly why the
 board's meaning lives in the two flags and not in the names.
+
+*As built (B2.04) — the open question is answered:* the language is the
+one the **client making that first read** asks for, with `?lang=` on
+`GET /crm/pipelines`, falling back to English for a tag we do not ship.
+It is the only language anybody is actually looking at, and the words are
+ordinary user data from the moment they are written, so a tenant that
+disagrees renames them. The tables (en/fr/nl) live at the route edge in
+`alo-jmap/src/crm.rs`, the same seam the covering emails of
+`billing_send.rs` use; the store still only writes the names it is
+handed. `?lang=` on any later read does nothing at all.
 
 *As built (B2.02):* the seed writes the board and all its columns in
 **one transaction**, so a tenant is never left holding a board with half
@@ -482,7 +519,11 @@ this one).
 | Linking a thread already linked to this deal | — | `200`, idempotent (unique row) |
 | Linking beyond the per-deal thread cap | `Conflict` | `409` |
 | Unlinking a link that is absent or another deal's | `NotFound` | `404` |
-| Listing with a `state`/`stage`/`owner` filter that is not recognised | — (route edge) | `422` |
+| Listing with a `state` filter that is not one of open/won/lost | — (route edge) | `422` |
+| Listing with a `pipelineId`/`stageId` filter this tenant does not have (as built, B2.04) | — (route edge) | `422` |
+| Listing with an `ownerUserId` who owns nothing (as built, B2.04) | — | `200`, empty |
+| A move (`POST …/stage`, `POST /crm/stages/{id}/move`) that does not say where (as built, B2.04) | — (route edge) | `422` |
+| Creating a deal without a `pipelineId` **or** without a `stageId` (as built, B2.04) | — (route edge) | `422` |
 | Report `from`/`to` malformed, or `from` after `to` | — (route edge) | `422` |
 | Import file that is not readable CSV, has no header row, or exceeds the row cap | `Validation` | `422` |
 | Import commit where any row is invalid (all-or-nothing) | `Validation` | `422` + the per-row report |

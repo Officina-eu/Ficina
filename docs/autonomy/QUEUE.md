@@ -42,7 +42,7 @@ small, or a `[!]` note for the human if large.
 - [x] B2.01 Design note `docs/design/crm.md` (deals model, thread-linking approach, pipeline stages, tenancy) same bar as B1.01.
 - [x] B2.02 Migration + store: `crm_pipelines` (per-team, default seeded) + `crm_stages` (ordered, win/loss flags) + CRUD + tests incl. wrong-tenant.
 - [x] B2.03 Migration + store: `crm_deals` (title, customer/contact link, value cents, currency, expected close, stage, owner, source, lost reason nullable) + stage-move with history rows + tests.
-- [ ] B2.04 HTTP `/crm/*` routes for pipelines/stages/deals + wire transcript.
+- [x] B2.04 HTTP `/crm/*` routes for pipelines/stages/deals + wire transcript.
 - [ ] B2.05 ★ Deal↔mail linking: store table deal_threads; suggest-by-domain (pure fn over message from-addrs) requiring user confirm; routes; tests prove another tenant's thread can never be linked.
 - [ ] B2.06 Activities on a deal: notes + next-step (creates a real Task via existing tasks store, linked); shows due in deal. Tests + routes.
 - [ ] B2.07 Web: pipeline kanban (reuse Tasks board interaction), deal drawer (value, stage, activities, linked threads with open-in-mail), list view + filters. Build clean; manual path in STATE.md.
