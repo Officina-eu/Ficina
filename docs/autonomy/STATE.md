@@ -6516,3 +6516,129 @@ Cuts and flags:
 Next item: BI1.04 (the `/insights/*` routes — dashboards/tiles CRUD, `POST
 /insights/eval`, the wire transcript with 401/422, and `/insights` added to the
 vite dev proxy list).
+
+## 2026-08-07 — BI1.04: the questions get a surface, and an answer
+
+The `/insights/*` routes. A board, the questions pinned to it, and the two ways
+to have one answered — all of it authenticated through the account door, with
+the arithmetic still where BI1.03 left it. Two files, one responsibility each,
+and the split is the point:
+
+- **`insights.rs`** — dashboards and tiles. It stores and returns *questions*
+  and computes nothing. Billing's and CRM's conventions verbatim: `PATCH` is a
+  merge onto the stored record, a write is answered with the record, a store
+  error maps once at the edge.
+- **`insights_eval.rs`** — `POST /insights/eval` and `GET
+  /insights/tiles/{id}/data`. It answers questions by reading the tenant's
+  documents, and it is the only place either route touches a figure. The series
+  is serialised straight from `alo_store::Series` rather than rebuilt at the
+  edge — one definition of the contract, in the one place that can keep it true.
+
+Three decisions worth naming, because each is a place the obvious surface would
+have been the wrong one:
+
+- **Reordering is its own `POST`.** The design note sketched the move as a field
+  on the tile `PATCH`; what shipped is `POST /insights/tiles/{id}/move`, the
+  mirror of `/crm/stages/{id}/move`. A grid drag must not be able to retitle a
+  chart, and saving an edit form must not be able to rearrange the board. The
+  note's route table is updated to as-built with the reason.
+- **A tile from the future renders, but cannot be half-edited.** A stored spec
+  this build cannot parse comes back `readable:false` with its raw envelope and
+  the reason, and the rest of the board draws. Asking for its *figures* is a
+  `422`, and so is a `PATCH` that changes only the caption — there is no
+  readable question to merge onto, and re-writing the raw envelope would fail
+  the write gate with a message about a schema the caller never sent. The
+  refusal names the way out ("send a spec to replace it"), and a `PATCH` that
+  does is how such a tile heals, in place, keeping its position.
+- **A span is a grid rule, not a body shape.** `span` is read as an `i64` and
+  narrowed, so `40` — or `2147483647` — is the `422` that names the grid rather
+  than a `400` for a malformed body. Verified both on the wire.
+
+Insights is deliberately **not** in the business audit trail: a dashboard is a
+view of records and never a record of anything, so who rearranged a chart is
+noise in a log whose worth is that everything in it matters. The eval span logs
+catalog ids and integers only — no filter value, no figure.
+
+Verified:
+
+```
+rustfmt (this item's three files only — a crate-wide `cargo fmt` reformats
+  unrelated files and was reverted)                             clean
+SQLX_OFFLINE=true cargo clippy -p alo-jmap --all-targets        zero warnings
+cargo test -p alo-jmap  (DATABASE_URL=…@127.0.0.1:5432/alo)     all green
+  · 357 lib unit tests (13 new, across the two modules)
+  · tests/insights_http.rs — 5 tests, all new, on the real Postgres
+npx tsc --noEmit · npx eslint vite.config.ts · npm run build    clean
+```
+
+The wire transcript, real curl against the local debug backend (docker `alo-pg`,
+`alo-jmap` on 127.0.0.1:8080), with the rows read back out of Postgres:
+
+```
+401 without a bearer token, all eleven routes:
+  GET|POST /insights/dashboards, GET|PATCH|DELETE /insights/dashboards/{id},
+  POST /insights/dashboards/{id}/tiles, PATCH|DELETE /insights/tiles/{id},
+  POST /insights/tiles/{id}/move, GET /insights/tiles/{id}/data,
+  POST /insights/eval                                          → 401 (×11)
+
+POST /insights/dashboards {"name":"  Cash  "}                  → 200 name "Cash"
+POST /insights/dashboards/{id}/tiles (revenue, all time)       → 200 viz "number"
+POST /insights/dashboards/{id}/tiles (revenue by month)        → 200 viz "bar"
+GET  /insights/tiles/{id}/data  (nothing billed yet)           → 200
+     {"unit":{"kind":"money","currency":"EUR"},"series":[{"key":"EUR",…,
+      "points":[{"bucket":"total","value":0}]}],"notes":[],"truncated":false}
+POST /billing/customers → 200 · POST /billing/invoices → 200 net 25 000
+POST /billing/invoices/{id}/issue                              → 200
+GET  /insights/tiles/{id}/data                                 → 200 value 25000
+GET  /insights/tiles/{id2}/data  (last 3 months)               → 200
+     buckets 2026-06:0, 2026-07:0, 2026-08:25000
+POST /insights/eval (the same spec, ad hoc)                    → 200 value 25000
+GET  /insights/dashboards/{id}                                 → 200 board + 2 tiles
+PATCH /insights/tiles/{id} · POST …/move · PATCH board         → 200 ×3
+422s: invented measure (message lists the whole measure vocabulary) · deal
+  value by vat_rate · a filter naming a customer that is not this tenant's
+  ("not one of this workspace's records") · blank board name · tile with no
+  spec · span 40 and span 2147483647 · eval with no spec · move with no
+  position · schema_version 2.  400: a body that is not JSON.
+404s, indistinguishable from an id that never existed, on all eight
+  id-bearing routes.
+psql: the two tiles read back in position order with their derived viz and
+  stored dataset; after DELETE tile + DELETE board → boards 0, tiles 0, and
+  the issued invoice still there (1). Cascaded tile's data route → 404.
+```
+
+The mandatory wrong-tenant proof is `tests/insights_http.rs::another_tenants_
+board_tile_and_figures_are_out_of_reach_on_every_route`, on the real Postgres:
+two tenants with different books (25 000 and 90 000) are handed **the same
+spec** and each answers its own figure — a spec is not a capability; every verb
+on the other tenant's board and tile ids answers exactly as an id that never
+existed (eight routes × both kinds of id); a filter naming the other tenant's
+customer is the same `422` an invented id gets, so the filter cannot be used as
+an existence oracle; and B's board, tile, position and figures are untouched by
+all of it.
+
+Cuts and flags:
+
+- **`GET /insights/catalog` is not in this item and was not built.** The queue
+  names dashboards/tiles CRUD and `eval`; the catalog route's gallery entries
+  are BI1.06's, and the builder that reads the matrix is the item that needs it.
+  Flagged so the next item does not assume it exists.
+- **Listing dashboards does not seed.** A tenant with no boards gets an empty
+  list; the Business overview seed is BI1.06, which is where the decision that a
+  `GET` may write belongs (CRM made the same one, once, in one place).
+- **No CHANGELOG line.** There is still no screen: `/insights` is reachable only
+  by a client that does not exist until BI1.05. The line lands with the surface
+  a person can see.
+- **`cargo fmt -p alo-jmap` reformats files this item never touched** (base,
+  drive, spaces, tasks, wopi, workspace_search — untouched churn that would
+  collide with the sites track). Reverted; only this item's three files were
+  formatted, with `rustfmt --edition 2024`. Worth a human decision: either the
+  tree gets one formatting commit of its own, or the loop keeps formatting
+  file-by-file.
+- Standing human actions: **`/insights` must be added to the production
+  Caddyfile at the next deploy** — now real rather than anticipated, alongside
+  `/billing`, `/crm` and `/audit` — and the unmet ROADMAP gate on B2 ("B1 live
+  with ≥1 real tenant") still stands.
+
+Next item: BI1.05 (the web surface — the Insights rail tab, the dashboard grid,
+the five tile renderers over the single ECharts wrapper, i18n en).

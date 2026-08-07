@@ -48,14 +48,23 @@ All under one new top-level prefix, `/insights` (RFC 9457 `Problem` bodies,
 | `GET /insights/dashboards` | the tenant's dashboards (seeding the Business overview on first read, BI1.06) |
 | `POST /insights/dashboards` | create |
 | `GET /insights/dashboards/:id` | one dashboard with its tiles, in layout order |
-| `PATCH /insights/dashboards/:id` | rename / reorder tiles |
+| `PATCH /insights/dashboards/:id` | rename |
 | `DELETE /insights/dashboards/:id` | delete (tiles cascade) |
 | `POST /insights/dashboards/:id/tiles` | pin a spec as a tile |
-| `PATCH /insights/tiles/:id` | retitle / replace spec / move |
+| `PATCH /insights/tiles/:id` | retitle / replace spec / resize |
+| `POST /insights/tiles/:id/move` | reorder (as-built, BI1.04 — see below) |
 | `DELETE /insights/tiles/:id` | unpin |
-| `GET /insights/tiles/:id/data` | evaluate a stored tile |
+| `GET /insights/tiles/:id/data` | evaluate a stored tile (the figures only) |
 | `POST /insights/eval` | evaluate an ad-hoc spec — the builder's live preview; stores nothing |
 | `POST /insights/ask` | natural language → a **proposed** ChartSpec + its preview series; stores nothing (BI1.07) |
+
+**As-built at BI1.04: reordering is its own `POST`,** not a field on either
+`PATCH`. This note first sketched the move as part of the tile `PATCH` (and
+tile order as part of the dashboard's); what shipped is the surface CRM already
+settled on for the same question (`docs/design/crm.md` § the stage routes): a
+grid drag must not be able to retitle a chart, and saving an edit form must not
+be able to rearrange the board. `PATCH` writes title, spec and span; `POST
+…/move` writes the fractional `position` and nothing else.
 
 `/insights` is a new top-level prefix, so two things follow it around: the
 **vite dev proxy** `API_PATHS` list in `web/vite.config.ts` gains `/insights`
