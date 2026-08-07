@@ -15,6 +15,20 @@ contracts.
   the stack always shows exactly what is stored; a refusal names the broken
   rule in plain words and keeps everything you typed.
 
+- **alo Billing: the same invoice as an XRechnung, for German public
+  administration.** An issued invoice can now be downloaded as XRechnung 3.0
+  (UBL 2.1) as well as Factur-X — the file a German authority and a Peppol
+  access point expect. It is the *same* document as the PDF and the Factur-X
+  XML, so nothing can disagree about a figure. Because XRechnung asks for more
+  than the European standard does, the download refuses when something is
+  missing and says exactly what: a telephone number in your billing details, a
+  post code, or the customer reference (for a public body, the Leitweg-ID) —
+  each named by the rule a receiving system would quote back at you, so you
+  learn it from us rather than from a rejection weeks later. Your billing
+  details are read live, so filling in a telephone number fixes every document
+  at once; a reference belongs to the document and has to be on it before you
+  issue it.
+
 - **alo Sites: your websites now live in the workspace.** The rail has a new
   **Websites** area: every site you have, with its address and whether it is
   live. Create one by picking a name and claiming an address — the form checks

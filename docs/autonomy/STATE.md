@@ -3058,3 +3058,176 @@ Cuts and flags:
 Next item: B1.23 (★ XRechnung: UBL 2.1 output for the same invoice model at
 `GET .../xrechnung.xml`, validated by the XRechnung schematron in tests — the
 second renderer over `billing_einvoice.rs`, which is the seam it was built for).
+
+## B1.23 — XRechnung: the same invoice in the other syntax the law recognises
+
+The seam B1.22 built for is now load-bearing: `billing_einvoice.rs` decided what
+the document *is*, and a second renderer wrote it down a completely different
+way without re-deciding anything. `GET /billing/invoices/{id}/xrechnung.xml`
+serves an issued document as OASIS UBL 2.1 in the German CIUS — the file a
+public authority in Germany must be invoiced with, and what a Peppol access
+point moves.
+
+What shipped:
+
+- **`billing_xml.rs`** — what the two syntaxes actually agree on, extracted from
+  `billing_cii.rs` rather than copied: the indented emitter (which guarantees
+  every element it opens is closed at the depth it opened it, and that no text
+  reaches the document unescaped), the standard's number formats (`amount`,
+  `quantity`, `percent`), the escaper, the download response and the file name.
+  CII keeps its `format="102"` dates, UBL its ISO ones — the one thing they do
+  not share.
+- **`billing_ubl.rs`** — the UBL 2.1 rendering. Three things are genuinely
+  different from CII and all three are syntax, not invoice: a credit note is a
+  **different root schema** (`ubl:CreditNote`, `cac:CreditNoteLine`,
+  `cbc:CreditedQuantity` — CII changes a code, UBL changes the document); every
+  amount states its `currencyID`, where in CII stating it twice is a validation
+  error; and BT-111 (the VAT restated in the accounting currency) is a *second*
+  `cac:TaxTotal` carrying nothing but the amount. Like CII, the schema is a
+  sequence, and four golden files pin the order byte for byte.
+- **`billing_xrechnung_rules.rs`** — the German narrowing (`BR-DE-*`),
+  additional to the European rules and never instead of them. `BR-DE-3`/`-4`/
+  `-5` and `BR-DE-9`/`-10`/`-11` (both parties' street, city and post code),
+  `BR-DE-6`/`-7`/`-8` with `BR-DE-27`/`-28` (the seller's contact desk, its
+  telephone number and its email, and that each is one), `BR-DE-15` (the buyer
+  reference — the *Leitweg-ID* a German authority is addressed by) and
+  `BR-DE-16` (the seller's VAT identifier). The route reports **both** rule sets
+  in one `422`, so a tenant fills in its details once rather than twice.
+- **`billing_einvoice.rs` gained BT-41/BT-42** (contact point and telephone) on
+  a party. The company names itself as its own contact desk — the billing
+  settings hold an address and a telephone, not a person — and the buyer, of
+  whom no national rule asks a contact, states none. `phone` already existed on
+  `BillingSettings`; no migration was needed.
+- **`GET /billing/invoices/{id}/xrechnung.xml`** — the same `409`/`404`
+  refusals as the Factur-X route, and a `422` that fires **more often**, which
+  is the point of the item: a document that is a perfectly valid Factur-X can be
+  an invalid XRechnung, and the tenant learns which German rule from us.
+
+Two behaviours worth knowing, both proven on the wire below:
+
+- The seller's details are read **live**, so filling in a telephone number fixes
+  every document at once. The buyer reference belongs to the **frozen**
+  document, so an issued invoice raised without one cannot be edited into
+  compliance (`PATCH` → `409`) — it is credited and reissued. That is the
+  freeze working, not a gap.
+- A credit note — and an invoice from a tenant that has stated no bank account —
+  carries payment means code **`1`, "instrument not defined"**. `BR-DE-1` wants
+  the payment-instructions group on every document; naming the seller's own IBAN
+  on a credit note would invite a customer to pay a document that owes *them*,
+  and inventing an account nobody stated would be worse than saying nothing.
+
+Verified: `cargo clippy -p alo-jmap --all-targets` clean (zero warnings);
+**373 tests green, 0 failed**, including 21 new unit tests, the 7
+`billing_ubl_golden` tests over four new golden files, and the 8
+`billing_xrechnung_http` suites over real Postgres — among them the mandatory
+wrong-tenant proof (B's distinctive legal name, VAT id, IBAN, telephone number,
+customer and reference appear nowhere in A's XML; the refusal for B's id is
+byte-identical to the refusal for an id that never existed). `rustfmt` was run
+on the four files this item wrote plus `billing_invoices.rs`, all of which are
+now clean; `lib.rs` was NOT handed to rustfmt (a 921-line pre-existing diff),
+per the standing note.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `ublwire`, `ublwireb`, real
+PKCE tokens):
+
+```
+GET  /billing/invoices/x/xrechnung.xml    (no token)  -> 401
+GET  /billing/invoices/ghost/xrechnung.xml           -> 404 "no such invoice"
+GET  .../{draft}/xrechnung.xml                       -> 409 "a draft has no e-invoice: issue it
+                                                             first…"
+POST .../{id}/issue                                  -> 200 INV-2026-00001 2026-08-07/2026-08-21
+GET  .../{issued}/xrechnung.xml (identity unstated)  -> 422 "cannot be issued as an XRechnung:
+                                                             BR-06 …; BR-08 …; BR-09 …;
+                                                             BR-CO-26 …; BR-S-02 …; BR-DE-3 …;
+                                                             BR-DE-4 …; BR-DE-5 …; BR-DE-6 …;
+                                                             BR-DE-7 (…add one to your billing
+                                                             details…); BR-DE-8 …; BR-DE-16 …;
+                                                             BR-DE-15 (…the Leitweg-ID…)"
+GET  .../{same}/facturx.xml                          -> 422 (the European rules alone)
+PATCH /billing/settings (identity incl. phone)       -> 200
+GET  .../{same}/xrechnung.xml                        -> 422 BR-DE-15 ALONE — the details fix
+                                                             lived in settings, the reference
+                                                             lives on the frozen document
+GET  .../{same}/facturx.xml                          -> 200 — Factur-X never asked for one
+POST /billing/invoices {reference:"04011000-12345-06"} + issue -> 200 INV-2026-00002 gross 239 072
+GET  .../{issued}/xrechnung.xml                      -> 200 5 263 bytes
+       content-type: application/xml; charset=utf-8
+       content-disposition: attachment; filename="Invoice-INV-2026-00002-xrechnung.xml"
+       x-content-type-options: nosniff · cache-control: no-store
+       <cbc:CustomizationID>urn:cen.eu:en16931:2017#compliant#urn:xoev-de:kosit:
+                            standard:xrechnung_3.0</…>
+       <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</…>
+       <cbc:IssueDate>2026-08-07</…> · <cbc:DueDate>2026-08-21</…>  (ISO, not 102)
+       <cbc:BuyerReference>04011000-12345-06</…> · <cbc:Telephone>+31 20 123 4567</…>
+       <cbc:InvoicedQuantity unitCode="HUR">15</…> · unitCode="KMT">240</…>
+       <cbc:PaymentMeansCode>30</…> · <cbc:PaymentID>INV-2026-00002</…>
+       <cbc:ID>NL91ABNA0417164300</…> · <cbc:ID>ABNANL2A</…>
+       LineExtension 1875.00 / 100.80 / 1975.80 · TaxAmount EUR 414.92
+       TaxInclusive 2390.72 · Payable 2390.72   (the same figures the CII file states)
+POST .../{id}/credit-note + /issue                   -> 200 INV-2026-00003 (ledger gross −239 072)
+GET  .../{credit note}/xrechnung.xml                 -> 200 root ubl:CreditNote · CreditNote-2
+       filename="Credit-note-INV-2026-00003-xrechnung.xml"
+       <cbc:CreditNoteTypeCode>381</…> · <cbc:CreditedQuantity>15</…>
+       BillingReference -> INV-2026-00002 · PayableAmount 2390.72
+       negative amounts: 0 · no cac:InvoiceLine · no InvoiceTypeCode
+       no PayeeFinancialAccount · no DueDate · no PaymentID
+       <cbc:PaymentMeansCode>1</…>  ("instrument not defined")
+POST .../{id}/void, then GET .../{void}/xrechnung.xml -> 409 "a void document has been cancelled
+                                                             and has no e-invoice…"
+POST /billing/fx/rates/import (2026-08-07,USD 1.1626) -> 200 {rates 1, days 1}
+POST .../{USD draft}/issue                            -> 200 INV-2026-00005 fx 1.1626
+GET  .../{USD}/xrechnung.xml                          -> 200 DocumentCurrencyCode USD
+                                                              TaxCurrencyCode EUR
+                                                              TaxAmount USD 252.00 (×2)
+                                                              TaxAmount EUR 216.76  (BT-111)
+                                                              PayableAmount USD 1452.00
+                                                              cac:TaxTotal ×2, cac:TaxSubtotal ×1
+  the neighbour's door:
+GET  A's request for B's invoice                      -> 404, byte-identical to the ghost's 404
+       B's identity in that refusal: 0 of 8 markers
+       B's identity in A's own XRechnung: 0 of 8 markers
+```
+
+Cuts and flags:
+
+- **HUMAN ITEM (compliance) — the normative KoSIT schematron is still not run.**
+  Unchanged in kind from B1.22 and now doubled: the XRechnung validator is XSLT
+  over the CEN one, i.e. a third language and a downloaded artefact in a public
+  repo. What ships is a hand-written `BR-DE-*` subset — the rules our model can
+  violate, cited by identifier, run on the route and over four golden documents.
+  Someone should run the real validator (KoSIT's) over
+  `alo-jmap/tests/golden/xrechnung-*.xml` once, offline, and record the result;
+  the golden files exist precisely to make that a one-off check.
+- **HUMAN REVIEW (compliance) — two rule identifiers to confirm in that run.**
+  The *behaviour* checked for the seller's telephone and email formats is sound
+  (a number of at least three characters; an address with one `@`, something
+  either side and a dot in the domain), but the identifiers `BR-DE-27` and
+  `BR-DE-28` were cited from the specification's numbering as understood here
+  and not from the artefact itself. If the validator numbers them differently,
+  only the two `rule` strings change — never a decision.
+- **HUMAN REVIEW (compliance) — payment means `1` on a credit note.** The
+  reasoning is in the module docs and above; a German authority or a large
+  customer may insist on a different reading, and it is one constant to change
+  if so.
+- **The two flags B1.22 raised are unchanged and still open**: a credit note is
+  issued in credit direction (positive amounts under type 381), and **VAT
+  categories beyond `S` and `Z` cannot be expressed** because a line carries a
+  rate and not a category. The second is now *more* pressing, not less: the
+  fixture named "Intra-community delivery" in `xrechnung-mixed-rates.xml` is
+  labelled `Z` and a real intra-community supply is `K` with an exemption
+  reason. **That remains the single biggest gap between what shipped and "an EU
+  business can bill anyone with it", and it is a queue item a human has to
+  schedule** — it is a migration + store + route + UI change and was
+  deliberately not invented here.
+- **No web UI.** As at B1.22, the item's done-when is the file, the rules and
+  the tests; the issued-invoice view still gains no "download e-invoice" link,
+  and there are now two formats a link would have to offer. A small B1.27 or
+  follow-up item.
+- **No new top-level route prefix.** `xrechnung.xml` is under
+  `/billing/invoices/*`; the standing production-Caddyfile item for `/billing`
+  itself (open since B1.05) is unchanged.
+
+Next item: B1.24 (e-invoice **receiving**: parse an uploaded Factur-X or
+XRechnung into a `billing_bills` record for approval — the mirror of the two
+renderers this item completes, and the first time we read somebody else's XML).

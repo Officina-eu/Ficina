@@ -291,26 +291,28 @@ As-built (B1.10), for the invoice routes specifically:
 - **`status`, `number`, `issueDate` and `dueDate` are not writable** by any
   request; like any unknown field they are ignored.
 
-The rest of the surface, **not yet built** (the wave item that lands each is
-named):
+The rest of the surface, with the wave item that landed each:
 
 | Route | Purpose |
 |---|---|
-| `GET /billing/invoices/{id}/pdf`, `.../facturx.xml`, `.../xrechnung.xml` | renderings (B1.17, B1.22 — **as built**, B1.23) |
+| `GET /billing/invoices/{id}/pdf`, `.../facturx.xml`, `.../xrechnung.xml` | the three renderings (B1.17, B1.22, B1.23) — **as built** |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
 
-### The e-invoice (as built, B1.22)
+### The e-invoice (as built, B1.22 + B1.23)
 
 An invoice that a machine reads is a different document from the one a person
-reads, and EN 16931 is the European law about the first. Three modules, split
-along the standard's own seam:
+reads, and EN 16931 is the European law about the first. Six modules, split
+along the standard's own seams — the model, its rules, and each syntax:
 
 | Module | What it owns |
 |---|---|
 | `billing_einvoice.rs` | the **semantic** invoice: the standard's business terms (BT-1, BT-112, …) built from the same `PrintDocument` the paper and the PDF are built from |
 | `billing_einvoice_rules.rs` | the **business rules** over those terms, cited by identifier (`BR-09`, `BR-CO-15`, `BR-S-09`) |
-| `billing_cii.rs` | one **syntax**: UN/CEFACT CII, which is what Factur-X carries. UBL (XRechnung, B1.23) is a second renderer of the same model |
+| `billing_cii.rs` | one **syntax**: UN/CEFACT CII, which is what Factur-X carries |
+| `billing_ubl.rs` | the other **syntax**: OASIS UBL 2.1, which is what XRechnung carries (B1.23) |
+| `billing_xrechnung_rules.rs` | the **German narrowing** of those rules (`BR-DE-*`), additional to the European ones, never instead of them (B1.23) |
+| `billing_xml.rs` | what the two syntaxes agree on: the emitter, the number formats, the escaper, the file response |
 
 The seam matters because the two syntaxes in law are the *same invoice twice*;
 mapping our records straight into two dialects of XML would put the decisions
@@ -349,6 +351,37 @@ below in two places that would drift.
   model can break, cited by identifier, run on the route *and* over four golden
   documents in `alo-jmap/tests/golden/`. Running the normative schematron in CI
   is an open item for a human, recorded in `docs/autonomy/STATE.md`.
+
+**Two syntaxes, one model (B1.23).** `GET .../xrechnung.xml` serves the same
+semantic invoice as OASIS UBL 2.1 in the German CIUS — the file a public
+authority in Germany must be invoiced with, and what a Peppol access point
+moves. It is a *renderer*, not a second invoice: nothing about the document is
+decided in `billing_ubl.rs` that is not already decided in
+`billing_einvoice.rs`, and the golden sets for the two syntaxes pin the same
+four documents so a figure that moves in one and not the other is a failing
+test. Three things are genuinely different, and they are in the syntax, not the
+invoice:
+
+- **A credit note is a different root schema** (`ubl:CreditNote`), with
+  `cac:CreditNoteLine` and `cbc:CreditedQuantity`. CII changes a code; UBL
+  changes the document.
+- **Every amount states its currency**, where in CII stating it twice is a
+  validation error.
+- **XRechnung requires terms EN 16931 leaves optional**, so the same invoice can
+  be a valid Factur-X and an invalid XRechnung. The seller needs a contact desk
+  with a **telephone number** (`BR-DE-7`) and email, both parties need a full
+  postal address, and the document needs a **buyer reference** (`BR-DE-15`) —
+  the *Leitweg-ID* a German authority is addressed by. The route reports both
+  rule sets in one `422`, so a tenant fixes its details once.
+
+Two consequences a reader should expect. The seller's details are read **live**,
+so filling in the telephone number fixes every document at once; the buyer
+reference belongs to the **frozen** document, so an issued invoice raised
+without one cannot be edited into compliance — it is credited and reissued. And
+a credit note (and an invoice from a tenant with no bank account) states payment
+means code `1`, *instrument not defined*: `BR-DE-1` wants the group on every
+document, and naming the seller's own account on a credit note would invite a
+customer to pay a document that owes them.
 
 **The carrier is not yet PDF/A-3.** `alo-pdf` grew everything else the hybrid
 needs — the attachment, `/AFRelationship /Alternative`, the `/AF` array, the
