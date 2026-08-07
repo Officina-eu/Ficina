@@ -880,3 +880,48 @@ colliding with. Both ghosts were found by command-line process hunt
 then proved quiet for 60 seconds. Ghost edits discarded. Single bash wrapper
 relaunched. S1.16 (attempt #6) is next — with, at last, an actually empty
 stage.
+
+## LOOP HALT: concurrent editor detected a THIRD time — TWO live wrappers found (2026-08-07 18:20)
+
+- **The cause is identified this time, with PIDs.** A process hunt run the
+  moment the collision was detected shows **two `run-loop.sh
+  /c/dev/Ficina-loop sites` wrappers alive simultaneously**:
+  - wrapper PID **17324**, started **16:01:34** (presumably the "single bash
+    wrapper relaunched" of the 16:05 resolution),
+  - wrapper PID **17836**, started **18:16:25** (a second launch ~2h15m
+    later).
+  Each fired an iteration within the same ten seconds: headless worker
+  claude.exe **49380** (via sh.exe 6344) started **18:16:27**, and headless
+  worker claude.exe **18744** (via sh.exe 39964) started **18:16:37**. This
+  iteration is worker 18744 (its shell chain executed this note's probes);
+  the rival is worker 49380. Both are honest LOOP workers on the same
+  S1.16a item — the bug is the double-fired wrapper, not either worker.
+- Collision timeline of this iteration (started 18:16:37, clean tree, pull
+  up-to-date): it read patterns for S1.16a and wrote exactly ONE file, the
+  untracked migration `0120_site_forms.sql` (18:1x). The rival's writes then
+  appeared mid-flight: `id.rs` modified 18:19:05, `site_forms.rs` (15,578
+  bytes, untracked) 18:20:03, `lib.rs` 18:20:20 — detected at 18:20:36,
+  sixteen seconds after the last rival write, when `lib.rs` changed under
+  this worker declaring a `site_forms` module it had not written (exporting
+  a `normalize_submission` API not of this worker's design).
+- Authorship map for the human, explicit this time:
+  - **This worker's file (discardable or salvageable):**
+    `platform/alo-store/migrations/0120_site_forms.sql` — numbered after the
+    current tail (0119_insight_dashboards.sql).
+  - **The rival's uncommitted files (left untouched):** modified `id.rs` +
+    `lib.rs`, untracked `src/site_forms.rs` and
+    `migrations/0058_site_forms.sql` — note the rival numbered its migration
+    0058, the same number the 15:56 ghost used, not 0120.
+- Actions taken: **no further code written, none committed** — only this
+  HALT note is committed so both wrappers stop at their next check. The
+  rival worker 49380 may still push its own S1.16a before dying; if it
+  completes the full gates honestly, that work is its own single-authored
+  commit and can stand on its merits — this note does not condemn it, only
+  the double supervision.
+- To resume: (1) kill BOTH wrappers 17324 and 17836 and any surviving
+  workers (49380, 18744), (2) verify the tree is quiet for 60 s, (3)
+  discard or salvage the uncommitted files per the authorship map above,
+  (4) relaunch exactly ONE wrapper — and consider making `run-loop.sh`
+  refuse to start when another instance holds a lockfile, so a fourth
+  incident is impossible rather than unlikely, (5) remove/date this HALT.
+  S1.16a remains the next queue item unless the rival landed it.
