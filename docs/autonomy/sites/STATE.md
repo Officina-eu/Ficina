@@ -409,3 +409,73 @@ Human-action inbox (things the loop must not do itself):
   `*.<SITES_DOMAIN>` → alo-sites. Deliberately not touched by the loop.
 - **Next:** S1.10 (edit API in alo-jmap: `/sites/*` CRUD + section ops +
   publish, Problem errors, wire transcript).
+
+## S1.10 — edit API in alo-jmap: `/sites/*` (2026-08-07)
+
+- **Shipped:** `products/mail/alo-jmap/src/sites.rs` + registration in
+  `server.rs`/`lib.rs` (additive lines) — the authenticated edit half of the
+  two-service boundary. Sites: `GET/POST /sites`, `GET /sites/subdomain-check`
+  (live taken/free for the create form), `GET/PUT/DELETE /sites/{id}` (PUT
+  takes `{name?, subdomain?}`, empty PUT is a named 422), `PUT
+  /sites/{id}/theme` (body = the theme envelope, through the store's theme
+  gate), `POST /sites/{id}/publish` → `{publishId, status:"live"}`, `POST
+  /sites/{id}/unpublish` (idempotent). Pages: `GET/POST /sites/{id}/pages`
+  (list stays lean — no sections), `PUT /sites/{id}/pages/order` (full
+  permutation), `GET/PUT/DELETE /sites/{id}/pages/{pid}` (PUT does partial
+  title/slug/seoTitle/seoDescription; SEO merges over the two-field store
+  setter — absent keeps, blank clears), `POST .../home`. Sections, addressed
+  **by index** into the ordered envelope (no ids by design — the S1.27 AI ops
+  speak the same vocabulary): `PUT .../sections` (atomic full set), `POST
+  .../sections` `{section, index?}`, `PUT/DELETE .../sections/{index}`,
+  `POST .../sections/{index}/move` `{to}` — read-modify-write through the
+  schema write gate; every op answers the canonical stored envelope. Error
+  contract per the design note: 401 unauthenticated (WWW-Authenticate:
+  Bearer); anything not resolving in the caller's tenant → 404; **every**
+  rule violation → 422 with the store's rule-naming message (the sites store
+  spells them all as `Conflict`, so this module's map sends `Conflict` →
+  422, not 409 — documented in the module doc); malformed JSON → 400 notJSON.
+- **Verified:** `cargo fmt`; `SQLX_OFFLINE=true cargo clippy -p alo-jmap
+  --all-targets` zero warnings; **full `cargo test -p alo-jmap` green** on
+  the local docker Postgres, including the new `tests/sites_http.rs` (7
+  tests through the real router + real DB: 401 across the route families,
+  site lifecycle incl. delete-releases-subdomain, page lifecycle incl. SEO
+  partial-merge/blank-clears and home promotion, section add/update/move/
+  remove + full-set + out-of-range and malformed index, theme gate + publish
+  preconditions + live/unpublish flow, and the mandatory wrong-tenant
+  barrage — 18 verbs against tenant B's ids all answer A with 404 and leak
+  nothing, B's data untouched after). Manual wire pass against the real
+  debug binary on 127.0.0.1:8080 + docker `alo-pg`, real curl: no token →
+  401 `{"detail":"missing or invalid bearer token"}` + `www-authenticate:
+  Bearer`; create happy → full site JSON (draft, `{}` theme); `UPPER` → 422
+  "subdomain may only contain lowercase letters, digits, and hyphens";
+  `mail` → 422 "subdomain is reserved"; re-claim → 422 "subdomain is already
+  taken"; publish-no-pages → 422 "site has no pages to publish"; slug
+  `blog` → 422 "slug is reserved"; add hero/cta → canonical envelopes;
+  `carousel` → 422 naming the 12 known types; `javascript:` href → 422
+  naming the href rule; move/remove reshuffle correctly; index 5 → 422 "no
+  section at index 5 (the page has 2)"; bad preset → 422; terra lands;
+  publish → `{"publishId":"S9iFT9_n69lckiOdzNTrFw","status":"live"}`; GET
+  site shows `publish{id, publishedAt}` + status live; unpublish → draft;
+  `{not json` → 400 notJSON. psql after: the sites row (terra, pointer
+  cleared after unpublish), 2 page rows (home flag, nav order, 1 section
+  stored canonically), publish row with 2 frozen snapshots.
+- **Cuts/flags:**
+  - No optimistic concurrency on section read-modify-write (single-editor
+    assumption; an If-Match seam is S2) — documented in the module doc.
+  - No draft-preview endpoint (S1.13 by queue design), no theme-preset
+    listing route (lands with the S1.14 theme UI), no publish-history list
+    (S2 rollback substrate stays store-only).
+  - `GET /sites/{id}` additionally returns the current publish
+    (`publish: null | {id, publishedAt}`) — small addition beyond the queue
+    text, the S1.15 status chip needs it.
+  - **Caddyfile note:** `/sites` is a NEW top-level route prefix — production
+    Caddy needs it routed to alo-jmap at the next deploy (same as `/billing`).
+  - `cargo fmt` wanted to reflow 7 pre-existing alo-jmap modules this item
+    never touched (agent/base/drive/spaces/tasks/wopi/workspace_search —
+    import-order + wrapping, likely a rustfmt style-edition delta with the
+    other machine). Reverted deliberately: formatting churn on the business
+    track's active files invites rebase conflicts; my own files are
+    fmt-clean. Flagged for a human to align rustfmt versions at wave review.
+  - CHANGELOG: user-voice entry added (first user-visible sites surface).
+- **Next:** S1.11 (web module skeleton: rail entry, site list + create,
+  page list; i18n en).

@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **alo Sites: build and publish your website through the workspace API.**
+  Everything a site is made of can now be managed while signed in: create a
+  site by claiming a free subdomain (with a live taken/free check), add and
+  arrange pages, stack typed sections on each page (add, edit, reorder,
+  remove), pick a theme, and publish — or unpublish — with one call. Every
+  input is checked before it lands: unsafe links, unknown section types,
+  reserved names, and duplicate slugs are refused with a message naming the
+  exact rule, and publishing tells you what is missing (a page, a home page)
+  instead of failing silently. Nothing you edit reaches the public site until
+  you publish. This is the API the visual editor ships on next.
+
 - **alo Sites: published sites are now served on the web.** The new
   `alo-sites` service answers for `<your-subdomain>.<sites domain>`: it looks
   up the site by the address it was asked for and serves exactly what you
