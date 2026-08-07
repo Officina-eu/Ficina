@@ -746,6 +746,48 @@ Verification in the loop is **structural**: the routes exist, the guards
 answer `401`/`422`, and the executors run against the local database.
 No model is called; wiring one is a human step.
 
+**As built.** `alo-ai/src/agent_crm.rs` holds the three names and the
+words that describe them; `alo-jmap/src/agent_crm.rs` holds the
+executors, dispatched from the one `/ai/agent/execute` route. The name
+resolution both product agents share moved into
+`alo-jmap/src/agent_args.rs` in the same change — billing wrote it
+first, and a second copy of "which record did they mean" is exactly the
+kind of duplicate that drifts.
+
+The decisions worth reading back:
+
+- **A deal is found by its title**, resolved by the shared rule — exact
+  match first, then a unique containment, and two matches is a `422`
+  that lists them. There is no other handle: an opportunity has no
+  number a person can quote.
+- **The board is resolved, never invented.** One board needs no naming;
+  several is a `422` listing them; **none is a refusal**, because
+  seeding the tenant's first board is `GET /crm/pipelines`' first-use
+  rule and it names the columns in the caller's language. A board raised
+  through the agent door would be named in a language nobody chose.
+  A new card lands in the board's **first** column unless the proposal
+  names one.
+- **A deal raised from a conversation inherits that message's sender**
+  as its contact address — read by `crm_thread_match::normalize_address`,
+  the CRM's own address reader, so the address a deal inherits is one
+  the thread suggestions can find it by. The exception is the user's
+  **own** address: a deal raised from something they sent must not
+  record them as the customer's contact. The link itself is written
+  after the card exists (it needs the card's id) and a failure there is
+  reported as `linkedThread: null`, not as the whole tool failing — the
+  deal *was* raised, and saying otherwise about a record the user can
+  see would be the worse answer.
+- **`draft_followup` never states its own recipient.** The letter goes
+  to the deal's contact address, or its customer's when the card carries
+  none. The words are the model's, exactly as for `draft_email`: a
+  letter about an opportunity has no template, and the subject defaults
+  to the deal's title.
+- **`move_deal_stage` is the only tool that can close a deal**, and it
+  closes it the way the board does — through `move_crm_deal`, so the
+  history row, the closing snapshot and the lost-reason rule are the
+  store's single copy. There is deliberately **no delete tool**: a deal
+  deleted by a misread sentence leaves no trace to argue with.
+
 ## Errors
 
 Store errors are `StoreError` variants (`thiserror`), mapped at the

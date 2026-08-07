@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **Ask alo can work your pipeline.** The assistant now proposes three CRM
+  actions for you to approve: raise a **deal** (from what you said, or from the
+  email you are reading — approving then links that conversation to the new
+  deal), **move a deal** to another column, which is also how you win or lose
+  one, and write a **follow-up email** to a deal's contact. As everywhere else,
+  it only ever proposes: you see the card first, and nothing happens until you
+  approve it. The follow-up lands in your **Drafts** and is never sent for you;
+  the recipient is the deal's own contact, never a name the assistant chose. It
+  finds a deal by its title, and when two of yours share a word it asks which
+  one rather than guessing.
+
 - **alo CRM: bring your lead list in.** Upload the CSV your spreadsheet
   exported and alo tells you what it would do **before** it does anything:
   which columns it read as what, what each row is worth in real money, which

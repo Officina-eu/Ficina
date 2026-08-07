@@ -5345,3 +5345,183 @@ Cuts and flags:
 Next item: B2.10 (CRM agent tools — `create_deal` including from a thread
 source, `move_deal_stage`, `draft_followup`: allowlist, executors, structural
 verify).
+
+---
+
+## B2.10 — the CRM agent: a deal is found by its title, and nothing is sent
+
+B1.25 opened the seam ADR 0034 describes — a product agent is a tool set and a
+paragraph, not a second system. This is the second product through it, and the
+first thing it proved is that the seam holds: the whole of CRM's contribution
+to the one agent is two new files and three lines in a match.
+
+What shipped:
+
+- **`alo-ai/src/agent_crm.rs`** (new) — CRM's contribution to the one agent:
+  `CRM_TOOLS` (`create_deal`, `move_deal_stage`, `draft_followup`),
+  `CRM_TOOL_DOC` (what each takes) and `CRM_GUIDANCE` (the paragraph that stops
+  a model tidying a deal's title on its way to the store). Text and names only;
+  nothing in the crate acts.
+- **`alo-ai/src/agent.rs`** — the prompt now assembles core tools → billing's →
+  CRM's → billing's guidance → CRM's guidance → the output contract, and
+  `is_agent_tool()` asks all three lists. The existing test that the described
+  set and the executable set are **equal** now covers fourteen tools.
+- **`alo-jmap/src/agent_args.rs`** (new) — the name resolution both product
+  agents share, moved out of `agent_billing.rs`: `string_arg`, `integer`,
+  `pick`/`pick_name`, `unprocessable`. Billing wrote it first; a second copy of
+  "which record did they mean" is exactly the kind of duplicate that drifts, and
+  the constitution's one-file-one-reason rule says the split happens in the
+  change that discovers it.
+- **`alo-jmap/src/agent_crm.rs`** (new) — the three executors. **No agent-only
+  write path**: `create_crm_deal`, `link_crm_deal_thread`, `move_crm_deal` and
+  `drafts::save` are the same functions the `/crm/*` routes and the mail
+  compose path call.
+- **`alo-jmap/src/agent.rs`** — three dispatch arms. A product's rules live in
+  the product's module; this match stays a dispatcher.
+- **Web** — `AgentActionCard` previews the three: the deal's title, company,
+  value and column for a new deal (with a line saying the conversation will be
+  linked, when the proposal carries an email); title, column and lost reason for
+  a move; deal, subject and the whole letter for a follow-up, under a plain note
+  that it goes to Drafts and nothing is sent.
+
+The decisions, recorded as as-built in `docs/design/crm.md`:
+
+- **A deal is found by its title.** An invoice has a number a person can quote;
+  an opportunity has only what somebody called it. The title resolves by the
+  shared rule — exact first, then a unique containment — and two matches is a
+  `422` that **lists them**. Proven on the wire: "from mail" matched two deals
+  and moved neither.
+- **The board is resolved, never invented.** One board needs no naming; several
+  is a `422` listing them; **none is a refusal**, not a seed. Seeding a tenant's
+  first board is `GET /crm/pipelines`' first-use rule and it names the columns
+  in the caller's language — a board raised through the agent door would be
+  named in a language nobody chose. A new card lands in the board's first column
+  unless the proposal names one.
+- **A deal raised from a conversation inherits that message's sender.** Read by
+  `crm_thread_match::normalize_address` — the CRM's **own** address reader, the
+  one the thread suggestions match with — so `"Ada" <Ada@Acme.test>` becomes
+  `ada@acme.test` and the inherited address is one the suggestions can find the
+  deal by. (The first wire run stored the whole `From` header value; that is why
+  the store's reader is used rather than a lowercase-and-trim written here.) The
+  exception is the user's **own** address: a deal raised from something they
+  sent must not record them as the customer's contact.
+- **The link is written after the card, and its failure is not the tool's.**
+  Linking needs the card's id, so it cannot come first; a failure answers
+  `linkedThread: null` rather than an error, because the deal *was* raised and
+  telling a user otherwise about a record they can see is the worse answer. The
+  message is resolved **before** the card, so an unreadable source raises
+  nothing at all.
+- **`draft_followup` never states its own recipient.** It goes to the deal's
+  contact address, or its customer's when the card carries none, or it is a
+  `422`. The words are the model's, as they are for `draft_email` — a letter
+  about an opportunity has no template — and the subject defaults to the deal's
+  title.
+- **There is no delete tool, and nothing sends.** `move_deal_stage` is the only
+  tool that can close a deal, and it closes it through the store's single
+  transaction, so the history row, the closing snapshot and the lost-reason rule
+  are not re-implemented here.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-ai -p alo-jmap --all-targets`
+clean (zero warnings); `cargo test -p alo-ai -p alo-jmap` green — 30 + 310 unit
+tests, including 9 new pure tests over the shared argument rules, the inherited
+address, the day parser, the addressee, and the prompt/allowlist agreement.
+Web: `npx tsc --noEmit`, `npx eslint`, `npm run build` all clean.
+
+Wire-verified with real curl against the local debug `alo-jmap` on
+`127.0.0.1:8080` over docker `alo-pg` (fresh tenants `crmagent`, `crmagentb`).
+**No model was called anywhere**: `/ai/agent` (propose) answers `unconfigured`
+as it should, and every line below is the **execute** path, which is the acting
+one.
+
+```
+POST /ai/agent/execute                       (no token)  -> 401
+POST … {"tool":"delete_deal"}                            -> 400 "unknown tool"
+create_deal, no title                                    -> 422 "a deal needs a title"
+create_deal, before any board exists                     -> 422 "you have no sales board yet — open
+                                                                CRM once and one is made for you"
+  after GET /crm/pipelines seeded "Sales" (New/Qualified/Proposal/Won/Lost):
+create_deal (title, company, contact, 500000, EUR,
+             2026-09-30, origin Referral)                -> 200  deal fD2Fzoy3… · Sales/New · open
+create_deal, valueCents 5000.5                           -> 422 "valueCents must be a whole number
+                                                                of cents, not 5000.5"
+create_deal, expectedClose "30/09/2026"                  -> 422 "expectedClose must be a date
+                                                                written YYYY-MM-DD"
+create_deal, stage "Backlog"                             -> 422 "no stage of yours is called Backlog"
+create_deal, stage "o"                                   -> 422 "more than one stage matches o:
+                                                                Proposal, Won, Lost — say which"
+  from a conversation (Email/set put "Ada" <ada@acme.test> in A's Inbox):
+create_deal, message_id of that mail                     -> 200  linkedThread fR-6jgJ3…,
+                                                                contactEmail "ada@acme.test"
+GET /crm/deals/{id}/threads                              -> 200  that thread, readable, linked by A
+create_deal, message_id, asked by tenant B               -> 422 "the email this deal comes from was
+                                                                not found"
+  moving a card:
+move_deal_stage, no deal                                 -> 422 "which deal this is about is required"
+move_deal_stage "Hovercraft"                             -> 422 "no deal of yours is called Hovercraft"
+move_deal_stage "from mail" (two deals share it)         -> 422 "more than one deal matches from mail:
+                                                                Third from mail, Second from mail"
+move_deal_stage, no stage                                -> 422 "which column to move it to is required"
+move_deal_stage "renewal — acme gmbh" -> "qualified"     -> 200  New → Qualified, still open
+move_deal_stage -> "Lost", no reason                     -> 422 "a lost deal needs a reason"
+move_deal_stage -> "Proposal", with a reason             -> 422 "a lost reason belongs only to a deal
+                                                                moved into a losing stage"
+move_deal_stage -> "Lost", "Went with the incumbent"     -> 200  state lost, reason stored
+  the follow-up:
+draft_followup, no body                                  -> 422 "the follow-up needs something to say"
+draft_followup on a deal with no address                 -> 422 "this deal has no email address to
+                                                                write to — add one to the deal first"
+draft_followup (the real one)                            -> 200  draft WYpjAAEe… to ada@acme.test,
+                                                                subject "Renewal — Acme GmbH"
+Email/get on that draft                                  -> 200  keywords {$draft}, To: "Ada"
+                                                                <ada@acme.test>, body verbatim,
+                                                                From: the user's own address
+draft_followup with its own subject                      -> 200  subject "Renewal — next steps"
+  the neighbour's door (tenant B):
+draft_followup "Renewal — Acme GmbH"           (B)       -> 422 "no deal of yours is called …"
+move_deal_stage "Renewal — Acme GmbH"          (B)       -> 422 "no deal of yours is called …"
+create_deal, pipeline "Sales"                  (B)       -> 200  on B's OWN "Sales" board — a name
+                                                                is per tenant, and A's board was
+                                                                never reachable
+GET /crm/deals (A)                                       -> 200  still A's four deals, untouched
+  a second board:
+create_deal, no pipeline named                           -> 422 "you have more than one pipeline:
+                                                                Renewals, Sales — say which"
+create_deal, pipeline "Renewals" (no columns yet)        -> 422 "the board Renewals has no columns
+                                                                to raise a deal in"
+POST /ai/agent (propose)                                 -> 200  reason "unconfigured" — no model
+```
+
+Cuts and flags:
+
+- **Nothing cut from the item.** All three tools, the allowlist, the executors,
+  the thread source and the approval card shipped.
+- **Flagged: fr/nl for the six new card strings** (`agentActCreateDeal`,
+  `agentActMoveDeal`, `agentActFollowup`, `agentFieldDeal/Company/Value/Stage/
+  LostReason`, `agentDealFromEmailNote`, `agentFollowupNote`) are **not**
+  written — the catalogs fall back to English per key, so nothing is blank, and
+  B2.14 is the wave review that translates them.
+- **Flagged: `draft_followup` does not reply in-thread.** A deal often has a
+  linked conversation, and a follow-up that threaded into it would be the
+  better letter. It needs a decision about which linked thread to reply to when
+  there are several, and that is a design question, not a line of code — the
+  reminder (B1.25) writes a fresh letter for the same reason.
+- **Flagged: resolving a deal reads all of the tenant's deals**, exactly as
+  `GET /crm/deals` does. Fine at the sizes CRM is built for; a tenant with
+  thousands of deals wants a store-side title lookup like billing's
+  `..._id_by_number`, and that is a store change, not an agent one.
+- **Flagged: `alo-jmap` is still short of `cargo fmt --check` at HEAD** under
+  the pinned toolchain — pre-existing, and this item deliberately reverted the
+  formatter's churn in six files it did not otherwise touch (`base.rs`,
+  `drive.rs`, `spaces.rs`, `tasks.rs`, `wopi.rs`, `workspace_search.rs`) rather
+  than fold a formatting sweep into a feature commit. Everything this item wrote
+  or edited **is** formatted. One dedicated formatting commit by a human is
+  still worth doing.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged since B2.02. Nothing here is deployed, and no AI
+  model is configured on any tenant — wiring one is a human step.
+- **Standing human actions:** a deploy and a real tenant; the CRM import screen
+  (flagged at B2.09); fr/nl at B2.14.
+
+Next item: B2.11 (billing extension — recurring invoices: a schedule table, a
+due-run that creates DRAFTS and never issues, a UI badge, and a time-based test
+with an injected clock).
