@@ -345,3 +345,67 @@ Human-action inbox (things the loop must not do itself):
     lands with S1.09/S1.10.
 - **Next:** S1.09 (`alo-sites` public service: Host resolution → published
   snapshots, cache, /healthz, Host-isolation tests).
+
+## S1.09 — alo-sites public service: Host → published snapshots (2026-08-07)
+
+- **Shipped:** the anonymous serving half of the two-service boundary.
+  Store side: `platform/alo-store/src/site_public.rs` — `SitePublicStore`,
+  a **separate read-only door** on a plain pool (deliberately not `Store`:
+  no system ops, no blob backend, no way to open a tenant/account door);
+  `resolve_published(subdomain)` is the one indexed read (sites ⋈
+  site_publishes on the published-set pointer, backed by
+  `sites_subdomain_unique`) → `PublishedSite` whose **tenant field is
+  private**, and `published_pages(&PublishedSite)` scopes by that resolved
+  pair — serving rows the Host lookup didn't lead to is unrepresentable.
+  Service side: `products/sites/alo-sites/src/serve.rs` (+ `serve/{config,
+  host,cache,rendered}.rs`) and the `alo-sites` binary (`src/main.rs`, runs
+  **no migrations** — alo-jmap owns the schema). Host parsing reuses
+  `validate_subdomain` (ports/FQDN-dot/case tolerated; apex, nested labels,
+  IP literals, lookalike suffixes all fall through). Cache is publish-keyed:
+  the resolver read runs per request (republish/unpublish visible on the
+  next request, ever-stale impossible by construction), rendering happens
+  once per publish (bounded map, 512 sites, arbitrary eviction). Response
+  contract: strong `ETag "<publish>:<path>"` + `If-None-Match` → 304,
+  `Cache-Control: public, max-age=60`, nosniff, trailing-slash tolerance;
+  unknown/unpublished host → one byte-identical generic 404 (no existence
+  leak); unknown path on a live site → a **themed** 404 (`render_not_found`
+  in the render lib + 3 new `UiStrings` entries, en; fr/nl at S1.31);
+  DB trouble → terse 503 + Retry-After, internals never on the wire;
+  non-GET/HEAD → 405 + Allow. Env contract: `DATABASE_URL`, `SITES_DOMAIN`,
+  `ALO_SITES_ADDR` (default 0.0.0.0:8081).
+- **Verified:** `cargo fmt --check`; `SQLX_OFFLINE=true cargo clippy -p
+  alo-sites -p alo-store --all-targets` zero warnings; `cargo test -p
+  alo-sites` green (host-parsing unit tests + 4 in-process integration
+  tests via tower::oneshot against the real router + compose Postgres:
+  response contract incl. 304/405/css, **Host isolation** — A's host never
+  serves B's markers/theme/pages, unknown ≡ unpublished byte-identical,
+  republish flips on the next request while draft edits never leak);
+  full `cargo test -p alo-store` green (207 unit + all suites; isolation
+  24 with the new `public_resolver_scopes_by_subdomain_and_never_leaks_drafts`).
+  Manual wire pass with the real binary on 127.0.0.1:8081 against docker
+  `alo-pg`, real curl: healthz 200 `ok`; live host → 200 text/html,
+  `cache-control: public, max-age=60`, `etag: "i48oI0wvzfP2L4JR0kLkaQ:/"`,
+  nosniff, canonical `https://<sub>.sites.test/`; If-None-Match → 304
+  size=0; `/assets/site.css` → text/css with the north preset tokens;
+  iso-a host serves ALPHA-ONLY only, iso-b host BETA-ONLY only; unknown
+  host → 404 `<title>Page not found</title>` (generic); live host unknown
+  path → 404 `<title>Page not found — Alpha Site</title>` (themed);
+  POST → 405; apex host → 404.
+- **Cuts/flags:**
+  - `/assets/img/<blob_id>` (the third public path) is NOT served yet —
+    no published fixture carries images until logo/gallery upload lands;
+    wiring it lands with S1.14 (Drive/blob refs). The renderer already
+    emits those URLs; until S1.14 an image-bearing page would 404 its
+    images. `/f/:form_id` is S1.16 by design.
+  - No CSP header on served pages (inline behavior script + inline 404
+    style make it low-value churn now); revisit at wave review.
+  - Eviction is arbitrary-at-bound, not LRU — deliberate until real
+    traffic exists; noted in `serve/cache.rs`.
+  - 503 path exercised by code review only (would need killing Postgres
+    mid-test; the mapping is 6 lines, all errors → one static body).
+- **Human inbox (deploy, when the wave ships):** production needs the
+  `alo-sites` container in compose (env above), the `SITES_DOMAIN`
+  purchase, wildcard DNS + wildcard/on-demand TLS at Caddy routing
+  `*.<SITES_DOMAIN>` → alo-sites. Deliberately not touched by the loop.
+- **Next:** S1.10 (edit API in alo-jmap: `/sites/*` CRUD + section ops +
+  publish, Problem errors, wire transcript).

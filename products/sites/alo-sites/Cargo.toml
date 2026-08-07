@@ -10,6 +10,18 @@ publish.workspace = true
 alo-store = { path = "../../../platform/alo-store" }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+# The service slice: the Host-resolving public server (`serve` module + the
+# `alo-sites` binary).
+axum = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+# In-process integration tests: oneshot requests through the real router,
+# fixtures written through the real store against the compose Postgres.
+tower = { workspace = true }
+sqlx = { workspace = true }
 
 [lints]
 workspace = true

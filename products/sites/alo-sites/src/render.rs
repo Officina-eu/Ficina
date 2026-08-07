@@ -129,6 +129,45 @@ pub fn render_page(site: &SiteRenderContext<'_>, page: &PageRenderContext<'_>) -
     out
 }
 
+/// Renders a site's not-found document: the same chrome and stylesheet as
+/// the site's pages, so a lost visitor stays inside the brand — heading,
+/// explanation, and a link home, marked `noindex`. Page-agnostic by design:
+/// the public service builds it once per publish and serves it (status 404)
+/// for every unknown path on a live site.
+pub fn render_not_found(site: &SiteRenderContext<'_>) -> String {
+    let title = format!("{} — {}", site.strings.not_found_title, site.name);
+    let mut out = String::with_capacity(2 * 1024);
+    out.push_str("<!doctype html>\n");
+    out.push_str(&format!("<html lang=\"{}\">\n", esc(site.strings.lang)));
+    out.push_str("<head>\n<meta charset=\"utf-8\">\n");
+    out.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    out.push_str(&format!("<title>{}</title>\n", esc(&title)));
+    out.push_str("<meta name=\"robots\" content=\"noindex\">\n");
+    if let Some(favicon) = &site.theme.favicon {
+        out.push_str(&format!(
+            "<link rel=\"icon\" href=\"{}\">\n",
+            img_src(favicon.as_str())
+        ));
+    }
+    out.push_str("<link rel=\"stylesheet\" href=\"/assets/site.css\">\n</head>\n<body>\n");
+    out.push_str(&format!(
+        "<a class=\"skip-link\" href=\"#main\">{}</a>\n",
+        esc(site.strings.skip_to_content)
+    ));
+    out.push_str("<main id=\"main\">\n<section class=\"s-hero\">\n");
+    out.push_str(&format!("<h1>{}</h1>\n", esc(site.strings.not_found_title)));
+    out.push_str(&format!(
+        "<p class=\"subheading\">{}</p>\n",
+        esc(site.strings.not_found_text)
+    ));
+    out.push_str(&format!(
+        "<p class=\"actions\"><a class=\"button\" href=\"/\">{}</a></p>\n",
+        esc(site.strings.not_found_home)
+    ));
+    out.push_str("</section>\n</main>\n</body>\n</html>\n");
+    out
+}
+
 /// Whether the page has anything for the behavior script to do: a nav (menu
 /// toggle) or a form with a working submit. A page without either ships zero
 /// JavaScript.

@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo Sites: published sites are now served on the web.** The new
+  `alo-sites` service answers for `<your-subdomain>.<sites domain>`: it looks
+  up the site by the address it was asked for and serves exactly what you
+  published — the frozen pages, the theme's stylesheet, and a styled
+  "page not found" in your site's own look. Edits after publishing change
+  nothing on the public site until you publish again, and a republish shows up
+  on the very next request. Visitors' browsers are told to re-check pages
+  every minute and get a compact "not modified" answer when nothing changed.
+  One site's address can never show another site's content — that isolation
+  is a tested guarantee, not a hope. (Self-hosted deployments: run the new
+  `alo-sites` container with `SITES_DOMAIN` and wildcard DNS pointed at it;
+  nothing else changes.)
+
 - **alo Billing: the VAT figures for a period, in one screen.** Billing has a
   new **VAT report** tab: pick two dates — or click **This quarter** or **Last
   quarter** — and see what you billed at each VAT rate between them, with the

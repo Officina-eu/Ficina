@@ -33,6 +33,12 @@ pub struct UiStrings {
     /// Contact form: confirmation shown after a successful submission when
     /// the section sets no custom `success_message`.
     pub form_success: &'static str,
+    /// Not-found page: heading (and `<title>` prefix).
+    pub not_found_title: &'static str,
+    /// Not-found page: explanatory text.
+    pub not_found_text: &'static str,
+    /// Not-found page: link text back to the site's homepage.
+    pub not_found_home: &'static str,
 }
 
 /// English chrome strings — the v1 default.
@@ -48,4 +54,7 @@ pub const EN: UiStrings = UiStrings {
     form_website: "Website",
     form_send: "Send",
     form_success: "Thanks — your message has been sent.",
+    not_found_title: "Page not found",
+    not_found_text: "The page you are looking for does not exist or has moved.",
+    not_found_home: "Go to the homepage",
 };
