@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo CRM: bring your lead list in.** Upload the CSV your spreadsheet
+  exported and alo tells you what it would do **before** it does anything:
+  which columns it read as what, what each row is worth in real money, which
+  rows it will skip because you already deal with those people, and which rows
+  it cannot import and why — by line number, so you can find them. Then import,
+  and either every lead lands or none does; there is no half-imported file to
+  untangle. It reads what European spreadsheets actually write: semicolons,
+  tabs, `1.234,56` and `1,234.56` alike, accented names from Excel on Windows —
+  and it refuses `1.234` rather than guess whether you meant a thousand or one
+  and a bit. Duplicates are matched on the address, then on the company's own
+  email domain (never Gmail's), and skipped rather than merged. Today it is
+  reachable from the API; the import screen follows.
+
 - **alo Sites: your look, your logo.** Every site now has a theme you pick in
   the editor: seven designed color-and-type looks, each checked for readable
   contrast, applied to the whole site with one click. Upload your logo and it

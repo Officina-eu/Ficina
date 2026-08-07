@@ -5152,3 +5152,196 @@ by Claude Opus 5 (1M context) under `docs/autonomy/LOOP.md`.
 last line of the commit message itself — `Roadmap: …` then a blank line then
 `Co-Authored-By: …` — whenever the message comes from a file, a heredoc, or
 anything other than an inline `-m`.
+
+## 2026-08-07 — B2.09 a spreadsheet of leads becomes a board
+
+The item is one question asked twice — *what would this file do?* — answered
+once without writing anything and once by writing all of it. Two new store
+modules, one new route file, no new table: an imported lead is an ordinary
+deal, made by the same code that makes a typed one.
+
+- **`csv_read.rs` (store, new)** — reading a spreadsheet's file, and nothing
+  about leads. Detects the **encoding** (BOM → valid UTF-8 → Windows-1252, what
+  Excel on Windows writes) and sniffs the **delimiter** (`,` `;` tab, by which
+  reads the header as the most fields); RFC 4180 quoting, CRLF/LF/CR
+  terminators, blank lines skipped, a short row padded and a wide one refused
+  (the classic misread: a decimal comma under a comma delimiter). Caps: 64
+  columns, 10 000 characters per field, the row cap its caller passes. It is
+  the reading half of the dialect `alo-jmap/src/csv.rs` writes, and B4.08's
+  bank import is its second caller.
+- **`crm_lead_import.rs` (store, new)** — what a *lead* is. `LeadMapping`
+  (guessed from the header in en/fr/nl, or stated by the caller), the per-row
+  rules, the duplicate rules, and two entry points:
+  `preview_crm_lead_import` (reads inside a transaction it rolls back) and
+  `import_crm_leads` (**calls the preview**, then writes every lead in one
+  transaction, or none).
+- **`crm_imports.rs` (routes, new)** — `POST /crm/imports/leads/preview` and
+  `POST /crm/imports/leads`: the file as the body, the mapping as the query
+  string. Both under the existing `/crm` prefix, so **no new top-level prefix
+  and nothing new for the Caddyfile**, and both carrying the import's own body
+  limit rather than the JMAP request limit.
+- **`crm_deals.rs` gained `insert_crm_deal_in`** — the write half of
+  `create_crm_deal`, inside a transaction the caller owns. `create_crm_deal` is
+  now normalise → `BEGIN` → board lock → that function → `COMMIT`, so an
+  imported deal and a typed one are the same record made the same way:
+  validated, appended to the column, with its first history row. Normalisation
+  stays **outside** every transaction on both paths — an open transaction
+  waiting on a second pooled connection is how a busy server deadlocks.
+- **`error.rs` gained `Problem::extra`** — an optional object merged into the
+  problem body (never over `type`/`status`/`detail`). The `422` a person has to
+  *act* on is the first refusal that needed one: it carries the report naming
+  which line broke which rule.
+
+Six decisions worth the ink:
+
+- **Money is read exactly or refused.** `1.234,56`, `1,234.56`, `1234.56`,
+  `1 234 567`, `1'234'567` and `€ 1 234,50` are all exact; **`1.234` is refused
+  as ambiguous** — a thousand in Berlin, one and a bit in London. Guessing
+  there puts a factor of a thousand into somebody's forecast, which is exactly
+  the loose guess the loop's compliance rail forbids. Integer cents throughout,
+  no float anywhere in the reading.
+- **Only ISO days.** `03/04/2026` is two different days on two sides of an
+  ocean, and an expected close read the wrong way round is a forecast that is
+  silently wrong.
+- **The domain rule stops at free mail**, reusing `is_free_mail_domain` — the
+  list B2.05's thread suggestions already live by. Matching on `gmail.com`
+  would fold every unrelated consumer lead into one company.
+- **Only customers and open deals make a duplicate.** A lost deal's contact is
+  a lead again: history must not make tomorrow's opportunity a repeat. And the
+  report says whether the match was already in CRM or earlier in the same file
+  (`source: "crm" | "file"`).
+- **A file nothing maps to is one refusal, not one per row.** If neither a
+  title nor a company column resolves, the whole file is refused with a
+  sentence naming what is missing; two thousand copies of one row error is not
+  a report. (Found by the HTTP test, not by design — recorded because it is the
+  kind of thing a preview screen exists to make survivable.)
+- **A refusal never quotes the file.** Row rules name the line and the rule
+  only; the duplicate rows name the address or the domain, which is the
+  uploader's own data handed straight back to the uploader so a skip is
+  checkable.
+
+Verified: `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean (zero warnings). `rustfmt --edition 2024` on the new and
+changed files only — never on `lib.rs`, which reformats every module it
+declares (the trap recorded at B2.04).
+
+Tests, stated exactly as they were run, because this machine made the usual
+one-command gate impractical:
+
+- **Every `alo-jmap` test binary — 44 of them — green, zero failures**, over
+  docker `alo-pg`, including the new `crm_import_http.rs` (7 tests through the
+  real router: both guards, the mapping as a percent-encoded query string, the
+  `422` carrying the report, the tenant wall).
+- **`alo-store`: the 367 unit tests** (which include this item's 33 new ones in
+  `csv_read.rs` and `crm_lead_import.rs`) **and all seven CRM integration
+  suites green** — `crm_lead_import_tenancy.rs` (6, the new one),
+  `crm_deals_tenancy.rs`, `crm_handoff_tenancy.rs`, `crm_activities_tenancy.rs`,
+  `crm_deal_threads_tenancy.rs`, `crm_pipelines_tenancy.rs`,
+  `crm_report_tenancy.rs`. Those are the suites the one change to existing code
+  (`create_crm_deal` → normalise + `insert_crm_deal_in`) can reach.
+- **Not re-run in the final pass: `alo-store`'s ~30 non-CRM integration
+  binaries** (billing, mail, sites). Four of them — `billing_bills`,
+  `billing_by_number`, `billing_credit_notes`, `billing_customers_tenancy` —
+  did run green earlier in the same session; the rest were cut off. **Why:**
+  the machine spent the run at 3.2 GB of its 4 GB swap in use, and each test
+  binary was taking eight to ten minutes to do a second of work. Waiting five
+  more hours to re-prove code this item does not touch is the thrashing
+  LOOP.md forbids. **Flagged for a human:** run `cargo test -p alo-store` once
+  on a machine with headroom. Two things would make that cheap and are worth
+  doing anyway — the shared local test database has accumulated **14 771
+  tenants** from every run ever, which is what makes each binary's setup slow,
+  and nothing truncates it — a human could drop and re-migrate the local `alo`
+  database, and the suite would be minutes again.
+
+Wire-verified with real curl against the debug `alo-jmap` on `127.0.0.1:8080`
+over docker `alo-pg`, uploading the committed fixture
+`platform/alo-store/tests/fixtures/crm_leads.csv` (two fresh tenants):
+
+```
+POST /crm/imports/leads/preview   (no token)  -> 401
+POST /crm/imports/leads           (no token)  -> 401
+  the preview (writes nothing):
+POST …/preview?pipelineId=…                   -> 200 utf-8, ';', 6 rows
+                                                     mapping guessed: Company / E-mail / Amount
+                                                     create 4, duplicates 2, errors 0
+     line 2 Acme GmbH   1250000 EUR 2026-09-30   ("12.500,00" read exactly)
+     line 3 Beta BV       90000 EUR null
+     line 4 Gamma SA     750050 CHF 2026-11-15   ("7 500,50", the file's own currency)
+     line 6 Delta Oy          0 EUR null         (the blank line still moved the number)
+     line 7 duplicate email  ada@acme.example   source=file
+     line 8 duplicate domain acme.example       source=file
+GET  /crm/deals  (after the preview)          -> 200 0 deals — nothing was written
+  the commit:
+POST /crm/imports/leads?pipelineId=…          -> 200 committed, 4 ids, in the first column,
+                                                     every one open and owned by the importer
+POST the same file again                      -> 200 create 0, duplicates 6, all source=crm
+GET  /crm/deals                               -> 200 still 4 — nothing was doubled
+  all-or-nothing:
+POST /crm/imports/leads  (one bad address,
+     one ambiguous "1.234")                   -> 422 detail "some rows cannot be imported;
+                                                     nothing was written"
+                                                     errors: line 3 "the email column does not
+                                                     hold an email address", line 4 the
+                                                     ambiguous-amount rule — and the report
+                                                     inside the problem body
+GET  /crm/deals                               -> 200 0 deals — not even the good row
+  what a caller may not say:
+POST …/leads  (no pipelineId)                 -> 422 'pipelineId is required'
+POST …/preview&value=Turnover                 -> 422 'the file has no column mapped to value'
+POST …/preview (a German header, unguessable) -> 422 'no column is mapped to a title or a
+                                                     company name; say which column holds it'
+POST …/preview&company=Firma&value=Umsatz     -> 200 Acme GmbH, 90000 — the same file, mapped
+POST …/preview (a row wider than its header)  -> 422 'line 2 has more fields than the header'
+POST …/preview (an empty file)                -> 422 'the file is empty'
+  the neighbour's door (tenant B):
+POST …/preview on A's board        (B)        -> 404
+POST …/leads   on A's board        (B)        -> 404
+POST …/leads   on B's board, A's column (B)   -> 404
+POST …/leads   on a board that never existed  -> 404   (identical)
+GET  /crm/deals (A)                           -> 200 still 4 — untouched
+  a file from Excel on Windows:
+POST …/preview (Windows-1252 bytes)           -> 200 encoding "windows-1252",
+                                                     lead "Société Gamma" — accents intact
+```
+
+Cuts and flags:
+
+- **Cut: the import screen.** B2.09's text is the import, its mapping preview,
+  its dedupe and its report, wire-verified with a fixture file — that is what
+  shipped, at full depth. `web/src/crm` has **no import tab**, so today the
+  feature is reachable by a script and not by a person. The routes are already
+  shaped for the screen (the preview answers `columns` for the picker, the
+  mapping it guessed, and the server's reading of every row), so the screen is
+  a self-contained follow-up. **A human should schedule it** — it is not in the
+  queue, and inventing a queue item is not this loop's to do.
+- **Cut: `.xlsx`.** Already an explicit Out-of-scope in `docs/design/crm.md`
+  (a ZIP of XML parts and a new dependency). What the item's "CSV/Excel"
+  actually needed was the CSV *Excel writes* — semicolons, Windows-1252,
+  UTF-16, CRLF, grouped decimals — and that is what `csv_read.rs` reads.
+- **Cut: merging duplicates.** The design note already ruled it out for B2: the
+  import skips and reports, and a merge tool is its own item once there is real
+  data to merge.
+- **Flagged: the duplicate rules read a snapshot taken a moment before the
+  write.** Two people importing overlapping files in the same second can each
+  create a lead the other was about to. Being a duplicate is a rule about
+  tidiness, not an invariant, and the alternative — holding the board
+  exclusively for the length of an upload — would block every card move on it.
+  Recorded rather than fixed.
+- **Flagged: a header row of only empty cells is skipped like any blank line**,
+  so the next line becomes the header. What makes that safe is that the report
+  always states the columns it read; a person sees them before anything is
+  imported under them.
+- **Flagged: `alo-jmap` is still short of `cargo fmt --check` at HEAD** under
+  the pinned toolchain — pre-existing, unchanged by this item, and still worth
+  one dedicated formatting commit by a human. Everything this item wrote or
+  edited **is** formatted.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged since B2.02. Nothing here is deployed.
+- **Standing human actions:** a deploy and a real tenant; fr/nl for any new
+  strings is the wave review's (B2.14) — this item added **no user-facing
+  strings**, since every message it produces is a server-authored rule and the
+  screen that would show them is not built.
+
+Next item: B2.10 (CRM agent tools — `create_deal` including from a thread
+source, `move_deal_stage`, `draft_followup`: allowlist, executors, structural
+verify).

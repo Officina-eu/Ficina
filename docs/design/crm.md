@@ -672,6 +672,66 @@ proceeds.
 Out of scope below with that reason, and every spreadsheet in Europe
 exports CSV.
 
+*As built (B2.09) — nine things the note left open, decided in code.*
+
+- **The file is the body; the mapping is the query string.** What a
+  person has is a file, so `POST …?pipelineId=…&company=Firma&email=Kontakt`
+  with the CSV as the body — the decision `POST /billing/bills/import`
+  made (B1.24), for the same reason. Every mapping field is a **column
+  name from the header**, matched case- and space-insensitively
+  (`E-Mail` = `email`), and a name the file does not have is a `422`
+  rather than a field that silently maps nothing.
+- **No mapping at all means "guess", and the answer always states the
+  mapping it used.** `LeadMapping::infer` matches the header against the
+  words this product ships strings in (en/fr/nl). The preview shows the
+  guess, a person corrects it, and the commit sends the corrected one
+  back — a commit never re-guesses something a person changed.
+- **A file nothing maps to is one refusal, not one per row.** If neither
+  a title nor a company column resolves, the whole file is refused with a
+  sentence naming what is missing; the alternative was two thousand
+  copies of the same row error.
+- **Reading a spreadsheet's file is its own module.**
+  `alo-store/src/csv_read.rs` decodes and parses; `crm_lead_import.rs`
+  decides what a lead is. The reader detects the **encoding** (BOM, then
+  valid UTF-8, then Windows-1252 — what Excel on Windows writes, and
+  refusing it would refuse half the CSVs in Europe) and sniffs the
+  **delimiter** (`,` `;` tab, decided by which reads the header as the
+  most fields), and the report says which of each it used so a person can
+  see whether their accents survived. B4.08's bank-CSV import is its
+  second caller.
+- **Money is read exactly or refused.** `1.234,56`, `1,234.56`,
+  `1234.56`, `1 234 567` and `€ 1 234,50` are all exact; **`1.234` is
+  refused as ambiguous** — a thousand in Berlin, one and a bit in London
+  — and a value is never negative. Integer cents from the cell to the
+  column, no float anywhere.
+- **Only ISO days.** `03/04/2026` is two different days on two sides of
+  an ocean; an expected close read the wrong way round is a forecast that
+  is silently wrong, so `YYYY-MM-DD` is the only form accepted.
+- **The domain rule stops at free mail** (`is_free_mail_domain`, the same
+  list the thread suggestions live by), and **only open deals and
+  customers count** — a lost deal's contact is a lead again. Duplicates
+  are also detected **within one file**, and the report says which of the
+  two it was (`source: "crm" | "file"`).
+- **The leads land in the column the caller named, or the board's first
+  live one**, always **open**, always owned by the importing user, each
+  with its first history row — an imported deal is an ordinary deal made
+  by the same code (`insert_crm_deal_in`, the write half of
+  `create_crm_deal` inside a caller's transaction; validation stays outside
+  every transaction, so no writer waits on a second pooled connection).
+- **The `422` carries the report.** `Problem` gained an optional `extra`
+  object merged into the problem body, and the refusal a person has to
+  act on is the first thing that needed one: `{type, status, detail,
+  import: {…}}` with every line and rule named. Caps: 2 MiB, 2 000 rows,
+  64 columns.
+
+**Not built: the import screen.** B2.09's text is the import and its
+report, wire-verified with a fixture file, and that is what shipped. The
+routes are what a screen would call — the preview answers `columns` for
+the picker and the mapping it guessed — but `web/src/crm` has no import
+tab yet, so today the feature is reachable by a script and not by a
+person. It is called out in `docs/autonomy/STATE.md` for a human to
+schedule.
+
 ## The CRM agent (B2.10)
 
 Three tools on ADR 0034's propose-then-approve envelope, executed by
@@ -744,6 +804,13 @@ this one).
 | Raising a document from a deal worth more than one line may carry (as built, B2.08: 10^9 cents) | `Validation` | `422` |
 | Import file that is not readable CSV, has no header row, or exceeds the row cap | `Validation` | `422` |
 | Import commit where any row is invalid (all-or-nothing) | `Validation` | `422` + the per-row report |
+| Import without a `pipelineId` (as built, B2.09) | — (route edge) | `422` |
+| Import onto a board or into a column that is not this tenant's (as built, B2.09) | `NotFound` | `404` |
+| Import into an **archived** column (as built, B2.09) | `Validation` | `422` |
+| Import mapping naming a column the file does not have (as built, B2.09) | `Validation` | `422` |
+| Import where neither a title nor a company column resolves (as built, B2.09) | `Validation` | `422` |
+| Import file larger than the byte cap (as built, B2.09: 2 MiB) | — (route edge) | `413` |
+| An import row with an ambiguous amount, a non-ISO day, a cell that is not an address, or a field over its bound (as built, B2.09) | `Validation` | reported per row; `422` on commit |
 
 The wrong-tenant case returns the **same `404`** as a truly absent id:
 no existence oracle across tenants, the doctrine documented in
