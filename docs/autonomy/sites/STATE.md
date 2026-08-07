@@ -801,11 +801,10 @@ Human-action inbox (things the loop must not do itself):
 - **Next:** S1.16 (forms backend: public POST `/f/:form_id` on alo-sites,
   submissions store, internal-delivery notification, rate limit + tests).
 
-## LOOP HALT — concurrent editor detected on this checkout (2026-08-07)
+## RESOLVED (was a halt): concurrent editor detected on this checkout (2026-08-07)
 
-- **LOOP HALT: a second agent/loop iteration is editing this working tree
-  concurrently; work cannot be trusted or committed (CLAUDE.md: one agent
-  per working tree).**
+- **HALTED (resolved 13:45): a second agent/loop iteration was editing this working tree concurrently; work could not be trusted or committed (CLAUDE.md: one agent per working tree).**
+- **Resolution (human, 2026-08-07 13:45):** root cause was a supervisor session restart that orphaned the running worker; the relaunched wrapper started a rival in the same tree. The halting worker's uncommitted S1.16 state was discarded per its own verdict; both workers confirmed exited; single-wrapper supervision relaunched. S1.16 will be redone fresh.
 - What happened, in order, while this iteration was mid-way through S1.16
   (forms backend — migration, `site_forms` store module, public POST
   `/f/:form_id`, notification sweep, all three crates compiling and
