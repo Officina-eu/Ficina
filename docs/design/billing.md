@@ -311,6 +311,7 @@ The rest of the surface, with the wave item that landed each:
 | `POST /billing/invoices/{id}/reminder` | draft a payment reminder for a late invoice (B1.26) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
 | `POST /billing/bills/import`, `GET /billing/bills[/{id}]`, `POST .../{approve,reject}`, `DELETE .../{id}` | receiving a supplier's e-invoice (B1.24) — **as built** |
+| `GET/POST /billing/schedules`, `GET/PATCH/DELETE /billing/schedules/{id}`, `POST .../{pause,resume}`, `POST /billing/schedules/run` | recurring invoices: the standing arrangements and the run that raises the drafts they are due for (B2.11) — **as built** |
 
 ### Receiving an e-invoice (as built, B1.24)
 
@@ -776,6 +777,76 @@ grounded with the tenant's customer and product names, which would cost a read
 on every agent turn for every user; a name that resolves to nothing comes back
 with the candidates instead.
 
+
+### Recurring invoices (as built, B2.11)
+
+A **schedule** is a standing arrangement — "bill Acme €99 for hosting
+every month" — and it lives in `billing_schedules` with its own template
+lines in `billing_schedule_lines`, the same line model as an invoice's
+(`billing_line`) so that raising the next one is a copy rather than a
+translation. `crate::billing_cadence` holds the four rhythms (weekly,
+monthly, quarterly, yearly) and the one pure function that steps a date.
+
+Four decisions, each of which could have gone the other way:
+
+- **A run raises drafts. It never issues.** Issuing spends a number out
+  of a legally gapless series and freezes a document a customer and a tax
+  authority may act on, so no unattended job of ours does it. This is
+  also what `docs/features.md` [B2] asks for — "auto-draft for approval".
+  The rejected alternative, auto-issuing behind a per-schedule "I trust
+  this one" flag, is a setting whose worst case is a wrong numbered
+  invoice in a customer's hands and a credit note to write; the cost of
+  the safe version is one click a month.
+- **The anchor is the start day, not the last landed day.** A monthly
+  arrangement started on the 31st bills on the 28th in February and on
+  the **31st again** in March. Advancing from the landed date instead —
+  the obvious implementation — walks a 31st down to a 28th and leaves it
+  there, so a monthly subscription silently becomes a "28th of the month"
+  one after its first February. Weekly is plain seven-day arithmetic and
+  consults no anchor, because a week has no month-end to clamp against.
+- **A run catches up, up to a bound.** Three months missed is three
+  drafts: they were three billable months, and a business that quietly
+  skips two is losing money. One run raises at most
+  `SCHEDULE_MAX_PER_RUN` (12) so a single call stays bounded, and the
+  remainder follows on the next run an hour later. A start date may be
+  backdated by up to a year and no further — beyond that it is a typo,
+  not an arrangement.
+- **A period is billed once, held so twice.** The run takes the
+  schedule's row lock and moves `next_run_date` inside the same
+  transaction, and the document itself records *which* occurrence it is
+  for; `(tenant_id, schedule_id, schedule_due_date)` is unique in the
+  database. Two runs racing cannot double-bill a month even if a future
+  caller forgets the lock.
+
+What an arrangement **is** — its customer, currency, terms and start date
+— is not editable; its name, cadence, end date, reference, note and
+template are. Changing the cadence does not move the next date: the
+occurrence already scheduled stands, and the new rhythm applies from the
+one after it. **Pausing** keeps every date and resumes where it left off
+(the missed months were months the customer was under contract for);
+**ending** is different and reads differently on screen — the arrangement
+is still active and has simply run out of dates. An arrangement that has
+raised documents is never deleted, only paused: its invoices point back
+at it.
+
+Two triggers, one call. `Store::sweep_billing_schedules` runs hourly in
+`alo-jmap`'s background (beside the snooze and share sweeps), doing every
+tenant's work through that tenant's own account door and as the
+schedule's own owner, so the drafts are created by the colleague whose
+standing instruction raised them. `POST /billing/schedules/run` is the
+same store call for a bookkeeper who does not want to wait; both are safe
+to run twice.
+
+On screen, a **Recurring** tab lists the arrangements with what one
+occurrence is worth, the next date and what has been raised, and every
+draft a run produced wears a **Recurring** chip in the invoice list — the
+one thing that explains why a document nobody typed is sitting there. An
+arrangement is set up from an invoice ("Repeat this invoice"), which is
+what supplies the customer, the currency, the terms and the lines: a
+standalone form would need a second line editor, and a second line editor
+is a second place for a price to be typed differently from the one on the
+paper.
+
 ## Data model
 
 New `billing_*` store modules in `platform/alo-store` (one file per
@@ -1111,8 +1182,9 @@ Deliberate cuts, each a decision rather than an omission:
   STATE.md, not loop work.
 - **Live PSD2 bank feeds** — reconciliation arrives in B4 from imported
   statements (CAMT.053/MT940/CSV); no licensed aggregator in B1.
-- **Payment links / PSP integration** and **recurring invoices** — both
-  explicitly B2 in `docs/features.md`.
+- **Payment links / PSP integration** — explicitly B2 in
+  `docs/features.md`. (**Recurring invoices** were also out of scope for
+  B1 and are now built; see "Recurring invoices" below.)
 - **Customer self-service portal** — tagged `[B+]`, post-traction.
 - **Automatic sending of any email** — B1.18 and B1.26 create Drafts
   the user approves, consistent with the ADR 0034 agent send rules and
@@ -1120,6 +1192,8 @@ Deliberate cuts, each a decision rather than an omission:
 - **Live AI model calls in the loop** — the billing agent (B1.25) is
   verified structurally: routes exist, guards return 401/422, executors
   run against the local DB. Model wiring is a human step.
+
+
 
 ## What B1 promised, and what B1 shipped (B1.27)
 
@@ -1149,5 +1223,6 @@ either shipped, or a cut with the reason and where it goes instead.
 | *Cross-cutting:* every record links to its mail threads, files, tasks | **NOT SHIPPED** | No billing record links to a thread, file or task in B1. Deal↔thread linking is B2.05 and is where the pattern is designed; billing joins it there rather than inventing a second one. |
 | *Cross-cutting:* every module's numbers visible to Ask alo | **NOT SHIPPED** | B1.25's cut: the workspace index holds mail, files, tasks and events, not documents, so the agent acts on what the user *said* and an unknown number is a clean `422`. Indexing invoices and quotes for retrieval is a real item a human should schedule. |
 
-Not in the table because they are not `[B1]`: recurring invoices, payment
-links and SEPA export are tagged `[B2]`, and the customer portal `[B+]`.
+Not in the table because they are not `[B1]`: recurring invoices (built
+at B2.11, above), payment links and SEPA export are tagged `[B2]`, and
+the customer portal `[B+]`.

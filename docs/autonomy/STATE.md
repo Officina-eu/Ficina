@@ -5525,3 +5525,213 @@ Cuts and flags:
 Next item: B2.11 (billing extension — recurring invoices: a schedule table, a
 due-run that creates DRAFTS and never issues, a UI badge, and a time-based test
 with an injected clock).
+
+
+---
+
+## B2.11 — recurring invoices (2026-08-07)
+
+**What shipped.** Anything a tenant bills on a rhythm — a retainer, a
+subscription, a hosting fee — now bills itself, and what it produces is always a
+**draft**. Issuing spends a number out of a legally gapless series and freezes a
+document a customer and a tax authority may act on; no unattended job of ours
+does that, and `docs/features.md` [B2] asks for exactly this ("auto-draft for
+approval"). The whole feature is one sentence with four hard parts underneath
+it, and each of those is where the work went.
+
+- **Store.** `billing_schedules` + `billing_schedule_lines` (migration 0116) on
+  the shared line model, so raising the next invoice is a *copy* rather than a
+  translation. `crate::billing_cadence` is the pure calendar arithmetic — four
+  rhythms, one `next_occurrence` — with its own unit tests and no clock of its
+  own. `crate::billing_schedules` owns create/read/update/pause/delete and the
+  run.
+- **The clock is an argument.** Every entry point takes `today: Date`. That is
+  what makes a year of an arrangement's life testable in a second, and it is
+  honest about where the date comes from: the route passes the server's, the
+  sweep passes its own, nothing reads a clock behind the caller's back.
+- **Two triggers, one call.** `Store::sweep_billing_schedules` runs hourly in
+  `alo-jmap`'s background beside the snooze and share sweeps, doing every
+  tenant's work through *that tenant's own account door* and as the schedule's
+  own owner. `POST /billing/schedules/run` is the same store call for a
+  bookkeeper who does not want to wait.
+- **Web.** A **Recurring** tab (list, pause/resume, delete, "raise what is
+  due"), a **Recurring** chip on every draft a run produced, and "Repeat this
+  invoice" on the invoice editor — which is what supplies the customer, the
+  currency, the terms and the lines.
+
+**The four decisions**, recorded as as-built in `docs/design/billing.md`
+§ "Recurring invoices (as built, B2.11)":
+
+- **A run raises drafts, never issues.** The rejected alternative — auto-issuing
+  behind a per-schedule "I trust this one" flag — has a worst case of a wrong
+  numbered invoice in a customer's hands and a credit note to write; the safe
+  version costs one click a month.
+- **The anchor is the start day, not the last landed day.** A monthly
+  arrangement started on the 31st bills 31 May → 30 June → 31 July → 31 August
+  (proven on the wire below). Advancing from the *landed* date — the obvious
+  implementation — walks a 31st down to a 28th and leaves it there, so a monthly
+  subscription silently becomes a "28th of the month" one after its first
+  February.
+- **A run catches up, up to a bound.** Three months missed is three drafts; they
+  were three billable months. `SCHEDULE_MAX_PER_RUN` = 12 keeps one call
+  bounded, and the remainder follows an hour later. A start date may be
+  backdated by up to a year (`SCHEDULE_MAX_BACKDATE_DAYS`) and no further —
+  beyond that it is a typo, not an arrangement.
+- **A period is billed once, held so twice.** The run takes the schedule's row
+  lock and moves `next_run_date` in the same transaction, *and* the document
+  records which occurrence it is for, with `(tenant_id, schedule_id,
+  schedule_due_date)` unique in the database.
+
+**What is editable and what is not.** An arrangement *is* its customer,
+currency, terms and start date, so those are refused on a `PATCH` (ignored like
+any unknown field); its name, cadence, end date, reference, note and template
+are editable. Changing the cadence does not move the date already scheduled —
+the new rhythm applies from the one after it. **Pausing** keeps every date and
+resumes where it left off; **ending** is a different fact and reads differently
+(still active, simply out of dates). One that has raised documents is never
+deleted, only paused.
+
+**How it was verified.**
+
+- `platform/alo-store/src/billing_cadence.rs` — 7 unit tests: the month-end
+  clamp recovers (31 → 28 → 31, not 31 → 28 → 28), leap years both ways (2028
+  yes, 2100 no), weekly keeps its weekday over 60 weeks, the year rolls exactly
+  when the walk passes December, and every step moves forward (which is what
+  makes the catch-up loop terminate).
+- `platform/alo-store/tests/billing_schedules.rs` — 7 integration tests against
+  the real Postgres with an **injected clock**: catch-up + no double-bill, a
+  paused arrangement resuming into the months it owed, an end date as the last
+  billable date, the per-run bound continuing on the next run, the refusals
+  (empty template, backdated start, deleting one that has billed), the
+  **wrong-tenant** suite (read/update/pause/delete/run all `NotFound`, and B's
+  run raising nothing of A's), and the cross-tenant sweep.
+- `products/mail/alo-jmap/tests/billing_schedules_http.rs` — 3 suites through
+  the real router: the bookkeeper's arc, the edge refusals + the fields that
+  must be ignored, and the shut door (401 on all eight routes without a token,
+  404 on all of them for another tenant, identical to a ghost id).
+- Gates: `cargo fmt` on the files this item touched, `SQLX_OFFLINE=true cargo
+  clippy -p alo-store -p alo-jmap --all-targets` clean, `cargo test -p alo-store
+  -p alo-jmap` green, `npx tsc --noEmit` / `npx eslint` / `npm run build` clean,
+  and the 91 billing web tests still green.
+
+**The wire transcript** (local `alo-jmap` on 127.0.0.1:8080, docker `alo-pg`,
+two bootstrapped tenants; the arrangement is anchored to the **31st** and
+backdated to 2026-05-31, "today" being 2026-08-07):
+
+```
+  the door, with no token:
+GET  /billing/schedules                        -> 401
+POST /billing/schedules                        -> 401
+POST /billing/schedules/run                    -> 401
+  what a request has to state:
+POST /billing/schedules, no customerId         -> 422 "customerId is required to set up a
+                                                       recurring invoice"
+POST /billing/schedules, no startDate          -> 422 "startDate is required: it is the first
+                                                       date this bills on"
+POST /billing/schedules, cadence "daily"       -> 422 "cadence must be one of weekly, monthly,
+                                                       quarterly, yearly"
+POST /billing/schedules, lines []              -> 422 "a recurring invoice needs at least one
+                                                       line; it is what gets billed"
+POST /billing/schedules, start 2020-01-01      -> 422 "a recurring invoice cannot start more
+                                                       than 366 days in the past"
+  setting one up (2 lines, 2 VAT rates):
+POST /billing/schedules                        -> 200  anchorDay 31, next 2026-05-31, due true,
+                                                       ended false, raisedCount 0, EUR, 14 days,
+                                                       totals 29900 net / 3879 VAT / 33779 gross,
+                                                       vatByRate [900: 1800 on 20000,
+                                                                  2100: 2079 on 9900]
+  the run:
+POST /billing/schedules/run                    -> 200  3 drafts — 2026-05-31, 2026-06-30,
+                                                       2026-07-31 — every one status draft,
+                                                       number null, gross 33779, ref PO-2026,
+                                                       terms 14, 2 lines
+POST /billing/schedules/run   (same day)       -> 200  raised 0
+GET  /billing/schedules/{id}                   -> 200  next 2026-08-31, lastRun 2026-08-07,
+                                                       due false, raisedCount 3, 3 invoices
+GET  /billing/invoices                         -> 200  the three drafts, each carrying
+                                                       scheduleId + scheduleDueDate (the badge)
+  the database itself:
+psql billing_invoices WHERE schedule_id=…      ->      3 rows, status draft, number NULL,
+                                                       due dates 05-31 / 06-30 / 07-31
+psql INSERT a 4th for an existing occurrence   ->      ERROR duplicate key
+                                                       "billing_invoices_one_per_occurrence"
+psql billing_schedules                         ->      anchor_day 31, start 2026-05-31,
+                                                       next_run 2026-08-31, last_run 2026-08-07
+  stopping and starting:
+POST /billing/schedules/{id}/pause             -> 200  active false, due false, next unmoved
+POST /billing/schedules/{id}/resume            -> 200  active true, next unmoved
+  what a PATCH may and may not touch:
+PATCH nextRunDate/active/currency/terms/
+      customerId/startDate + name/cadence/end  -> 200  name and cadence and endDate changed;
+                                                       next 2026-08-31, active true, EUR,
+                                                       14 days, customer unchanged
+PATCH endDate null                             -> 200  endDate cleared
+PATCH endDate 2020-01-01                       -> 422  (before the start date)
+DELETE /billing/schedules/{id}                 -> 409  "this recurring invoice has already
+                                                        raised documents; pause it instead of
+                                                        deleting it"
+  the neighbour's door (tenant B):
+GET    /billing/schedules/{A's}       (B)      -> 404
+GET    /billing/schedules/never-existed (B)    -> 404  (identical)
+PATCH  /billing/schedules/{A's}       (B)      -> 404
+DELETE /billing/schedules/{A's}       (B)      -> 404
+POST   .../{A's}/pause, .../resume    (B)      -> 404
+POST   /billing/schedules, A's customer (B)    -> 404
+GET    /billing/schedules             (B)      -> 200  []
+POST   /billing/schedules/run         (B)      -> 200  {"invoices":[]}
+GET    /billing/invoices              (B)      -> 200  []
+GET    /billing/schedules/{A's}       (A)      -> 200  untouched, active, raisedCount 3
+  the background sweep, unprompted:
+alo-jmap startup log                           ->      "recurring invoice run drafted=4"
+                                                       (the hourly sweeper, across tenants,
+                                                        raising the drafts left due by the
+                                                        integration suites)
+```
+
+Cuts and flags:
+
+- **Cut: no standalone "new recurring invoice" form.** An arrangement is set up
+  from an invoice already on screen ("Repeat this invoice"), which supplies the
+  customer, currency, terms and lines. A standalone form needs a second line
+  editor, and a second line editor is a second place for a price to be typed
+  differently from the one on the paper. The API is complete either way —
+  `POST /billing/schedules` takes a template like any document body — so a
+  future form is additive, not a rewrite.
+- **Cut: the template is not editable from the web yet.** `PATCH` accepts
+  `lines` and the store replaces the set under the row lock (wire-verified
+  shape, HTTP-tested), but the Recurring tab's dialog only edits the timing —
+  name, cadence, end date. Editing the lines needs the shared document line
+  editor on a non-document record, which is a real piece of UI work rather than
+  a field. Until then a changed price means a new arrangement, which is one
+  click and leaves a readable history.
+- **Cut: no per-schedule "send the draft" or "issue it for me".** Deliberate,
+  and the point of the feature; see the decision above.
+- **Flagged: fr/nl for the ~35 new billing strings** are not written — the
+  catalogs fall back to English per key, so nothing is blank, and B2.14 is the
+  wave review that translates them.
+- **Flagged: the hourly sweep is unconditional.** It runs in every `alo-jmap`
+  process; a future multi-instance deployment would raise the same drafts from
+  two processes at once. That is *safe* — the row lock and the unique index make
+  the second one a no-op — but it is wasted work, and a real deployment wants a
+  leader election or a dedicated worker. Worth a human decision before scaling
+  out, not before.
+- **Flagged: a schedule for an archived customer still raises drafts.** Creating
+  one is refused (as raising an invoice is), but archiving the customer
+  afterwards does not stop an existing arrangement: the run copies the customer
+  rather than re-resolving it, so the draft appears and is visible to be dealt
+  with instead of failing silently in a sweep nobody is watching. If a tenant
+  wants archiving to pause arrangements, that is a product decision, not a bug.
+- **Flagged: `alo-jmap` is still short of `cargo fmt --check` at HEAD** under the
+  pinned toolchain — pre-existing, and this item again reverted the formatter's
+  churn in the same six untouched files (`base.rs`, `drive.rs`, `spaces.rs`,
+  `tasks.rs`, `wopi.rs`, `workspace_search.rs`) rather than fold a formatting
+  sweep into a feature commit. Everything this item wrote or edited **is**
+  formatted. One dedicated formatting commit by a human is still worth doing.
+- **No new route prefix**: `/billing/schedules` sits under the existing
+  `/billing`, so the production Caddyfile needs nothing new for this item. The
+  standing `/billing` and `/crm` prefix actions are unchanged.
+- **The B2 wave gate is still unmet** (`ROADMAP.md` gates B2 on "B1 live with
+  ≥1 real tenant"), unchanged since B2.02. Nothing here is deployed.
+
+Next item: B2.12 (billing extension — SEPA pain.001 export for approved bills
+from B1.24, with schema-valid XML golden tests).

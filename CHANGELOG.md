@@ -6,6 +6,23 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: bill it once, bill it every month.** Anything you charge on a
+  rhythm — a retainer, a subscription, a hosting fee — can now bill itself.
+  Open the invoice you already send, choose **Repeat this invoice**, pick weekly,
+  monthly, quarterly or yearly and the day it starts on, and alo takes it from
+  there: each time it comes due, a **draft** appears in your invoices with the
+  same lines, the same prices and the same terms. Nothing is ever issued for
+  you — you read it, change what you like, and issue it yourself. Every draft a
+  schedule raised is marked **Recurring** in the list, so you always know why it
+  is there. The new **Recurring** tab shows what you bill on a rhythm, what each
+  one is worth, when the next one falls and how many it has raised; pause one
+  and it stops without losing its place, resume it and it picks up the months it
+  owed. A monthly arrangement anchored to the 31st bills on the last day of
+  February and on the 31st again in March, which is what "monthly" is supposed
+  to mean. alo checks every hour on its own — the **Raise what is due** button is
+  only for when you would rather not wait — and a month can never be billed
+  twice, however often it runs.
+
 - **Ask alo can work your pipeline.** The assistant now proposes three CRM
   actions for you to approve: raise a **deal** (from what you said, or from the
   email you are reading — approving then links that conversation to the new
