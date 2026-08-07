@@ -6,6 +6,15 @@ contracts.
 
 ## Unreleased
 
+- **alo Sites: the visual page editor.** Open a page and build it from
+  sections: pick a block from a gallery of twelve — hero, features, pricing,
+  FAQ, contact form and more, each with a small preview sketch — fill in its
+  content, and it is on the page. Drag sections to rearrange them (or use the
+  arrow buttons), edit any section to change its words, and delete with a
+  confirming second click. Every change is saved the moment you make it, and
+  the stack always shows exactly what is stored; a refusal names the broken
+  rule in plain words and keeps everything you typed.
+
 - **alo Sites: your websites now live in the workspace.** The rail has a new
   **Websites** area: every site you have, with its address and whether it is
   live. Create one by picking a name and claiming an address — the form checks

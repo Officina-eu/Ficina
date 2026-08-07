@@ -531,3 +531,58 @@ Human-action inbox (things the loop must not do itself):
     node_modules) — environment note only.
 - **Next:** S1.12 (web editor core: section stack + per-type prop forms +
   save).
+
+## S1.12 — web editor core: section stack + per-type prop forms (2026-08-07)
+
+- **Shipped:** the visual page editor at `/sites/:siteId/pages/:pageId`
+  (page titles in the site view now link into it). `PageEditorView` — the
+  section stack as cards (type name + a summary line: the section's own
+  heading, or a count of its entries), native drag-reorder with arrow-button
+  fallback, edit, and two-click-confirm delete; `SectionPicker` — the add
+  dialog: twelve tiles, each with an inline-SVG schematic thumbnail, the
+  type's name and a one-liner; `SectionForm` — the per-type prop forms over
+  shared primitives (text/long-text/link/image fields and a generic
+  repeating-entries editor for list props; pricing bullets edit as
+  one-per-line text). **Design:** every gesture is one call to the
+  wire-verified S1.10 section ops (add is form-first → POST, edit → PUT
+  index, reorder → move, delete → DELETE) and the stack always renders the
+  canonical envelope the server answers — no local dirty buffer to lose, and
+  a 422 points at the exact gesture that broke the rule (rejected
+  alternative, recorded in the view doc: a dirty buffer with one atomic
+  save — fewer requests, but lost-work risk and ambiguous refusals). The
+  client re-states NO validation: refusal sentences are the store's,
+  verbatim, and the forms drop untouched-blank optionals/rows to absent keys
+  on save. Supporting files: `sections.ts` (the TS mirror of schema v1),
+  `sectionDrafts.ts` (the editable spelling + toDraft/toSection — props the
+  forms don't offer, a feature's `icon` and a contact form's `form_id`, ride
+  through edits untouched), `sectionInfo.ts` (labels/descriptions/
+  summaries); ~90 new `i18n/en.ts` strings (additive block).
+- **Verified:** `npx tsc --noEmit` clean; `npx eslint` on all changed files
+  zero warnings; **full `npm test` green — 187 tests / 26 files**, incl. 9
+  new editor tests over the recording fake fetch driving the REAL client and
+  views: stack renders stored sections in order; picker offers all twelve;
+  add POSTs exactly the typed section (trimmed, `toEqual`-pinned so blank
+  optionals are ABSENT); a list section sends every added entry; edit opens
+  prefilled and PUTs to the index with the untouched subheading riding
+  along; `form_id` survives an edit; move-down POSTs `{to:1}`; delete needs
+  the second click and one click alone writes nothing; a 422 shows the
+  server's sentence in the open dialog; a stale page id reads as the error
+  with the way back. `npm run build` clean. No new routes and no storage
+  touched → the wire/wrong-tenant gates are the server's (proven in S1.10);
+  the tests pin the exact request shapes sent to that verified surface.
+- **Cuts/flags:**
+  - Image props are blob-id + alt-text inputs until the S1.14 Drive picker
+    (the field's hint says so); a pasted Drive file id works today.
+  - `contact_form.form_id` (S1.16) and the feature `icon` token (renderer
+    ships no icons — S1.06 flag) are preserved-not-offered by the forms.
+  - Repeating entries have add/remove but no inner reorder — the queue's
+    reorder ask is the section stack; revisit if users hit it.
+  - Drag-reorder is native HTML5 DnD, which jsdom cannot drive — the tests
+    exercise the arrow buttons, which share the same `move()` path.
+  - No optimistic concurrency on the read-modify-write ops (S1.10's
+    single-editor flag stands; If-Match is the recorded S2 seam).
+  - The repo's `exactOptionalPropertyTypes` means optional wire props are
+    spelled `?: X | undefined` so computed blanks can be built and then
+    dropped by `JSON.stringify` — noted in `sections.ts`.
+- **Next:** S1.13 (live preview: authenticated draft-render endpoint in
+  alo-jmap + iframe preview pane).
