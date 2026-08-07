@@ -298,7 +298,6 @@ named):
 | `GET /billing/invoices/{id}/pdf`, `.../xrechnung.xml` | renderings (B1.17 — **as built**, B1.23) |
 | `POST /billing/invoices/{id}/send` | draft an email with the PDF attached (B1.18) — **as built** |
 | `GET/POST/PATCH/DELETE /billing/quotes[/{id}]`, `POST .../{send,accept,decline,expire}` | quote lifecycle, and accept → draft invoice (B1.11, B1.12) — **as built** |
-| `GET /billing/reports/vat?from&to` | VAT summary + CSV (B1.20) |
 
 ### Payments (as built, B1.19)
 
@@ -344,6 +343,58 @@ date, not settled, and **not a credit note** — money owed to the customer make
 nobody late. It is judged against the database's own date inside the same
 statement, so no client clock can clear or invent a late invoice, and it shares
 the predicate with the per-row `overdue` flag so the two can never disagree.
+
+### The VAT summary of a period (as built, B1.20)
+
+Two routes, one read:
+
+| Route | Purpose |
+|---|---|
+| `GET /billing/reports/vat?from&to` | what was billed at each VAT rate between two days, both included |
+| `GET /billing/reports/vat.csv?from&to` | the same figures as a file for the accountant |
+
+Separate paths rather than one route with a `?format=`, exactly as `/print` and
+`/pdf` are: a URL that names its representation is the one a browser saves under
+a sensible name and a script quotes without a query string.
+
+Five decisions, each the strict reading rather than the convenient one — this
+is a figure a human is legally answerable for once they copy it onto a return:
+
+- **The period is judged on the issue date**, the day frozen on the document
+  when it was numbered — not the day it was keyed in, and not the day the money
+  arrived. Under the ordinary invoice-based (accrual) scheme that is the tax
+  point, and it is the only date on the document that cannot move afterwards. A
+  **cash-accounting** variant would be a different report, over the payments;
+  it is deliberately not this one and is not silently approximated by it.
+  *Flagged for human review:* member states that operate a cash-accounting
+  regime (and tenants opted into one) need that second report before they can
+  file from alo — B4, with the ledger.
+- **Only documents that stand are counted**: `issued` and `paid`. A `draft` was
+  never raised; a `void` one was cancelled and keeps its number only so the
+  series stays gapless. Neither charged anybody any tax.
+- **Credit notes subtract, and are counted apart.** They already carry negated
+  lines, so they subtract by construction; the separate count exists because a
+  quiet quarter and a heavily corrected one are different facts.
+- **Each document's own rounded VAT is summed**, never the rate re-applied to
+  the summed net. The tax charged in a period is the tax on the documents the
+  customers hold; recomputing it from the total would differ by cents from the
+  paperwork, and a return that disagrees with its own invoices is the defect
+  this rule exists to prevent.
+- **Currencies are never added together.** One group per currency, each
+  self-contained, until the rate snapshots of B1.21 make a conversion honest.
+
+Both `from` and `to` are **required** (`422` otherwise, naming which end is
+wrong): a report that defaulted to a period would put a figure under a heading
+nobody asked for. A period that ends before it starts is the store's `422`.
+
+The CSV is one table — a `rate` row per VAT rate in each currency, then that
+currency's `total` row, with a `row` column saying which kind you are reading.
+Its **column names are a contract, in English**, and its amounts are plain
+decimals with a `.` separator and no grouping: it is read by scripts and by an
+accountant's own tooling, so it does not move with the user's interface
+language. It is served as an `attachment`, `nosniff`, `no-store`, like the PDF.
+It carries **no customer data at all** — currencies, rates, amounts and counts,
+and nothing that names anybody.
 
 ### Sending an invoice (as built, B1.18)
 

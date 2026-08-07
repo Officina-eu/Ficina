@@ -2531,3 +2531,134 @@ Cuts and flags:
 
 Next item: B1.20 (VAT summary per period: the store aggregation,
 `/billing/reports/vat?from&to`, CSV export and a minimal UI).
+
+## B1.20 — the VAT summary of a period, and the file it leaves as
+
+Shipped: the figures a VAT return is copied from — what was billed at each rate
+between two days — as a screen, a JSON route and a CSV file, all from one read.
+
+**Store** — `platform/alo-store/src/billing_vat_report.rs` (new), no new table:
+`billing_vat_period(from, to)` reads the documents that stand in the period and
+every line of all of them (two statements whatever the length of the period),
+computes each document's totals with the same `billing_totals::totals` the
+document, its PDF and its e-invoice are printed from, and sums them per
+currency and per rate through a pure `summarise`. Migration
+`0109_billing_invoices_by_issue_date.sql` adds the partial index the period
+predicate reads on (`tenant_id, issue_date, status` where `issue_date` is not
+null) — the existing indexes are keyed on `created_at`, the day a draft was
+keyed in, which is not the day the report asks about.
+
+Five decisions, each the strict reading, all recorded in
+`docs/design/billing.md` § The VAT summary of a period:
+
+- **The period is judged on the issue date**, the day frozen on the document
+  when it was numbered — the tax point under the ordinary invoice-based
+  (accrual) scheme, and the only date on the document that cannot move
+  afterwards. See the compliance flag below.
+- **Only documents that stand count**: `issued` and `paid`. A draft was never
+  raised; a void one was cancelled and keeps its number only so the series stays
+  gapless. Neither charged anybody any tax.
+- **Credit notes subtract, and are counted apart** (`creditNoteCount`): they
+  already carry negated lines, so they subtract by construction, and a quiet
+  quarter and a heavily corrected one are different facts.
+- **Each document's own rounded VAT is summed**, never the rate re-applied to
+  the summed net. Pinned by a test with three documents of €9.99 at 21 %: the
+  period's tax is 3 × 2.10 = 6.30, where re-applying the rate to 29.97 would
+  give 6.29 — a cent the customers were actually charged.
+- **Currencies are never added together.** One group per currency, ascending by
+  code; a single-currency tenant simply sees one. Conversion waits for the rate
+  snapshots of B1.21.
+
+**HTTP** — `products/mail/alo-jmap/src/billing_reports.rs` (new):
+`GET /billing/reports/vat?from&to` (JSON) and `GET /billing/reports/vat.csv`
+(file), separate paths rather than one route with a `?format=`, exactly as
+`/print` and `/pdf` are. Both ends of the period are **required** — a report
+that defaulted to a period would put a figure under a heading nobody asked for
+— and a malformed one names which end is wrong. The CSV writer is
+`products/mail/alo-jmap/src/csv.rs` (new, RFC 4180: quote only when the field
+forces it, doubled quotes, CRLF records), shared by the reports that follow
+(B2.08, B4.11); formula-injection neutralisation is documented there as the
+caller's rule, because a negative amount begins with `-` and must stay a number.
+
+**Web** — a **VAT report** tab (`web/src/billing/VatReportView.tsx`) with the
+period, the quick picks (`period.ts`: `quarterOf`, `previousQuarterOf`, pure
+and unit-tested), one table per currency, and a **Download CSV** button. The
+period is applied on submit, never on a keystroke, so a half-typed date is
+never a request. The browser adds nothing up: only server figures are rendered,
+and the per-rate gross is deliberately *not* shown, because summing two server
+figures in the client would be the first money arithmetic in the browser.
+`download.ts` saves the fetched text — the route is authenticated, so a plain
+`<a href>` would download a `401` page.
+
+How it was verified — the gate, then the wire against the local backend
+(docker `alo-pg` + the debug `alo-jmap` on 127.0.0.1:8080, two bootstrapped
+tenants):
+
+```
+Rust:  cargo fmt (changed crates only); clippy -p alo-store -p alo-jmap
+       --all-targets clean; cargo test -p alo-store -p alo-jmap green
+       (incl. billing_vat_report: hand-computed quarter, boundaries,
+       currencies, backwards period, three-tenant isolation).
+Web:   npx tsc --noEmit; npm run lint; npm test (167); npm run build — clean.
+
+GET  /billing/reports/vat  (no token)                    -> 401
+GET  /billing/reports/vat.csv (no token)                 -> 401
+GET  /billing/reports/vat                                -> 422 "from is required: a VAT summary is always
+                                                                 for a stated period"
+GET  ...?from=2026-08-07                                 -> 422 "to is required: …"
+GET  ...?from=&to=2026-08-07                             -> 422 "from is required: …"
+GET  ...?from=07/08/2026&to=…                            -> 422 "from must be a date of the form YYYY-MM-DD"
+GET  ...?from=2026-08-07T00:00:00Z&to=…                  -> 422 same (a timestamp is never truncated to a day)
+GET  ...?from=2026-08-07&to=2026-08-06                   -> 422 "the end of the period must not be before
+                                                                 its start"
+GET  .../vat.csv?from=…&to=2026-13-01                    -> 422 "to must be a date of the form YYYY-MM-DD"
+
+Seeded through the wire: INV 10h × €100 @21 %, INV 1 × €250 @9 %, a credit note
+against the first edited to −5h @21 %, one voided document (€8 000) and one
+draft (€9 000).
+
+GET  /billing/reports/vat?from=today&to=today            -> 200 EUR: byRate [9 % 25000/2250,
+                                                                            21 % 50000/10500],
+                                                                 net 75000, vat 12750, gross 87750,
+                                                                 invoices 2, creditNotes 1
+                                                                 (the void one and the draft are absent)
+GET  /billing/reports/vat.csv?from=today&to=today         -> 200 text/csv; charset=utf-8
+                                                                 content-disposition: attachment;
+                                                                   filename="vat-2026-08-07-to-2026-08-07.csv"
+                                                                 x-content-type-options: nosniff
+                                                                 cache-control: no-store
+       parsed back by python csv:
+         row,periodFrom,periodTo,currency,vatRatePercent,net,vat,gross,invoices,creditNotes
+         rate,2026-08-07,2026-08-07,EUR,9.00,250.00,22.50,272.50,,
+         rate,2026-08-07,2026-08-07,EUR,21.00,500.00,105.00,605.00,,
+         total,2026-08-07,2026-08-07,EUR,,750.00,127.50,877.50,2,1
+GET  ...?from=yesterday&to=yesterday                      -> 200 currencies [] / the CSV header row alone
+B:   GET  /billing/reports/vat?from=today&to=today        -> 200 currencies []   (a second tenant, same days)
+B:   GET  /billing/reports/vat.csv?…                      -> 200 header row alone
+A:   the same call afterwards                             -> 200 unchanged: 75000 / 12750 / 2 / 1
+```
+
+Cuts and flags:
+
+- **HUMAN REVIEW (compliance) — cash accounting is not covered.** The report is
+  accrual: the tax point is the issue date. Member states (and tenants) that
+  operate a **cash-accounting** VAT regime declare on the day the money arrived,
+  which is a different report over `billing_payments`. It is deliberately not
+  approximated here — a return filed off the wrong basis is worse than a missing
+  screen — and is flagged in `docs/design/billing.md` for B4, with the ledger.
+- **No "which documents are in this figure" drill-down.** The report answers
+  totals; the invoice list already answers the documents, and a per-document
+  export is B4.11's reporting work. Cut deliberately, not forgotten.
+- **The CSV column names are English and not translated**, on purpose: they are
+  read by scripts and by an accountant's own tooling. What a *person* reads is
+  the screen, which is translated.
+- **fr/nl are missing for the new strings**, on the same seam as the rest of the
+  wave: they land together at B1.27.
+- **HUMAN ACTION (still open) — `/billing` is a new top-level route prefix.**
+  Unchanged since B1.05: the production Caddyfile must add it at the next
+  deploy, or every billing request gets the SPA. This item adds no new prefix
+  (the report routes are under `/billing/reports/*`).
+
+Next item: B1.21 (multi-currency: currency on customer/invoice, an ECB
+reference-rate table with a rate snapshot taken at issue, and the VAT report
+converting with it).

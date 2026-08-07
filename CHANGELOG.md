@@ -6,6 +6,19 @@ contracts.
 
 ## Unreleased
 
+- **alo Billing: the VAT figures for a period, in one screen.** Billing has a
+  new **VAT report** tab: pick two dates — or click **This quarter** or **Last
+  quarter** — and see what you billed at each VAT rate between them, with the
+  tax on it and the totals underneath. It counts the documents that actually
+  stand: issued and paid invoices, dated by the day they were **issued**, with
+  credit notes subtracted; drafts and cancelled documents are not in it, because
+  they charged nobody anything. The tax shown is the sum of the tax on your
+  documents, not the rate re-applied to a total — so the figures agree with the
+  invoices your customers are holding, to the cent. Amounts in different
+  currencies are reported separately and never added together. **Download CSV**
+  saves the same figures as a file for your accountant; it carries rates,
+  amounts and counts, and names no customer.
+
 - **alo Billing: record what your customers have actually paid.** An issued
   invoice now has a **Payments** section: enter what arrived, the day your bank
   shows it, how it came and the reference on the statement line. Part payments
