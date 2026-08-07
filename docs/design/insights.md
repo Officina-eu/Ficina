@@ -133,7 +133,7 @@ already exist (`0100`–`0118`):
 | Dataset | Rows | Measures | Dimensions | Filters |
 |---|---|---|---|---|
 | `billing.documents` | invoices + credit notes that stand (`status IN ('issued','paid')`) | `net`, `vat`, `gross`, `count` | `issue_date` (day/week/month/quarter/year), `customer`, `currency`, `vat_rate`, `status` | `customer`, `currency`, `status`, `vat_rate` |
-| `billing.receivables` | issued/unpaid documents as of a date | `outstanding`, `count` | `age_bucket` (0–30/31–60/61–90/90+), `customer`, `due_date`, `currency` | `customer`, `currency` |
+| `billing.receivables` | issued/unpaid documents as of a date | `outstanding`, `count` | `age_bucket` (not due / 0–30 / 31–60 / 61–90 / 90+), `customer`, `due_date`, `currency` | `customer`, `currency` |
 | `billing.payments` | recorded payments | `amount`, `count` | `paid_on` (day…year), `method`, `customer`, `currency` | `customer`, `method`, `currency` |
 | `crm.deals` | deals, open and closed | `value`, `count`, `win_rate` | `stage`, `owner`, `source`, `outcome`, `created_at`/`closed_at`/`expected_close` (month…year), `currency` | `pipeline`, `owner`, `outcome`, `currency` |
 
@@ -190,11 +190,23 @@ Two consequences the note states out loud:
   applies to a VAT return: a figure is never part-invented, and the tile says
   when part of the period could not be restated.
 
-**Deals are never converted.** `crm.deals` measures group by currency and
-stop there — a forecast has no tax point, so there is no honest rate to
-convert it at (`docs/design/crm.md` § The pipeline report never converts
-currencies). A mixed-currency pipeline tile renders one series per currency;
-it does not add euros to dollars behind a single bar.
+**Which date a period narrows on** is the one thing a spec has to be able to
+say out loud, so BI1.03 added an optional `period_on` to the envelope. Three
+rules, in order: what `period_on` names; failing that the chart's own time
+breakdown (revenue by month over the last year narrows on the month it draws);
+failing that the dataset's declared default — issue date, due date, the day
+the money arrived, and for a deal the day it was raised. "Won this month" is
+about the day a deal *closed*, and it says so; without the field it would have
+had to mean "raised this month and since won", which is a different sentence.
+
+**Deals are never converted, and neither are payments.** `crm.deals` measures
+group by currency and stop there — a forecast has no tax point, so there is no
+honest rate to convert it at (`docs/design/crm.md` § The pipeline report never
+converts currencies). `billing.payments` stops there for the same kind of
+reason, decided at BI1.03: the rate frozen on an invoice is the rate of its
+**tax point**, not of the day the money arrived, and restating cash at it would
+report a figure no bank statement agrees with. Both render one series per
+currency; neither adds euros to dollars behind a single bar.
 
 ### The series that comes back
 
@@ -217,10 +229,17 @@ it does not add euros to dollars behind a single bar.
 - **Labels are ids or user data, never English from the server.** A catalog
   label (`"invoices"`, `"31–60 days"`) crosses as `{ "kind": "catalog", "id":
   … }` and the client translates it; a customer name or a stage name crosses
-  as `{ "kind": "raw", … }` because it is the tenant's own words. Buckets are
-  ISO strings (`2026-01`, `2026-Q1`, `2026-01-15`) formatted per locale in
-  the client. Hardcoded English in a European product is a bug, and a chart
-  axis is not an exception.
+  as `{ "kind": "raw", … }` because it is the tenant's own words. A VAT rate is
+  neither, so BI1.03 added a third kind, `{ "kind": "rate_bp", "bp": 2100 }` —
+  a number the client formats, rather than a percent sign we picked. Buckets
+  are ISO strings (`2026-01`, `2026-Q1`, `2026-W03`, `2026-01-15`) formatted
+  per locale in the client, and carry no label at all. Hardcoded English in a
+  European product is a bug, and a chart axis is not an exception.
+- **A quiet bucket is a zero; an unanswered one is absent.** A month inside a
+  bounded window that earned nothing comes back as `0` rather than as a gap. A
+  *ratio* does not: a month in which nothing closed has no win rate, and
+  printing 0 % there would be a fact nobody stated
+  (`crm_report::win_rate_bp` makes the same distinction).
 - **Top-N with a remainder.** A category dimension over the limit folds the
   tail into one `other` point flagged as such — never a chart that silently
   omits rows.

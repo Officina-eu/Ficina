@@ -6400,3 +6400,119 @@ Cuts and flags:
 Next item: BI1.03 (the query engine — ChartSpec → safe SQL over the whitelisted
 views only, tenant-bound by construction, with the golden series tests and the
 foreign-tenant evaluation proof).
+
+## 2026-08-07 — BI1.03: the chart is compiled, never written
+
+The query engine. A ChartSpec now compiles into reads of the tenant's own rows,
+and nothing a person or a model sends reaches a statement as SQL text: a spec
+names enum variants, each variant maps to a `&'static str` fragment written at
+compile time, and the only caller-controlled things that cross into a query are
+bound parameters. Two files, one responsibility each.
+
+- **`insight_query.rs`** — the only file in the wave with SQL. It resolves the
+  period, refuses filter ids that are not this tenant's, reads the rows, and
+  bounds the work. Four datasets in two shapes: `billing.documents` and
+  `billing.receivables` are **folded** (headers + line figures out of SQL, money
+  computed by `billing_totals` and restated at each document's own frozen rate
+  through `billing_fx` — the same functions the printed invoice, the PDF and the
+  VAT return use); `billing.payments` and `crm.deals` are **grouped** (stored
+  integer columns, summed by Postgres, exactly as `crm_report` already does).
+- **`insight_series.rs`** — the only file that adds money up. Buckets, ISO keys,
+  zero-fill, top-N with a folded tail, the win rate in basis points, labels, and
+  the note a period carries when part of it could not be restated. Pure: no
+  clock, no database, no tenant, which is what lets a golden test state a
+  hand-computed series.
+
+Four decisions inside, each of them a place a plausible chart would have lied:
+
+- **A period has to say which date it means.** `crm.deals` carries three, so the
+  envelope gained an optional `period_on`: what it names, else the chart's own
+  time breakdown, else the dataset's declared default. Without it "won this
+  month" would have had to mean "raised this month and since won" — a different
+  sentence about a different set of deals.
+- **A payment is not converted.** The rate frozen on an invoice is the rate of
+  its *tax point*, not of the day the money arrived; restating cash at it would
+  print a figure no bank statement agrees with. Payments and deals both answer
+  one series per currency; documents and receivables are restated into the
+  accounting currency, with the unconverted ones counted in a note rather than
+  crossed at a guess.
+- **Money that is not yet due is not money that is late.** The aged-receivables
+  breakdown ships five bands rather than the four the note sketched (`not_due`
+  ahead of 0–30 / 31–60 / 61–90 / 90+). Mixing what is merely owed into the
+  first overdue band overstates how much of a ledger is a problem, which is the
+  one thing an aged report exists to say.
+- **A VAT rate is a number, not anybody's language.** Labels gained a third kind
+  (`rate_bp`) beside the catalog id and the tenant's own words, so no percent
+  sign is chosen on the server — and the rate's *bucket key* is zero-padded,
+  because a bucket key is a sort key and unpadded a 9 % column would land after
+  a 21 % one (`"900" > "2100"` as text). And a quiet month inside a bounded
+  window is a `0`, while a month in which nothing closed has **no** win rate at
+  all — the distinction `crm_report::win_rate_bp` already makes.
+
+Also: `billing_fx::restated_into` was extracted from the VAT summary's private
+helper and is now the one place that decides whether a document can be restated
+into a given set of books, so a tile and a return cannot disagree about which
+documents were converted.
+
+Verified:
+
+```
+cargo fmt -p alo-store                                          clean (touched only this item's lines)
+SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap --all-targets   zero warnings
+cargo test -p alo-store  (DATABASE_URL=…@127.0.0.1:5432/alo)    all green
+  · lib unit tests, 24 of them new across insight_series/insight_query/
+    insight_spec/insight_catalog
+  · tests/insight_query_tenancy.rs — 10 tests, all new, on the real Postgres
+```
+
+The golden series are hand-computed in the test file and checked to the cent:
+revenue by month over two documents (one of them two-rate) with a quiet month
+zero-filled between them; net/VAT/gross of the same period; the two-rate
+document splitting its money per rate while still counting once; a receivable
+part-paid and forty days late landing in `age.31_60` while a not-yet-due one
+stays out of the overdue bands; payments bucketed by day, week, month, quarter
+and year — which is also the check that Postgres' `to_char` and Rust's
+`bucket_key` spell a bucket the same way; deals answering one series per
+currency; and a win rate of one won in two closed while the open deal is in
+neither half.
+
+The mandatory wrong-tenant proof, two ways. **`a_spec_is_not_a_capability`**:
+two tenants seeded with different figures are handed the *same* spec and each
+answers its own numbers; a filter naming the other tenant's customer, pipeline
+or user is a typed refusal rather than a silently empty chart (a silently empty
+tile is how a business comes to believe it billed nothing last quarter); an id
+that never existed answers identically; a customer breakdown names only this
+tenant's customers, not even an empty bucket of anybody else's; and a deleted
+tenant's rows are in nobody's chart. **`the_whole_catalog_compiles_and_no_
+combination_of_it_escapes_its_tenant`** walks every dataset × measure ×
+aggregate × breakdown the catalog can express — 40+ charts — runs each against
+a seeded tenant and against an empty one, and asserts every figure the empty
+tenant sees is zero. That test grows with the catalog by construction, which is
+the point: a dataset added without its tenant predicate cannot pass it.
+
+Cuts and flags:
+
+- **The row caps are not exercised live.** `MAX_SCANNED_ROWS` (200 000 document
+  or line rows) and `MAX_GROUPS` (20 000 buckets) are enforced with `LIMIT
+  cap + 1` and a typed refusal that names the fix, but seeding a quarter of a
+  million rows to prove the branch costs more than the branch is worth in a loop
+  iteration. Flagged for a human: if the caps matter enough to test, they should
+  become configurable constants a test can lower.
+- **No CHANGELOG line.** Still nothing a user can see — no route, no screen. The
+  same call BI1.02 made.
+- **Three as-built decisions were written into `docs/design/insights.md` now**
+  rather than left to BI1.08: the five age bands, `period_on`, and the
+  `rate_bp` label kind. A note that says four bands while the code ships five is
+  worse than no note.
+- **`crm.deals` buckets by UTC.** `created_at` and `closed_at` are instants and
+  are bucketed `AT TIME ZONE 'UTC'`, like every other stored instant in alo. A
+  tenant reading a quarter from a distant zone sees a boundary a few hours off
+  their local midnight — the same honest limitation `crm_report` already has.
+- Standing human actions unchanged: `/insights` still needs the production
+  Caddyfile prefix at the next deploy (added at BI1.04, alongside `/billing`,
+  `/crm` and `/audit`), and the unmet ROADMAP gate on B2 ("B1 live with ≥1 real
+  tenant") still stands.
+
+Next item: BI1.04 (the `/insights/*` routes — dashboards/tiles CRUD, `POST
+/insights/eval`, the wire transcript with 401/422, and `/insights` added to the
+vite dev proxy list).
