@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- **Insights: your numbers now have a screen.** A new tab in the workspace,
+  beside Billing and Sales, where the figures your business already produces are
+  charts you can look at: boards you name and arrange, each holding tiles that
+  show one answer as a single figure, a bar, a line, a pie or a plain table.
+  Every number on a board is the server's own — the same arithmetic the printed
+  invoice and the VAT return use — so a chart and a tax return cannot disagree
+  about a cent, and money that could not honestly be restated into one currency
+  is shown as what it is: two figures, side by side, never one invented total.
+  Charts draw in your language, down to the months on an axis, and every chart
+  is also present as a table for a screen reader. Widen a tile, move it, rename
+  it or take it off the board; a chart pinned by a newer version of alo says so
+  instead of leaving a hole. Choosing *which* questions to pin — the gallery and
+  the ready-made business overview — arrives in the next slice.
+
 - **Your website can now keep what visitors send it.** Under the surface, every
   site gained a place for contact forms and their submissions: each message a
   visitor writes — name, email and what they had to say — is stored with the

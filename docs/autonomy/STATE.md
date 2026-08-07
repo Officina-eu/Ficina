@@ -6642,3 +6642,115 @@ Cuts and flags:
 
 Next item: BI1.05 (the web surface — the Insights rail tab, the dashboard grid,
 the five tile renderers over the single ECharts wrapper, i18n en).
+
+## 2026-08-07 — BI1.05: the numbers get a screen
+
+The Insights tab. A rail entry in the workspace (never in alomails — the
+business suite is what aloworkplace.com sells), boards at their own paths so a
+link to one is a link somebody can send, a grid of cards, and the five
+renderers: a single figure, a bar, a line, a pie, a table.
+
+`web/src/insights/**`, one file one responsibility:
+
+- **`types.ts`** — the wire, as the server sends it. Every figure an integer,
+  every label an id we translate or the tenant's own words we do not. A tile's
+  `spec` is `unknown` here on purpose: this wave *renders* what a spec produced;
+  constructing one is the builder's, and that is where it earns a type.
+- **`api.ts`** — the `/insights` client, `platform/rest` failure shape, the same
+  authorized fetch as billing and CRM. It holds only the calls these screens
+  make; `POST /insights/eval` and pinning a tile are not here, because a client
+  method nothing calls is a contract nobody checks.
+- **`useInsights.ts`** — three reads with three lifetimes: the tab strip, one
+  board's tiles, and each tile's **figures on their own**, so a grid draws
+  immediately and fills in as answers arrive rather than waiting for the slowest
+  question on it. Nothing is cached across mounts — the server stores nothing
+  computed either, and a figure a browser kept from ten minutes ago is exactly
+  the stale number the design refuses.
+- **`format.ts`** — the one place a stored integer becomes words: cents through
+  billing's `formatAmount`, basis points through `formatRate`, ISO buckets
+  (`2026-01`, `2026-Q1`, `2026-W03`, `2026-01-15`) built from their parts rather
+  than parsed as instants, catalog ids translated, an unknown id shown as
+  itself rather than mislabelled "Unknown".
+- **`chart/model.ts` + `chart/EChart.tsx`** — the split the design note demands.
+  The model is ours and pure: it aligns the groups against one list of buckets,
+  keeps the server's order, and formats each figure. `EChart.tsx` is the **only
+  file in alo that imports a chart library**, it is behind `React.lazy`, and the
+  build proves the isolation — ECharts is its own 557 kB chunk (190 kB gzip)
+  that a workspace living in Mail never downloads.
+- **`NumberFigure` / `TableFigure` / `ChartFigure` / `TileCard` / `BoardGrid` /
+  `InsightsModule`** — the figure, the rows, the drawing, the card, the board,
+  the module.
+
+Four decisions worth naming:
+
+- **Two currencies are two figures, never one total.** A money answer the server
+  could not honestly restate comes back as one group per currency; the number
+  tile shows both with their codes, a bar/line draws one series per currency
+  behind a legend, and a **pie is drawn once per group** — shares of a whole are
+  shares of one whole, and slices of euros beside slices of dollars would be a
+  picture of nothing. Nothing on the screen adds them up: the browser formats
+  cents, it never sums them.
+- **A canvas is not a document.** Every chart carries the same figures as a
+  visually-hidden table, from the same component the `table` viz uses — so the
+  two cannot drift, and the numbers are readable by someone who cannot see the
+  pixels.
+- **A gap is not a zero.** A bucket a group answered `0` for is drawn as zero; a
+  bucket it was never asked about is drawn as nothing and read as "—". The
+  server already makes that distinction (a quiet month is a zero, a month with
+  no win rate is absent) and the screen keeps it.
+- **A tile from the future renders.** `readable: false` shows the server's own
+  reason on the card and the rest of the board draws; it is never asked for
+  figures, so the `422` BI1.04 defined is never provoked.
+
+Verified:
+
+```
+npx tsc --noEmit -p tsconfig.json                               clean
+npx eslint src/insights src/product/workplace.tsx src/i18n/en.ts  clean
+npm run build (tsc + vite)                                      clean
+npx vitest run                                31 files, 255 tests, all green
+  · src/insights/InsightsModule.test.tsx      11 tests, all new
+  · src/insights/chart/model.test.ts           7 tests, all new
+```
+
+The module tests run the real router, the real module routes, the real client,
+the real grid and the real dialogs against a recorded network whose shapes are
+`tile_json`/`dashboard_json` and `alo_store::Series` verbatim. They prove: the
+tab strip is the boards the server sent and the first opens with no click; a new
+board is created and opened and nothing is invented before the server answers;
+a figure on screen is the server's, in the currency the server stated; two
+currencies are two figures and the sum of them appears nowhere; a chart draws
+*and* puts its months and amounts in the document; an unreadable tile shows its
+reason and its data route is never called; a failed tile read shows the server's
+sentence while the rest of the board still renders; a move is one `POST` with
+the midpoint position (2.5) and no `PATCH` beside it; the first tile cannot move
+earlier; a resize sends `{span}` and nothing else; a removal asks first and
+sends nothing when the answer is no.
+
+Cuts and flags:
+
+- **No tile builder, no gallery, no ask.** BI1.05 is the surface that *renders*
+  pinned questions; choosing which to pin is BI1.06 (gallery + the seeded
+  Business overview) and BI1.07 (ask-to-chart). Until BI1.06 lands, a tenant
+  opening Insights sees "No boards yet" and can make an empty one — which is the
+  honest state of the product, not a dead end being hidden. `api.ts` therefore
+  has no `createTile`/`eval` yet; they arrive with the caller that needs them.
+- **No live browser click-path.** This runs unattended with no browser driver,
+  so the exercised path is the module test above, against the wire shapes
+  BI1.04 verified with curl. No new HTTP route was added by this item, and
+  `/insights` was already in the vite dev proxy list.
+- **`echarts@^6.1.0` is a new web dependency** (Apache-2.0, ADR 0037's named
+  choice, `package.json` + lockfile). It is imported in exactly one file,
+  tree-shaken to bar/line/pie + grid/tooltip/legend + the canvas renderer, and
+  lazily loaded; no geo/map component is imported and nothing it does touches
+  the network.
+- **fr/nl are untranslated** for the new strings — the wave review (BI1.08) owns
+  them, as it did for CRM. English falls back per key, never a blank.
+- Standing human actions, unchanged: **`/insights` must be added to the
+  production Caddyfile at the next deploy** (beside `/billing`, `/crm`,
+  `/audit`), and the ROADMAP gate on B2 ("B1 live with ≥1 real tenant") is still
+  unmet.
+
+Next item: BI1.06 (the gallery of prebuilt specs and the zero-setup Business
+overview, seeded per tenant on first visit — the item that makes the empty state
+above disappear).
