@@ -10485,3 +10485,96 @@ lands; no `/finance` route exists yet.
 
 Next item: B4.04c (credit notes — the exact mirror of the invoice rule, with
 the ledger of original + credit summing to zero).
+
+## 2026-08-08 — B4.04c the correction rule: a credit note is the invoice, mirrored
+
+The second row of the note's posting table, and the smallest diff of the three
+because the right answer turned out to be *not writing a third rule*:
+
+- `platform/alo-store/src/fin_rules.rs` — `credit_note_entry(document,
+  base_currency, accounts, reverses_entry_id)` and `credit_note_original(document)`,
+  both pure; `invoice_issue_entry` and the new one are now two doors onto one
+  private `sales_entry`, which differ only in the [`EntryKind`] and the
+  reversal link.
+- `platform/alo-store/src/fin_booking.rs` — `post_credit_note_issue(id)`: read
+  the document under the tenant's handle, find the original's entry, resolve
+  `ar`/`revenue`/`vat_output` by role, apply the rule, post it. No new reader:
+  a credit note is an invoice row, so `fin_invoice_entry` already answers "is
+  it booked?" for one.
+
+**The decision worth the ink: reuse is the proof, not a shortcut.** A credit
+note's lines are the original's with the quantity negated; `billing_totals`
+rounds half away from zero so `totals(−lines) == −totals(lines)` *per rate*; a
+credit note inherits its original's frozen rate (B1.21's `issue_fx_snapshot`,
+art. 91); and `convert_cents` rounds half away from zero too, so
+`cross(−x) == −cross(x)`. Book the credit note's **own** document through the
+invoice arithmetic and every posting is the negation of the original's posting
+on the same account with the same dimensions in **both** money columns — by
+construction, not by two computations that happen to agree.
+
+*Rejected: negating the original's entry.* It is shorter and it is wrong for
+the case that actually matters — a **partial** credit note, whose lines were
+edited before issue and are the negation of nothing. Booking the document is
+right for both, and it keeps P3 (the ledger books what billing computed) true
+of credit notes as well.
+
+Two rules that follow from the link: the entry names the one it corrects
+(`fin_entries.reverses_entry_id`, so a journal reader walks from a correction
+to what it corrected instead of parsing a memo), and therefore **a credit note
+refuses to book before its original does** (`Conflict`) — the same rule, for
+the same reason, as B4.04b's payment refusing to settle an unbooked invoice.
+Each refusal now names the document the reader is looking at ("a draft *credit
+note* is an intention…"), because `sales_entry` takes its noun from
+`is_credit_note`.
+
+**Verified.** 4 new unit tests in `src/fin_rules.rs` and a new 5-test
+integration suite `tests/fin_credit_note_posting.rs`, against the local
+Postgres:
+
+- the golden — AR credited 1 307.00 against revenue 200.00/900.00 and output
+  tax 18.00/189.00 on their rates, kind `credit_note`, its own number and issue
+  date, keyed on its own id, naming the original's entry;
+- **P4 pure**: posting for posting, the pair sums to zero in both columns, run
+  at the identity rate and at 1.0880 — the rate where the crossed gross
+  (€1 201.29) and the crossed parts (€1 201.28) deliberately disagree;
+- **P4 on the wire**: after the pair every account is flat in *both* columns,
+  the customer's receivables group is zero and **each VAT-rate group is zero**
+  — the note's "per account and per dimension", asserted through
+  `fin_dimension_balances` rather than by summing the entry we just wrote;
+- the partial credit (only the 9 % line given back): three postings, and what
+  it leaves standing is exactly €1 089.00 on the right customer with the 21 %
+  rate untouched;
+- the foreign-currency pair: the credit note is checked to carry 1.0880 (not
+  today's rate) and the receivable comes off at exactly the −120 128 it went on
+  at;
+- idempotency (second booking is `Conflict("already posted")`, not one extra
+  posting), the unbooked-original refusal (with the ledger proven still empty),
+  each rule refusing the other's document naming the rule that owns it, an
+  unknown id as `NotFound`;
+- the mandatory wrong-tenant test: tenant B booking A's credit note is
+  `NotFound`, B cannot see it is booked, B's journal and trial balance are
+  empty, and A's postings are byte-identical after the attempt.
+
+Mutation-checked: dropping the reversal link fails exactly one assertion (the
+pure golden) and nothing else — re-verified green after reverting.
+
+Gates: `rustfmt --edition 2024` on the touched files (the whole-crate
+`cargo fmt` trap on this machine is unchanged); `SQLX_OFFLINE=true cargo clippy
+--workspace --all-targets` clean, zero warnings; `cargo test -p alo-store`
+green end to end (597 lib tests, every integration binary, exit 0).
+
+Cut, named: **still not wired into `issue_billing_invoice`** — which is where
+a credit note is issued too — same reason and same date as B4.04a/b (a chart
+and a books-opening date that do not exist until B4.10).
+
+No CHANGELOG line: still nothing a person can see — no route, no screen. The
+wave's first user-voice line lands with the first visible slice (B4.05b or
+B4.13a).
+
+**HUMAN ACTION (unchanged):** `/finance` still needs the production Caddyfile
+prefix and the `API_PATHS` line in `web/vite.config.ts` when the first route
+lands; no `/finance` route exists yet.
+
+Next item: B4.05a (the expenses model — migration, tenant-scoped CRUD, the
+category→account map that the B4.04 rules will read, and the wrong-tenant
+test).

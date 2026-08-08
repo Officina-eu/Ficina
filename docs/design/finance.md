@@ -576,6 +576,50 @@ automatically, deleting a booked one must post a **reversal** (which
 `fin_journal` already supports) rather than silently leaving its entry
 behind.
 
+### As built (B4.04c), the credit-note rule
+
+`fin_rules::credit_note_entry` is the table's second row, and
+`AccountStore::post_credit_note_issue` is its booking layer. A credit note is
+an invoice row (B1.09), so `fin_invoice_entry` already answers "is it booked?"
+for one — there is no second reader.
+
+- **It is the invoice rule, applied to the credit note's own document.** Both
+  now call one private `sales_entry`, with the kind and the reversal link as
+  the only difference. That is not code-sharing for its own sake: a credit
+  note's lines are the original's with the quantity negated, `billing_totals`
+  rounds half away from zero so `totals(−lines) == −totals(lines)` per rate,
+  a credit note **inherits its original's frozen rate**, and `convert_cents`
+  rounds half away from zero too — so every posting of the mirror is the
+  negation of the original's posting **on the same account with the same
+  dimensions, in both money columns**, by construction rather than by
+  arithmetic that happens to agree.
+- *Rejected: negating the original's entry.* Shorter, and wrong for the case
+  that matters — a **partial** credit note, whose lines were edited before
+  issue and are the negation of nothing. Booking the credit note's own
+  document is right for both, and keeps P3 (the ledger books what billing
+  computed) true of credit notes too.
+- **The entry names the one it corrects** (`fin_entries.reverses_entry_id`),
+  so a journal reader walks from a correction to what it corrected without
+  parsing a memo. Which is why **a credit note refuses to book before its
+  original does** (`Conflict`) — the same rule, for the same reason, as a
+  payment refusing to settle an unbooked invoice.
+- **Each refusal names the document the reader is looking at**: a draft
+  *credit note* is an intention, an ordinary invoice is refused by the
+  credit-note rule and vice versa, each message naming the rule that owns it.
+
+**P4 is now asserted**, in both shapes: pure, in `src/fin_rules.rs`
+(posting for posting, the pair sums to zero in both columns, at the 1.0880
+rate where the crossed whole and the crossed parts differ by a cent), and on
+the wire in `tests/fin_credit_note_posting.rs` — after the pair, every account
+is flat in both columns, the customer's receivables group is zero and **each
+VAT-rate group is zero**, which is P4's "per account and per dimension". A
+partial credit note is asserted the other way round: what it leaves standing
+is exactly the uncredited part, on the right rate and the right customer.
+
+**Not yet wired into `issue_billing_invoice`** — which is where a credit note
+is issued too — for the same reason and with the same date as the other two
+rules.
+
 ### When the books open
 
 A tenant that has been invoicing since B1 has documents older than its
