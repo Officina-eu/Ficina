@@ -78,7 +78,7 @@ small, or a `[!]` note for the human if large.
 - [x] B3.09a Milestones: model + store + timeline rendering over existing boards; tests.
 - [x] B3.09b Project templates: create-from-template copying boards/milestones; tests + wire.
 - [x] B3.10a ★ Projects agent, answers+time: `log_time` (draft) + `project_status_summary` (answer from sources) in the allowlist + executors; structural verify.
-- [ ] B3.10b ★ Projects agent, calendar: `draft_timesheet_from_calendar` (drafts entries from Agenda events for approval); structural verify.
+- [x] B3.10b ★ Projects agent, calendar: `draft_timesheet_from_calendar` (drafts entries from Agenda events for approval); structural verify.
 - [ ] B3.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B3] reconciliation.
 
 ## Wave B4 — alo Finance (Expenses & Accounting core)

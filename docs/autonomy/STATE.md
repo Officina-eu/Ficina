@@ -9323,3 +9323,192 @@ Next item: B3.10b (★ Projects agent, calendar — `draft_timesheet_from_calend
 drafts one entry per Agenda event in a range for approval, all-day events
 skipped and overlaps flagged, the project stated by the caller and never
 inferred; structural verify).
+
+## 2026-08-08 — B3.10b a forgotten week, filled in from the diary
+
+**Item.** B3.10b ★ Projects agent, calendar: `draft_timesheet_from_calendar` —
+one *proposed* entry per meeting in the caller's own Agenda over a range of
+days — in the ADR 0034 allowlist with its executor, verified structurally; and
+the one-click accept/discard B3.10a journalled as owed to this item, since this
+is the tool that drafts several entries at once and therefore needs it.
+
+**What shipped.**
+
+- `platform/alo-ai/src/agent_projects.rs` — the third Projects tool: its name
+  in `PROJECTS_TOOLS` (so `is_agent_tool` allows it), its description, and a
+  fourth rule in the product paragraph. The rule is the one nothing downstream
+  catches: **a meeting is evidence of an hour, never of a project.** The
+  engagement is the user's own word and only the *days* are read from the diary
+  — a model allowed to infer the engagement from a meeting's title would
+  eventually charge one customer for a call with another. The description also
+  states the 31-day bound, so a wider ask is narrowed in the conversation rather
+  than refused after the fact, and says all-day entries are left out.
+- `products/mail/alo-jmap/src/agent_timesheet.rs` (new) — the executor, in its
+  own module rather than a third one in `agent_projects.rs`: the two tools there
+  each touch one record, and this one turns a *period of somebody's diary* into a
+  set of proposals. The deciding is pure (`plan_drafts`) and the writing is a
+  loop over what it decided, so every rule below is tested without a calendar, a
+  store or a model. It resolves the project through the same
+  `agent_projects::resolve_project` (two readings of "the Hansen project" would
+  be two ways to reach the wrong engagement), reads the range, reads the events,
+  the caller's existing entries and the range's locked weeks, decides the whole
+  plan, and only then writes.
+- **Order of decisions, each one a mistake it prevents.** Outside the range
+  (`events_in_range` answers with everything *overlapping* the window, so a
+  meeting that began the evening before belongs to that day's timesheet, not
+  this one) → all-day → no length → longer than a day (`MINUTES_MAX`; a
+  multi-day block is a period, not a sitting) → **already drafted** → the week
+  is locked → the batch limit. Already-drafted sits before the lock
+  deliberately: an hour already in a submitted week reads as *there*, and
+  answering "that week is submitted" would send the person looking for a problem
+  they do not have. Wire-checked in both orders.
+- **Running it twice drafts nothing twice.** Each entry remembers the occurrence
+  it came from (`source_kind = "event"`, which B3.03's store has carried unused
+  since it was written). A one-off's handle is its id; every occurrence of a
+  series shares that id, so the slot is appended (`{id}@{RFC 3339}`) — without
+  it the weekly stand-up would be drafted once and reported as done for the rest
+  of the month. Any state counts as drafted: pending, accepted, even invoiced.
+- **What was left out is part of the answer.** Every skipped meeting comes back
+  with its title, its day and a machine-readable reason (`allDay`,
+  `alreadyDrafted`, `noDuration`, `tooLong`, `weekLocked`, `limitReached`,
+  `outsideRange`); the words for them are in `i18n/en.ts`, because a sentence
+  composed in the server is a user-facing string in one language (CLAUDE.md).
+  The 50-entry batch cap reports the remainder rather than truncating silently.
+  Overlapping meetings are all drafted and flagged: which of two double-booked
+  calls was the work is the user's to say.
+- **Web.** `AgentActionCard` previews the proposal (project + the range, which is
+  what the user is really approving) with the note that says what approving does;
+  `AgentResultCard` renders the new `timesheetDraft` receipt — the drafted lines
+  with their days and durations, the left-out ones with their reasons, the
+  batch's own total as the server counted it. `WeekView` now decides about a
+  suggestion where it lists it: **Accept** (the write that prices the hour and
+  moves it into the week's totals) and **Discard**, side by side, with the edit
+  button in their place for a real entry — a suggestion is accepted or discarded,
+  never corrected, and neither verb asks "are you sure" (the interface laws'
+  undo-over-confirm: a discarded suggestion costs nothing an agent cannot draft
+  again). `api.ts` gained `acceptTime` / `rejectTime` over the routes B3.10a
+  shipped.
+
+**How verified.**
+
+- Rust: `rustfmt --edition 2024` on the new/changed files (nothing else — see
+  the standing `cargo fmt` trap); `cargo clippy -p alo-ai -p alo-jmap
+  --all-targets` clean; `cargo test -p alo-ai -p alo-jmap --lib` green (426 +
+  42), plus `--test tenant_isolation` green.
+- Web: `npx tsc --noEmit`, `npx eslint` on the changed files, `npm run build` —
+  all clean. The two new buttons were **not** clicked in a browser this
+  iteration: the routes behind them were exercised by curl (below), including
+  the refusals a click can produce, and the grid's own reload path is the one
+  B3.07 shipped.
+- New unit tests: a meeting becomes one entry on the day it started (90 minutes,
+  whole); what is left out says why rather than vanishing (all-day, zero-length,
+  multi-day, and one starting before the range); a meeting already drafted is
+  never drafted twice and a second whole run drafts nothing; every occurrence of
+  a series is its own meeting and its handle is stable; meetings on top of one
+  another are flagged and not resolved; a submitted week takes no new hours and
+  an hour already in it reads as already-drafted, not as the lock; a diary bigger
+  than the batch reports the rest; a range is one day unless a second is stated,
+  is never backwards and never a year. The alo-ai side asserts the calendar tool
+  says where a project comes from, what it leaves out, that it is a suggestion,
+  and that the 31-day bound is in the words the model reads.
+- Wire-verified against the local backend (docker `alo-pg`, debug `alo-jmap` on
+  `127.0.0.1:8080`, two fresh tenants `wireb310b` / `wireb310bx`, real password
+  tokens). **No model was called** — every proposal was posted straight to
+  `/ai/agent/execute`, which is what "structural verify" means here:
+
+```
+POST /ai/agent/execute                      (no token)  → 401
+POST /ai/agent/execute  tool draft_timesheet            → 400 "unknown tool"
+
+POST … no project                → 422 "which project this is about is required"
+POST … project "Hovercraft"      → 422 "no project of yours is called Hovercraft"
+POST … no from                   → 422 "the first day of the range is required"
+POST … from "yesterday"          → 422 "from must be a day written YYYY-MM-DD"
+POST … from 08-07, to 08-03      → 422 "the last day of the range must not be
+                                        before its first"
+POST … a whole year              → 422 "a calendar draft covers at most 31 days
+                                        at a time, and this asks for 365 …"
+POST … tenant B, A's project name → 422 "no project of yours is called Aurora
+                                         rollout"          (name-scoping proven)
+
+POST … Aurora rollout, 07-27→07-31 → 200 drafted 4 (270 min), overlaps 1,
+                                         skipped 0
+  the timesheet:  90m proposed rate=null  Aurora kickoff
+                  60m proposed rate=null  Vendor call        (overlaps=true)
+                  60m proposed rate=null  Data migration review
+                  60m proposed rate=null  Last week call
+                  totals: minutes 0, billable 0, proposed 270
+
+POST … the same call again        → 200 drafted 0, every meeting alreadyDrafted
+POST … a week with an all-day,
+       a zero-length and a
+       two-day meeting in it       → 200 skipped allDay / noDuration / tooLong
+
+POST /projects/time/{id}/accept   (tenant B)  → 404      (a colleague's entry
+POST /projects/time/{id}/accept   (owner)     → 200        is absent, not denied)
+POST /projects/time/{id}/accept   (again)     → 404      (no double pricing)
+POST /projects/time/{id}/reject   (owner)     → 200 {"rejected":true}
+  the week after deciding: 60m proposed=false, totals minutes 60, proposed 0
+POST … draft again, billable:false → 200 the accepted meeting is alreadyDrafted,
+                                         the discarded one comes back, billable
+                                         false is honoured
+
+POST /projects/weeks/2026-07-27/submit  → 200 submitted
+POST … draft that week again      → 200 drafted 0; the four already there read
+                                        alreadyDrafted, the meeting added after
+                                        the submit reads weekLocked
+
+a weekly series (FREQ=WEEKLY;COUNT=3):
+POST … 09-07→09-27                 → 200 drafted 3 (07th, 14th, 21st)
+POST … the same call again         → 200 drafted 0, three × alreadyDrafted
+  as stored: state=proposed, source_kind=event,
+             source_id=Tc2lmNJ9UNLLYq63Ma9Hyg@2026-09-14T08:00:00Z, rate null
+```
+
+**Cuts and flags.**
+
+- **A declined meeting is drafted like any other.** The obvious fifth skip
+  reason — "you said no to this one" — is not there: `attendee_status` is the
+  organizer's record of *guests'* replies, and the caller's own RSVP on an
+  invitation they received is not a field this store keeps. Adding it means a
+  model of the caller's own participation, which is a calendar item and not this
+  one's. A declined meeting therefore appears as a suggestion the person
+  discards in one click.
+- **Days are UTC days**, as everywhere else on this surface (standing since
+  B3.09a): an event is filed under the day it *starts* in UTC and the range's
+  bounds are UTC midnights, so a late-evening meeting in a far-east zone can land
+  on the neighbouring day. Making it the caller's day means sending the zone,
+  which is the same cross-cutting decision every "today" in the suite is waiting
+  on.
+- **A store refusal partway through leaves the earlier proposals written.** The
+  plan is decided before anything is written and every foreseeable refusal is
+  decided there, so this is the DB-failure path only; the rows it leaves are
+  suggestions in nobody's total, which the user discards like any other. A
+  transaction spanning the batch would need a store function that writes many
+  entries at once — a store change this item did not need.
+- **The agent's own writes are still unaudited** (standing since B3.10a, and
+  B1.25/B2.10 before it): `/ai/agent/execute` is outside the audited modules, so
+  a drafted batch leaves no audit row while each accept and reject does. Making
+  the execute route audit per tool is a cross-cutting item for a human to weigh.
+- **fr/nl not written** for this item's ~20 new strings (`agentDrafted…`,
+  `projectsAcceptEntry…`) — B3.11's sweep, as every B3 item since B3.05 left
+  theirs.
+- **`docs/design/projects.md` is still untouched** (standing since B3.05). Owed
+  to B3.11's as-built pass, now six things: the `/projects/milestones/{id}` route
+  spelling, `due_on` being required, reaching being its own route, the template
+  routes being `/projects/templates/{project_id}`, the proposal routes being
+  `GET /projects/time/proposals` + `POST /projects/time/{id}/accept|reject`, and
+  this item's tool being a *range* over the diary (`from`/`to`, at most 31 days,
+  one entry per occurrence, `source_kind = "event"`) rather than the note's
+  single `POST /projects/time/propose` batch verb — which never appeared, because
+  the agent seam is the only door a drafted hour needs.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates B2
+  on "B1 live with ≥1 real tenant"; B1, B2, BI-1 and all of B3's code are
+  complete and undeployed, and deploying is a human action.
+- **`/projects` still needs the production Caddyfile prefix** at the next deploy
+  (standing since B3.04). No new top-level prefix was added here — the tool
+  executes through `/ai/agent/execute`, which is already proxied.
+
+Next item: B3.11 (wave review: fr/nl for every B3 string, CHANGELOG sweep,
+`docs/design/projects.md` as-built including the six items above, features.md
+[B3] reconciliation).

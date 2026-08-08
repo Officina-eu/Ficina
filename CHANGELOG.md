@@ -6,6 +6,22 @@ contracts.
 
 ## Unreleased
 
+- **Fill in a forgotten week from your calendar.** Ask the assistant for
+  *"my timesheet on Aurora from the 27th to the 31st"* and it suggests one entry
+  per meeting in your own Agenda over those days — the meeting's title as the
+  note, its length as the duration, to the minute. Every one of them is a
+  **suggestion**: they are in no total and no submitted week until you accept
+  them, one click each, in My week — where discarding one is a click too, and
+  neither asks you to confirm. The project is the one you named and never a
+  meeting's title, so a call with one client can't be charged to another. What
+  it leaves out is part of the answer: all-day entries (a day marked *Leave* is
+  not an hour worked), anything already in your timesheet from a previous ask,
+  meetings in a week you have already submitted, and anything with no length —
+  each listed with the reason. Ask twice and nothing is doubled, not even the
+  Monday stand-up you have every week. Meetings that overlap are all suggested
+  and flagged as overlapping: which of two double-booked calls was the work is
+  yours to say, not ours to guess.
+
 - **Ask alo about a project, or tell it what you worked on.** Two new things the
   assistant can do. *"How is the Hansen relaunch going?"* answers with the
   project's own figures — hours logged and how much of them are billable, the
