@@ -77,7 +77,8 @@ small, or a `[!]` note for the human if large.
 - [ ] B3.08 Project profitability report (hours×rates vs budget) + CSV.
 - [ ] B3.09a Milestones: model + store + timeline rendering over existing boards; tests.
 - [ ] B3.09b Project templates: create-from-template copying boards/milestones; tests + wire.
-- [ ] B3.10 ★ Projects agent tools: `log_time` (draft), `project_status_summary` (answer from sources), `draft_timesheet_from_calendar` (drafts entries from Agenda events for approval) — structural verify.
+- [ ] B3.10a ★ Projects agent, answers+time: `log_time` (draft) + `project_status_summary` (answer from sources) in the allowlist + executors; structural verify.
+- [ ] B3.10b ★ Projects agent, calendar: `draft_timesheet_from_calendar` (drafts entries from Agenda events for approval); structural verify.
 - [ ] B3.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B3] reconciliation.
 
 ## Wave B4 — alo Finance (Expenses & Accounting core)
@@ -109,7 +110,8 @@ small, or a `[!]` note for the human if large.
 - [ ] B4.13a Web finance: module skeleton + expenses flow (submit/approve/reimburse screens).
 - [ ] B4.13b Web finance: bank import + reconciliation screen.
 - [ ] B4.13c Web finance: CoA editor + the four report pages with CSV buttons.
-- [ ] B4.14 ★ Finance agent tools: `categorise_transactions` (draft), `vat_summary` (answer), `flag_anomalies` (answer with citations) — structural verify.
+- [ ] B4.14a ★ Finance agent, categorise: `categorise_transactions` (draft) — allowlist + executor + structural verify.
+- [ ] B4.14b ★ Finance agent, answers: `vat_summary` + `flag_anomalies` (answers with citations); structural verify.
 - [ ] B4.15 Wave review: fr/nl, CHANGELOG, design as-built, features [B4] reconciliation.
 
 ## Wave B5 — alo Inventory (Purchasing, Stock, Orders)
@@ -117,26 +119,38 @@ small, or a `[!]` note for the human if large.
 - [ ] B5.01 Design note `docs/design/inventory.md` — product/stock/move model (moves-only, no in-place quantity edits), locations, PO/SO state machines.
 - [ ] B5.02 Migration + store: product catalog upgrade (SKU, barcode, stocked-vs-service, purchase price, photos via Drive) building on B1.04 + tests.
 - [ ] B5.03 Suppliers (+ per-supplier price/lead time) + tests.
-- [ ] B5.04 Locations + stock moves (`inv_moves`: from/to/qty/reason/ref; on-hand = sum, cached per location with consistency test) + adjustments with reason codes.
-- [ ] B5.05 Purchase orders: draft→sent→received (receiving writes moves + creates bill draft, three-way-lite link) + state tests + routes.
-- [ ] B5.06 Sales orders: order→delivery note (moves out)→invoice draft (B1) + routes + arc wire-verified.
+- [ ] B5.04a Locations + stock moves: `inv_moves` (from/to/qty/reason/ref), on-hand = sum with cached per-location consistency test; wrong-tenant tests.
+- [ ] B5.04b Stock adjustments: manual adjustment moves with reason codes + routes + wire.
+- [ ] B5.05a Purchase orders, lifecycle: model + draft→sent (PDF via alo Mail draft) + state tests + routes.
+- [ ] B5.05b Purchase orders, receiving: received → stock moves + bill draft created (three-way-lite link); arc wire-verified.
+- [ ] B5.06a Sales orders: model + order→delivery note (stock moves out) + routes + tests.
+- [ ] B5.06b Sales orders → invoice: delivery→invoice draft (B1 bridge); full arc wire-verified.
 - [ ] B5.07 Reorder rules (min/target per product/location) + shortage query feeding agent proposals.
-- [ ] B5.08 Stocktake: count sheet snapshot → variance list → adjustment batch.
-- [ ] B5.09 Web: inventory module — catalog, stock by location, PO/SO flows, barcode scan input (camera → keyboard-wedge fallback).
+- [ ] B5.08a Stocktake, counting: count-sheet snapshot + variance list; tests.
+- [ ] B5.08b Stocktake, applying: variance → adjustment batch (B5.04b moves); wire.
+- [ ] B5.09a Web inventory: catalog + stock-by-location screens.
+- [ ] B5.09b Web inventory: PO + SO flow screens.
+- [ ] B5.09c Web inventory: barcode scan input (camera + keyboard-wedge fallback).
 - [ ] B5.10 ★ Inventory agent tools: `reorder_proposals` (draft POs), `stock_answer` — structural verify.
 - [ ] B5.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B5] reconciliation.
 
 ## Wave B6 — alo HR
 
 - [ ] B6.01 Design note `docs/design/hr.md` — employee model, leave policies/balances, approvals, recruitment pipeline; explicit EU AI Act posture (screening = suggest-only + logged human decision).
-- [ ] B6.02 Migration + store: employees (person data, role, team, manager→org chart, linked user account nullable, documents via Drive HR-scope) + tests incl. access scoping (HR role only).
-- [ ] B6.03 Leave: policies (annual/sick/unpaid, accrual per year), request→approve flow, balance math property-tested, team absence feed into Agenda.
+- [ ] B6.02a Employees, records: migration + store (person data, role, team, manager, linked user) + HR-role access scoping tests.
+- [ ] B6.02b Employees, org + documents: org chart from manager links + contract PDFs in Drive under HR-only permissions; routes + wire.
+- [ ] B6.03a Leave, the math: policies (annual/sick/unpaid, accrual per year) + balance computation property-tested.
+- [ ] B6.03b Leave, the flow: request→manager approval + balances applied + team absence feed into Agenda; routes + wire.
 - [ ] B6.04 Public-holiday calendars per country (seed data + per-tenant selection) affecting balance math.
 - [ ] B6.05 Onboarding/offboarding checklists (template → instance per employee, ties to admin account creation as manual steps).
-- [ ] B6.06 Recruitment-lite: openings + applicant pipeline board (CV file, notes, stages) on the shared board pattern.
+- [ ] B6.06a Recruitment, model: openings + applicants (CV in Drive, notes, stages) + routes + scoping tests.
+- [ ] B6.06b Recruitment, board: applicant pipeline board UI on the shared board pattern.
 - [ ] B6.07 Approvals inbox: one manager view unifying leave/expenses/timesheets (B3/B4 hooks) with counts.
-- [ ] B6.08 Web: HR module — directory + org chart, leave request/approve, absence calendar, recruitment board.
+- [ ] B6.08a Web HR: directory + org chart.
+- [ ] B6.08b Web HR: leave request/approve screens + absence calendar.
+- [ ] B6.08c Web HR: recruitment board screen + approvals-inbox integration.
 - [ ] B6.09 ★ HR agent tools: `who_is_off` (answer), `draft_letter_from_template` (draft) — screening explicitly absent per design note; structural verify.
 - [ ] B6.10 Payroll export: per-period CSV of salary-relevant data (no calculation) with a per-country column mapping config.
 - [ ] B6.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B6] reconciliation.
-- [ ] B6.12 FINAL: cross-module integration pass — the "one point" arcs wire-verified end-to-end on local: quote→invoice→payment→ledger; deal→won→invoice; hours→invoice; PO→receive→bill→reconcile; leave→Agenda. STATE.md closes with the full arc transcript. Then `LOOP COMPLETE`.
+- [ ] B6.12a FINAL arc, money: quote→invoice→payment→ledger and deal→won→invoice, wire-verified end-to-end on local; transcript in STATE.md.
+- [ ] B6.12b FINAL arc, operations: hours→invoice line, PO→receive→bill→reconcile, leave→Agenda — transcripts; then `LOOP COMPLETE`.
