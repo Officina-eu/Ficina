@@ -6,6 +6,24 @@ contracts.
 
 ## Unreleased
 
+- **What an engagement is worth, against what it was budgeted for.** Projects
+  has a **Reports** tab: pick two dates and it shows every client project you
+  can see — the hours worked in that period, how many were chargeable, what
+  they are worth, how much of that is already on an invoice and how much is
+  still to invoice, with a bar for the budget beside it. The bar counts
+  everything up to the end of the period, not just the period, because that is
+  what a budget is spent by; the hours above it are the period's, and the
+  screen says so rather than leaving you to work out which is which. Hours
+  nobody has priced are counted and named ("45m not priced") instead of being
+  quietly valued at nothing, so the gap is somewhere you can see it. Work
+  priced in two currencies is shown as two lines and never added together.
+  Every figure is the server's, computed from the very rows an invoice would
+  carry, so what this screen says and what the document says are the same
+  number. There is a **Download CSV** beside it for a spreadsheet or an
+  accountant, carrying the same figures and no customer or personal data at
+  all. It says *value*, never *margin*: what an hour costs to deliver is a
+  question the ledger will answer, and it is not being guessed at here.
+
 - **Projects is now a place you can open.** A new tab in the workspace shows
   every project you can see as *client work*: who it is worked for, what an
   hour on it is worth, how many hours have gone into it, and a bar saying how

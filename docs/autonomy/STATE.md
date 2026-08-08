@@ -8564,3 +8564,179 @@ psql: 3 time_entries rows survive, project_clients rows = 0
 Next item: B3.08 (the project profitability report — hours × rates vs budget,
 per project, per currency, with the CSV beside it; currencies grouped and never
 converted, `crm_report`'s rule).
+
+## B3.08 — the profitability report: what an engagement earned, against what it was budgeted
+
+Shipped: `GET /projects/reports/profitability[.csv]?from&to[&projectId]` over a
+new store module, and a **Reports** tab in the Projects module rendering it. One
+row per engagement per currency: the period's minutes (billable and not), what
+the billable ones are worth at their snapshot rates, how much of that is already
+on a document, and how much of the budget has gone. CSV beside it, columns in
+English, no customer and no person anywhere in the file.
+
+**Store** — `platform/alo-store/src/time_report.rs` (new, ~300 lines + tests):
+`AccountStore::project_profitability(from, to, project?)`, one grouped statement
+by (engagement, rate, currency) with the fold in pure Rust; `ProjectProfitability`
+carrying `by_currency: Vec<ProfitabilityCurrency>`, the consumption methods, and
+`profitability_totals` for the report's bottom line. Money folds through
+`time_hours::hours_net_cents` over the minutes the database summed — one
+conversion per group, never per entry — so a figure here and a figure on the
+printed invoice are the same figure.
+
+**Routes** — `products/mail/alo-jmap/src/projects_reports.rs` (new), registered
+in `server.rs` before the `/projects/{id}` capture; `reports` joins the reserved
+segments. No audit: both routes are reads.
+
+**Web** — `web/src/projects/ReportView.tsx` (new), the tab in `ProjectsModule`,
+the two API methods and the report types, the `projects*Report*` strings in
+`i18n/en.ts` (fr/nl at B3.11), and the report's own classes in the module CSS.
+
+**Four decisions worth the ink.**
+
+1. **Two datings on one screen, and the screen says so.** A period bounds work; a
+   budget does not. Each engagement therefore carries the period's figures *and*
+   to-date figures (everything up to and including `to`), and the budget bar is
+   drawn from the latter. Rejected: bounding consumption by the period too, which
+   reads tidier and reports a five-year engagement as 4% spent forever. Also
+   rejected: consumption to *now*, which would make a closed quarter's report move
+   every time it is re-read — two reads of a finished quarter must agree.
+
+2. **The report is over ENGAGEMENTS, not over every project.** A board with no
+   client facts has no customer, no rate and no budget, so every column but
+   "minutes" would be empty; internal boards are absent, and asking for one by id
+   is the same `404` a neighbour's id gets. Rejected: listing them too, which
+   turns a profitability report into an hours-by-project report and buries the
+   engagements among the internal boards. Wire-verified: a team board with 200
+   logged minutes and no client facts does not appear.
+
+3. **The money budget is measured only in the engagement's own currency.**
+   `budget_cents` is stated in the currency the client facts carry; hours priced
+   in another currency appear in `by_currency` and are deliberately **not** in
+   `to_date_net_cents`. Converting them would need a rate somebody picked today
+   for money agreed months ago — `crm_report`'s rule, and this module's for the
+   same reason. On the wire: 120 EUR minutes and 120 USD minutes on one
+   engagement answer two value rows, and only the euros move the budget bar.
+
+4. **Unrated billable hours are their own figure, never a zero.** An unpriced
+   engagement is legal (`project_clients`), so its chargeable minutes are counted
+   in `unrated_minutes` and priced in no column — the CSV leaves the cells empty
+   rather than writing `0.00`, and the screen names them under the project
+   ("45m not priced"), where somebody can do something about them. Pricing the
+   engagement afterwards does not restate them: a rate is snapshotted when an hour
+   is written, proven in the tenancy suite.
+
+**How it was verified.**
+
+```
+cargo clippy -p alo-store -p alo-jmap --all-targets   clean (zero warnings)
+cargo test   -p alo-store --lib time_report           15 pure fold tests
+cargo test   -p alo-store --test time_report_tenancy   7 tests, real Postgres
+cargo test   -p alo-jmap  --lib projects_reports      11 JSON/CSV/query tests
+npx tsc --noEmit · npx eslint · npm run build · npm run test    all clean
+                                                      (282 web tests pass)
+```
+
+The wrong-tenant proof (`time_report_tenancy.rs`): tenant A's engagement is
+absent from B's list, `Some(&theirs)` is `NotFound` for B and `Some(&ours)` is
+`NotFound` for A, and an id that never existed anywhere answers identically — no
+existence oracle. Plus the second claim this aggregate makes: a colleague's hours
+on a shared engagement are counted, both readers see the identical row, and the
+type has no per-person field to ask a breakdown with.
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, two bootstrapped tenants (`b308wire`, `b308wireb`), tokens
+through the real PKCE authorization-code flow.
+
+```
+GET /projects/reports/profitability      (no bearer)  → 401
+GET /projects/reports/profitability.csv  (no bearer)  → 401
+
+POST /billing/customers  Acme GmbH / DE / EUR         → 200
+POST /tasks/projects     Sunrise portal               → 200
+PUT  /projects/clients/{p}  rate 9500, 6000 min,
+                            1 000 000 cents           → 200
+POST /projects/time  07-06 600m billable              → 200  rate 9500 EUR
+POST /projects/time  08-03  90m billable              → 200
+POST /projects/time  08-04  30m billable              → 200
+POST /projects/time  08-05  45m NOT billable          → 200
+POST /projects/time  08-06 120m rateCents 10000 USD   → 200
+POST /projects/time  09-02 480m billable              → 200
+
+GET /projects/reports/profitability?from=2026-08-01&to=2026-08-31   → 200
+    minutes 285          = 90 + 30 + 45 + 120, August only
+    billableMinutes 240  = the 45 non-billable are outside it
+    byCurrency  EUR 120 min → 19000 net   (2h × €95.00)
+                USD 120 min → 20000 net   (2h × $100.00) — never added
+    toDateMinutes 885    = July's 600 + August's 285; September's 480 excluded
+    toDateNetCents 114000 = 12h × €95.00, the EUR hours only
+    hoursConsumptionBp 1475   = 885 / 6000
+    budgetConsumptionBp 1140  = 114000 / 1000000
+    budgetRemainingCents 886000
+    totals: the same two currency rows, still apart
+
+GET …/profitability.csv?from=2026-08-01&to=2026-08-31               → 200
+    content-type: text/csv; charset=utf-8
+    content-disposition: attachment; filename="profitability-2026-08-01-to-2026-08-31.csv"
+    x-content-type-options: nosniff · cache-control: no-store
+    row,project,periodFrom,periodTo,currency,minutes,billableMinutes,unratedMinutes,
+      value,billed,unbilled,toDateMinutes,toDateValue,budgetMinutes,budgetValue,
+      hoursUsedPercent,budgetUsedPercent
+    hours,"Discovery, phase 1",…,EUR,75,75,75,,,,75,0.00,,,,   ← comma quoted,
+      an unpriced engagement's budget cells EMPTY, not 0
+    hours,Sunrise portal,…,EUR,285,240,0,,,,885,1140.00,6000,10000.00,14.75,11.40
+    value,Sunrise portal,…,EUR,,120,,190.00,142.50,47.50,,,,,,
+    value,Sunrise portal,…,USD,,120,,200.00,0.00,200.00,,,,,,
+    totalHours,,…,,360,315,75,,,,,,,,,
+    totalValue,,…,EUR,,120,,190.00,142.50,47.50,,,,,,
+    totalValue,,…,USD,,120,,200.00,0.00,200.00,,,,,,
+    (the 142.50 billed is one planted invoice link on the 90-minute entry:
+     1.5h × €95.00, and 47.50 still to invoice — the subtraction is the
+     server's)
+    (a team board with 200 logged minutes and NO client facts appears nowhere)
+
+GET …?projectId={p}  →  content-disposition names the engagement id
+GET …  no from                → 422 "from is required: a report is always for a
+                                     stated period"
+GET …  no to                  → 422 "to is required: …"
+GET …  from=01/08/2026        → 422 "from must be a date of the form YYYY-MM-DD"
+GET …  to=2026-08-31T00:00:00Z→ 422 "to must be a date of the form YYYY-MM-DD"
+GET …  from=08-31&to=08-01    → 422 "the period ends before it starts"
+GET …  projectId=no-such-project              → 404 not found
+GET …  projectId={tenant A's}  as tenant B    → 404  (json AND csv)
+GET …  whole report            as tenant B    → 200  {"projects":[],"totals":
+                                                      {…,"byCurrency":[]}}
+```
+
+**Cuts and flags.**
+
+- **No per-person column.** `project_hours.rs`'s module note says in passing that
+  "the admin column belongs to B3.08's report, behind `require_admin`". It does
+  not: the design note's own description of this report is project-grain, and
+  `docs/features.md` names it "hours × rates vs budget, per project". A per-person
+  breakdown is not built, is not in features.md, and would need its own item and
+  its own works-council conversation. The stray sentence in `project_hours.rs`
+  should be corrected in B3.11's sweep.
+- **`billed_net_cents` is the value of the billed hours, not a document's total.**
+  It folds the same rate over the same minutes, so it agrees with the invoice
+  line — but where a document's line spans hours outside the report's period, the
+  two partitions round independently and can differ by under a cent per group.
+  Named here rather than hidden: the column answers "how much of this period's
+  value is already invoiced", which is what a reader is asking.
+- **`docs/design/projects.md` is untouched**, as at B3.07 — as-built doc updates
+  are B3.11's. Two things for that sweep beside the ones already listed: the
+  report's shape (two datings, engagements-only, the `hours`/`value` CSV row
+  kinds) and the `project_hours.rs` correction above.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates B2
+  on "B1 live with ≥1 real tenant"; B1, B2, BI-1 and most of B3 are code-complete
+  and undeployed, and deploying is a human action the loop is forbidden to take.
+- **`/projects` still needs the production Caddyfile prefix** at the next deploy
+  (standing since B3.04). Already in `web/vite.config.ts`'s `API_PATHS`, so local
+  dev is fine; the loop does not touch `deploy/`.
+- **`cargo fmt` remains a trap on this machine** (B3.07's lesson, unchanged): the
+  three NEW files were formatted with `rustfmt <file>` directly, and neither crate
+  root was — `rustfmt` on a module parent reformats the whole tree behind it. The
+  additive lines in `lib.rs`/`server.rs` were hand-matched to the surrounding
+  style instead.
+
+Next item: B3.09a (milestones — the model, the store, and the timeline rendering
+over the existing boards, with `task_milestones` keeping `tasks.rs` unchanged).

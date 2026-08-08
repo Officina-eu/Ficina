@@ -74,7 +74,7 @@ small, or a `[!]` note for the human if large.
 - [x] B3.05 Approval: weekly submit → manager approve/reject; approved entries lock (edit → typed error). Tests for the lock.
 - [x] B3.06 ★ Billable → invoice: select approved unbilled entries for a customer → invoice draft lines (B1), entries marked billed with invoice link; unbilled view. Wire-verified arc.
 - [x] B3.07 Web: timer widget in shell (workspace surface), timesheet week grid, project budget bar, approvals inbox page for managers.
-- [ ] B3.08 Project profitability report (hours×rates vs budget) + CSV.
+- [x] B3.08 Project profitability report (hours×rates vs budget) + CSV.
 - [ ] B3.09a Milestones: model + store + timeline rendering over existing boards; tests.
 - [ ] B3.09b Project templates: create-from-template copying boards/milestones; tests + wire.
 - [ ] B3.10a ★ Projects agent, answers+time: `log_time` (draft) + `project_status_summary` (answer from sources) in the allowlist + executors; structural verify.
