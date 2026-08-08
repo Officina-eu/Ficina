@@ -75,3 +75,24 @@ organising mail remain understandable and usable.
 
 M-UX-01, M-UX-02, M-UX-03, M-UX-04, M-UX-05, then M-UX-06 as three
 mechanical token migrations.
+
+## Resolution
+
+All confirmed defects are resolved on `main`:
+
+- M-UX-01: empty message and reading surfaces now teach Compose; empty search
+  results offer Clear search (`550795c`).
+- M-UX-02: known Mail structures use accessible skeletons instead of page
+  spinners (`80c5589`).
+- M-UX-03: Mark unread is visible in the reading toolbar (`4bfacd6`).
+- M-UX-04: shared and Mail-specific actions use the 40px interaction role;
+  row actions remain visible on touch and keyboard focus (`473ade8`,
+  `b9a9496`).
+- M-UX-05: attachment, draft creation, submission, and scheduling failures
+  preserve the server reason and state the recovery path (`16c48c4`).
+- M-UX-06: reading/list, compose/recipient, and organisation-depth styles use
+  the shared role scale, with no component-local pixel or colour literals
+  remaining in Mail CSS modules (`c9d0c4e`, `a6029fb`, `76936d7`, `562b3c0`).
+
+Final verification: focused Mail lint and tests, `npx tsc --noEmit`, and
+`npm run build` pass. The local `/mail` route responds successfully.
