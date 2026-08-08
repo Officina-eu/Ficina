@@ -94,7 +94,9 @@ small, or a `[!]` note for the human if large.
 - [ ] B4.06a ★ Receipt parsing core: deterministic extractor (vendor/date/amounts/VAT) behind a pluggable trait; fixture receipts prove it; AI backend seam flagged for human wiring.
 - [ ] B4.06b Receipt confirm path: upload route + parsed-fields-for-confirmation response + confirmed→expense creation; wire transcript.
 - [ ] B4.07 Mileage claims (per-km rate table per tenant, entry → expense).
-- [ ] B4.08 Bank import: CAMT.053 + MT940 parsers (golden files from public samples) + CSV mapping wizard model → `bank_lines` staged for reconciliation. Malformed files → typed errors, partial-import report.
+- [ ] B4.08a Bank import: CAMT.053 parser (golden files from public samples) → staged `bank_lines`; malformed → typed errors.
+- [ ] B4.08b Bank import: MT940 parser, same contract + goldens.
+- [ ] B4.08c Bank import: CSV mapping wizard model + staging + partial-import report; routes + wire.
 - [ ] B4.09a ★ Reconciliation, exact stage: amount+reference matcher; confirm → payment/expense postings; precision tests + no cross-tenant leakage.
 - [ ] B4.09b Reconciliation heuristics: windowed matching + per-tenant learned-rules table; fixture precision tests.
 - [ ] B4.09c Manual matching: unmatched-line model + match/unmatch routes; wire transcript.
