@@ -76,6 +76,24 @@ required knowing-in-advance is filed as a defect, like S1.30b/c were.
     number assigned) — never a modal essay.
     *Verify:* each module's "done" moments show the outcome, not just close.
 
+11. **Smoother than the tool they came from** *(flow: the goal-gradient
+    effect, and the reason to switch)* — familiarity is the floor; the flow
+    is where alo wins. Three measurable rules:
+    (a) **Step budget:** every core journey takes FEWER clicks/screens than
+    the same journey in its domain-reference tool — count them both in the
+    design journal, and beat the reference or justify why not.
+    (b) **Never ask what alo already knows:** data entered once flows
+    everywhere — a customer typed in CRM autofills the invoice, the site
+    form, the email; a user should never re-type or copy-paste anything
+    between alo modules, ever.
+    (c) **No seams:** the flows competitors need exports/integrations for
+    are ONE motion here (won deal → invoice; site form → CRM lead; hours →
+    invoice line; question → chart on the board). alo owns the whole house —
+    walking between rooms must feel like one floor, not doorways with locks.
+    *Verify:* wave reviews map each core journey's step count vs. the
+    reference tool, hunt for any re-typed field, and walk every cross-module
+    handoff end-to-end.
+
 ## Standing constraints
 
 - All copy through the i18n catalog, in the user's language, jargon-free
