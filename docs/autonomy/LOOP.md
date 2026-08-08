@@ -114,5 +114,9 @@ point.
   React, i18n catalogs, ds tokens, module pattern like Tasks/Calendar.
 - Money is ALWAYS integer cents (i64); VAT rates in basis points; totals
   computed server-side; never floats for money anywhere.
+- **Every UI slice obeys `docs/design/ux-principles.md`** (the interface
+  laws: zero-manual, recognition over recall, empty-states-as-onboarding,
+  undo over confirm, verbatim helpful errors, tokens-only styling). Wave
+  reviews test the laws on each new screen and file violations as items.
 - Tasks, Calendar, and Spaces are the reference implementations for "a new
   module on the store" — read them before inventing a pattern.
