@@ -6,6 +6,36 @@ contracts.
 
 ## Unreleased
 
+- **Projects is now a place you can open.** A new tab in the workspace shows
+  every project you can see as *client work*: who it is worked for, what an
+  hour on it is worth, how many hours have gone into it, and a bar saying how
+  much of the agreed budget that is — turning red, not stopping at full, when
+  the work has gone past it, because an overrun is the one thing you open the
+  screen to find. A project here is the same board Tasks already shows; what
+  this adds is the client, the rate and the budget beside it, and a project
+  with none of those is listed as internal rather than hidden. Saying who a
+  project is worked for is one form and one save, and undoing it — "make
+  internal" — leaves every hour exactly where it was: what goes is only the
+  claim that somebody can be billed for them. The hours a project has cost are
+  the project's, not anyone's in particular: they are shown to everybody who
+  can see the project, and there is nowhere on the screen, or in the API
+  behind it, that says who worked which of them.
+
+- **A timesheet you fill in, and a timer you can see from anywhere.** *My week*
+  is a plain grid — projects down the side, the seven days across the top —
+  where you write straight into a day and the totals come back from the server.
+  Type the duration however you say it: `90`, `1:30`, `1,5` and `2h` all mean
+  what you would expect. Every entry of the week is listed underneath with its
+  note, so a day with two sittings on the same job keeps both. When the week is
+  done you submit it from the same screen and it goes still; take it back while
+  nobody has decided, or read the reason if it comes back. Managers get an
+  **Approvals** tab — theirs alone, and simply not there for anybody else —
+  listing every week handed in, oldest first, with whose it is and what it adds
+  up to, to approve or send back with a sentence the person will read. And the
+  running timer now lives in the rail, visible from your inbox, your calendar
+  and everywhere else: what is running, how long it has been running, and one
+  button to stop it. It shows nothing at all when no clock is going.
+
 - **Approved hours can now become an invoice.** Pick a customer and the
   workspace shows you every hour that is ready to be charged for them —
   approved, chargeable, not already on a document — grouped the way the invoice

@@ -8327,3 +8327,240 @@ psql: SELECT action, entity_type, entity_id FROM audit_log
 Next item: B3.07 (web: the timer widget in the shell, the timesheet week grid,
 the project budget bar, and the approvals inbox page — plus, in all likelihood,
 the client-facts routes the module still has no door for).
+
+## 2026-08-08 — B3.07 the module you can open: engagements, a week, an inbox, a clock
+
+**Item.** B3.07 — web: the timer widget in the shell, the timesheet week grid,
+the project budget bar, the approvals inbox for managers. Plus the **client-facts
+routes** the previous three iterations flagged as a hole with no queue item:
+without a door to say who a project is worked for, none of the four screens
+above can exist, so this item absorbed them (LOOP: "a discovered prerequisite
+becomes part of the current item if small").
+
+**What shipped.**
+
+*Store — the one aggregate this module was still missing.*
+`platform/alo-store/src/project_hours.rs`: `ProjectHours` +
+`AccountStore::project_hours()` / `project_hours_for()`. This is the module's
+**one deliberately cross-person read**, and the design note licenses exactly it:
+"project aggregates are visible to anyone who can see the project … without a
+per-person breakdown". Two structural guarantees, both in the SQL rather than in
+a caller's memory:
+
+- the output type has **no `user_id` field at all**, so a breakdown cannot be
+  asked for through this function because the function cannot express one;
+- the visibility predicate is `task_projects`' own — a `team` board or the
+  caller's own `personal` one — so a colleague's private board contributes
+  nothing, and "how long did that take" can never become "what has my colleague
+  been doing".
+
+Proposals are excluded (a budget bar that filled with the agent's suggestions
+would report on work nobody has done). `budget_consumption_bp` is a pure fn on
+the type: basis points of the hours budget, **not clamped** at 10 000, because
+the overrun is the one case the bar exists to show. `None` for no budget and for
+a budget of zero — no proportion is defined against nothing.
+
+*HTTP — `products/mail/alo-jmap/src/projects_clients.rs`, four routes.*
+`GET /projects` (the engagement list: board + client facts + hours, zipped, with
+`client: null` for internal work), `GET /projects/{id}`,
+`PUT /projects/clients/{id}`, `DELETE /projects/clients/{id}`.
+
+*Web — `web/src/projects/`, the module.* `ProjectsModule` (three tabs),
+`ProjectsView` (the engagement list with the budget bar), `ClientDialog` (the
+engagement form + "make internal"), `WeekView` (the grid, the week's entry list,
+submit/withdraw), `EntryDialog`, `ApprovalsView` (admin-only), `TimerWidget`
+(the rail), `api.ts`, `types.ts`, `format.ts`, `parts.tsx`, `timerBus.ts`, the
+two CSS modules, `format.test.ts` (11 tests). ~70 new `projects*` strings in
+`i18n/en.ts`; fr/nl are `Partial` and fall back to English until B3.11.
+
+*Shell.* `ProductSurface` gained an optional `railWidgets: ProductRailWidget[]`;
+`Rail.tsx` renders whatever the active surface declares, above ✦AI. Additive and
+optional, so `mail.tsx` and `drive.tsx` are untouched and neither product grows
+a dependency on Projects.
+
+**Three decisions worth the ink.**
+
+1. **`PUT /projects/clients/{id}`, not the design note's `/projects/{id}/client`.**
+   `audit_action::event_for` derives the audit entry mechanically from the matched
+   template and needs the *collection* in the second segment; `/projects/{id}/client`
+   resolves to **no audit action at all**, and `tests/audit_routes.rs` fails the
+   build for exactly that. The alternative was a hand-written exception in the one
+   derivation whose entire value is that it has none (B2.13's whole point). Renaming
+   the route was the cheap half of the trade. The record filed against is still the
+   project, so the trail reads `projects.client.update` / `projects.client.delete`
+   against the project's own id. **`clients` joins the reserved segments under
+   `/projects`** (`time`, `timer`, `weeks`, `approvals`, `unbilled`, `invoices`).
+   `docs/design/projects.md` § Routes still shows the old spelling — B3.11's
+   as-built sweep should correct it.
+
+2. **The timer widget is registered through the product surface, not imported by
+   the shell.** The design note says "one component outside the module, in
+   `web/src/shell`". Written that way, `web/src/shell` would import `../projects`
+   — and the shell is shared with alomails, which has no Projects at all. So the
+   widget lives in `web/src/projects/TimerWidget.tsx` and `workplace.tsx` declares
+   it; the rail renders `surface.railWidgets` generically and knows nothing about
+   clocks. Same result on screen, and the product split survives.
+
+3. **A cross-tree notification for the clock, not a context.** The widget (in the
+   rail) and the module's controls are not in one another's React tree, so a timer
+   stopped on the Projects screen would leave the rail showing a clock. Lifting the
+   timer into a shared context would put a Projects concern into the app shell for
+   every product including the mail-only one. `timerBus.ts` is a `window` event
+   with no payload; every listener re-reads from the server, which is the only
+   thing that knows whether the write landed.
+
+**A real bug the tests caught.** `parseDuration` stripped a trailing `h` and then
+read the number as minutes — so **`2h` was two minutes**, and looked right on
+screen while doing it. `format.test.ts` found it before anything shipped. Fixed:
+the `h` now changes the scale (a bare `2` is two minutes, `2h` is two hours), the
+hint string says so, and there is a test named after the distinction.
+
+**How it was verified.**
+
+```
+cargo clippy -p alo-store -p alo-jmap --all-targets   clean
+cargo test -p alo-store -p alo-jmap                   90 suites ok, 1 pre-existing
+                                                      flake (see the flag below);
+                                                      the 5 new project_hours_tenancy
+                                                      tests, the 6 new projects_clients
+                                                      unit tests and audit_routes'
+                                                      vocabulary are all green
+npx tsc --noEmit · npx eslint · npm run build         clean
+npx vitest run                                        282 tests green (271 + 11 new)
+rustfmt on the CHANGED FILES only (never a crate root)
+```
+
+**One test failed, and it is not this item's — reported rather than papered over.**
+`alo-store/tests/snooze.rs::snooze_moves_out_of_inbox_and_the_sweeper_brings_it_back`
+failed with `left: 2, right: 1` on the full run and **passes on its own**
+(`cargo test -p alo-store --test snooze` → ok). The cause is a test-isolation
+defect in that suite, not a race this item introduced:
+`Store::sweep_snoozes()` is a **global** query —
+`SELECT … FROM messages WHERE snooze_until <= now() LIMIT 500`, no tenant
+predicate, by design, because it is the background sweeper — and the test
+asserts its return value is exactly `1`. On the long-lived shared dev Postgres
+(22 000+ tenants) any other message anywhere whose `snooze_until` crosses `now()`
+during the run makes that `2`. B3.07 writes no `snooze_until` anywhere, adds no
+sweeper, and touches no mail code; `SELECT count(*) FROM messages WHERE
+snooze_until IS NOT NULL` reads 0 afterwards.
+
+**The fix is one line and belongs to that suite, not to this item** (the loop's
+write scope is the current item's code): assert about the suite's *own* message
+— that it is back in the Inbox and its wake time is cleared — rather than about
+a global count the rest of the database can move. Flagged for a human or a
+follow-up item.
+
+Wire, against the local debug `alo-jmap` on 127.0.0.1:8080 with docker `alo-pg`,
+two bootstrapped tenants (`B307 Alpha`, `B307 Beta`), tokens from a real
+authorization-code + PKCE login:
+
+```
+GET    /projects                       (no token)     → 401
+PUT    /projects/clients/{id}           (no token)     → 401
+GET    /projects                                       → 200  the personal board,
+       client null, hours all zero, budgetConsumptionBp null
+PUT    /projects/clients/{proj}  full facts             → 200  {"client":{rateCents
+       9500, budgetMinutes 6000, budgetCents 950000, startsOn 2026-09-01,
+       currency "EUR" (snapshotted from the customer)}}
+GET    /projects                                       → 200  two rows: the personal
+       board (client null) and Portal rebuild with its facts and consumption 0
+
+POST   /projects/timer/start                           → 200  timer running
+POST   /projects/timer/start  (again)                  → 409  "a timer is already
+       running…" AND the running timer in the body — the widget's own case
+POST   /projects/timer/stop  workDate 2026-08-05       → 200  entry 1 min,
+       rateCents 9500 snapshotted from the engagement just attached
+POST   /projects/time  180 min, billable false         → 200
+POST   /projects/time  300 min, billable true          → 200
+GET    /projects/{proj}                                → 200  minutes 481,
+       billableMinutes 301, billedMinutes 0,
+       lastWorkedOn 2026-08-07, budgetConsumptionBp 801
+       (481/6000 = 8.01% — integer, and the two subsets differ correctly)
+
+PUT    /projects/clients/{proj}  {}                    → 422 "customerId is required"
+PUT    …  startsOn 01/09/2026                          → 422 "…form YYYY-MM-DD"
+PUT    …  rateCents 9999999999                         → 422 "hourly rate must be
+                                                              between 0 and 1000000000 cents"
+PUT    …  budgetMinutes 99999999                       → 422 "budget hours must be
+                                                              between 0 and 10000000 minutes"
+PUT    /projects/clients/{own personal board}          → 422 "client facts can only be
+                                                              attached to a team project"
+PUT    /projects/clients/no-such-project               → 404
+PUT    …  customerId no-such-customer                  → 404
+GET    /projects/no-such-project                       → 404
+
+  (tenant B, its own bootstrapped admin)
+GET    /projects/{A's project}                         → 404
+PUT    /projects/clients/{A's project}                 → 404
+DELETE /projects/clients/{A's project}                 → 404
+GET    /projects                                       → 200  its own board only
+
+PUT    /projects/clients/{proj}  {customerId} only     → 200  rateCents, both budgets
+       and startsOn all back to null — the whole-record rule, and createdAt survived
+GET    /projects/approvals       (admin)               → 200  {"weeks":[]}
+POST   /projects/weeks/2026-08-03/submit               → 200  submitted, locked
+GET    /projects/approvals                             → 200  one week: b307a@wire.test,
+       minutes 481, billableMinutes 301 — the one shape that names a person
+DELETE /projects/clients/{proj}                        → 200  {"cleared":true}
+DELETE /projects/clients/{proj}  (again)               → 404  not a silent success
+GET    /projects/{proj}                                → 200  client null, minutes still
+       481 — detaching keeps every hour, as the copy promises
+
+psql: SELECT action, entity_type, entity_id FROM audit_log
+      WHERE action LIKE 'projects.client%'
+  projects.client.update | projects.client | OcQuuiO_…   (the first PUT)
+  projects.client.update | projects.client | OcQuuiO_…   (the replace)
+  projects.client.delete | projects.client | OcQuuiO_…   (the detach)
+  — three rows for three successful writes; the eleven refusals above wrote none
+psql: 3 time_entries rows survive, project_clients rows = 0
+```
+
+**Cuts and flags.**
+
+- **`/projects` is a new top-level prefix and the production Caddyfile still
+  needs it** — flagged at B3.04, restated here because this is the iteration
+  that made the prefix answer something a browser asks for. It is already in
+  `web/vite.config.ts`'s `API_PATHS`, so local dev is fine; the loop does not
+  touch `deploy/`.
+- **`docs/design/projects.md` is untouched.** As-built doc updates are B3.11's.
+  Three deviations to record there: the client-facts route spelling (decision 1),
+  the timer widget's home (decision 2), and the fact that the week grid carries a
+  **list of the week's entries beneath it** — the grid alone cannot address the
+  second of two sittings on one project on one day, and merging them would erase
+  the notes.
+- **A proposal is visible in the grid but not editable through it.** Proposed
+  entries are marked (`✦`) and counted only in `proposedMinutes`; a grid click
+  never lands on one and the entry list's Edit is disabled for one, because a
+  suggestion is accepted or rejected (ADR 0023's three verbs, B3.10) and not
+  corrected. Nothing writes proposals yet — B3.10's `draft_timesheet_from_calendar`
+  will be the first — so this is the shape waiting for them, not dead code
+  around live data.
+- **No profitability figures anywhere.** The budget bar reads `budgetMinutes`
+  only; `budgetCents` is shown as an amount beside it but nothing is computed
+  against it. Hours × rates vs budget is B3.08's, server-side.
+- **The Approvals tab is hidden, not disabled, for a non-admin** — but the route
+  is still mounted, so a manager's bookmark works and a non-admin who follows one
+  gets the server's own `403` on the read rather than a screen pretending the
+  inbox is empty.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates B2
+  on "B1 live with ≥1 real tenant"; B1, B2, BI-1 and now most of B3 are
+  code-complete and undeployed, and deploying is a human action the loop is
+  forbidden to take. **This is now the largest single block of unshipped work in
+  the repo** and deserves a human decision.
+- **`cargo fmt` remains a trap on this machine** despite the pinned
+  `rust-toolchain.toml` (1.97.1 / rustfmt 1.9.0): `main` is not formatted with it.
+  **And the B3.06 lesson bites even on a `lib.rs`** — this iteration had to touch
+  both crate roots (a `pub mod` line each), and `rustfmt <crate>/src/lib.rs`
+  formatted the whole module tree behind it, reformatting six alo-jmap files this
+  item never opened (`base.rs`, `drive.rs`, `spaces.rs`, `tasks.rs`, `wopi.rs`,
+  `workspace_search.rs`). All six reverted with `git checkout`. **The rule is
+  sharper than "never a crate root": never run rustfmt on any file that is a
+  module parent, which includes the one file every item has to edit.** The single
+  reflow that was kept is a `pub use project_clients::{…}` line in
+  `alo-store/src/lib.rs`, inside the block this item edited anyway. A human
+  pinning the formatter's *config* — or reformatting `main` once with the pinned
+  toolchain — would end this recurring tax.
+
+Next item: B3.08 (the project profitability report — hours × rates vs budget,
+per project, per currency, with the CSV beside it; currencies grouped and never
+converted, `crm_report`'s rule).

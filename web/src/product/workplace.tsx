@@ -7,12 +7,13 @@
 // `../authoring`). alomails ships the `mail` surface instead and deletes this
 // file together with those areas — nothing else in the web app references them.
 import { Suspense, lazy } from "react";
-import { BarChart3, Building2, Code2, Globe, HardDrive, Handshake, MessagesSquare, Receipt, Sigma, Video } from "lucide-react";
+import { BarChart3, Briefcase, Building2, Code2, Globe, HardDrive, Handshake, MessagesSquare, Receipt, Sigma, Video } from "lucide-react";
 
 import { strings } from "../i18n";
 import { BillingModule } from "../billing";
 import { CrmModule } from "../crm";
 import { InsightsModule } from "../insights";
+import { ProjectsModule, TimerWidget } from "../projects";
 import { SitesModule } from "../sites";
 import { ControlConsole } from "../control";
 import { DriveModule } from "../drive";
@@ -72,6 +73,22 @@ const suiteModules: ProductModule[] = [
     enabled: true,
     element: () => <CrmModule />,
   },
+  // Projects is a workspace module only (ADR 0035, wave B3), beside Billing
+  // and CRM: client work, the hours worked on it, and the invoice those hours
+  // become. It sits after CRM because a won deal becomes an engagement, and
+  // before Insights because Insights reads what the three of them record.
+  //
+  // Its boards are the SAME rows Tasks shows — a client project is a task
+  // project with client facts beside it (docs/design/projects.md). Two tabs
+  // saying "project" is the honest cost of one project list.
+  {
+    id: "projects",
+    path: "/projects",
+    label: strings.moduleProjects,
+    Icon: Briefcase,
+    enabled: true,
+    element: () => <ProjectsModule />,
+  },
   // Insights is a workspace module only (ADR 0037), and it sits after the
   // modules whose records it reads: a chart here is billing's and CRM's own
   // figures, computed by the server and only drawn in the browser.
@@ -111,6 +128,10 @@ export const surface: ProductSurface = {
     { id: "equation", label: strings.composeInsertEquation, Icon: Sigma, Modal: insertModal("equation") },
     { id: "code", label: strings.composeInsertCode, Icon: Code2, Modal: insertModal("code") },
   ],
+  // The running timer, visible from every module: a clock you cannot see from
+  // your inbox is a clock you forget to stop. It draws nothing when none runs,
+  // which is the ordinary state of a workspace.
+  railWidgets: [{ id: "timer", Widget: TimerWidget }],
   defaultPath,
   brand: {
     headline: () => strings.brandHeadline,
