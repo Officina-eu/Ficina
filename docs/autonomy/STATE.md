@@ -8062,3 +8062,268 @@ common factor across all three: the message was supplied on stdin
 (`git commit -F -`) rather than typed, which is the path the harness's trailer
 injection does not cover — a `-F` message should be written to a file and
 committed with the trailer already in it.
+
+## 2026-08-08 — B3.06 hours become a draft invoice, and come back if it goes away
+
+**Item.** B3.06 ★ Billable → invoice: approved, billable, unbilled entries for
+one customer folded into draft invoice lines, entries stamped with the invoice,
+and the unbilled view. Wire-verified arc.
+
+**What shipped.** The seam between the timesheet and alo Billing, in two store
+files, two routes and no migration — 0123 already carried `invoice_id`,
+`billed_at` and the partial index `(tenant_id, invoice_id)`, because B3.03 knew
+what this iteration would need.
+
+`time_hours.rs` is the pure conversion and the only place minutes become money.
+`qty_milli_hours(minutes)` rounds half away from zero — `billing_totals`'
+convention, so a credit note stays the exact mirror of its original — and the
+rule that matters is *when* it is called: a group sums its **minutes** and
+converts **once**. Ten one-minute stints are 167 milli-hours, not ten roundings
+of one minute (170). `hours_net_cents(minutes, rate)` is expressed as
+`billing_totals::line_net_cents` over the very figures the invoice line will
+carry, so the unbilled view, the report (B3.08) and the printed document cannot
+disagree by a cent. Seven unit tests including a monotonicity-and-residue sweep
+over 100 000 durations (|qty×60 − minutes×1000| ≤ 30 always) and the exactness
+of every multiple of three minutes, which is where real timesheet durations
+live.
+
+`time_invoice.rs` is the handoff. `unbilled_time(customer, to)` answers the
+groups an invoice would carry — one per (project, rate), with the entry ids, the
+minutes and the money — and `bill_time_entries(TimeBilling)` carries a chosen
+set onto a **draft** invoice and stamps them. `unbilled_totals` folds the view
+per currency and never across one (`crm_report`'s rule: adding euros to dollars
+at a rate we chose today is an invented figure).
+
+**One transaction, and the locks that make it honest.** The header is resolved,
+the selected rows are read `FOR UPDATE`, every rule is judged, the document is
+inserted, its lines are written and the hours are stamped — all inside one
+transaction. Two callers billing the same customer at the same instant serialise
+on the row locks; the loser is told the hours are already on a document. The
+stamping additionally carries `AND invoice_id IS NULL` and asserts the affected
+count, which is the difference between a bug that double-bills a client and one
+that refuses a call. To get the whole call into one transaction, B1's own code
+grew two `pub(crate)` seams and no behaviour: `billing_customers::customer_read`
+(any executor — the one place a customer is read by id, which
+`billing_customer` now delegates to) and `AccountStore::insert_draft_invoice` +
+`normalize_invoice_in` (the one place a draft invoice row is inserted, which
+`create_billing_invoice` now delegates to). Same pattern `insert_entry` set in
+`time_entries`.
+
+**Every rule an hour must satisfy, and every refusal sized.** This tenant's,
+`active`, `billable`, in an **approved** week, unbilled, on a project whose
+client facts name the invoiced customer, and priced in the document's currency.
+`judge()` is pure over rows already read and answers with **how many** hours
+broke the rule rather than the first one it met — a caller looking at a
+selection needs a refusal it can act on. Nothing in a refusal names a person, a
+note or a day: the counts are the whole disclosure.
+
+**The release.** `release_billed_hours` is called by `delete_billing_invoice`
+and `void_billing_invoice` inside their existing transactions — the only place
+this wave reaches into B1's behaviour, one statement each. A **credit note does
+not release**: crediting corrects a document, the hours stay billed against the
+original, and re-billing them would charge a client twice for one piece of work.
+Proven both ways on the wire and in tests.
+
+**The edge.** `projects.rs` (new, tiny) owns the one word this surface writes
+onto a customer's document: `hour`/`heure`/`uur`, picked by `?lang=` through the
+same primary-subtag seam `billing_send::mail_strings_for` and
+`crm::seed_words_for` use. `projects_invoices.rs` has
+`GET /projects/unbilled?customerId[&to]` and `POST /projects/invoices[?lang=]`;
+the answer to the handoff is `{"id", "entries", "lines", "minutes"}` — `id` and
+not `invoiceId` so the audit middleware files the act against the document it
+raised (`projects.invoice.create`, entity id = the invoice). No new top-level
+prefix: `/projects` is B3.04's standing Caddyfile item and is already in
+`vite.config.ts`.
+
+**Decisions worth the ink.**
+
+- **The unbilled view is a tenant-wide read on the account door.** An invoice
+  carries the team's hours, not the caller's, so this crosses the personal
+  boundary — but only as an *aggregate*: projects, minutes, money and entry ids,
+  never who worked when. That is exactly the line `docs/design/projects.md`
+  draws ("project aggregates are visible to anyone who can see the project…
+  the breakdown is an admin column"), and it is why the fold happens in SQL
+  rather than by reading rows and grouping them at the edge.
+- **An unrated group is shown, with no money beside it.** Dropping it would
+  hide hours somebody must act on from the one screen whose job is "what is
+  owed to us"; pricing it at zero would be a number nobody chose. It is
+  `rateCents: null, netCents: null`, and billing it is a 422 naming the count.
+- **A repeat in the selection is the same hour named twice**, deduped rather
+  than refused: a set is a set, and a UI that ticks a row twice has said one
+  thing. An **empty** selection is refused, and one past 5000 hours is a period
+  to narrow, never a list to truncate — the same rule the view itself holds.
+- **`judge` compares counts, not sets.** The rows were read with
+  `id = ANY(<the caller's distinct ids>)` under this tenant against a primary
+  key, so a row can neither repeat nor be one nobody asked for; a count is
+  exactly as strong as a set comparison and is not O(n²) at 5000 entries. A
+  missing id is a bare `NotFound` that never says which — another tenant's id
+  must be indistinguishable from one that never existed.
+- **The week join is `date_trunc('week', work_date)::date`**, which is Postgres'
+  ISO Monday and therefore the same boundary `time_weeks::week_start` computes.
+  Two spellings of a week boundary is how a timesheet starts disagreeing with
+  itself; there is one, and it is the database's.
+- **Grouping is (project, rate), and the rate is part of the key.** An hour
+  logged at an agreed premium is its own line, because a line has one unit
+  price. Per-task lines stay out of scope and named in the design note, for the
+  reason recorded there: a rounding multiplier plus a disclosure decision about
+  whose task names travel to a customer.
+- **The VAT rate is stated by the caller, never guessed** — `crm_handoff`'s
+  rule, and a compliance one: picking a rate on a tenant's behalf is a statement
+  a machine should not make.
+- **A refused handoff writes nothing at all**, proven on the wire and in tests:
+  no half-raised document, no hour marked billed. (`crm_handoff` tolerates
+  leaving an empty draft behind because it raises the header first; this one
+  cannot, because the hours and the lines have to stand or fall together.)
+
+**Verification.** `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean; `cargo test -p alo-store` and `cargo test -p alo-jmap`
+**both fully green (exit 0, 49 test binaries each, 0 failed)** against docker
+`alo-pg`. New `tests/time_invoice_tenancy.rs`, 5 tests: the whole arc (unbilled
+→ draft with two lines whose money equals the view's → hours stamped → view
+empty → re-bill refused → draft deleted → hours back), the credit-versus-void
+release, every rule with its count and the proof that no refusal wrote anything,
+wrong-tenant on every verb of the surface (read, bill A's hour to A's customer,
+bill it to B's, and a release that never crosses), and the team read (a
+colleague's approved hour is billable through the tenant's customer, and the
+document names the work, never the people). 8 pure unit tests in
+`time_invoice.rs` (the grouping, the sum-then-convert property, the refusal
+wording, the per-currency fold), 7 in `time_hours.rs`, 4 on the edge, 2 on the
+language seam.
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, two bootstrapped tenants (`b306wire`, `b306wireb`), rows read
+with psql.
+
+```
+GET  /projects/unbilled  (no bearer)                  → 401
+POST /projects/invoices  (no bearer)                  → 401
+
+POST /billing/customers  Acme GmbH / DE / EUR         → 200
+POST /tasks/projects     Portal rebuild               → 200
+  (project_clients planted with psql at €95/h — the client-facts routes
+   are still the standing gap below)
+POST /projects/time  08-03 90m                        → 200  rate 9500 EUR
+POST /projects/time  08-04 30m                        → 200  rate 9500 EUR
+POST /projects/time  08-05 60m rateCents 11000        → 200
+POST /projects/time  08-06 45m not billable           → 200
+
+GET  /projects/unbilled?customerId=…                  → 200  {"groups":[]}
+     — an hour nobody has signed off is not a client's to be charged for
+POST /projects/weeks/2026-08-03/submit                → 200  submitted
+POST /projects/approvals/{w}/approve                  → 200  approved
+GET  /projects/unbilled?customerId=…                  → 200  two groups:
+       120 min @ 9500 = 19000 net, ids [e1,e2]
+        60 min @ 11000 = 11000 net, ids [e3]
+       totals: 180 min, EUR 30000, unrated 0
+       (the 45 non-billable minutes are in neither)
+
+POST /projects/invoices  no customerId                → 422 "customerId is
+                                                            required"
+POST /projects/invoices  no vatRateBp                 → 422 "vatRateBp is
+     required: a line is billed at a rate somebody stated"
+POST /projects/invoices  entryIds []                  → 422 "select at least
+                                                            one hour to bill"
+POST /projects/invoices  [e1, "nope"]                 → 404 never an oracle
+POST /projects/invoices  [e1, e4-not-billable]        → 422 "1 of the selected
+     hours are not billable; a client is charged only for hours somebody
+     marked chargeable"
+POST /projects/invoices  customerId=nosuch            → 404
+GET  /projects/unbilled  (no customerId)              → 422
+GET  /projects/unbilled  to=03/08/2026                → 422 "YYYY-MM-DD"
+GET  /projects/unbilled  customerId=nosuch            → 404
+
+POST /projects/invoices?lang=fr  [e1,e2,e3]           → 200
+     {"id":"L6xg…","entries":3,"lines":2,"minutes":180}
+GET  /billing/invoices/{id}                           → 200  status draft,
+     number null, EUR
+       line  Portal rebuild  2000 heure  9500  1900
+       line  Portal rebuild  1000 heure 11000  1900
+       totals net 30000, vat 5700, gross 35700
+       — the unit word followed ?lang=, and the net is the view's 30000
+POST /projects/invoices  the same three hours         → 409 "3 of the selected
+     hours are already on a document; void or delete it to release them"
+GET  /projects/unbilled?customerId=…                  → 200  groups 0
+
+psql: SELECT id, minutes, billable, invoice_id, billed_at IS NOT NULL …
+  e1  90  t  L6xg…  t
+  e2  30  t  L6xg…  t
+  e3  60  t  L6xg…  t
+  e4  45  f  (null) f     — never touched
+
+POST /billing/invoices/{id}/issue                     → 200  INV-2026-00001
+DELETE /billing/invoices/{id}                         → 409  issued documents
+                                                            are not deleted
+POST /billing/invoices/{id}/credit-note               → 200  draft credit note
+GET  /projects/unbilled?customerId=…                  → 200  groups 0
+     — crediting corrects a document; it does not hand the hours back
+POST /billing/invoices/{id}/void                      → 200  void
+GET  /projects/unbilled?customerId=…                  → 200  180 min, 2 groups
+     — voiding does
+
+POST /projects/time  08-11 60m (a week nobody handed in)  → 200
+POST /projects/invoices  [e5]                         → 409 "1 of the selected
+     hours are in a week that has not been approved; a client is billed for
+     hours somebody has signed off"
+GET  /projects/unbilled?customerId=…                  → 200  still 180 min
+
+POST /projects/invoices  [e1,e2,e3]                   → 200  second draft
+DELETE /billing/invoices/{second}                     → 200
+GET  /projects/unbilled?customerId=…                  → 200  180 min, 2 groups
+
+GET  /projects/unbilled?…&to=2026-08-03               → 200   90 min, 1 group
+GET  /projects/unbilled?…&to=2026-08-04               → 200  120 min, 1 group
+GET  /projects/unbilled?…  (no cut-off)               → 200  180 min, 2 groups
+
+  (tenant B, its own bootstrapped admin and its own "Acme GmbH")
+GET  /projects/unbilled?customerId={A's customer}     → 404
+POST /projects/invoices  A's hour → B's customer      → 404
+POST /projects/invoices  A's hour → A's customer      → 404
+psql: A's billed rows after all three                 → 0 changed
+
+psql: SELECT action, entity_type, entity_id FROM audit_log
+      WHERE action LIKE 'projects.invoice%'
+  projects.invoice.create | projects.invoice | L6xg…      (the first draft)
+  projects.invoice.create | projects.invoice | TtbJ…      (the second)
+```
+
+**Cuts and flags.**
+
+- **The audit entity type is `projects.invoice`, not `billing.invoice`**, because
+  `audit_action` derives it mechanically from the route that was matched, and
+  the route is `/projects/invoices`. The **entity id is the billing invoice's**,
+  so "which hours went onto this document, and who sent them there" is
+  answerable by id; what a query on `entity_type` alone will not do is show this
+  act beside the invoice's own billing events. Left as derived rather than
+  special-cased: the mechanical derivation is what makes coverage a property of
+  the router (B2.13's whole point), and one hand-written exception is how that
+  stops being true. If the B2.13 audit tab wants one timeline per document, the
+  fix is a query that keys on the id, not a special case here.
+- **No web this iteration** — B3.06 is store + HTTP by the queue's own wording;
+  the unbilled screen and the "bill these hours" dialog are B3.07's. No new i18n
+  strings were needed; nothing under `web/` was touched.
+- **The client-facts routes are still the gap** (unchanged since B3.04): the
+  design note's `GET /projects`, `GET /projects/{id}`, `PUT /projects/{id}/client`
+  and `DELETE /projects/{id}/client` belong to no queue item, and B3.07 cannot
+  set a project's rate — or make a project client work at all — without them.
+  This iteration again planted `project_clients` with psql. **B3.07 should
+  absorb them or the human should add an item**: the wave's UI cannot ship
+  without a way to say who a project is worked for.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates
+  B2 on "B1 live with ≥1 real tenant"; B1, B2 and BI-1 are code-complete and
+  undeployed, and deploying is a human action the loop is forbidden to take.
+- **`docs/design/projects.md` is untouched**; as-built doc updates are B3.11's
+  and nothing here deviates from the note. Three refinements to record there:
+  the unbilled view also carries **per-currency totals** (`unbilled_totals`) and
+  shows **unrated groups** with null money, and the handoff's answer names the
+  entry, line and minute counts beside the draft's id.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`).
+  Worse than known: `rustfmt <crate>/src/lib.rs` formats the **whole module
+  tree**, so running it on the two crate roots reformatted six files this item
+  never touched (`base.rs`, `drive.rs`, `spaces.rs`, `tasks.rs`, `wopi.rs`,
+  `workspace_search.rs`) plus one unrelated `pub use` in `alo-store/src/lib.rs`.
+  All seven were reverted with `git checkout`. Format the *changed files* only,
+  never a crate root, until a human pins `rust-toolchain.toml`.
+
+Next item: B3.07 (web: the timer widget in the shell, the timesheet week grid,
+the project budget bar, and the approvals inbox page — plus, in all likelihood,
+the client-facts routes the module still has no door for).

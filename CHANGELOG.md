@@ -6,6 +6,25 @@ contracts.
 
 ## Unreleased
 
+- **Approved hours can now become an invoice.** Pick a customer and the
+  workspace shows you every hour that is ready to be charged for them —
+  approved, chargeable, not already on a document — grouped the way the invoice
+  will group it: one line per project per rate, with what each is worth and what
+  the whole lot comes to, in each currency separately because euros are never
+  quietly added to dollars. Hours nobody has priced are shown too, with no
+  amount beside them, so you can price the engagement rather than discover later
+  that the work went out at nothing. Choose what to bill, state the VAT rate, and
+  you get a **draft** invoice — never an issued one, never a sent one: you read
+  it, edit it and issue it yourself, exactly as with any other invoice. The hours
+  you billed are stamped with that document and leave the list, so nobody can
+  charge for them twice; delete the draft, or void the invoice once issued, and
+  they come straight back to be billed again. Crediting an invoice deliberately
+  does not release them — a correction of a document is not permission to charge
+  for the work a second time. Everything travels or nothing does: a half-billed
+  selection cannot happen, and anything refused says how many hours it was about
+  and why. The word *hour* on the finished document is written in the language
+  the invoice is raised in.
+
 - **A week can now be handed in, and an approver can answer it.** When your
   week is finished you submit it, and from that moment its hours hold still —
   nothing in it can be added, changed, moved in or out, or deleted while
