@@ -378,6 +378,57 @@ grep test** in the same shape the billing suite already carries — money is
 `i64` cents, rates are basis points, FX is micro-units, and `f64` appears
 nowhere on the path.
 
+### As built (B4.03b)
+
+`tests/fin_journal_properties.rs` holds **P1, P2, P4, P7, P8 and P9** plus a
+sixth test for the period window. P3, P5, P6 and P10 are each an assertion
+about a *rule* or a *report*, and neither exists yet: they land with B4.04a–c
+and B4.11a–d respectively rather than being weakened into something that
+passes today. What stands in for them in the meantime is not a stub — the
+generator keeps its own running tally as it posts, and `fin_trial_balance`,
+`fin_dimension_balances` and `fin_account_ledger` are each checked against it
+account by account, customer by customer and rate by rate. That is P10's
+shape one layer below the reports.
+
+The generator is the note's, with one honest narrowing: it produces the
+*entries* B4.04's rules will produce (issue, settle, approve, credit) rather
+than the *documents*, because there is no rule yet to turn a document into an
+entry. Everything still goes through `post_fin_entry`, never an insert. Four
+seeds run per invocation, and the month each produces must contain a
+foreign-currency document, a rounding residual and an exchange difference —
+asserted, because a generator that quietly stops producing the hard case
+leaves a suite that is green and tests nothing.
+
+Both queries were **mutation-checked** rather than merely run: summing the
+document column instead of the base column fails three tests, and dropping
+the `tenant_id` predicate from the ledger read fails P9.
+
+### The posting-query API (B4.03b), which the reports are folds over
+
+`fin_ledger.rs` is the read side, and it is deliberately three functions
+rather than four reports' worth of queries:
+
+| Function | Answers | Feeds |
+|---|---|---|
+| `fin_trial_balance(from, to)` | what every account moved in a window, with the two totals that must be equal | P&L (income + expense for a period), balance sheet (no lower bound, at a date) |
+| `fin_account_ledger(account, from, to, limit)` | one account line by line, with the opening balance and a running column | every drill-down; `flag_anomalies` (B4.14b) |
+| `fin_dimension_balances(scope, dimension, from, to)` | what each value of one dimension moved, over the accounts a scope names | receivables by customer, payables by supplier, cost by engagement, VAT by rate |
+
+Three decisions inside them a later wave should not relitigate. **Every
+aggregate is in the accounting currency** (`base_cents`): a total that adds
+dollars to euro means nothing, and one that silently reports the majority
+currency means something false. **A scope names a `role`, not a code** — so
+receivables-by-customer stays right after an accountant recodes the chart.
+And **the dimension is a closed Rust enum mapping to a column name written
+here**, which is what keeps the one interpolated fragment in the module safe
+by construction; a unit test asserts every variant is a plain posting column
+and that a hostile account id travels as a bind parameter.
+
+Two caps, both visible rather than silent: `LEDGER_PAGE_MAX` on a drill-down
+and `LEDGER_GROUPS_MAX` on a grouped read, each with a `truncated` flag,
+because a partial sum presented as a period's total is the one defect a
+financial report must not have.
+
 ## Posting rules, per document type (B4.04)
 
 Each rule is a pure function from a document to a `NewEntry` — no database

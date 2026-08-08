@@ -86,7 +86,7 @@ small, or a `[!]` note for the human if large.
 - [x] B4.01 Design note `docs/design/finance.md` — CoA model, journal invariants, posting rules per document type, reconciliation model, period locking. The debits==credits invariant stated as a property test plan.
 - [x] B4.02 Migration + store: chart of accounts (code, name, type asset/liability/equity/income/expense, EU-SME default seed per tenant) + CRUD (custom accounts) + tests.
 - [x] B4.03a Journal tables + balanced-entry enforcement: `fin_entries` + `fin_postings`, unbalanced rejected in the tx; basic insert/read tests + wrong-tenant.
-- [ ] B4.03b Journal property tests: random generated documents always balance; posting-query API for later reports.
+- [x] B4.03b Journal property tests: random generated documents always balance; posting-query API for later reports.
 - [ ] B4.04a Auto-posting, invoices: issued invoice → AR/revenue/VAT postings; golden test vs hand-written entries.
 - [ ] B4.04b Auto-posting, payments: payment → bank/AR postings incl. partials; goldens.
 - [ ] B4.04c Auto-posting, credit notes: full reversal postings; goldens; ledger of original+credit sums to zero.

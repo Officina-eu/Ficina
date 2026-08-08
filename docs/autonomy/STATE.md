@@ -10159,3 +10159,126 @@ Two things for the human out of that:
   local dev DB only, nothing deployed, no schema touched). If any renumbered
   sites migration has already run on a real host, that host needs the same
   realignment before its next release.
+
+## 2026-08-08 — B4.03b the journal's property suite, and the query API the reports are folds over
+
+Two halves, and the second is what makes the first worth having.
+`platform/alo-store/src/fin_ledger.rs` (≈620 lines incl. unit tests) is the
+**read side of the journal in aggregate** — three functions, deliberately not
+four reports' worth of queries:
+
+- `fin_trial_balance(from, to)` — what every account moved in a window, in
+  code order, with the two totals that must be equal and a `balances()` that
+  says so. The P&L is this filtered to income+expense for a quarter; the
+  balance sheet is this with no lower bound at a date. Both are that fold and
+  nothing else, which is the whole reason for having one journal.
+- `fin_account_ledger(account, from, to, limit)` — one account line by line,
+  oldest first, carrying the **opening balance** (everything strictly before
+  `from`) and a running column produced in exactly one place, so a screen, a
+  CSV and a drill-down cannot disagree about it.
+- `fin_dimension_balances(scope, dimension, from, to)` — receivables by
+  customer, payables by supplier, cost by engagement, output tax by rate:
+  **one query**, because they are one query.
+
+Decisions inside it a later wave should not relitigate:
+
+- **Every aggregate is in the accounting currency** (`base_cents`). A total
+  that adds dollars to euro means nothing, and one that silently reports the
+  majority currency means something false. The document column is not lost —
+  a ledger *line* hands both back, so a drill-down can print "$1,200.00 →
+  €1,103.45" — it is simply never summed.
+- **A scope names a `role`, not a code.** `Role(Ar)` keeps
+  receivables-by-customer right after an accountant recodes the chart, which
+  a hardcoded "1400" would not.
+- **`LedgerDimension` is a closed Rust enum mapping to a column name written
+  in this file**, which is what keeps the module's one interpolated SQL
+  fragment safe by construction. A unit test asserts each variant is a plain
+  posting column, and another asserts a hostile account id (`acc-1'; DROP
+  TABLE fin_postings--`) travels as a bind parameter rather than as SQL.
+  Named `LedgerDimension` rather than `Dimension` because Insights already
+  exports a `Dimension` from `insight_catalog`.
+- **Two caps, both visible**: `LEDGER_PAGE_MAX` (2000 lines) and
+  `LEDGER_GROUPS_MAX` (2000 groups), each with a `truncated` flag on the
+  returned struct. A partial sum presented as a period's total is the one
+  defect a financial report must not have, so the flag is not optional
+  politeness — `AccountLedger::closing_cents` under a truncated page is
+  documented as the balance of what is shown, not of the account.
+- **The `::bigint` casts are load-bearing.** Postgres widens `SUM(bigint)` to
+  `numeric`; narrowing it back is where a total too large for `i64` would be
+  *refused* (22003 → `StoreError::Db`) rather than truncated. It cannot
+  happen inside the journal's own ceilings, and an error would still beat a
+  wrapped number on a P&L. (Found on the wire: the first run failed with
+  `mismatched types; i64 is not compatible with NUMERIC` — the honest way to
+  learn it.)
+- The chart's column is `type` (0129), not `kind`; the query aliases
+  `a."type" AS kind` so Rust keeps one word for it. Also found on the wire.
+
+The other half, `tests/fin_journal_properties.rs` (≈1120 lines), is the
+note's § "The invariant, and how it is proven" made executable. A seeded
+xorshift64\* generator (the shape `billing_totals`' property tests already
+use) posts a random **business month** — 4–24 invoices of 1–6 lines at rates
+drawn from {0, 500, 700, 900, 1900, 2100, 2500} bp across EUR/USD/GBP, 0–2
+payments each at a *different* settlement rate, 1–12 approved supplier bills,
+1–10 approved expense claims, with customer/supplier/project/user dimensions
+— entirely **through `post_fin_entry`**, never an insert.
+
+Shipped properties: **P1** (every entry balances in both columns, asserted
+per entry read back from the database *and* re-derived by
+`fin_unbalanced_entries`, which is empty after every run), **P2** (no posting
+moves nothing in both currencies — the FX-difference exception is not a
+hole), **P4** (crediting every invoice of the month removes exactly the
+invoices, per account *and* per customer), **P7** (a backfill re-posting
+every source event of the month gets a typed `Conflict` each time, and the
+whole trial balance is byte-identical afterwards), **P8** (after a second
+month, three reversals and a refused write, every earlier posting's
+`(entry, account, amount, base)` tuple and every entry header is still
+exactly there), **P9** (one tenant's month leaves the other's trial balance,
+grouped read and account ledger identical; a foreign account id reads as an
+empty ledger; no account of the other's chart appears in an aggregate — the
+tenanted account names make a leak visible by name). A sixth test proves the
+period window takes entries **whole**: every sub-period balances on its own,
+three windows partition the month exactly, and a ledger's opening balance
+equals the cumulative trial balance at the day before.
+
+Two things the suite does that are worth keeping:
+
+- **It asserts the generator still generates the hard case.** Each seed's
+  month must contain a foreign-currency document, a rounding residual and an
+  exchange difference. A generator that quietly drifts to same-currency
+  arithmetic leaves a green suite that tests nothing, and that failure is
+  invisible without this.
+- **Both queries were mutation-checked, not merely run.** Summing the
+  document column instead of the base column fails three tests; dropping the
+  `tenant_id` predicate from the ledger read fails P9. A property suite whose
+  properties nothing can break is documentation.
+
+Cut, deliberately and named: **P3, P5, P6 and P10 are not here.** Each is an
+assertion about a posting *rule* (P3: the AR posting equals
+`billing_totals::totals(lines).gross_cents`) or a *report* (P10), and neither
+exists yet — they arrive with B4.04a–c and B4.11a–d rather than being
+weakened into something that passes today. What stands in for them is not a
+stub: the generator keeps an independent running tally as it posts, and the
+trial balance, the two grouped reads and the account ledger are each checked
+against it account by account, customer by customer and rate by rate. The
+generator also produces the *entries* B4.04's rules will produce rather than
+the *documents*, for the same reason — there is no rule yet to turn one into
+the other. Both narrowings are written into `docs/design/finance.md` § "As
+built (B4.03b)" so B4.04a inherits the list rather than rediscovering it.
+
+Verified: `rustfmt --edition 2024` on the three touched files (the machine's
+whole-crate `cargo fmt` trap is unchanged); `SQLX_OFFLINE=true cargo clippy
+--workspace --all-targets` clean, **zero warnings**; `cargo test -p alo-store`
+green against the local Postgres (`alo-pg`), including the new suite's 6
+integration tests and `fin_ledger`'s 6 unit tests.
+
+No CHANGELOG line: still nothing user-visible — the ledger has no route and
+no screen. The wave's first user-voice line lands with the first slice a
+person can see (B4.05b's expenses, or B4.13a).
+
+**HUMAN ACTION (unchanged):** `/finance` still needs the production Caddyfile
+prefix and the `API_PATHS` line in `web/vite.config.ts` when the first route
+lands at B4.05b; no route exists yet.
+
+Next item: B4.04a (auto-posting for issued invoices — `fin_rules.rs`'s first
+rule as a pure function from a document to a `NewEntry`, with a hand-written
+golden entry beside it, and P3 asserted for the first time).
