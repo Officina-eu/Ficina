@@ -169,6 +169,10 @@ identical in size, radius, and rhythm across modules.
   (write "web address", not "subdomain", wherever a normal person will read).
 - Keyboard reachability and visible focus on all interactive elements;
   contrast per WCAG AA. Accessibility is part of law 1, not a tier-3 item.
+- **`docs/design/` holds laws and standing design decisions ONLY.** Audit
+  findings, defect lists, and review outcomes are work items — they live in
+  `docs/reviews/` (dated files) or the track queues, never beside the rules.
+  A law is permanent; a defect is temporary; mixing them erodes both.
 - These laws extend CLAUDE.md quality gates: a UI slice is not done when it
   compiles — it is done when a stranger can use it. Wave reviews test the
   laws explicitly and file violations as queue items.
