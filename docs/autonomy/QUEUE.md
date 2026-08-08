@@ -84,7 +84,7 @@ small, or a `[!]` note for the human if large.
 ## Wave B4 — alo Finance (Expenses & Accounting core)
 
 - [x] B4.01 Design note `docs/design/finance.md` — CoA model, journal invariants, posting rules per document type, reconciliation model, period locking. The debits==credits invariant stated as a property test plan.
-- [ ] B4.02 Migration + store: chart of accounts (code, name, type asset/liability/equity/income/expense, EU-SME default seed per tenant) + CRUD (custom accounts) + tests.
+- [x] B4.02 Migration + store: chart of accounts (code, name, type asset/liability/equity/income/expense, EU-SME default seed per tenant) + CRUD (custom accounts) + tests.
 - [ ] B4.03a Journal tables + balanced-entry enforcement: `fin_entries` + `fin_postings`, unbalanced rejected in the tx; basic insert/read tests + wrong-tenant.
 - [ ] B4.03b Journal property tests: random generated documents always balance; posting-query API for later reports.
 - [ ] B4.04a Auto-posting, invoices: issued invoice → AR/revenue/VAT postings; golden test vs hand-written entries.

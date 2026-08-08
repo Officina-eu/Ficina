@@ -9894,3 +9894,119 @@ plus `fin_seeds`, the `fin_accounts` store module with the role lookup, the
 neutral EU-SME default seeded once per tenant on first read, custom-account
 CRUD with the "an account carrying a posting cannot be deleted" rule, and the
 mandatory wrong-tenant test).
+
+## 2026-08-08 — B4.02 the chart of accounts (migration + store)
+
+The first table of alo Finance, and the one every later posting rule resolves
+through. Store-only by the queue item's own words (`Migration + store … +
+CRUD (custom accounts) + tests`): `/finance/accounts` is a B4.05b route, and
+nothing HTTP was written here.
+
+- **Migration `0129_fin_accounts.sql`** — `fin_accounts` (tenant_id + id PK,
+  `code` unique per tenant, `name`, `type` in the five kinds, `role`,
+  `active`, `system`, timestamps) and `fin_seeds` (tenant_id + system_key PK,
+  `seeded_by`, `seeded_at`), both `REFERENCES tenants(id) ON DELETE CASCADE`.
+  A **partial unique index `fin_accounts_one_per_role`** on `(tenant_id, role)
+  WHERE role <> ''` is what makes "where does the receivable go" a
+  single-row answer under concurrency rather than by convention. Defence-in-
+  depth CHECKs on the type set, the code shape (non-blank, ≤ 20, no
+  whitespace), the name shape and the role's word shape.
+- **`platform/alo-store/src/fin_accounts.rs`** — `AccountType` (asset/
+  liability/equity/income/expense, with `is_balance_sheet()` stated once so
+  B4.11's P&L and balance sheet cannot disagree about where an account goes),
+  `AccountRole` (the closed set of thirteen the design note names), `CHART`
+  (the neutral EU-SME default, twenty accounts), `ChartSeed`/`ChartName` (the
+  words), `NewAccount`/`Account`, and on `AccountStore`:
+  `fin_accounts_or_seed`, `fin_seed_ran`, `fin_accounts(include_inactive)`,
+  `fin_account`, `fin_account_for_role`, `create_fin_account`,
+  `update_fin_account`, `set_fin_account_active`, `delete_fin_account`.
+  One `normalize()` for create and update, as billing's modules do.
+- **The seed is `insight_overview`'s mechanism reused whole**: first read
+  writes the ledger row `eu_sme_chart` and the twenty accounts in one
+  transaction; `ON CONFLICT DO NOTHING` on the ledger's primary key makes two
+  simultaneous first reads produce exactly one chart without a lock, and the
+  loser reads back the winner's. A tenant who deactivates or renames the
+  chart is not handed ours again the next morning — the question asked is
+  whether the seed ever *ran*, never whether the accounts are still there.
+
+Decisions worth recording (they go into the note at the B4.15 as-built pass):
+
+- **No English in the store.** `CHART` states each default account's code,
+  kind and role; the twenty **names arrive from the HTTP edge already
+  translated**, matched on the code, and a missing or blank one is refused
+  rather than filled in with something we invented. This is an **obligation
+  on B4.05b/B4.13c**: whoever writes `GET /finance/accounts` must build a
+  `ChartSeed` from the caller's catalog — twenty new `finance*` strings — or
+  the first read of the chart fails validation. Half a chart is worse than no
+  chart, so it fails loudly.
+- **The closed role set lives in Rust, not in a `CHECK`.** A wave that needs a
+  fourteenth role is then a code change with its own validation and tests,
+  not a constraint swap on a table holding a tenant's books (the rails'
+  expand-only rule). The database enforces the *shape* and the one-per-tenant
+  uniqueness, which are the parts a concurrent writer could break.
+- **Codes are uppercased on the way in** (`ar` and `AR` are the same account
+  to every human reading a printed chart; storing both would show a trial
+  balance two lines with one label). Codes are also unique per tenant only —
+  two tenants may both use `6410`, proven by a test.
+- **A system account is renameable and recodeable but never deletable.** A
+  tenant whose accountant wants `1400` for receivables must be able to say
+  so, and the posting rules follow the role rather than the code — proven by
+  a test that renumbers the seeded AR account and finds it again by role.
+  Deactivating is the removal a chart normally wants; the account keeps its
+  history and stops being an answer.
+- **A deactivated account is *no* answer for its role.** `fin_account_for_role`
+  filters on `active`, so a tenant who deactivated their bank account gets the
+  document refused naming the role (the note's rule) rather than a quiet
+  posting to an account they had said they were done with.
+- **`rounding` (6900) and `fx_diff` (6950) are typed `expense`.** Both are as
+  often a gain as a loss; the posting's sign carries that, and the account
+  does not need two of itself — the same reason the journal stores one signed
+  `amount_cents`.
+- **The "cannot delete an account that carries postings" rule is written and
+  waiting**: `delete_fin_account` maps SQLSTATE 23503 to
+  `Conflict("an account that carries postings cannot be deleted")`. It has
+  nothing to bite on until `fin_postings` exists, so **B4.03a must declare
+  `fin_postings.account_id`'s foreign key `ON DELETE RESTRICT`** — that is
+  what makes the rule hold against a concurrent posting rather than only
+  against a slow one. Written down here because a guard nobody wired is a
+  guard that silently is not there.
+- **`fin_seeds` is shared with the backfill.** The once-per-tenant backfill
+  the note designs ("When the books open") takes its own `system_key` in this
+  table; no second ledger.
+
+Verified: `rustfmt --edition 2024` on the two new files only (the machine's
+`cargo fmt` trap is unchanged — rustfmt 1.9.0 reformats files `main` was
+written with, so the whole-crate run is still off the table and a pinned
+`rust-toolchain.toml` is still the human item); `SQLX_OFFLINE=true cargo
+clippy --workspace --all-targets` clean, zero warnings; `cargo test -p
+alo-store` fully green against the local Postgres (`alo-pg`), including the
+new **12 pure unit tests** (every role has exactly one default account and
+every default account's role is one of ours; the chart covers all five kinds;
+the codes are unique, bounded and storable through the same normaliser a
+caller's code goes through; both enums round-trip and refuse invention; the
+role words match the migration's own regex; code/name validation; the seed
+needs a name for every account and ignores names for codes the chart has not
+got) and **`tests/fin_accounts_tenancy.rs`**:
+`fin_accounts_seed_once_and_never_cross_tenant` (the mandatory wrong-tenant
+test — tenant B reads empty, gets `None` on id and role lookups, and gets a
+clean `NotFound` on update, deactivate and delete of tenant A's account, with
+A's row unchanged afterwards; B's own seed carries B's words and B's role
+lookup answers with B's account; the seed runs once; tenant deletion purges
+both tables and leaves A's chart untouched) and
+`fin_accounts_crud_and_the_chart_rules` (create/read/update/list/deactivate/
+delete, the duplicate-code and taken-role conflicts, per-tenant code
+uniqueness, renumbering a system account, inactive accounts sorting last, and
+the two delete refusals).
+
+No CHANGELOG line: nothing here is user-visible yet — the chart has no route
+and no screen. The wave's first user-voice line lands with the first slice a
+person can see (B4.05b's expenses, or B4.13a).
+
+**HUMAN ACTION (unchanged, restated because B4 now has rows):** `/finance`
+still needs the production Caddyfile prefix and the `API_PATHS` line in
+`web/vite.config.ts` at B4.05b; no route exists yet.
+
+Next item: B4.03a (the journal tables — `fin_entries` + `fin_postings`, the
+balanced-entry enforcement inside the transaction, basic insert/read tests and
+the wrong-tenant test; and the `ON DELETE RESTRICT` foreign key from
+`fin_postings.account_id` that B4.02's delete guard is waiting for).
