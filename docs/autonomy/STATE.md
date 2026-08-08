@@ -8052,3 +8052,13 @@ Cuts and flags:
 Next item: B3.06 (billable → invoice: approved, billable, unbilled entries for
 one customer folded into draft invoice lines, entries stamped with the invoice,
 and the unbilled view — the arc `/projects/unbilled` → `POST /projects/invoices`).
+
+**Trailer note (B3.05).** Commit `b225227` went out without the
+`Co-Authored-By` line every other loop commit carries — the third such slip,
+after B1.27's `eb80850` and BI1.08's `c6c8d87`. Pushed history is not rewritten
+(LOOP.md's hard rail), so the gap is journalled here instead. The author is the
+repository owner, as it should be; only the co-author trailer is missing. The
+common factor across all three: the message was supplied on stdin
+(`git commit -F -`) rather than typed, which is the path the harness's trailer
+injection does not cover — a `-F` message should be written to a file and
+committed with the trailer already in it.
