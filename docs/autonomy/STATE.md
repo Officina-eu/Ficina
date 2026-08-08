@@ -10010,3 +10010,152 @@ Next item: B4.03a (the journal tables — `fin_entries` + `fin_postings`, the
 balanced-entry enforcement inside the transaction, basic insert/read tests and
 the wrong-tenant test; and the `ON DELETE RESTRICT` foreign key from
 `fin_postings.account_id` that B4.02's delete guard is waiting for).
+
+## 2026-08-08 — B4.03a the journal (tables + the balanced-entry rule)
+
+The two tables every future Finance figure is a fold over, and the one
+function that is allowed to write them. `migrations/0131_fin_journal.sql`
+adds **`fin_entries`** (one document event: accounting date, kind, the
+`(source_kind, source_id, source_event)` triple, memo, `reverses_entry_id`,
+attachment node, currency + the B1.21 FX snapshot triple, created_by/at) and
+**`fin_postings`** (one line: position, account, signed `amount_cents` and
+`base_cents`, `vat_rate_bp`, and the four dimensions a report groups by).
+`src/fin_journal.rs` (≈900 lines incl. tests) owns `post_fin_entry` plus the
+reads: `fin_entry`, `fin_entry_postings`, `fin_journal_entry`, `fin_entries`
+(date range, capped), `fin_entry_for_source` and the health query
+`fin_unbalanced_entries`. New ids `FinEntryId`/`FinPostingId`.
+
+What the write path actually enforces, all of it before a row is written and
+all of it inside one transaction:
+
+- **`Σ amount_cents = 0` AND `Σ base_cents = 0`.** Both columns, because an
+  entry that balances in dollars and not in euro is two different stories
+  about one event — and the base column is the one an eyeball misses. The
+  refusal states the difference in cents and names the currency, so a human
+  can find the line without the message carrying any stored data.
+- **At least two postings.** An empty `postings` vec sums to zero and would
+  otherwise have "balanced"; one posting is not double-entry.
+- **A posting must move money in at least one column.** `amount_cents = 0`
+  with `base_cents ≠ 0` is legitimate exactly once — the exchange difference
+  on a foreign-currency settlement — and both zero is a typo, refused in the
+  store and by a CHECK.
+- **The identity-rate rule**: an entry denominated in the accounting currency
+  must carry `rate_micro = 1_000_000`, in the store and in a CHECK. A rate
+  applied to itself would make the base column a number no reader could
+  reconstruct.
+- **Accounts are resolved before the insert, not left to the foreign key**: a
+  posting to an id that is not in *this tenant's* chart is a typed
+  `Validation` ("not in this chart"), and a posting to a **deactivated**
+  account is refused *naming the account's code*. That is B4.02's `active`
+  flag becoming a rule about new postings rather than only about pickers.
+- **Idempotency**: `UNIQUE (tenant_id, source_kind, source_id, source_event)`
+  partial index; a second post of the same document event is
+  `Conflict("this document event is already posted")` and adds no postings.
+  A different *event* of the same document (issue → void) is a different
+  entry, so a reversal stays representable without weakening the key.
+- **A reversal may only correct one of the caller's own entries** (an
+  outsider's id is a clean `NotFound`) and may not be dated before it.
+
+Decisions taken here that a later wave should not relitigate:
+
+- **`ON DELETE NO ACTION`, not `RESTRICT`, on `fin_postings.account_id`** —
+  the one deviation from the note (and from B4.02's own STATE entry, which
+  asked for RESTRICT in these words). The guarantee it was asked for is
+  intact: deleting an account that carries a posting raises 23503 and
+  `delete_fin_account` maps it to the typed conflict, now proven by a test
+  instead of only written down. RESTRICT is checked *immediately*, so
+  `DELETE FROM tenants` could fail depending on which cascade Postgres runs
+  first; NO ACTION is checked at the end of the statement, by which time the
+  postings are gone. This is 0106's lesson (`billing_quotes` → invoices) and
+  the tenancy test deletes a tenant that has a journal to prove it. The note
+  and `fin_accounts.rs`'s two comments were corrected to match as-built.
+- **No `plpgsql` constraint trigger for the balance check**, as the note
+  argued: CLAUDE.md's two-language rule, and a trigger sees rows but not
+  intent — it would pass an entry that balances and books the wrong account.
+  What replaces it is the single write path plus `fin_unbalanced_entries()`,
+  which the suite asserts is empty after every run and which the admin health
+  surface can call on a live tenant. It counts an entry with *no* postings as
+  unbalanced too: the write path cannot produce one, so if one exists,
+  something other than `post_fin_entry` wrote it.
+- **The closed sets live in Rust** (`EntryKind`, `SourceKind`, `SourceEvent`),
+  with only a shape CHECK in the migration — `fin_accounts.role`'s pattern,
+  for the same reason. A test asserts every word matches the migration's own
+  regex, so a variant that Postgres would reject fails in `cargo test` rather
+  than at the first write.
+- **Amount ceiling `POSTING_AMOUNT_MAX_CENTS` (1e12) × `ENTRY_POSTINGS_MAX`
+  (1000)** keeps every sum four orders of magnitude inside `i64`, and the
+  accumulator still uses `checked_add` and refuses rather than wrapping: a
+  balance check against a wrapped number is worse than no check.
+- **`position` is the index the rule wrote**, unique per entry, so the read
+  gives back exactly what was posted; `Posting::debit_cents/credit_cents` is
+  where the sign becomes the two columns humans read, stated once.
+
+Cut, deliberately, and not a depth cut: **no posting rules and no routes.**
+B4.03a is the tables and the write path; `fin_rules` (document → `NewEntry`)
+is B4.04a–c and the reports' posting-query API is B4.03b, both queued next.
+The rounding/`fx_diff` residual postings the note describes are produced by
+those rules — this module's job is to refuse the entry when they are missing,
+which the FX test exercises from both sides.
+
+Verified: `rustfmt --edition 2024` on the two new files (+ the two mechanical
+import re-wraps rustfmt wanted in `lib.rs`; the machine's whole-crate
+`cargo fmt` trap is unchanged and the pinned `rust-toolchain.toml` is still
+the human item); `SQLX_OFFLINE=true cargo clippy --workspace --all-targets`
+clean, **zero warnings**; `cargo test -p alo-store` fully green against the
+local Postgres (`alo-pg`) — 570 lib unit tests (including this module's 15:
+the balance rule in both columns, the two-posting floor, the moves-no-money
+rule with the FX exception, the magnitude ceiling in both directions, the
+identity-rate rule, rate validity, the all-or-nothing source, trimming and
+bounds, the VAT-rate rule, the missing account, three enum round-trips
+against the migration's regex, the debit/credit read-out, and the
+non-wrapping accumulator) plus every integration suite. New
+`tests/fin_journal_tenancy.rs`, 3 tests:
+`fin_journal_posts_whole_entries_and_never_crosses_a_tenant` (the mandatory
+wrong-tenant test — B gets nothing from the entry read, the postings read,
+the range read, the idempotency lookup and the health query; B **cannot post
+onto A's accounts** and A's entry is untouched afterwards; B's identical
+`inv-1` is B's own document; B cannot reverse A's entry; deleting B's tenant
+takes B's journal and leaves A's), `..._refuses_what_would_make_the_books_
+wrong` (an unbalanced entry leaves no header behind, the double-post
+conflict, void-as-reversal netting to zero per account, the two reversal
+refusals, the deactivated-account refusal naming the code, the
+account-carries-postings delete conflict, an account nobody has, and the
+health query empty throughout) and
+`..._balances_a_foreign_currency_entry_in_both_columns` (a USD settlement
+whose euro leg is a cent off, the `fx_diff` posting that fixes it, and the
+same entry without it refused naming the accounting currency).
+
+No CHANGELOG line: still nothing user-visible — the journal has no route and
+no screen. The wave's first user-voice line lands with the first slice a
+person can see (B4.05b's expenses, or B4.13a).
+
+**HUMAN ACTION (unchanged):** `/finance` still needs the production Caddyfile
+prefix and the `API_PATHS` line in `web/vite.config.ts` at B4.05b; no route
+exists yet.
+
+Next item: B4.03b (the journal property tests — the generator that builds a
+random business month through the real store functions, P1/P2/P7/P8 asserted
+against it, and the posting-query API the later reports read through).
+
+**Renumber, same iteration:** the rebase onto `b082db3` landed the sites
+track's `0130_site_form_notification.sql` — its *third* renumber, chasing the
+business track up the 01xx block — so this slice's migration moved to
+`0131_fin_journal.sql` before the push. `ls migrations | cut -c1-4 | sort |
+uniq -d` is empty; the affected suites were re-run green, and the whole chain
+was re-applied **from an empty database** (`alo_migcheck`, created and
+dropped) to prove the renumbered set is coherent from zero rather than only
+on a machine that already had the old files.
+
+Two things for the human out of that:
+
+- **Both tracks are minting in 01xx**, which is why this collision has now
+  happened four times in a day. Worth deciding a split (sites in 02xx, say)
+  rather than each track renumbering after the other's dust.
+- **Renaming an already-applied migration is only free before a deploy.** A
+  database that ran `0127_site_form_notification` records version 127, and
+  after the rename sqlx refuses to migrate at all with `VersionMissing(127)`
+  — which is exactly what this loop's dev Postgres did until its
+  `_sqlx_migrations` ledger was realigned by hand (127 → 130, 130 → 131;
+  local dev DB only, nothing deployed, no schema touched). If any renumbered
+  sites migration has already run on a real host, that host needs the same
+  realignment before its next release.

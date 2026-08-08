@@ -225,7 +225,7 @@ fin_postings          (grain: posting — one line of one entry)
   tenant_id, id       PK
   entry_id            → fin_entries (composite FK, ON DELETE CASCADE)
   position            INTEGER
-  account_id          → fin_accounts
+  account_id          → fin_accounts (composite FK, ON DELETE NO ACTION)
   amount_cents        BIGINT signed: positive = debit, negative = credit
   base_cents          BIGINT signed — the same money in the tenant's base currency
   vat_rate_bp         INTEGER nullable — which rate this tax belongs to
@@ -235,6 +235,17 @@ fin_postings          (grain: posting — one line of one entry)
   user_id             TEXT nullable   /
   memo                TEXT
 ```
+
+**As built (B4.03a), one correction to the line above:** the account link is
+`ON DELETE NO ACTION` (the default) rather than the `ON DELETE RESTRICT` this
+note first wrote. The rule it exists for is unchanged — deleting an account
+that carries a posting fails with SQLSTATE 23503, which
+`delete_fin_account` maps to "an account that carries postings cannot be
+deleted" — but RESTRICT is checked *immediately*, so dropping a whole tenant
+could fail depending on which of the two cascades from `tenants` Postgres runs
+first. NO ACTION is checked at the end of the statement, by which time the
+postings are gone too. This is 0106's lesson, and the tenancy suite deletes a
+tenant with a journal to prove it.
 
 There is no `updated_at` on either table, and that is a signal rather than an
 omission: **nothing in this module ever updates a posted row.** The columns
