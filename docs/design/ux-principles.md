@@ -99,6 +99,42 @@ required knowing-in-advance is filed as a defect, like S1.30b/c were.
     reference tool, hunt for any re-typed field, and walk every cross-module
     handoff end-to-end.
 
+## The visual scale — how every size gets chosen
+
+Nothing on an alo screen has an arbitrary dimension. Icon sizes, card
+paddings, corner radii, shadows, gaps — every value is picked **by role from
+the token scale** (`web/src/ds/tokens.css`), which is the single place a
+value may be born. The principles that govern the scale:
+
+- **One rhythm.** All spacing and sizing sits on the token grid (the 4px
+  family). Two adjacent elements never differ by amounts the grid can't
+  express — that sub-pixel-of-chaos feeling in lesser apps comes exactly
+  from breaking this.
+- **Size encodes importance.** Bigger means more important, always —
+  a screen's visual hierarchy must survive the squint test (law 4). Icons
+  come in exactly three roles: inline-with-text, in-controls, and
+  rail/hero — chosen by role, never by taste per screen.
+- **Radius encodes surface class.** Small radius for controls (inputs,
+  buttons), medium for cards and panels, large only for floating overlays —
+  one class, one radius, never mixed on the same surface kind. Corner
+  radius is how users subconsciously read "what kind of thing is this".
+- **Elevation is a ladder.** Shadows come only from the token set, one step
+  between adjacent layers; a surface never jumps two levels. Depth is
+  information, not decoration.
+- **Room to breathe.** Cards and panels keep generous minimum padding from
+  the space scale; reading text keeps a book-like measure; density is a
+  deliberate mode (as in Drive's density control), never an accident.
+- **Touch respects fingers.** Interactive targets stay ≥40px regardless of
+  how small the glyph inside them is.
+- **New values are legislation, not improvisation.** A dimension that the
+  scale lacks is added to tokens.css in its own reasoned commit — never
+  inlined into a component.
+
+*Verify (mechanical):* grep new UI for hardcoded px/color values outside the
+ds — any literal that isn't a token reference is a defect. *Verify (human):*
+the wave review compares sibling screens side by side — same roles must look
+identical in size, radius, and rhythm across modules.
+
 ## Standing constraints
 
 - All copy through the i18n catalog, in the user's language, jargon-free
