@@ -9512,3 +9512,133 @@ POST … the same call again         → 200 drafted 0, three × alreadyDrafted
 Next item: B3.11 (wave review: fr/nl for every B3 string, CHANGELOG sweep,
 `docs/design/projects.md` as-built including the six items above, features.md
 [B3] reconciliation).
+
+## 2026-08-08 — B3.11 the B3 wave review: Projects in three languages, and the wave reconciled
+
+**Item.** B3.11 — the wave review: fr/nl for every B3 string, a CHANGELOG
+sweep, `docs/design/projects.md` brought to as-built, and `docs/features.md`
+`[B3]` reconciled. No production Rust, no schema, no route: this is the item
+that closes a wave.
+
+Shipped: alo Projects speaks en/fr/nl end to end, the design note is **as
+built** and closes with a reconciliation table, `docs/features.md` § `[B3]`
+carries the pointer blockquote B1, B2 and BI-1 have, ROADMAP's bare B3 heading
+became a real wave section with its boxes, and the CHANGELOG gained the
+user-voice line for the translation.
+
+**The interface: 203 keys per language** (`web/src/i18n/fr.ts`, `nl.ts`) — 166
+`projects*` plus `moduleProjects`, and 36 agent-card keys the Projects tools
+own. The engagement list and its client form, the week grid and every duration
+in it, the Plan tab, templates, the approvals inbox, the profitability report,
+the running-timer widget, and the agent's three cards including the seven
+reason codes for a meeting it left out of a drafted timesheet.
+
+Three wording decisions rather than transliterations:
+
+- **A duration is written in the reader's own letters.** `7h 30m` is the
+  easiest thing on this surface to leave in English, because it looks like
+  punctuation rather than words. French renders `7 h 30 min` and Dutch
+  `7 u 30 min`, and the percentage on a budget bar follows the same rule —
+  `60 %` in French, `60%` in Dutch. The suite asserts all four.
+- **The document a person fills in is a `feuille de temps` / an `urenstaat`.**
+  Not *timesheet*, not *relevé*, not *urenregistratie*, and the same word from
+  the grid to the agent's card to the acceptance sentence — a word that
+  changes between two screens reads as two different documents.
+- **A week is `validée`/`renvoyée`, not `approuvée`.** *Approuver* in French
+  reads as agreeing with something; what a manager does to a timesheet is a
+  check. Dutch keeps `Goedgekeurd`/`Teruggestuurd`, where the collision does
+  not exist.
+
+`locale.test.ts` gains the fourth completeness suite, mirroring B1.27's,
+B2.14's and BI1.08's: every B3 key must exist in fr and nl, every
+interpolation must keep its argument count, the words must really change
+language, both branches of a plural are exercised, the duration units are
+pinned, and **every one of the eight `agentDraftedReason` branches** — the
+seven server codes plus the unknown-code default — must differ from English in
+both languages. 24 → 32 locale tests.
+
+**The server needed nothing, and that was checked rather than assumed.** The
+only word this module puts on a document a client reads is the unit label on
+an invoice line raised from a timesheet, and it has had its own language table
+(`projects::hour_words_for`, `?lang=`) since B3.06. The invoice line's
+*description* is the tenant's own project name. The CSV's column headers are
+machine names (`hours`, `totalHours`), as billing's and CRM's are. What stays
+English is the store's validation sentences — the standing cross-cutting item,
+below.
+
+Docs, in the shape the earlier waves set:
+
+- `docs/design/projects.md` — status **as built**, and the six deviations this
+  journal had been accumulating since B3.05 are now recorded where a reader
+  looks: the route table is the router (`/projects/clients/{id}` and
+  `/projects/milestones` for the audit derivation's sake, `POST
+  /projects/milestones/{id}/done` as its own verb, and **no `POST
+  /projects/time/propose`** — the agent's execute route is the only door a
+  drafted hour needs); `due_on` is `NOT NULL` and why; the calendar tool is a
+  *range* with a per-event refusal; the timer widget's real home and the
+  entry list under the week grid; the file list as built; and the display
+  open question answered by the code (`7:30` types, `7h 30m` reads, decimals
+  nowhere). Closes with **What B3 promised, and what B3 shipped** — a row per
+  `[B3]` feature, each shipped or a named cut.
+- `docs/features.md` § `[B3]` — the pointer blockquote, naming the two cuts a
+  reader of that list would otherwise assume shipped.
+- `ROADMAP.md` — Wave B3 was one heading with no boxes; it is now seven ticked
+  slices plus the unticked, deliberately-deferred eighth (per-project roles →
+  B4.12), with the languages paragraph B1, B2 and BI-1 carry.
+- `CHANGELOG.md` — one user-voice line for the translation, in the shape the
+  three earlier ones have.
+
+**Verified:**
+
+```
+npx tsc --noEmit                                  clean
+npx eslint src/i18n/{fr,nl,locale.test}.ts        clean
+npx vitest run                                    296 passed / 33 files
+  src/i18n/locale.test.ts                         32 passed (was 24)
+npm run build                                     built in 10.78s
+```
+
+No Rust was touched (no clippy/cargo-test delta to report), no storage, no new
+route — so no wrong-tenant test and no wire verification apply to this item.
+
+**Cuts and flags.**
+
+- **THE FEATURE CUT OF THE WAVE, now written down in three places: billable
+  hours → invoice has no screen.** `GET /projects/unbilled` and `POST
+  /projects/invoices` are complete and were wire-verified at B3.06 — approved,
+  billable, unbilled hours group the way an invoice groups them and raise a
+  **draft** in Billing — but no browser screen selects and raises. B3.07's
+  queue item listed four screens and the unbilled one was not among them, and
+  no later item claimed it. The report's *To invoice* column is where the
+  money waiting is visible today. It is the one B3 feature a user cannot reach
+  with a mouse, and it is a small, well-specified item for whoever opens the
+  queue next.
+- **Two of the agent's three advertised sentences are not tools.** `features.md`
+  advertises "set up the Acme onboarding project from our template" and "what's
+  over budget?"; the allowlist has `log_time`, `project_status_summary` (one
+  project) and `draft_timesheet_from_calendar`. Named as narrowings rather than
+  quietly left to look shipped: instantiating a template is one screen, and a
+  cross-engagement budget question is a portfolio ranking, which is a chart and
+  therefore Insights' shape.
+- **The mail agent's own cards are still untranslated** — `agentActReply`,
+  `agentFieldTo`, `agentActSnooze` and ~20 more, from before the business
+  track. Out of B3's scope (this wave translated the keys its own tools use)
+  but worth a human's note: the three business modules' cards are in three
+  languages and the *mail* module's are not, which is visible in one dialog.
+- **The store's refusal sentences are still English** — unchanged from B1.27,
+  B2.14 and BI1.08, and still the same cross-cutting item for a human. B3 adds
+  no new kind of it.
+- **`cargo fmt` remains a trap on this machine** (standing since B3.02). Not
+  exercised this iteration: no Rust file was opened.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates
+  B2 on "B1 live with ≥1 real tenant"; B1, B2, BI-1 and now the whole of B3
+  are code-complete and undeployed. This is the largest block of unshipped
+  work in the repo and it grows by a wave every few days — a human decision.
+- **`/projects` still needs the production Caddyfile prefix** at the next
+  deploy (standing since B3.04), beside `/billing`, `/crm`, `/audit` and
+  `/insights`.
+
+Wave B3 is complete. Next item: B4.01 (the alo Finance design note —
+chart of accounts, the journal invariants, posting rules per document type,
+reconciliation, period locking, with the debits==credits invariant stated as a
+property-test plan).

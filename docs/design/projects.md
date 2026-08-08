@@ -1,7 +1,7 @@
 # Design note — alo Projects & Timesheets (client work, hours, and the invoice they become)
 
-Status: **design** (written ahead of the first migration) · 2026-08-07 ·
-ADR 0035 · Business track wave B3
+Status: **as built** (B3.01 design, reconciled against the code at B3.11
+on 2026-08-08) · ADR 0035 · Business track wave B3
 
 alo Projects is the third Work OS module, and the first one that does not
 start with a new noun. The workspace already has projects: `task_projects`
@@ -22,8 +22,8 @@ first module where the *conversion* of a stored integer is a design
 question worth a section), the error map, the tenancy rules — including the
 one this module adds to alo's vocabulary, that **a person's hours are
 personal data even inside their own tenant** — and every central decision
-with the alternative it rejects. Sections marked *as built* describe code
-that exists; on the day this file is written, none do.
+with the alternative it rejects. Paragraphs marked **as built at B3.11**
+record where the code and this note disagreed, and the code won.
 
 > **Wave gate, flagged for a human.** `ROADMAP.md` gates wave B2 on "B1 live
 > with ≥1 real tenant", and B1, B2 and BI-1 are all code-complete and
@@ -68,22 +68,33 @@ All under the authenticated `alo-jmap` router, following the convention
 extractor, typed `Problem` errors, the store-error map in
 [`billing::map_store_err`], registration in `server.rs`.
 
+*As built at B3.11: the table below is the router.* Four spellings moved
+between the design and the code, each for a reason recorded beside it — the
+client facts and the milestones because `audit_action::event_for` derives a
+record's history mechanically from the matched route template and needs the
+**collection in the second segment** (`/projects/{id}/client` derives to no
+audit action at all, and `tests/audit_routes.rs` fails the build for it); the
+proposal seam because a drafted hour arrives through the agent's own execute
+route and never needed a verb of its own; and reaching a milestone because a
+delivered date is not an edit.
+
 | Route | Purpose |
 |---|---|
 | `GET /projects` | the engagement list: every project this user can see, with its client facts, hours to date and budget consumption (B3.02, B3.08) |
 | `GET /projects/{id}` | one engagement — the same row a task board shows, seen as client work |
-| `PUT /projects/{id}/client` | set or replace the client facts (customer, currency, rate, budget, start date). Idempotent, so a UI that saves a whole form has one call, not a create/update pair |
-| `DELETE /projects/{id}/client` | make it an internal project again. The hours stay; what is deleted is the *claim that they are billable to somebody* |
-| `GET/POST /projects/{id}/milestones` · `GET/PATCH/DELETE /projects/milestones/{mid}` | the ordered milestones of a project (B3.09) |
-| `PUT/DELETE /projects/tasks/{task_id}/milestone` | put one task under a milestone, or take it out (B3.09). One milestone per task |
-| `GET/POST /projects/templates` · `DELETE /projects/templates/{tid}` | mark a project as a reusable engagement template, list them, un-mark (B3.09) |
-| `POST /projects/templates/{tid}/instantiate` | create a new project from a template, with a start date (B3.09) |
+| `PUT /projects/clients/{id}` | set or replace the client facts (customer, currency, rate, budget, start date). Idempotent, so a UI that saves a whole form has one call, not a create/update pair. `{id}` is the **project's** id; `clients` is the collection the audit derivation reads |
+| `DELETE /projects/clients/{id}` | make it an internal project again. The hours stay; what is deleted is the *claim that they are billable to somebody* |
+| `GET/POST /projects/milestones` · `GET/PATCH/DELETE /projects/milestones/{mid}` | the plan of one project (`?projectId=` on the list, `projectId` in the body) — the milestones and the task→milestone links in one read, so a timeline never draws a bar before it knows what is under it (B3.09a) |
+| `POST /projects/milestones/{mid}/done` | reach a milestone, or take the mark off. Its own route, so the trail says `projects.milestone.done` rather than filing an accepted deliverable as an edit |
+| `PUT/DELETE /projects/tasks/{task_id}/milestone` | put one task under a milestone, or take it out (B3.09a). One milestone per task |
+| `GET/POST /projects/templates` · `DELETE /projects/templates/{id}` | mark a project as a reusable engagement template, list them, un-mark (B3.09b). `{id}` is the **project's own** id — a template *is* a project, so there is no second record to go stale |
+| `POST /projects/templates/{id}/instantiate` | create a new project from a template, with a start date (B3.09b) |
 | `GET /projects/timer` | the caller's running timer, or `null` |
 | `POST /projects/timer/start` · `POST /projects/timer/stop` | start it on a project (optionally a task); stop it, which is what writes the entry (B3.04) |
 | `GET /projects/time?from&to[&project_id]` | the caller's own entries in a date range (B3.04) |
 | `POST /projects/time` | a manual entry: a date, minutes, a project (B3.04) |
 | `GET/PATCH/DELETE /projects/time/{eid}` | read, correct, remove one of the caller's own entries — while its week is unlocked (B3.03, B3.05) |
-| `POST /projects/time/propose` · `POST /projects/time/{eid}/accept` · `/reject` | the agent's drafted entries and their approval (B3.10), the same three verbs Tasks uses for proposals (ADR 0023) |
+| `GET /projects/time/proposals` · `POST /projects/time/{eid}/accept` · `/reject` | the agent's drafted entries and the two answers a human gives them (B3.10a). **There is no `POST /projects/time/propose`:** the only thing that drafts an hour is a tool call through `/ai/agent/execute`, which reaches the same store function, so a second door would have been an unowned write path |
 | `GET /projects/weeks?from&to` | the caller's own weeks and their status (B3.05) |
 | `POST /projects/weeks/{monday}/submit` · `/withdraw` | submit a week for approval; take it back while nobody has decided (B3.05) |
 | `GET /projects/approvals` | **admin:** the submitted weeks of every user, oldest first (B3.05) |
@@ -92,9 +103,11 @@ extractor, typed `Problem` errors, the store-error map in
 | `POST /projects/invoices` | raise a **draft** invoice in billing from a selection of those entries (B3.06) |
 | `GET /projects/reports/profitability?from&to[&project_id]` · `.csv` | hours × rates vs budget, per project, per currency (B3.08) |
 
-Seven path segments are reserved words under `/projects` — `time`,
-`timer`, `weeks`, `approvals`, `templates`, `milestones`, `tasks`,
-`unbilled`, `invoices`, `reports`. Ids are base64url'd 16-byte random
+Eleven path segments are reserved words under `/projects` — `clients`,
+`time`, `timer`, `weeks`, `approvals`, `templates`, `milestones`, `tasks`,
+`unbilled`, `invoices`, `reports` (`clients` joined them at B3.07 with the
+route rename above; the design listed ten and miscounted them as seven).
+Ids are base64url'd 16-byte random
 tokens (`id.rs`), so a project can never *be* one of them, and matchit
 prefers a static segment to a capture; this is the shape `/tasks/labels`
 beside `/tasks/{id}` and `/sites/config` beside `/sites/{id}` already have.
@@ -131,6 +144,31 @@ Plus **one component outside the module**: the running-timer widget in
 `web/src/shell`, because a timer you cannot see from your inbox is a timer
 you forget to stop. It shows the elapsed minutes, the project, and a stop
 button; it polls nothing when no timer runs.
+
+**As built at B3.11.** Five tabs shipped, not five screens as listed:
+**Projects**, **My week**, **Plan** (B3.09a's timeline, which the design had
+as a rendering rather than a tab), **Reports** and **Approvals**. Three
+differences worth a reader's time:
+
+- **The Unbilled screen is not built.** `GET /projects/unbilled` and
+  `POST /projects/invoices` exist, are wire-verified end to end and are
+  reachable by any client; what has no browser screen is the *selecting and
+  raising*. The report's **To invoice** column is where a person sees the
+  money waiting, and the draft is raised through the API. This is the wave's
+  one named feature cut — it is in the table at the end of this note, and in
+  `docs/features.md`.
+- **The timer widget lives in `web/src/projects/TimerWidget.tsx`**, declared
+  by `product/workplace.tsx` as a rail widget, not in `web/src/shell`. Written
+  the design's way, the shell would import `../projects` — and the shell is
+  shared with alomails, which has no Projects at all. The rail renders
+  `surface.railWidgets` generically and knows nothing about clocks; a
+  `window`-event bus (`timerBus.ts`, no payload) tells the two trees to re-read
+  from the server, which is the only thing that knows whether a stop landed.
+- **The week grid carries a list of the week's entries beneath it.** The grid
+  alone cannot address the second of two sittings on one project on one day,
+  and merging them would erase the notes. Proposed entries appear in the grid
+  marked and counted separately, but are never edited through it: a suggestion
+  is accepted or rejected (ADR 0023's three verbs), not corrected.
 
 The rail entry is a workspace-surface module (`web/src/product/workplace.tsx`),
 beside Billing, CRM, Insights and Sites and for the same reason: the
@@ -540,6 +578,15 @@ or corrected in the UI that already exists, and it drifts from the model it
 claims to copy the first time a task gains a field. A template that *is* a
 project means the template editor is the board editor.
 
+**As built at B3.11: `due_on` is `NOT NULL`.** The model sketch leaves the
+nullability of a milestone's date unsaid, and the migration decided it: a
+milestone without a date is not a plan, it is a heading, and a timeline that
+has to draw one has nowhere to put it. A deliverable with no date yet belongs
+on the board as a task until somebody commits to a day. The consequence is
+that the plan's ordering key `(due_on, position)` is total, and "not in the
+plan" is a property of a *task* (no `task_milestones` row), never of a
+milestone.
+
 ## The Projects agent (B3.10)
 
 Three tools in the ADR 0034 allowlist, executed by `alo-jmap` against the
@@ -571,6 +618,28 @@ module's data:
 Source resolution ("the Acme project") reuses the B2.10 pattern: match on
 the tenant's own project names, exact first then unambiguous prefix, and
 **ambiguity is a question back to the user**, never a pick.
+
+**As built at B3.11.** The three tools shipped with those three rules intact
+(`agent_projects.rs`, `agent_timesheet.rs`, executed from `agent.rs`'s
+allowlist). Two shapes are worth recording because a reader of the table
+above would guess otherwise:
+
+- **`draft_timesheet_from_calendar` takes a range, not a day.** `from`/`to`,
+  at most 31 days, one proposed entry per *occurrence* — a weekly series
+  produces one per week — with `source_kind = "event"` and a source id that
+  carries the occurrence's own start, so asking twice never doubles an hour.
+  A person filling in a forgotten week asks about the week, not about Tuesday.
+- **A refusal is per event, not per batch.** Each occurrence is either drafted
+  or left out with a reason code the client has words for — all-day, already
+  drafted, no length, longer than a day, that week is submitted, over the
+  batch limit, outside the range. The plan is decided before anything is
+  written, so a partial batch is the DB-failure path only; the rows it leaves
+  are suggestions in nobody's total.
+- **A declined meeting is drafted like any other.** The obvious fifth skip
+  reason is absent because the store's `attendee_status` is the *organizer's*
+  record of guests' replies, not the caller's own RSVP on an invitation they
+  received. Modelling the caller's participation is a calendar item, not this
+  one; until then, a declined meeting is a suggestion discarded in one click.
 
 ## Errors
 
@@ -668,12 +737,18 @@ router's own source. Sub-resource events file against their parent record
 (an approval against the week, a bill against the invoice) so a record's
 history is complete, the rule B2.13 established.
 
-## Files this wave will add
+## Files this wave added
+
+*As built at B3.11 — the plan is kept where it held, corrected where it did
+not.*
 
 Store (`platform/alo-store/src`), one file one reason:
 
 ```
 project_clients.rs     the client facts of a project, and their validation
+project_hours.rs       an engagement's own aggregates (hours to date, billable,
+                       billed, consumption) — split out of project_clients.rs
+                       when the list read gained a second reason to change
 time_entries.rs        CRUD on the caller's own entries + the week lock
 time_timer.rs          start/stop, and the entry a stop writes
 time_weeks.rs          submit/withdraw (account door) + approve/reject/reopen (tenant door)
@@ -683,21 +758,27 @@ time_report.rs         profitability per project per currency (B3.08)
 project_milestones.rs  milestones and the task→milestone link
 project_templates.rs   mark, list, instantiate
 migrations/0122…0126   project_clients, time_entries, time_timers, time_weeks,
-                       project_milestones + task_milestones + project_templates
+                       project_milestones + task_milestones
+migrations/0128        project_templates (0127 went to the sites track, which
+                       pushes to the same branch)
 ```
 
 Routes (`products/mail/alo-jmap/src`): `projects.rs` (the module's own edge
-concerns, the language seam for the word `hour`), `projects_time.rs`,
-`projects_weeks.rs`, `projects_invoices.rs`, `projects_reports.rs`,
-`projects_plan.rs` (milestones + templates), `agent_projects.rs` (B3.10),
-plus the additive lines in `server.rs`, `lib.rs` and `audit_action.rs`.
+concerns, the language seam for the word `hour`), `projects_clients.rs`,
+`projects_time.rs`, `projects_weeks.rs`, `projects_invoices.rs`,
+`projects_reports.rs`, `projects_plan.rs` (milestones), `projects_templates.rs`
+(templates — a second responsibility that earned its own file), plus
+`agent_projects.rs` and `agent_timesheet.rs` (B3.10a/b) and the additive lines
+in `server.rs`, `lib.rs` and `audit_action.rs`.
 
-Web (`web/src/projects`): `ProjectsModule.tsx`, `api.ts`, `ProjectsView.tsx`,
-`ClientFactsDialog.tsx`, `WeekView.tsx`, `ApprovalsView.tsx`,
-`UnbilledView.tsx`, `ReportView.tsx`, `MilestonesPanel.tsx`,
-`TemplateDialog.tsx`, `*.test.tsx`; `web/src/shell/TimerWidget.tsx`; the
-`projects*` block in `i18n/en.ts`; the module entry in
-`product/workplace.tsx`; `/projects` in `vite.config.ts`.
+Web (`web/src/projects`): `ProjectsModule.tsx`, `api.ts`, `types.ts`,
+`format.ts`, `parts.tsx`, `timerBus.ts`, `ProjectsView.tsx`,
+`ClientDialog.tsx`, `WeekView.tsx`, `EntryDialog.tsx`, `PlanView.tsx`,
+`MilestoneDialog.tsx`, `TemplateDialog.tsx`, `ApprovalsView.tsx`,
+`ReportView.tsx`, `TimerWidget.tsx`, `index.ts`, `format.test.ts`; the
+`projects*` block in
+`i18n/en.ts`, `fr.ts` and `nl.ts`; the module entry in `product/workplace.tsx`;
+`/projects` in `vite.config.ts`. **No `UnbilledView.tsx`** — see § Web surface.
 
 ## Out of scope for B3 (cuts are decisions)
 
@@ -751,3 +832,38 @@ Web (`web/src/projects`): `ProjectsModule.tsx`, `api.ts`, `ProjectsView.tsx`,
   weekly one. B3 records a day, a person and a duration, which satisfies the
   shape; whether alo claims working-time-record compliance in its marketing
   is a legal statement for a human, not a design decision here.
+
+*As built at B3.11, one of these is answered by the code and three are not.*
+**The display question is settled and the design's own answer lost:** the grid
+takes `7:30` as an input spelling but *reads back* `7h 30m` in the reader's
+language, because a duration beside a total beside a report has to be the same
+shape everywhere, and `7:30` beside `2:00` beside a budget bar reads as a
+clock. Decimal hours appear nowhere in the interface. The other three — the
+rejection notice, logging time for somebody else, and the working-time-record
+claim — are untouched and still a human's.
+
+## What B3 promised, and what B3 shipped
+
+Every `[B3]` line of `docs/features.md`, against the code, at the close of the
+wave.
+
+| `docs/features.md` | Shipped |
+|---|---|
+| ★ **Projects agent** — "set up the Acme onboarding project from our template", "what's over budget?", "draft this month's timesheet from my calendar" (draft only — you approve) | **Partly.** Three tools: `log_time` (draft), `project_status_summary` (answer), `draft_timesheet_from_calendar` (draft, a range of days). **Two of the three example sentences are not tools**: setting a project up *from a template* and asking what is over budget *across* engagements. The first is a one-screen action that no user asked a machine for; the second is a portfolio question, and a portfolio question that reads several projects and ranks them is a chart — Insights' shape, not an agent tool's. Named here rather than half-built. |
+| Client projects: a project typed as client work (links a customer), budget in hours or money | Shipped (B3.02). Both budgets, either or neither, on the board that already exists. |
+| Milestones + simple timeline view over existing task boards | Shipped (B3.09a) as the **Plan** tab: dates on an axis with the board's own tasks under them. `due_on` is required — see § Milestones. |
+| Time entry: start/stop timer + manual entry, per task/project, billable flag, hourly rate | Shipped (B3.03, B3.04). The rate is snapshotted onto the entry, so repricing tomorrow never rewrites yesterday. |
+| Approval flow: submitted → approved timesheets (weekly), locked after approval | Shipped (B3.05), with withdraw and an audited reopen — and the reopen refuses once hours are on an invoice. |
+| ★ Billable hours → invoice lines in one click (feeds B1); unbilled-work view | **API shipped, the click is a cut.** `GET /projects/unbilled` and `POST /projects/invoices` are complete and wire-verified: approved, billable, unbilled hours group the way an invoice groups them and raise a **draft** in Billing. What is missing is the browser screen that selects and raises — the report's *To invoice* column is where the money is visible today. The one feature of this wave a user cannot reach with a mouse. |
+| Project profitability: hours × rates vs budget, per project | Shipped (B3.08) with CSV, per currency, never converted. Value, never margin — cost rates need B4's ledger and B6's employees. |
+| Project templates (recurring engagement setup) | Shipped (B3.09b). A template *is* a project; instantiating copies the shape and shifts the dates, and copies nobody's assignees, comments, hours or finished cards. |
+| `[B+]` Gantt with dependencies; capacity planning; field-service work orders | Out of scope, unchanged. |
+
+Two cross-cutting things this wave did **not** change, restated so a reader
+does not assume otherwise: **per-project access roles** are still B4.12's (a
+`team` project and its aggregates are tenant-wide; per-person hours are
+admin-only), and the **store's validation sentences are still English** — the
+standing item B1.27 and B2.14 both left for a human. Everything a browser
+renders is en/fr/nl (B3.11), and the one word this module puts on a document a
+client reads — the unit label `hour` on an invoice line raised from a
+timesheet — has had its own language table since B3.06.

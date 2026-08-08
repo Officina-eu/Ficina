@@ -414,6 +414,18 @@ EU models, suggest-only where the EU AI Act calls a use high-risk.
 
 ### [B3] Projects & Timesheets — from shipped Tasks to billable work
 
+> Wave B3 is built. `docs/design/projects.md` § "What B3 promised, and what
+> B3 shipped" reconciles every `[B3]` line below against the code: each is
+> shipped, or a cut with its reason. Two are named there. **Billable hours →
+> invoice has no screen**: the unbilled view and the draft-raising API are
+> complete and wire-verified, but a person selects and raises through the
+> API, not with a mouse — the profitability report's *To invoice* column is
+> where the money waiting is visible today. And **two of the agent's three
+> example sentences are not tools**: setting a project up from a template
+> (one screen, and nobody asked a machine for it) and "what's over budget?"
+> across engagements (a portfolio question, which is a chart — Insights').
+> Per-project access roles remain B4.12's, as in B2 and BI-1.
+
 - [B3] ★ **Projects agent** — "set up the Acme onboarding project from our template", "what's over budget?", "draft this month's timesheet from my calendar" (draft only — you approve)
 - [B3] Client projects: a project typed as client work (links a customer), budget in hours or money
 - [B3] Milestones + simple timeline view over existing task boards

@@ -337,6 +337,24 @@ history (B2.14). It renders no server-side document, so unlike B1 there was
 nothing outside the browser to translate.
 
 ### Wave B3 — Projects & Timesheets — billable hours feed B1
+
+Built on the same terms as B2 and BI-1: code, migrations and tests, none of
+it deployed. Nothing here starts with a new noun — a project is the board
+Tasks already ships, seen as client work.
+
+- [x] B3.1 Client projects: a customer, a currency, an hourly rate and a budget in hours or money attached to the board a team already uses — and taken off again without touching an hour that was logged
+- [x] B3.2 Hours: a timer visible from every screen in the workspace, a manual entry, a week grid you type into; minutes stored, the rate snapshotted onto the entry, and every total the server's
+- [x] B3.3 The week: submit → approve or send back, approved hours locked, an approval reopened only while no invoice carries them — with two doors, so a colleague's hours are unreachable rather than merely refused
+- [x] B3.4 ★ Billable hours → a **draft** invoice in Billing: approved, unbilled hours grouped per project per rate, the entries stamped with the invoice they went onto — *API only and wire-verified; the select-and-raise screen is a named cut*
+- [x] B3.5 Profitability: hours × rates against a budget, per engagement per currency, with CSV — value, never margin
+- [x] B3.6 The plan: milestones on a date axis over the existing board, reached when a person says so; and templates — a project marked reusable, copied onto new dates with nobody's assignees, comments, hours or finished cards
+- [x] B3.7 ★ Projects agent: `log_time`, `project_status_summary`, `draft_timesheet_from_calendar` — every hour it writes is a **suggestion** in nobody's total until the person whose timesheet it is accepts it
+- [ ] B3.8 Per-project access roles (who may see an engagement at all) — *deliberately deferred to B4.12, with B2's and BI-1's, where the first scoped role is designed on Spaces rather than invented three times*
+
+Projects is translated end to end in en/fr/nl — interface, the assistant's
+cards, and the unit label on an invoice line raised from a timesheet
+(B3.11).
+
 ### Wave B4 — Expenses & Accounting core — receipts, ledger, reconciliation, VAT
 ### Wave B5 — Purchasing & Inventory — products, stock, PO/SO chains
 ### Wave B6 — HR — records, leave, recruitment-lite (payroll calc = permanent non-goal)

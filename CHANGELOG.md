@@ -6,6 +6,17 @@ contracts.
 
 ## Unreleased
 
+- **Projects now speaks French and Dutch, down to the letters on a duration.**
+  Switch the language and the whole tab follows: the engagement list, the week
+  you fill in, the plan, the approvals a manager works through, the
+  profitability report, and every dialog that asks before something is
+  deleted. The words on your own hours change with it — a French timesheet
+  reads *7 h 30 min* and a Dutch one *7 u 30 min*, never the English *7h 30m*
+  — and so do the assistant's cards: the hours it suggests, the status it
+  reports on a project, and its reason for leaving a meeting out of a
+  timesheet it drafted. Nothing about the numbers themselves changed: they are
+  the server's, in all three languages.
+
 - **Fill in a forgotten week from your calendar.** Ask the assistant for
   *"my timesheet on Aurora from the 27th to the 31st"* and it suggests one entry
   per meeting in your own Agenda over those days — the meeting's title as the
