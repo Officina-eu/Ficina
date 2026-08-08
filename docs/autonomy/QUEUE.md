@@ -75,7 +75,8 @@ small, or a `[!]` note for the human if large.
 - [x] B3.06 ★ Billable → invoice: select approved unbilled entries for a customer → invoice draft lines (B1), entries marked billed with invoice link; unbilled view. Wire-verified arc.
 - [ ] B3.07 Web: timer widget in shell (workspace surface), timesheet week grid, project budget bar, approvals inbox page for managers.
 - [ ] B3.08 Project profitability report (hours×rates vs budget) + CSV.
-- [ ] B3.09 Milestones + template projects (create-from-template copying boards/milestones).
+- [ ] B3.09a Milestones: model + store + timeline rendering over existing boards; tests.
+- [ ] B3.09b Project templates: create-from-template copying boards/milestones; tests + wire.
 - [ ] B3.10 ★ Projects agent tools: `log_time` (draft), `project_status_summary` (answer from sources), `draft_timesheet_from_calendar` (drafts entries from Agenda events for approval) — structural verify.
 - [ ] B3.11 Wave review: fr/nl, CHANGELOG, design as-built, features [B3] reconciliation.
 
@@ -83,17 +84,29 @@ small, or a `[!]` note for the human if large.
 
 - [ ] B4.01 Design note `docs/design/finance.md` — CoA model, journal invariants, posting rules per document type, reconciliation model, period locking. The debits==credits invariant stated as a property test plan.
 - [ ] B4.02 Migration + store: chart of accounts (code, name, type asset/liability/equity/income/expense, EU-SME default seed per tenant) + CRUD (custom accounts) + tests.
-- [ ] B4.03 Migration + store: journal (`fin_entries` + `fin_postings`; every entry balanced, enforced in code + DB CHECK on sum via trigger-free design — reject unbalanced in the tx) + property tests (random documents → always balanced).
-- [ ] B4.04 Auto-posting: issued invoice → AR/revenue/VAT postings; payment → bank/AR; credit note reverses. Golden tests for each document type against hand-written entries.
-- [ ] B4.05 Migration + store: expenses (category→account map, project link, method, receipt file in Drive, status submit/approve/reimburse) + approval flow + tests.
-- [ ] B4.06 ★ Receipt capture: upload → parse structured fields (vendor, date, amounts, VAT) — pure extraction with pluggable backend; loop verifies with the deterministic parser (regex/heuristics) on fixture receipts; AI backend flagged for human wiring. Human-confirm screen data path built.
+- [ ] B4.03a Journal tables + balanced-entry enforcement: `fin_entries` + `fin_postings`, unbalanced rejected in the tx; basic insert/read tests + wrong-tenant.
+- [ ] B4.03b Journal property tests: random generated documents always balance; posting-query API for later reports.
+- [ ] B4.04a Auto-posting, invoices: issued invoice → AR/revenue/VAT postings; golden test vs hand-written entries.
+- [ ] B4.04b Auto-posting, payments: payment → bank/AR postings incl. partials; goldens.
+- [ ] B4.04c Auto-posting, credit notes: full reversal postings; goldens; ledger of original+credit sums to zero.
+- [ ] B4.05a Expenses model: migration + store CRUD (category→account map, project link, method, receipt file ref) + wrong-tenant tests.
+- [ ] B4.05b Expense approval flow: submit/approve/reimburse transitions + routes + wire transcript.
+- [ ] B4.06a ★ Receipt parsing core: deterministic extractor (vendor/date/amounts/VAT) behind a pluggable trait; fixture receipts prove it; AI backend seam flagged for human wiring.
+- [ ] B4.06b Receipt confirm path: upload route + parsed-fields-for-confirmation response + confirmed→expense creation; wire transcript.
 - [ ] B4.07 Mileage claims (per-km rate table per tenant, entry → expense).
 - [ ] B4.08 Bank import: CAMT.053 + MT940 parsers (golden files from public samples) + CSV mapping wizard model → `bank_lines` staged for reconciliation. Malformed files → typed errors, partial-import report.
-- [ ] B4.09 ★ Reconciliation: suggestion engine (exact amount+reference match, then windowed heuristics, per-tenant learned rules table), confirm → payment/expense postings; unmatched → manual match UI model. Tests: suggestion precision on fixture set, no cross-tenant leakage.
+- [ ] B4.09a ★ Reconciliation, exact stage: amount+reference matcher; confirm → payment/expense postings; precision tests + no cross-tenant leakage.
+- [ ] B4.09b Reconciliation heuristics: windowed matching + per-tenant learned-rules table; fixture precision tests.
+- [ ] B4.09c Manual matching: unmatched-line model + match/unmatch routes; wire transcript.
 - [ ] B4.10 Fiscal periods + soft close (postings before lock date → typed error; admin unlock audited).
-- [ ] B4.11 Reports: P&L, balance sheet, aged receivables/payables, VAT-return figures — store queries + routes + CSV; golden tests on a seeded year.
+- [ ] B4.11a Report: P&L — store query + route + CSV; golden on the seeded year.
+- [ ] B4.11b Report: balance sheet — same contract + goldens.
+- [ ] B4.11c Report: aged receivables/payables — same contract + goldens.
+- [ ] B4.11d Report: VAT-return figures — same contract + goldens.
 - [ ] B4.12 Accountant role: scoped access (finance read + journal write only, no mail/files) via Spaces/roles; tests prove the scope.
-- [ ] B4.13 Web: finance module — expenses flow, bank import + reconciliation screen, CoA editor, reports pages.
+- [ ] B4.13a Web finance: module skeleton + expenses flow (submit/approve/reimburse screens).
+- [ ] B4.13b Web finance: bank import + reconciliation screen.
+- [ ] B4.13c Web finance: CoA editor + the four report pages with CSV buttons.
 - [ ] B4.14 ★ Finance agent tools: `categorise_transactions` (draft), `vat_summary` (answer), `flag_anomalies` (answer with citations) — structural verify.
 - [ ] B4.15 Wave review: fr/nl, CHANGELOG, design as-built, features [B4] reconciliation.
 

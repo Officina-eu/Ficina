@@ -31,10 +31,14 @@ Do not touch billing/crm/business areas — that's the Mac's track.
 - [ ] S1.16c2 Form auto-create on section add: adding a contact_form section in the editor creates/links the form record; wire transcript of the complete arc (add section → public POST → submission row → owner-inbox notification).
 - [ ] S1.17 Submissions UI: per-site list with view/mark-handled + CSV export; wire-verified.
 - [ ] S1.18 Blog model: `site_posts` (doc node ref, slug, title, excerpt, cover blob, published_at, status) + store + routes + tests (a post can only reference the tenant's own doc).
-- [ ] S1.19 BlockNote-JSON → HTML renderer (paragraphs, headings, lists, quotes, code, images, equations fallback-to-text) with golden tests from real doc fixtures; XSS-safety test (script content never renders live).
-- [ ] S1.20 Blog rendering on alo-sites: /blog index (cards, pagination) + post pages + RSS feed; goldens.
-- [ ] S1.21 Blog UI: posts tab — "write in alo Docs" creates/links a doc, edit opens the Docs editor, publish flow with slug/cover/excerpt.
-- [ ] S1.22 SEO pack: sitemap.xml + robots.txt on alo-sites, per-page meta editor UI, OG defaults from theme/logo; goldens.
+- [ ] S1.19a BlockNote→HTML core: paragraphs, headings, lists, quotes — goldens from real doc fixtures.
+- [ ] S1.19b BlockNote→HTML rich: images, code, equations-fallback + the XSS-safety tests (script content never renders live).
+- [ ] S1.20a Blog pages on alo-sites: post pages + /blog index cards; goldens.
+- [ ] S1.20b Blog extras: pagination + RSS feed; goldens.
+- [ ] S1.21a Blog UI, authoring: posts tab list + "write in alo Docs" creates/links the doc + edit opens the Docs editor.
+- [ ] S1.21b Blog UI, publishing: publish flow with slug/cover/excerpt + status chips.
+- [ ] S1.22a SEO, served: sitemap.xml + robots.txt on alo-sites; goldens.
+- [ ] S1.22b SEO, edited: per-page meta editor UI + OG defaults from theme/logo; render goldens.
 - [ ] S1.23 Privacy analytics collection on alo-sites: daily aggregates (path hits, referrer domain, unique-ish via daily-salted hash), explicitly NO ip/ua storage — a test asserts the stored schema contains no PII columns and raw request data is dropped.
 - [ ] S1.24 Analytics UI: per-site panel (visits over time, top pages, top referrers) + the "no cookies, no banner" explainer string.
 - [ ] S1.25a Custom domains, model half: `site_domains` migration + store (domain validation, TXT verify token generation, status pending/verified/live) + `/sites/{id}/domains` routes + the verify-check endpoint (DNS TXT lookup mockable for tests) + wrong-tenant tests + wire transcript.
@@ -43,7 +47,8 @@ Do not touch billing/crm/business areas — that's the Mac's track.
 - [ ] S1.27 AI edit ops (alo-ai): typed op envelope (add/remove/reorder section, set prop, rewrite copy) + apply-to-page pure fn + tests; ambiguous op → typed error the UI can surface.
 - [ ] S1.28a Generation backend: POST `/sites/generate` (description → S1.26 envelope → draft site+pages created, never auto-published); unconfigured-AI path returns a typed "unconfigured" the UI can branch on; wire-verify fixture + unconfigured paths.
 - [ ] S1.28b Generation UI: the "describe your business" onboarding screen → calls S1.28a → opens the editor on the draft; unconfigured path lands on blank-site + a template picker instead; build/tsc/eslint clean, manual click-path journaled.
-- [ ] S1.29 Conversational editing UI: per-page AI panel — request → proposed ops rendered as a human-readable change list + before/after preview → Approve applies / Discard; reuses the approval-card pattern; structural verify.
+- [ ] S1.29a Conversational editing, plumbing: per-page AI panel calling the ops endpoint; proposed ops as a human-readable change list; Approve applies / Discard; structural verify.
+- [ ] S1.29b Conversational editing, preview: before/after page preview for a proposed op-set; approval-card polish.
 - [ ] S1.30 AI copy tools per section (rewrite/tone/shorter/longer) as one generic op path + UI affordance on each text field; propose-then-approve.
 - [ ] S1.30b Owner feedback (2026-08-07, from first hands-on test): the New-website dialog must show the FULL resulting address live as the user types (e.g. typing `axon` renders `axon.alosites.com — available`), not just a bare ADDRESS field with rules text; same full-address display wherever a subdomain is entered. Second finding from the same test: the user naturally typed the FULL domain (`axon.alosites.com`) and the UI showed generic "could not be checked/saved" while the server had returned a perfectly clear 422 detail ("subdomain may only contain lowercase letters, digits, and hyphens") — surface the server's detail message in the dialog, and strip/normalise an accidentally-typed suffix instead of failing. Third finding: the empty Address field left Create disabled with no hint why — the address must PRE-FILL from the site name as a slug (type "Axon" → suggests `axon`), editable but never blank by default, and a disabled Create must say what's missing. Done when: the dialog previews the complete address with availability state, shows server validation messages verbatim, typing the full domain just works, and the address self-suggests from the name.
 - [ ] S1.30c Owner feedback (2026-08-07, hands-on test #2): after Create, the user landed on an empty Pages list and could not find "the editor" — creating a site must AUTO-CREATE the Home page and navigate STRAIGHT into the page editor (empty-state there invites "Add your first section"); the Pages list is for later, not the landing. Done when: Create → editor with Home open, one click from adding a hero.
