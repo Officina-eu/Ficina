@@ -8,9 +8,14 @@ psychological basis and a verification a wave review can actually run.
 
 ## The prime law: zero-manual
 
-**If a screen needs explaining, the screen is wrong.** A first-time user must
-achieve the screen's core task in under a minute with no help. Tooltips and
-docs may *deepen* understanding, never *enable* it.
+**If a screen needs explaining, the screen is wrong — and the user must
+NEVER need a menu to use an alo tool.** Everything required to do the job
+lives on the surface, in sight, in reach; menus exist for depth and rarities,
+never for discovery of the core flow. A first-time user must achieve the
+screen's core task in under a minute with no help, no menu-hunting, no tour.
+Tooltips and docs may *deepen* understanding, never *enable* it.
+*The menu test:* remove every menu from the screen in your head — can the
+core task still be completed with what remains visible? If not, redesign.
 *Verify:* the wave review walks each new screen as a stranger; any step that
 required knowing-in-advance is filed as a defect, like S1.30b/c were.
 
