@@ -8914,3 +8914,193 @@ GET /audit?entity=projects.task:{t1}
 Next item: B3.09b (project templates — mark a project reusable, and
 create-from-template copying the board, its tasks, its milestones and the
 task→milestone links, with the date shift the design note specifies).
+
+## 2026-08-08 — B3.09b the next project starts from the last one
+
+**Item.** B3.09b Project templates: create-from-template copying boards and
+milestones; tests + wire.
+
+**What shipped.** A board can be marked reusable, and starting a project from
+one copies the *shape* of the work onto new dates.
+
+- `0127_project_templates.sql` — one row per reusable board (`tenant_id`,
+  `project_id` PK, `created_by`, `created_at`), cascading with the board and the
+  tenant. **A template is a project**: the shape lives in `task_projects`,
+  `tasks`, `task_subtasks`, `task_label_links` and `project_milestones`, exactly
+  where the board already is, so the template editor is the board editor and
+  there is no second model to drift (`docs/design/projects.md` rejects the JSON
+  template schema outright).
+- `platform/alo-store/src/project_templates.rs` — `mark_template` (idempotent,
+  keeps the first mark's date), `templates`, `template`, `unmark_template` and
+  `instantiate_template`, plus the pure `plan_delta` / `shift_date` /
+  `shift_instant`.
+- `products/mail/alo-jmap/src/projects_templates.rs` + four routes:
+  `GET/POST /projects/templates`, `DELETE /projects/templates/{id}`,
+  `POST /projects/templates/{id}/instantiate`. Audit vocabulary gained
+  `projects.template.create` / `.delete` / `.instantiate`.
+- Web: a **New from template** button on the engagement list, a star per team
+  row that marks and unmarks, and `TemplateDialog.tsx` — pick a shape (named
+  with what it would bring: "8 cards, 3 milestones"), name the project, choose
+  the start date and, optionally, the customer. ~20 new `en.ts` strings.
+
+**The four rules a copy is made of**, each a decision rather than a detail:
+
+- **Only a `team` board may be marked.** The template list is tenant-wide, so a
+  personal board in it would hand a colleague's private work to everybody who
+  opens the dialog. The caller's own personal board gets the named refusal; a
+  colleague's reads as absent.
+- **The shape is copied; progress is not.** Titles, descriptions, columns,
+  order, priorities, labels, checklists, milestones and the task→milestone links
+  come along. Assignees, comments, activity, followers, attachments,
+  dependencies and hours do not, and a copied checklist starts unticked.
+- **Finished work is not copied at all.** A card left in `done` is a leftover of
+  the project the template was built from. `ProjectTemplate::task_count` counts
+  exactly what a copy would carry, so the dialog's number is the number of cards
+  that appear — and the placement of a finished card dies with it.
+- **The plan lands on the start date.** Every date moves by `starts_on −
+  (earliest milestone)`; task due dates move by the same delta; a template with
+  no milestones shifts nothing, which is the design note's rule followed
+  literally rather than improved on.
+
+**Two judgement calls worth the ink.**
+
+- **The customer never travels, but its money does.** `project_clients` needs a
+  customer, and a template is an engagement shape rather than a client, so the
+  caller states the customer and the copy inherits the template's currency, rate
+  and budgets — together, because a rate without its currency is a different
+  number. Validated *before* the transaction opens, so an archived customer
+  leaves no half-made board behind (proved by a test that counts the boards).
+- **`template_json` answers with `id` as well as `projectId`.** B2.13's audit
+  derivation reads a create's record id off the response (`created_id`), and
+  without a bare `id` the mark was filed against nothing. Caught on the wire, not
+  in review: the first transcript showed `projects.template.create` with a null
+  entity, the second (after the field) files it against the board.
+
+**How it was verified.**
+
+- `cargo clippy -p alo-store -p alo-jmap --all-targets` clean; the **full**
+  `cargo test -p alo-store` green (52 suites, ~57 min on this machine);
+  `cargo test -p alo-jmap --lib --test audit_routes` green (413 + 3);
+  `npx tsc --noEmit`, `npx eslint` on the changed files and `npm run build`
+  clean.
+- `tests/project_templates_tenancy.rs` — 8 tests: the whole arc (mark, mark
+  again, copy, check every field of the copy), only-a-team-board (own personal →
+  named rule, colleague's → absent, archived → named rule, and a template
+  archived *after* marking stays listed and usable), **another tenant denied on
+  all five paths** with nothing changed behind them, a colleague reading and
+  copying the same template, the client facts (customer replaced, currency/rate
+  /budgets inherited, archived customer refused before any write), a template
+  with no milestones shifting nothing, a name required, the copy being its own
+  board, and the mark dying with its tenant.
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, two bootstrapped tenants (`b309bwire`, `b309bwireb`), tokens
+from the first-party password grant.
+
+```
+GET/POST /projects/templates, POST …/{id}/instantiate,
+DELETE …/{id}                          (no bearer)  → 401 (each)
+
+POST /projects/templates      {}                    → 422 "projectId is required"
+POST /projects/templates      {"projectId":"   "}   → 422 (same)
+POST /projects/templates      unknown id            → 404
+POST /projects/templates      the personal board    → 422 "only a team project
+                                       can be a template; a personal board is
+                                       private work"
+
+POST /projects/templates      the team board        → 200  taskCount 2 (the
+                                                            done card is not
+                                                            counted),
+                                                            milestoneCount 2
+POST /projects/templates      again                 → 200  SAME createdAt
+GET  /projects/templates                            → 200  one template,
+                                                            id == projectId
+
+POST …/{tpl}/instantiate  {}                        → 422 "project name must
+                                                           not be empty"
+POST …/{tpl}/instantiate  {"name":"   "}            → 422 (same)
+POST …  startsOn=01/10/2026                         → 422 "startsOn must be a
+                                                     date of the form YYYY-MM-DD"
+POST …  customerId=no-such-customer                 → 404
+
+PUT  /projects/clients/{tpl}  EUR 12000/h, budgets  → 200  (the template becomes
+                                                            client work)
+POST …/{tpl}/instantiate  "  Hansen relaunch  ",
+                          startsOn 2026-10-01       → 200  2 tasks, 2 milestones
+GET  /projects/milestones?projectId={copy}          → 200  10-01 and 10-15
+                                                     (from 09-01 / 09-15), one
+                                                     placement — the done card's
+                                                     went with it
+GET  /tasks?project={copy}                          → 200  dueAt 2026-09-03T12Z
+                                                            → 2026-10-03T12Z,
+                                                            priority high kept,
+                                                            subtaskTotal 1,
+                                                            subtaskDone 0,
+                                                            assignee null,
+                                                            completedAt null
+GET  /projects/{copy}                               → 200  name trimmed,
+                                                            kind team,
+                                                            colour copied,
+                                                            client NULL
+POST …/{tpl}/instantiate  customerId={Hansen}       → 200
+GET  /projects/{billed}                             → 200  customerId = Hansen
+                                                            (NOT the template's
+                                                            Acme), currency EUR,
+                                                            rateCents 12000,
+                                                            budgets copied,
+                                                            startsOn 2026-10-01
+GET  /projects/milestones?projectId={tpl}           → 200  still 09-01 / 09-15
+
+GET  /projects/templates                as tenant B → 200  {"templates":[]}
+POST /projects/templates {tpl}          as tenant B → 404
+POST …/{tpl}/instantiate                as tenant B → 404
+DELETE /projects/templates/{tpl}        as tenant B → 404
+GET  /projects/templates                as tenant A → 200  unchanged
+
+DELETE /projects/templates/{tpl}                    → 200 {"deleted":true}
+DELETE  … again                                     → 404
+POST …/{tpl}/instantiate                            → 404
+GET  /projects/{tpl}                                → 200 (the board survives)
+
+GET /audit?entity=projects.template:{tpl}
+    → projects.template.create, .instantiate ×2, .delete
+```
+
+**Cuts and flags.**
+
+- **No template preview screen, and no editing a template as a template.** A
+  template is opened, corrected and reviewed on its own board, which is the
+  point of the model the design note chose; the dialog names what a copy carries
+  rather than drawing it.
+- **A template with no milestones keeps its task due dates verbatim**, as the
+  design note specifies. Anchoring on the earliest *task* due date instead would
+  be a better guess, but it is a different decision and belongs in the note
+  before it belongs in the code — flagged for B3.11.
+- **`rustfmt` on a crate root reformats the whole crate.** Running it on
+  `alo-jmap/src/lib.rs` rewrote six unrelated files (`base.rs`, `drive.rs`,
+  `spaces.rs`, `tasks.rs`, `wopi.rs`, `workspace_search.rs`); they were reverted
+  and the shared `server.rs`/`lib.rs` import blocks were left in their
+  checked-in wrapping so both tracks' diffs stay additive. Format the *new*
+  files only, never a `lib.rs`.
+- **Docker's published port had stopped forwarding** (container up 38 h,
+  `pg_isready` on 127.0.0.1:5432 dead while `docker exec psql` worked).
+  `docker restart alo-pg` fixed it. Worth trying before concluding the DB is
+  broken. Related: while the full store suite is running, a fresh `alo-jmap`
+  cannot bind — it waits on the migration lock every test binary takes. Run the
+  wire verification after the suite, not beside it.
+- **fr/nl not written** for the ~20 new strings — B3.11's sweep, as B3.05–B3.09a
+  left theirs.
+- **`docs/design/projects.md` is still untouched** (standing since B3.05). Owed
+  to B3.11's as-built pass, now four things: the `/projects/milestones/{id}`
+  route spelling, `due_on` being required, reaching being its own route, and the
+  template routes being `/projects/templates/{project_id}` (the note already
+  spells these `{tid}`, which is the same id).
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates
+  B2 on "B1 live with ≥1 real tenant"; B1, B2, BI-1 and most of B3 are
+  code-complete and undeployed, and deploying is a human action.
+- **`/projects` still needs the production Caddyfile prefix** at the next
+  deploy (standing since B3.04). No new top-level prefix was added here.
+
+Next item: B3.10a (★ Projects agent, answers + time — `log_time` as a drafted
+entry and `project_status_summary` as an answer with sources, in the ADR 0034
+allowlist with executors, verified structurally).

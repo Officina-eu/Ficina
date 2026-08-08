@@ -13,6 +13,21 @@ contracts.
   ever sent on your behalf: the notification is internal delivery only, and
   the submission also stays listed with the site either way.
 
+- **Start the next project from the last one.** Any shared project board can be
+  marked a **template**, and starting a project from one copies the shape of the
+  work: the cards with their columns, order, priorities, labels and checklists,
+  the milestones, and which task belongs to which milestone. Give it a name and
+  a start date and the whole plan lands there — the template's first milestone
+  becomes your start date and every other date keeps its spacing, so a shape
+  built once is re-dated for every client that follows. What it never copies is
+  somebody else's work: no assignees, comments, history, attachments, hours, and
+  no finished cards — a new project does not open with work already done. The
+  template's customer stays behind too, because a template is the shape of an
+  engagement and not the client; its currency, rate and budgets come along when
+  you name the new customer, so a retainer priced once stays priced. The
+  template is a project like any other, so you edit it on the board you already
+  know, and a copy is its own board from the moment it exists.
+
 - **A plan on the board you already have.** Projects has a **Plan** tab:
   milestones — a name and a date, "Design signed off, 30 September" — drawn
   along a timeline, with the project's own tasks grouped under them. The tasks
