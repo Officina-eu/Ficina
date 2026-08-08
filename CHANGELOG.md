@@ -6,6 +6,22 @@ contracts.
 
 ## Unreleased
 
+- **A week can now be handed in, and an approver can answer it.** When your
+  week is finished you submit it, and from that moment its hours hold still —
+  nothing in it can be added, changed, moved in or out, or deleted while
+  somebody is looking at it. Change your mind before anyone has decided and you
+  can take the week straight back. An administrator sees every submitted week
+  in one queue, oldest first, with whose it is and what it adds up to, and
+  either approves it or sends it back with a reason. A returned week unlocks
+  immediately, which is the whole point of returning it: you fix the day that
+  was wrong and submit again. An approval can be undone too — unless the hours
+  have already gone onto an invoice, in which case you are told how many and on
+  which document, because the way back from a document a customer has read is
+  to credit it, not to quietly edit the hours underneath it. Weeks are Mondays
+  to Sundays, stated as such; asking for a week by any other day is refused
+  rather than rounded to a week you did not mean. Every submit, decision and
+  reopening is written into the record's own history.
+
 - **Your time is now something the workspace can count.** A clock you start
   from a project board runs until you stop it, and stopping is what writes the
   hour down — with the task you were on, what you were doing and the day it

@@ -7813,3 +7813,242 @@ Cuts and flags:
 Next item: B3.05 (the week — `time_weeks`, submit/withdraw on the account door,
 approve/reject/reopen behind `require_admin` on the tenant door, and the lock
 that makes an entry in a decided week refuse to move).
+
+## 2026-08-08 — B3.05 the week: submit, decide, and the lock that follows
+
+The hours can now be handed in, answered, and — the point of the item — held
+still while somebody is answering them.
+
+**The lock is a row, not a flag.** `0125_time_weeks` holds one row per person
+per week (`UNIQUE (tenant_id, user_id, week_start)`), and an hour's editability
+is *derived* from that row rather than stored beside the hour. The rejected
+alternative, a `locked` boolean on `time_entries`, is two places to be right and
+would make reopening a week a rewrite of every row it contains — a rewrite that,
+if it is not atomic with the reopen, leaves a week half-unlocked. **A week with
+no row is open**: most weeks are never submitted, and a row per person per week
+since the start of an engagement would be a table of nothing happening, so
+`open` is both "no row" and a stored status and the two mean the same thing.
+
+`time_weeks.rs` is the module. `WeekStatus::is_locked` **is** the whole lock —
+submitted and approved freeze, open and rejected do not, because the point of a
+rejection is that the person fixes the week and submits it again.
+`require_week_unlocked(conn, tenant, user, day)` takes a *day* rather than a
+Monday so no caller resolves a week boundary itself, and is called by **every**
+write of an hour: the manual entry and the timer's stop (through `insert_entry`,
+on the caller's own connection, so a stop tests the week inside the transaction
+that writes the hour), the correction, the deletion, and the acceptance of a
+proposal. A correction that moves an entry asks **twice** — of the week it
+leaves and the week it joins — because checking only the destination lets a
+locked week be drained a day at a time, and checking only the source lets hours
+be pushed into a week somebody has already approved.
+
+**Two doors, and the shape of each URL is why they are different doors.** The
+personal door (`AccountStore`: `submit_week`, `withdraw_week`, `timesheet_week`,
+`timesheet_weeks`) addresses a week by its **Monday**, because a week nobody has
+submitted has no row and therefore no id. The tenant door (`TenantStore`:
+`pending_weeks`, `week_by_id`, `decide_week`, `reopen_week`) addresses it by
+**id**, because spelling a colleague's week as (person, date) in a URL puts an
+employee's identity into every access log between here and the browser. The
+admin door is the module's one cross-user read and is deliberately its narrowest:
+submitted weeks, their owners' addresses, and their minute totals — no notes, no
+entries, nothing about what anybody actually did. Totals are computed at read
+time from the entries and never stored, so an approver cannot be shown a cached
+number that disagrees with the hours it claims to describe.
+
+`projects_weeks.rs` is the edge — a **new file**, not an addition to
+`projects_time.rs` (law 3): that file's whole premise is that no route on it
+names a user, and half of this one exists only for approvers. `GET
+/projects/weeks`, `POST /projects/weeks/{monday}/submit|withdraw`, and behind
+`Account::require_admin`: `GET /projects/approvals`, `POST
+/projects/approvals/{id}/approve|reject|reopen`. No new top-level prefix —
+`/projects` is B3.04's standing Caddyfile item and `vite.config.ts` already has
+it.
+
+Verification. `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap
+--all-targets` clean; `cargo test -p alo-store` and `cargo test -p alo-jmap`
+**both fully green (exit 0, 49 test binaries each, 0 failed)** against docker
+`alo-pg`. New `tests/time_weeks_tenancy.rs`, 7 tests: the whole arc
+(submit → inbox → withdraw → resubmit → reject → fix → resubmit → approve →
+reopen), the Monday rule on every personal verb, **the lock proven for each of
+the six writes in both locked states and at both ends of a move**, the refusal
+to reopen a week whose hours are on a real issued invoice, wrong-tenant on every
+admin verb plus an inbox that never crosses, wrong-user inside one tenant on a
+shared board, and the tenant cascade. 11 pure unit tests in `time_weeks.rs`
+(week boundaries incl. the ISO-year case `insight_series` also had to get right,
+the transitions, the status round-trip, the refusal wording, the column
+prefixing) and 5 on the edge's parsing.
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, a tenant bootstrapped for the run with an admin and a
+non-admin, rows read with psql.
+
+```
+GET  /projects/weeks?from&to            (no bearer)   → 401
+POST /projects/weeks/2026-08-03/submit  (no bearer)   → 401
+GET  /projects/approvals                (no bearer)   → 401
+POST /projects/approvals/x/approve      (no bearer)   → 401
+
+GET  /projects/approvals                (staff)       → 403 "admin only"
+POST /projects/approvals/…/approve      (staff)       → 403
+POST /projects/approvals/…/reject       (staff)       → 403
+POST /projects/approvals/…/reopen       (staff)       → 403
+
+POST /projects/time  2026-08-04, 90m, billable        → 200  rate 9500 EUR
+POST /projects/time  2026-08-06, 30m, not billable    → 200
+GET  /projects/weeks?from=…08-01&to=…08-31            → 200  {"weeks":[]}
+     — open is the absence of a row, and that is the answer
+
+POST /projects/weeks/2026-08-05/submit                → 422 "a week is
+     addressed by its Monday; 2026-08-05 is a Wednesday — did you mean
+     2026-08-03?"   (never rounded to the week that contains it)
+POST /projects/weeks/not-a-date/submit                → 422
+GET  /projects/weeks?from=2026-08-03                  → 422 "to is required"
+
+POST /projects/weeks/2026-08-03/submit                → 200  locked:true
+POST /projects/weeks/2026-08-03/submit                → 409 "is submitted and
+                                                            cannot be submitted"
+POST /projects/time      (into the locked week)       → 409 "the week of
+     2026-08-03 is submitted and its hours are locked; withdraw it or ask an
+     approver to reopen it"
+PATCH  /projects/time/{e1}  minutes                   → 409  (correct inside)
+PATCH  /projects/time/{e1}  workDate → 08-11          → 409  (move OUT)
+DELETE /projects/time/{e1}                            → 409
+POST /projects/time      2026-08-11 (next week)       → 200  untouched
+PATCH  /projects/time/{e3} workDate → 08-04           → 409  (move IN)
+
+GET  /projects/approvals (admin)                      → 200  one week,
+     userEmail staff@…, minutes 120, billableMinutes 90
+
+POST /projects/approvals/{w}/reject {"note":"…"}      → 200  locked:false
+PATCH  /projects/time/{e1}                            → 200  the lock lifted
+GET  /projects/approvals                              → 200  []  (out of inbox)
+GET  /projects/weeks?…                                → 200  status rejected,
+                                                            decidedBy, note
+
+POST /projects/weeks/2026-08-03/submit                → 200  decision cleared
+POST /projects/weeks/2026-08-03/withdraw              → 200  open, submittedAt
+                                                            null
+POST /projects/weeks/2026-08-03/withdraw              → 409 "is open and cannot
+                                                            be withdrawn"
+POST /projects/weeks/2026-08-03/submit                → 200
+
+POST /projects/approvals/{w}/approve                  → 200  approved, locked
+POST /projects/approvals/{w}/approve                  → 409 "is approved and
+                                                            cannot be decided"
+POST /projects/weeks/2026-08-03/withdraw              → 409  not the person's
+DELETE /projects/time/{e2}                            → 409  approved, locked
+
+POST /projects/approvals/nosuchweek/approve           → 404  never an oracle
+POST /projects/approvals/nosuchweek/reopen            → 404
+
+POST /projects/approvals/{w}/reopen                   → 200  open again
+POST /projects/approvals/{w}/reopen                   → 409 "has no decision to
+                                                            take back"
+DELETE /projects/time/{e2}                            → 200  the lock lifted
+
+  (resubmit + approve, then a real invoice: draft → lines → issue →
+   INV-2026-00001, and the entry planted onto it)
+POST /projects/approvals/{w}/reopen                   → 409 "1 of this week's
+     hours are already on invoice INV-2026-00001; void or credit that document
+     to release them before reopening the week"
+
+psql: SELECT action, entity_type, entity_id FROM audit_log
+      WHERE action LIKE 'projects.week%' OR action LIKE 'projects.approval%'
+  projects.week.submit      | projects.week     | 2026-08-03
+  projects.approval.reject  | projects.approval | {w}
+  projects.week.submit      | projects.week     | 2026-08-03
+  projects.week.withdraw    | projects.week     | 2026-08-03
+  projects.week.submit      | projects.week     | 2026-08-03
+  projects.approval.approve | projects.approval | {w}
+  projects.approval.reopen  | projects.approval | {w}
+  projects.week.submit      | projects.week     | 2026-08-03
+  projects.approval.approve | projects.approval | {w}
+  — exactly one entry per successful mutation, and none for the
+    401/403/404/409/422s
+
+psql: SELECT count(*) FROM audit_log WHERE detail ILIKE '%doubled%'
+                                        OR target ILIKE '%doubled%'   → 0
+  a rejection reason can name a person or a case; none reached the log
+```
+
+Cuts and flags:
+
+- **The two doors file their audit entries under two entity keys, deliberately
+  and with a consequence worth naming.** A person's own acts land as
+  `projects.week` keyed by the **Monday**; an approver's land as
+  `projects.approval` keyed by the **week row id**. The derivation is mechanical
+  from the matched route (B2.13) and the URLs differ for the personal-data
+  reason above, so unifying them would mean either putting an employee's
+  identity in an approver's URL or inventing a hand-written verb for these five
+  routes alone. The consequence: `projects.week` + a Monday is **not unique
+  across users** in a tenant, so a hypothetical "history of this week" tab keyed
+  that way would mix colleagues. Nothing reads it that way today, and the
+  question it exists to answer — *who decided my week, and when* — is answered
+  off the record itself (`decidedBy`/`decidedAt`/`decisionNote` on every week
+  read), not out of the log. If B6.07's unified approvals inbox wants one key,
+  the fix is a route-shape decision taken there, not a patch here.
+- **`open` clears the decision, and the audit log is where the undone one
+  lives.** Withdraw and reopen null `submitted_at`, `decided_by`, `decided_at`
+  and `decision_note`, because a decision that no longer stands must not still
+  be displayed on the record. A resubmit after a rejection likewise clears the
+  old reason. Every one of those transitions is in the append-only log, which is
+  what an append-only log is for.
+- **A decided week keeps its `submitted_at`.** "How long did my week wait" is a
+  fair question and the inbox orders by it; only a return to `open` clears it.
+  The CHECK constraints say exactly this (`submitted ⇒ instant`,
+  `open ⇒ no instant`, `decided ⟺ decided_by`).
+- **Rejecting a proposal stays legal in a locked week; creating one does not.**
+  A proposal is in no total, so discarding one changes nothing an approver saw —
+  and since creating a proposal in a locked week is refused, one found there can
+  only be a draft the lock arrived after. Refusing its rejection too would strand
+  it with no way to clear it. This is the one exception to "every write of an
+  hour asks the lock", and it is documented at both ends.
+- **The lock's read is not row-locked against a simultaneous submit**, and the
+  race is bounded rather than papered over: a week's totals are always
+  recomputed from its entries, so no total is ever wrong; the only reachable
+  outcome is an hour landing in a week in the same instant it was handed in,
+  which the approver still sees because the inbox counts entries as they are
+  when it is read. A `FOR SHARE` would not close it either — the first submit of
+  a week has no row to lock.
+- **An empty week may be submitted.** "I worked nothing this week" is a real
+  statement, and refusing it would leave a person with no way to make it.
+- **An admin may decide their own week**, per the design note: a one-person
+  tenant has nobody else, and the audit entry records that they did.
+- **`GET /projects/weeks` returns only weeks that have a row.** A week the list
+  does not mention is open. Synthesising one per Monday in the period would
+  invent records that do not exist and ids for them too; the read is capped at
+  500 rows and its period at five years, refused rather than truncated.
+- **`decidedBy` is a user id on the wire, not an address.** The person reading
+  their own week knows their approver, and resolving ids to addresses on the
+  personal door would hand every employee a directory lookup they were not
+  given. The inbox, which genuinely needs to show people, resolves the address
+  on the admin door and nowhere else.
+- **No web this iteration** — B3.05 is store + HTTP by the queue's own wording,
+  and the timesheet grid, the approvals page and the timer widget are B3.07's.
+  No new i18n strings were needed; nothing under `web/` was touched.
+- **The client-facts routes are still a gap** (unchanged from B3.04): the design
+  note's `GET /projects`, `GET /projects/{id}`, `PUT /projects/{id}/client` and
+  `DELETE /projects/{id}/client` belong to no queue item, and B3.07 cannot set a
+  project's rate without them. This iteration again planted the engagement's
+  rate with psql rather than widen the item.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates
+  B2 on "B1 live with ≥1 real tenant"; B1, B2 and BI-1 are code-complete and
+  undeployed, and deploying is a human action the loop is forbidden to take.
+- **`docs/design/projects.md` is untouched**; as-built doc updates are B3.11's
+  and nothing here deviates from the note. Two refinements to record there: the
+  admin door reads the inbox as `pending_weeks` with the totals folded in (the
+  note says only "the total"), and `GET /projects/weeks` resolves either end of
+  its period to the week that contains it, so a client sending two arbitrary
+  days gets the weeks between them.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`) —
+  unchanged; `rustfmt --edition 2024` on the changed files only. A pinned
+  `rust-toolchain.toml` is still the human fix.
+- **`identityctl` had to be rebuilt before it would run.** A stale binary
+  embeds a migration set older than the database, and sqlx refuses to migrate
+  rather than guess. Worth knowing for the next iteration that bootstraps a
+  local tenant: rebuild both binaries after adding a migration, not just
+  `alo-jmap`.
+
+Next item: B3.06 (billable → invoice: approved, billable, unbilled entries for
+one customer folded into draft invoice lines, entries stamped with the invoice,
+and the unbilled view — the arc `/projects/unbilled` → `POST /projects/invoices`).
