@@ -111,6 +111,22 @@ required knowing-in-advance is filed as a defect, like S1.30b/c were.
     the clicks from screen-open to done; any count that could be lower with
     a safe design is filed as a defect.
 
+13. **Brilliant with the AI off** *(economics + philosophy)* — AI calls cost
+    money per use; navigation, defaults, and design cost nothing per use.
+    Therefore the excellence of every alo flow comes FIRST from deterministic
+    UX — galleries, pre-built defaults, direct manipulation, one-click paths,
+    zero learning curve — and AI is acceleration and delight on top, never
+    the only door to a capability and never a crutch propping up a confusing
+    screen. If a flow is only usable "because you can ask the AI", the flow
+    is wrong. Every AI feature has a first-class manual sibling (template
+    gallery beside generate-my-site; tile gallery beside ask-to-chart), and
+    the AI-off configuration is a complete, pleasant product — not a degraded
+    mode.
+    *Verify:* the wave review walks every module with NO AI key configured;
+    every core task must be achievable and feel finished. Count model calls
+    in routine flows — a routine action that silently spends an AI call is a
+    defect.
+
 ## The visual scale — how every size gets chosen
 
 Nothing on an alo screen has an arbitrary dimension. Icon sizes, card
