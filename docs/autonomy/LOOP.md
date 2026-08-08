@@ -48,7 +48,10 @@ conflict you cannot resolve cleanly → `LOOP HALT`.
      `ALO_BLOB_DIR=<repo>/.localdev/blobs`, `ALO_JMAP_ADDR=127.0.0.1:8080`,
      `ALO_IDENTITY_ISSUER=http://localhost:5173`; bootstrap once with
      `identityctl bootstrap-admin` + `register-client web` as in
-     `.localdev/start.sh`). Kill the running `alo-jmap` before rebuilding
+     `.localdev/start.sh`). ALWAYS kill any running `alo-jmap` BEFORE
+     starting your test server — not only before rebuilding: a stale server
+     from a killed iteration squats the port for days and fails every bind
+     (found: one survived 19 hours and poisoned a whole night). Kill it before rebuilding too
      (macOS/Linux: `pkill -f alo-jmap`; Windows locks the exe:
      `taskkill //F //IM alo-jmap.exe`). Real curl calls, real DB rows checked.
 6. Update what changed behaviour: a CHANGELOG.md line (user voice), rustdoc/
