@@ -99,6 +99,18 @@ required knowing-in-advance is filed as a defect, like S1.30b/c were.
     reference tool, hunt for any re-typed field, and walk every cross-module
     handoff end-to-end.
 
+12. **The one-click law** — if an action can be done safely in one click,
+    making it two is a defect; every click must earn its place. No ceremony:
+    no intermediate "landing" screens before common actions, no navigating
+    away to do something that can happen in place, no dialog asking for
+    information a default could supply (laws 3, 7, 11b). The most-used action
+    of every screen is exactly one click away from where the user already is.
+    When extra clicks exist to feel "safe" or "organized", they are neither —
+    they are friction wearing a costume.
+    *Verify:* for each screen, list its three most frequent actions and count
+    the clicks from screen-open to done; any count that could be lower with
+    a safe design is filed as a defect.
+
 ## The visual scale — how every size gets chosen
 
 Nothing on an alo screen has an arbitrary dimension. Icon sizes, card
