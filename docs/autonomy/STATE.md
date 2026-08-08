@@ -10282,3 +10282,99 @@ lands at B4.05b; no route exists yet.
 Next item: B4.04a (auto-posting for issued invoices — `fin_rules.rs`'s first
 rule as a pure function from a document to a `NewEntry`, with a hand-written
 golden entry beside it, and P3 asserted for the first time).
+
+## 2026-08-08 — B4.04a the first posting rule: an issued invoice, in the books
+
+The ledger stops being a table somebody else writes into. Two files, and the
+split between them is the point:
+
+- `platform/alo-store/src/fin_rules.rs` — **pure**, no `async` anywhere in it:
+  `invoice_issue_entry(document, base_currency, accounts) -> NewEntry`. It
+  debits `ar` the gross with the customer as its dimension, and credits
+  `revenue` and `vat_output` per VAT rate, each carrying the rate. Every
+  figure is `billing_totals::Totals` as the document itself printed it —
+  nothing is recomputed, which is the whole claim P3 makes.
+- `platform/alo-store/src/fin_booking.rs` — the thin layer that reads the
+  document under the tenant's handle, takes the accounting currency, resolves
+  the three roles, applies the rule and posts it (`post_invoice_issue`), plus
+  `fin_invoice_entry` for the "is this booked?" a screen and a backfill both
+  ask without wanting to catch a conflict. The journal stays ignorant of
+  invoices and the rule stays ignorant of the database, which is what lets the
+  golden be read against arithmetic instead of against a fixture.
+
+Four decisions, all written into `docs/design/finance.md` § "As built
+(B4.04a)" so B4.04b/c inherit them:
+
+- **Revenue is one posting per VAT rate, not per line.** The note's table
+  says per line with a `project_id` dimension; a billing line carries no
+  project today, so per-line postings would be 400 identical credits on a
+  400-line invoice carrying nothing the rate grouping does not. When a line
+  gains a project link the rule splits the per-rate credit and nothing else
+  changes.
+- **The rate is a dimension on the revenue posting too.** A VAT return needs
+  the taxable base per rate as well as the tax; taking both from the journal
+  is what makes the return and the books one statement.
+- **The receivable's base amount is the sum of the crossed parts, never the
+  crossed gross.** So this rule cannot leave a rounding residual (the
+  `rounding` account earns its keep in B4.04b, where each posting is crossed
+  independently), and the receivable equals to the cent what
+  `billing_fx::restated_into` reports for the same document — P6's
+  precondition, bought now rather than argued about later.
+- **A `paid` invoice books; a `void` one does not.** Paid was issued first
+  and a backfill meets settled documents; void is booked by its issue entry
+  and corrected by its `void` reversal. Draft and credit note are typed
+  `Conflict`s naming the rule that owns them.
+
+**P3 is asserted for the first time**, in both shapes the note asked for: the
+hand-written golden in `src/fin_rules.rs` (7 unit tests) and the same entry on
+the wire in `tests/fin_invoice_posting.rs` (7 integration tests) — where the
+receivable is checked against a total the *test* computes from
+`billing_totals`, and again one layer up against `fin_trial_balance`.
+
+The FX golden is the part worth keeping. The first draft used 1 EUR = 1.0875
+USD, and it passed **under a deliberate mutation** that crossed the gross
+instead of summing the crossed parts — at that rate the two answers happen to
+agree, so the assertion proved nothing. The suites now use 1.0880, where the
+parts give €1 201.28 and the whole gives €1 201.29, and the same mutation
+fails exactly two tests (the pure one and the wire one) and nothing else.
+Re-verified green after reverting it.
+
+Also proven on the wire: booking twice is `Conflict("this document event is
+already posted")` with no second entry and no changed posting (P7 through a
+rule rather than through the generator); a chart whose `ar` account is
+deactivated **refuses the document** with a `Validation` naming `'ar'` and
+writes no half-entry, and books it normally once reactivated; and tenant B
+posting tenant A's invoice id is `NotFound`, with B's journal empty, B's trial
+balance carrying no posting of A's, and A's postings byte-identical after the
+attempt (the mandatory wrong-tenant test, in its aggregate form).
+
+Cut, named and dated: **the call is not wired into `issue_billing_invoice`
+yet.** The note's rule — a document and its entry share one transaction, and a
+posting failure fails the document — stands, and this is the function that
+transaction will call. Firing it today would make issuing depend on a chart
+the tenant has never opened and on a books-opening date that does not exist
+until B4.10's periods and the backfill, i.e. it would break the first invoice
+of every existing tenant to gain nothing this wave can use yet. So the wiring
+lands with B4.10 and the caller is explicit until then; the integration test
+asserts the current behaviour ("issuing does not book") so the day it changes,
+a test says so.
+
+Verified: `rustfmt --edition 2024` on the touched files (the whole-crate
+`cargo fmt` trap on this machine is unchanged); `SQLX_OFFLINE=true cargo
+clippy --workspace --all-targets` clean, zero warnings (one
+`type_complexity` on a test tuple was fixed with a `Row<'_>` alias rather
+than allowed); `cargo test -p alo-store` green against the local Postgres
+(`alo-pg` on 5432), including the 7 new unit tests and the 7 new integration
+tests.
+
+No CHANGELOG line: still nothing a person can see — no route, no screen. The
+wave's first user-voice line lands with the first visible slice (B4.05b or
+B4.13a).
+
+**HUMAN ACTION (unchanged):** `/finance` still needs the production Caddyfile
+prefix and the `API_PATHS` line in `web/vite.config.ts` when the first route
+lands; no `/finance` route exists yet.
+
+Next item: B4.04b (auto-posting for payments — `bank`/`cash` against `ar` by
+the method map, partials included, and the exchange difference to `fx_diff`
+that this rule deliberately never needed).

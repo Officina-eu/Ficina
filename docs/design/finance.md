@@ -474,6 +474,60 @@ Four rules about *when*, which matter more than the table:
   a clerk typed is a ledger no period report can trust. This is what makes
   the period lock (B4.10) load-bearing rather than decorative.
 
+### As built (B4.04a), the invoice rule
+
+`fin_rules::invoice_issue_entry` is the table's first row, and
+`fin_booking.rs` is the thin layer that reads the document, resolves `ar`,
+`revenue` and `vat_output` **by role**, applies the rule and posts what it
+returns (`AccountStore::post_invoice_issue`; `fin_invoice_entry` answers "is
+this document booked?" without catching a conflict). Four things it does that
+this note did not say in advance, each a decision rather than a shortcut:
+
+- **Revenue is one posting per VAT rate, not one per line.** The table above
+  says "per line, dimension `project_id` when the line came from B3" — and a
+  billing line carries no project today (`billing_line::Line` is description,
+  quantity, price, rate; B3's handoff writes the hours into the description).
+  Per-line postings would turn a 400-line invoice into 400 identical credits
+  carrying nothing the rate grouping does not already carry. When a line gains
+  a project link, the rule splits the per-rate credit by project and nothing
+  else about it changes.
+- **The rate travels on the revenue posting too**, not only on the tax
+  posting. A VAT return needs the taxable base per rate as well as the tax per
+  rate, and taking both from the journal is what makes the return and the
+  books provably one statement rather than two that agree today.
+- **The receivable's base amount is the sum of the crossed parts**, never the
+  crossed gross — `billing_fx::convert_totals`' doctrine with the parts being
+  the revenue and tax postings. So the invoice rule can never leave a
+  rounding residual (the `rounding` account earns its keep in B4.04b, whose
+  postings are each independently crossed), and the receivable the books carry
+  is to the cent the figure `billing_fx::restated_into` reports for the same
+  document — which is what P6 will need. Both suites pin this with a rate
+  where the two ways of doing it **disagree** (1 EUR = 1.0880 USD on the
+  golden document: €1 201.28 the parts, €1 201.29 the whole), because an
+  example where they agree proves nothing about which one the code does.
+- **A `paid` invoice is bookable and a `void` one is not.** Paid was issued
+  first, and a backfill meets documents that have since been settled; void is
+  booked by its issue entry and corrected by its `void` reversal (B4.04c's
+  neighbour), so booking it as an issue alone would misstate the ledger.
+  Draft and credit note are refused as `Conflict`, naming the rule that owns
+  them.
+
+**P3 is now asserted**, in both shapes the note asked for: a hand-written
+golden entry in `src/fin_rules.rs` (the debits and credits written out as an
+accountant writes them) and, on the wire in `tests/fin_invoice_posting.rs`,
+the receivable equal to `billing_totals::totals(lines).gross_cents` with the
+per-rate postings equal to that struct's own rows — checked against a total
+this suite computes independently, and again one layer up in
+`fin_trial_balance`.
+
+**Not yet wired into `issue_billing_invoice`.** The rule above ("the posting
+happens inside the document's own transaction") stands, and this is the
+function that transaction will call — but making it fire today would make
+issuing depend on a chart the tenant has never visited and on a books-opening
+date that does not exist until B4.10. So the wiring lands with the periods and
+the backfill, and until then the caller is explicit. This is a cut with a
+date, not a permanent seam.
+
 ### When the books open
 
 A tenant that has been invoicing since B1 has documents older than its
@@ -820,6 +874,9 @@ Store (`platform/alo-store/src`), one file one reason:
 fin_accounts.rs      the chart, the roles, the default seed
 fin_journal.rs       post(), the balance check, reads of the journal
 fin_rules.rs         document → NewEntry, pure, one function per document type
+fin_booking.rs       read the document, resolve the roles, post what the rule
+                     returns (added at B4.04a: the rules stay pure and the
+                     journal stays ignorant of invoices)
 fin_categories.rs    expense categories and their accounts
 fin_expenses.rs      claims: the account door, the approval transitions
 fin_mileage.rs       the rate table and the claim it becomes
