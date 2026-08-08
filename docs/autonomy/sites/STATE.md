@@ -1006,3 +1006,61 @@ under the lock. Next: S1.16a (the freshly split, single-turn store slice).
   the test default remains 5433, overridden via DATABASE_URL).
 - **Cuts:** none. NO notification yet, as split — that is S1.16c.
 - **Next:** S1.16c (internal inbox delivery + auto-create form on section add).
+
+## S1.16c1 — submission → owner-inbox notification (salvaged + gated, 2026-08-08)
+
+- **Provenance, stated plainly:** this iteration found uncommitted work
+  exactly matching S1.16c1's scope (new `site_form_notify.rs` +
+  `0127_site_form_notification.sql` in alo-store, new `site_notify.rs` +
+  `tests/site_notify.rs` in alo-jmap, plus six modified wiring files),
+  written 07:51–11:20, last touch ~12 minutes before this worker started —
+  a prior iteration of this same wrapper that died before the bookkeeping.
+  Process hunt found exactly ONE wrapper (PID 4312, under the lockfile) and
+  no rival worker; the tree stayed byte-quiet across two probes ~20 minutes
+  apart. Every file was read line-by-line, every referenced API verified to
+  exist, judged correct and house-style, and SALVAGED; this worker ran every
+  gate itself (S1.13/S1.16b posture).
+- **Shipped:** the notification half of the form flow. Store: migration
+  `0127` adds `site_form_submissions.notified_at` (pre-existing rows marked
+  already-notified so a deploy never floods owners; partial index on the
+  NULL set) and `site_form_notify.rs` — `Store::claim_form_notifications`,
+  a system-level claim (the `sweep_snoozes` posture) that marks rows
+  notified in the same `UPDATE … FOR UPDATE SKIP LOCKED` statement that
+  reads them (**at-most-once**: a crash between claim and delivery loses a
+  notification, never duplicates one — the submission row stays in the
+  owner's list either way), resolving site name/subdomain/owner + form name
+  in the claim. alo-jmap: `site_notify.rs` — `run_due` drains in batches of
+  100, builds one RFC 5322 message per claim and delivers it **internally**
+  through the owner's account door (never outbound SMTP): From is a display
+  identity `no-reply@<sub>.<domain>`, Reply-To the visitor, Subject through
+  RFC 2047, free text base64-encoded so a submission can never inject
+  headers or structure; a 30 s background sweep in `main.rs` (snooze-sweeper
+  posture). Enabling wiring: `mime::format_addr` and `sites::sites_domain`
+  now `pub(crate)`; tests gain `harness_on` (a second tenant on the SAME
+  store handle, the way production runs).
+- **Verified:** this item's files rustfmt-clean (`--check`, skip_children);
+  `SQLX_OFFLINE=true cargo clippy -p alo-store -p alo-jmap --all-targets`
+  zero warnings; full `cargo test -p alo-store` green (539 unit + all
+  suites) and full `cargo test -p alo-jmap` green (409 unit + every
+  integration suite) on docker Postgres, incl. the new sequenced
+  `site_notify` end-to-end test: two tenants on one store, one sweep —
+  each owner gets exactly ONE message in their OWN inbox with the right
+  Subject/Reply-To/To and body, **neither tenant's words ever reach the
+  other's inbox** (the queue's wrong-tenant criterion), a second sweep
+  delivers nothing (claimed ≡ notified), a CR/LF-bearing sender name never
+  becomes a header line, and a non-ASCII name survives the 2047 round trip.
+  Manual pass: `\d site_form_submissions` in psql shows `notified_at` + the
+  partial index + cascade FK exactly as designed. No new HTTP routes → the
+  curl wire-verify gate doesn't apply; a stale `alo-jmap.exe` from 09:02
+  was killed per protocol before building.
+- **Cuts/flags:**
+  - Server-generated notification mail is English-only (like DSN/RSVP
+    mail); localizing it is flagged for the wave review — the web i18n
+    catalogs do not reach this process.
+  - Delivery failure (e.g. owner deleted) logs without addresses/content
+    and moves on; the claim is already burned — accepted under the
+    at-most-once trade documented in the module doc.
+  - The one test is deliberately a single sequenced scenario: the sweep is
+    global, so parallel test scenarios could claim each other's rows.
+  - CHANGELOG: user-voice entry added.
+- **Next:** S1.16c2 (form auto-create on section add + the full wire arc).

@@ -6,6 +6,13 @@ contracts.
 
 ## Unreleased
 
+- **Your website's contact form now reaches your inbox.** When a visitor
+  writes through a form on your published site, the message arrives in your
+  own alo mailbox moments later — the visitor's words as the body, their
+  address on Reply-To, so answering them is one ordinary reply. Nothing is
+  ever sent on your behalf: the notification is internal delivery only, and
+  the submission also stays listed with the site either way.
+
 - **A plan on the board you already have.** Projects has a **Plan** tab:
   milestones — a name and a date, "Design signed off, 30 September" — drawn
   along a timeline, with the project's own tasks grouped under them. The tasks
