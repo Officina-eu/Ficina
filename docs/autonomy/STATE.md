@@ -9642,3 +9642,255 @@ Wave B3 is complete. Next item: B4.01 (the alo Finance design note —
 chart of accounts, the journal invariants, posting rules per document type,
 reconciliation, period locking, with the debits==credits invariant stated as a
 property-test plan).
+
+## 2026-08-08 — B4.01 the Finance design note: the ledger is stored, append-only, and never disagrees with a document
+
+Wave B4 opens with `docs/design/finance.md` (863 lines), written ahead of the
+first migration and to the same bar as B1.01, B2.01, BI1.01 and B3.01: surface
+and route table, the web surface, the chart of accounts, the journal and its
+two tables, the invariant with its property-test plan, a posting rule per
+document type, expenses/receipts/mileage, the bank and its three parsers,
+reconciliation, period locking, the four reports, alo's first scoped role, the
+error map, the tenancy story, the files the wave will add, the out-of-scope
+list and the open questions — every central decision recorded **with the
+alternative it rejects** (sixteen of them). No code changed; nothing was built.
+
+**The decision the note exists for — the ledger is stored, append-only, and
+written by exactly one function.** `fin_journal::post` takes a whole entry,
+checks that it balances, and writes header and postings in one transaction
+inside the transaction that made the document real. There is no API to add a
+posting to an existing entry, none to edit one, and no `PATCH`/`DELETE` on
+`/finance/entries`. A correction is a **reversal**, the way a wrong invoice is
+corrected by a credit note (B1.09) — the same discipline one layer down. That
+shape is what makes the invariant enforceable at all: an entry that can never
+be edited can only be unbalanced at the instant it is written, and one
+function writes it, so one check covers every path forever.
+
+- *Rejected: a deferred `plpgsql` constraint trigger* checking `SUM = 0` per
+  entry at commit — the textbook defence-in-depth answer, and seriously
+  considered. Three reasons against: CLAUDE.md's two-language rule (the repo
+  contains **no stored procedure at all** — checked: zero `CREATE TRIGGER`,
+  zero `CREATE FUNCTION`, zero `plpgsql` across all 86 migration files); a
+  trigger
+  duplicates the rule where the test suite does not reach it; and it sees rows,
+  not intent, so it passes an entry that balances and books the wrong account.
+  What replaces it: the single write path, `fin_journal::unbalanced_entries()`
+  (`GROUP BY entry_id HAVING SUM(...) <> 0`, asserted empty after every
+  property run and callable on a live tenant), and the ten properties below.
+- *Rejected: separate non-negative `debit_cents`/`credit_cents` columns.* One
+  signed `amount_cents` — positive debit, negative credit, `Σ = 0` — because
+  signs are how the arithmetic is actually done, every aggregate stays one
+  `SUM`, and `billing_bills` (0111) already stores a credit note in **ledger
+  direction** for exactly this reason. The debit/credit words survive where
+  humans read them: the journal screen and the CSV render two columns from the
+  sign.
+- *Rejected: a `posted` boolean on the document.* Idempotency is
+  `UNIQUE (tenant_id, source_kind, source_id, source_event)` — one key, in the
+  same transaction, so a retry or a re-run of the backfill is a typed
+  `Conflict` and never a second set of postings.
+
+**The invariant got the section the queue item asked for.** Ten properties
+over a generated *business month* (1–20 customers/suppliers, 1–50 invoices ×
+1–20 lines, VAT rates from {0,500,700,900,1900,2100,2500} bp, partial/exact/
+over payments, credit notes, bills, expenses, mileage, 1–3 currencies),
+generated **through the real store functions, never by inserting rows**:
+P1 balance per currency and in base, re-derived from the database; P2 no
+posting zero in both columns; P3 the AR posting equals
+`billing_totals::totals(lines).gross_cents` exactly and the VAT postings equal
+its `vat_by_rate` rows — so if B4 ever recomputes a total instead of booking
+B1's, the build goes red; P4 document + full credit note sums to zero per
+account **and per dimension**; P5 payments leave the outstanding
+`billing_payments::Settlement` reports; P6 the `ar`/`ap` balances equal the
+outstanding documents (the invariant that lets the aged report read documents
+without a second sub-ledger); P7 idempotency; P8 append-only proven
+behaviourally; P9 tenant A's whole month leaves **every one of tenant B's
+reports byte-identical** — a single-row read test cannot catch a `SUM` that
+forgot its `tenant_id`, and this module *is* aggregates; P10 the three reports
+equal figures derived independently from the documents, and the balance sheet
+balances.
+
+Six more decisions worth reading, each with its rejected alternative:
+
+- **A posting rule finds its account by `role`** (`ar`, `ap`, `bank`,
+  `vat_output`, `vat_input`, `revenue`, `employee_payable`, `fx_diff`,
+  `rounding`, …), never by code. *Rejected: hardcoding codes* — a code is a
+  national convention (SKR03 disagrees with SKR04 before either disagrees with
+  the PCG), so a rule that knows `1400` is silently wrong in every country but
+  one, in the direction of a misfiled return. The default chart is a **neutral
+  EU-SME chart seeded per tenant on first read**, using BI1.06's
+  `insight_seeds` mechanism whole (a `fin_seeds` row, PK + `ON CONFLICT DO
+  NOTHING` makes two simultaneous first visits race-free, and a tenant who
+  deletes the chart is not handed it again). *Rejected: shipping SKR03/04, the
+  PCG or the Belgian MAR* — each is large, some belong to somebody else, and
+  every one is a compliance claim a loop iteration is not entitled to make.
+- **VAT is a dimension on the posting (`vat_rate_bp`), not an account per
+  rate.** *Rejected: an account per rate*, which is what many charts do — a
+  rate change (Germany 19→16→19 in 2020, ViDA next) then mints new accounts
+  and every report must know both to add up one year.
+- **A draft posts nothing; the posting happens inside the document's own
+  transaction; a posting failure fails the document.** *Rejected: issuing
+  anyway and posting to `suspense`* — suspense is for money whose owner is
+  unknown, not for a missing configuration, and it is discovered at the year
+  end by somebody who cannot remember the invoice. `entry_date` is the
+  document's date, never today, which is what makes the period lock
+  load-bearing.
+- **Two currency columns, and the residual has a home.** Each posting carries
+  the document amount and its base equivalent through
+  `billing_fx::convert_cents` at the entry's snapshot rate; rounding is not
+  linear, so the base column can land a cent off — that cent goes to the
+  `rounding` account, **never absorbed into whichever posting is last**, which
+  would misstate a real account to tidy an artefact. `convert_totals`' own
+  doctrine (cross the parts, sum the parts, never cross the whole), applied to
+  postings. A posting may have `amount_cents = 0` **iff** `base_cents ≠ 0` —
+  that posting is the FX difference on settling a foreign-currency invoice, and
+  both-zero is a typo, refused.
+- **Nothing is ever auto-matched.** Exact (amount + our own `INV-YYYY-NNNNN`
+  in the remittance), then heuristics with the evidence shown, then manual —
+  all three produce *suggestions*. ADR 0023's rule, and here also a money rule:
+  a wrong automatic match marks an invoice paid that is not, and the customer
+  stops being chased. Confirming is what creates the `billing_payments` row
+  (which posts); **unmatching deletes it and reverses the entry**, never
+  deletes the entry. Learned rules are listed, editable and show their hit
+  count — a rule nobody can read is a rule nobody can trust.
+- **The soft close is named periods, not a settings date.** *Rejected: a hard
+  close* — a small business finds a missing receipt in week three of every
+  quarter, and a lock nobody can lift is worked around by backdating the next
+  period, which is worse. *Rejected: a bare `lock_before` date* — it answers
+  the posting question and none of the ones an accountant asks by name.
+
+**The aged report is the one that reads documents, and that is a decision.**
+Ageing is a property of a document, not of an account balance; P6 is what
+keeps the ledger and the documents honest about it. *Rejected: an open-item
+sub-ledger inside the journal* — it duplicates B1's payment state machine, and
+two implementations of "what is still owed" drift.
+
+**Reverse charge is inherited as a limitation and named, not designed around.**
+`billing_einvoice_import::category` already refuses a bill whose lines carry
+`AE`, `K`, `G` or `E` (our line holds a rate, not a category, and understating
+a return is worse than refusing a file), so a reverse-charge purchase cannot be
+imported today and therefore cannot be booked. Lifting it is a billing-side
+change before it is a ledger one — flagged below, because a business buying
+software from another member state hits it in its first month.
+
+Verified — the note is checked against the code it commits to, not memory:
+
+```
+CREATE TRIGGER / CREATE FUNCTION / plpgsql   zero hits across all migrations
+                                             — the two-language argument
+billing_totals::{totals, Totals, VatSubtotal} net_cents/vat_cents/gross_cents/
+                                             vat_by_rate — P3's exact figures
+billing_payments::{Settlement, PaymentState}  gross/paid/outstanding + Paid|
+                                             PartiallyPaid — P5's comparison
+billing_payments.method                       free text; 0108's own header says
+                                             "B4 maps methods to ledger accounts
+                                             with a per-tenant table"
+billing_fx::{convert_cents, convert_totals}   doc→base, half away from zero;
+                                             "cross the parts, sum the parts"
+billing_fx::FxSnapshot                        base_currency/rate_micro/rate_date
+                                             — the triple fin_entries copies
+billing_settings.base_currency                exists — the accounting currency
+billing_bills + billing_bill_lines (0111)     status received|approved|rejected,
+                                             payable_cents, due_date,
+                                             supplier_key index "the read the
+                                             aged-payables report (B4.11) starts
+                                             from"; credit notes stored NEGATIVE
+billing_einvoice_import::category             S and Z only; AE/K/G/E refused
+billing_xml_tree                              no DTD, no entities, bounded depth
+                                             — the CAMT.053 reader
+csv_read                                      BOM/encoding detection, delimiter
+                                             sniffing, CP1252 fallback — the
+                                             bank-CSV reader (its own header
+                                             already names B4.08 as next)
+billing_vat_report::billing_vat_period        exists — what B4.11d reconciles to
+billing::map_store_err (alo-jmap)             the shared error map, third reuse
+audit_action::AUDITED_MODULES                 ["billing","crm","projects"] →
+                                             "finance" joins at B4.05b;
+                                             tests/audit_routes.rs then requires
+                                             every mutating route be audited
+audit_action::READ_ONLY_POSTS                 ["/crm/imports/leads/preview"] —
+                                             the bank-CSV preview joins it
+Account::require_admin (state.rs)             the only tenant-level gate today;
+                                             users.is_admin (0010) the only flag
+spaces::{SpaceRole, require_space_role}       container-scoped — why the
+                                             accountant role is not a Space
+insight_seeds (0121)                          the once-per-tenant seed pattern
+id.rs                                         base64url(16 random bytes)
+0128_project_templates.sql                    last migration → B4 starts at 0129
+web/vite.config.ts API_PATHS                  /billing /crm /audit /insights
+                                             /projects /sites; /finance must
+                                             join it at B4.05b
+```
+
+Docs-only item: no Rust, web or storage gate applies, and no CHANGELOG line —
+nothing a user can see changed, the same call B1.01, B2.01, BI1.01 and B3.01
+made.
+
+Cuts and flags:
+
+- **HUMAN DECISION — the note contradicts `ROADMAP.md` three times, on
+  purpose.** B2.11, B3.8 and BI-1.6 each defer their access question to B4.12
+  "designed **on Spaces**". The role that actually turned up — an external
+  accountant needing the books tenant-wide and cross-module — is the one shape
+  a Space cannot express: a Space is a container with members, and the ledger
+  is not in a container, it is the tenant. So B4.12 delivers a
+  `tenant_user_roles` row (`accountant`, the only value), and per-record
+  sharing stays Spaces' unbuilt job. The queue item itself hedges ("via
+  Spaces/roles"). **Three ROADMAP lines need correcting by a human** — the
+  loop does not rewrite other items' rationale.
+- **HUMAN ACTION (additive to the standing list) — `/finance` will be a new
+  top-level route prefix** at B4.05b, needing the production Caddyfile entry
+  the way `/billing`, `/crm`, `/insights` and `/projects` do, and the
+  `API_PATHS` line in `web/vite.config.ts` (the S1.11 / BI1.04 / B3.04
+  lesson). No route exists yet.
+- **Flagged: the ROADMAP gate on B2 ("B1 live with ≥1 real tenant") is still
+  unmet**, and B4 is the wave where being late costs most: a ledger opened six
+  months after the invoices it should have booked needs a backfill and an
+  opening balance. The note designs both (`POST /finance/periods/open`, an
+  opening-balances manual entry, a once-per-tenant backfill recorded in
+  `fin_seeds`, made harmless by P7) rather than leaving it to be discovered.
+  **B4.02 is the first item that writes a migration.**
+- **Compliance flagged, not guessed** (the rails' rule for legal items): the
+  German GoBD and its French and Italian equivalents require accounting
+  records to be unalterable, traceable and completely retained. The
+  append-only journal, reversal-only correction, per-event idempotency key and
+  audit trail are built to that shape **deliberately** — but whether alo
+  *claims* GoBD conformity (a documented procedure, not only a schema) is a
+  legal statement for a human, exactly as the working-time-record claim was in
+  B3. Likewise: whether a given per-km mileage rate is tax-free in a member
+  state (the rate table ships **empty**, not pre-filled with Germany's €0.30),
+  and partial VAT deductibility for entertainment and vehicles (a percentage
+  is easy; knowing which percentage is legal is not).
+- **Cut from B4 and written down rather than implied:** payroll calculation
+  and tax filing (ADR 0035 non-goals); national charts of accounts as shipped
+  artefacts and DATEV export (`[B+]`); live PSD2 feeds (ADR 0009 — a licensed
+  aggregator, a human with a contract); reverse-charge and intra-community
+  purchase VAT (inherited from the import refusal above); partial VAT
+  deductibility; depreciation, fixed-asset registers, accruals, prepayments
+  and provisions (the manual journal entry is the escape hatch, which is what
+  it is for); multi-entity consolidation and cost centres beyond the
+  `project_id` dimension; automatic FX revaluation of open balances at period
+  end; **cash-basis accounting** (B4 books on the accrual basis — several
+  member states permit a cash basis for small businesses, and offering it
+  changes every posting rule's timing: a decision, not a variation); budgets
+  and forecasts (BI-2's shape).
+- **Not a cut but a refusal, stated in the note:** `flag_anomalies` names
+  entries, never people. An agent that summarises an employee's spending
+  pattern is a profiling feature nobody asked for, and every flag must carry
+  the rows that caused it — an unexplained flag is an accusation.
+- **Open questions left to a human, not guessed:** whether an accountant can
+  be a user *without a mailbox* (an identity change, not a finance one —
+  until then "no mail" honestly means "an empty mailbox and no shares", which
+  is not the sentence features.md uses); which country's books a tenant is
+  keeping; the journal's retention period against the immediate tenant-delete
+  cascade (member states require 6–10 years, and a tenant leaving with unfiled
+  books is a contract question before it is a schema one); and whether
+  approving an expense notifies the claimant.
+- **`cargo fmt` remains a trap on this machine** (rustfmt 1.9.0 vs `main`) —
+  unchanged, and untouched by a docs-only item. A pinned `rust-toolchain.toml`
+  is still the fix and still a human item.
+
+Next item: B4.02 (the chart of accounts — migration `0129` for `fin_accounts`
+plus `fin_seeds`, the `fin_accounts` store module with the role lookup, the
+neutral EU-SME default seeded once per tenant on first read, custom-account
+CRUD with the "an account carrying a posting cannot be deleted" rule, and the
+mandatory wrong-tenant test).
