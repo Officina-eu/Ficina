@@ -8740,3 +8740,177 @@ GET …  whole report            as tenant B    → 200  {"projects":[],"totals"
 
 Next item: B3.09a (milestones — the model, the store, and the timeline rendering
 over the existing boards, with `task_milestones` keeping `tasks.rs` unchanged).
+
+## 2026-08-08 — B3.09a a plan, drawn over the board that already exists
+
+**Item.** B3.09a Milestones: model + store + timeline rendering over existing
+boards; tests.
+
+**What shipped.** One migration, one store file, one route file, two web files,
+and `tasks.rs` untouched — which is the point of the shape.
+
+- `0126_project_milestones.sql` — `project_milestones` (project, name,
+  `due_on NOT NULL`, `done_at`, `position`, `created_by`) and `task_milestones`
+  (**PK on `task_id`**: one milestone per task, so "which milestone is this in"
+  has exactly one answer). Both cascade from the tenant and from the board;
+  `task_milestones` cascades from the task and from the milestone, so deleting
+  a milestone unplaces work and deletes none of it.
+- `project_milestones.rs` — create / list / read / update / reach / delete plus
+  `set_task_milestone`, `clear_task_milestone` and `task_placements`. Every
+  statement carries the tenant from the handle and a **visibility predicate**
+  (`team`, or the caller's own `personal` board) written once and bound with the
+  viewer's placeholder stated per statement rather than assumed — the first
+  draft assumed `$3` everywhere and would have bound the *name* as the viewer on
+  the update path. Each read carries the two counts a timeline draws
+  (`task_count`, `task_done_count`) as correlated subqueries, so one read
+  answers "what is this milestone and how is the work going".
+- `projects_plan.rs` — `GET/POST /projects/milestones`,
+  `GET/PATCH/DELETE /projects/milestones/{id}`,
+  `POST /projects/milestones/{id}/done`, and
+  `PUT/DELETE /projects/tasks/{task_id}/milestone`. The list route answers with
+  the milestones **and** the placements in one read: a timeline that fetched
+  them separately would draw a bar before it knew what was under it.
+- Web: `PlanView.tsx` (the timeline + the grouped board), `MilestoneDialog.tsx`,
+  the `plan` tab and route, the `projects*` plan strings in `i18n/en.ts`, the
+  plan block in `ProjectsModule.module.css`, and the six API methods.
+
+**Decisions this iteration made, and why.**
+
+- **`due_on` is NOT NULL.** A milestone without a date is a label, and the
+  timeline has nowhere to draw it. The design note calls a milestone "a named
+  date", and the column now says the same thing.
+- **Reaching is its own route, not a field on the `PATCH`.** A `PATCH` that
+  could close a deliverable while fixing a typo files a closed deliverable as a
+  spelling correction; `POST …/done` writes `projects.milestone.done` and says
+  what it did. `MilestoneEdit` therefore has no `done` field at all — the rule
+  is in the type, not in a reviewer's memory.
+- **`done_at` is never restamped.** `coalesce(done_at, now())` on the way in, so
+  a second click on a button is not a second event; un-reaching clears it.
+- **`late` is the server's flag** (`is_late(today)` against
+  `billing_document::today`), like an invoice's `overdue`: a browser with a
+  wrong clock must not be able to clear its own late list.
+- **Milestones live on any board the caller can see, not only `team` ones.**
+  Unlike client facts (B3.02) a plan is not a claim about money or somebody
+  else's approval, so withholding it from a private board would be a rule with
+  no reason behind it.
+- **The cap is enforced inside the insert** — `INSERT … SELECT … WHERE (count)
+  < 200` with `fetch_optional` — so the check and the write see one snapshot
+  rather than two.
+- **Routes are `/projects/milestones/{id}`, not `/projects/{id}/milestones`**
+  (the design note's shape), for the reason `projects_clients.rs` already
+  records: the audit derivation needs the collection in the second segment.
+  `docs/design/projects.md` still shows the note's spelling; correcting it is
+  B3.11's sweep, along with the `project_hours.rs` sentence B3.08 flagged.
+
+**How it was verified.**
+
+- `cargo clippy -p alo-store -p alo-jmap --all-targets` clean; full
+  `cargo test -p alo-store` (all suites) and `cargo test -p alo-jmap` green;
+  `npx tsc --noEmit`, `npx eslint` on the changed files and `npm run build`
+  clean.
+- `tests/project_milestones_tenancy.rs` — 8 tests: the arc (plan → list in the
+  plan's order → move → reach → un-reach → delete), one place per task and only
+  within its own project, the counts, the bounds, the archived-board rule,
+  **another tenant denied on all nine paths** with nothing changed behind them,
+  a colleague's private board invisible in both directions, a co-tenant reading
+  and reaching the same team plan, and the two cascades (board, tenant).
+- `tests/audit_routes.rs` was red until the six new verbs were pasted into the
+  golden vocabulary, which is the test doing its job:
+  `projects.milestone.create/update/done/delete` and
+  `projects.task.milestone.update/delete`.
+
+The wire transcript — real curl, the debug `alo-jmap` on 127.0.0.1:8080 over
+docker `alo-pg`, two bootstrapped tenants (`b309wire`, `b309wireb`), tokens from
+the first-party password grant.
+
+```
+GET  /projects/milestones?projectId={p}        (no bearer)  → 401
+POST /projects/milestones                      (no bearer)  → 401
+GET  /projects/milestones                      (no projectId)
+                                             → 422 "projectId is required"
+POST /projects/milestones  no dueOn  → 422 "dueOn is required: a milestone is
+                                            a named date"
+POST …  dueOn=30/09/2026             → 422 "dueOn must be a date of the form
+                                            YYYY-MM-DD"
+POST …  name="   "                   → 422 "milestone name must not be empty"
+POST …  as tenant B                  → 404
+
+POST /projects/milestones  Beta 2026-10-15            → 200  late false
+POST /projects/milestones  "  Design signed off  "
+                           2026-07-30                 → 200  name trimmed,
+                                                             late TRUE
+GET  /projects/milestones?projectId={p}               → 200  date order:
+                                                             07-30 then 10-15
+PUT  /projects/tasks/{t1}/milestone  {design}         → 200
+PUT  /projects/tasks/{t2}/milestone  {design}         → 200
+PUT  /projects/tasks/{t3}/milestone  {design}         → 422 "a task can only be
+                                                     placed under a milestone of
+                                                     its own project"  (t3 is on
+                                                     another board)
+PUT  /projects/tasks/{t1}/milestone  {}               → 422 "milestoneId is
+                                                             required"
+PUT  /projects/tasks/{t1}/milestone  as tenant B      → 404
+
+POST /tasks/{t2}/move  status=done                    → 200
+GET  /projects/milestones/{design}                    → 200  taskCount 2,
+                                                             taskDoneCount 1,
+                                                             done FALSE
+PATCH /projects/milestones/{design}  2026-10-07       → 200  late now false,
+                                                             createdAt unchanged
+POST /projects/milestones/{design}/done  (no body)    → 200  doneAt stamped
+POST …/done {"done":true} a second later              → 200  SAME doneAt
+POST …/done {"done":false}                            → 200  doneAt null
+PUT  /projects/tasks/{t1}/milestone  {beta}           → 200  moved, ONE row
+GET  /projects/milestones?projectId={p}               → 200  1 task each,
+                                                             2 placements
+
+GET  …?projectId={p}          as tenant B  → 200 {"milestones":[],
+                                                  "placements":[]}
+GET/PATCH/POST-done/DELETE /projects/milestones/{id}  as B → 404 (each)
+DELETE /projects/tasks/{t}/milestone                  as B → 404
+DELETE /projects/tasks/{t2}/milestone                      → 200 {"cleared":true}
+DELETE  … again                                            → 404
+GET  /tasks/{t2}                                           → 200 (work survives)
+DELETE /projects/milestones/{beta}                         → 200 {"deleted":true}
+DELETE  … again                                            → 404
+GET  /tasks/{t1}                                           → 200 (work survives)
+
+GET /audit?entity=projects.milestone:{design}
+    → projects.milestone.create, .update, .done ×3
+GET /audit?entity=projects.task:{t1}
+    → projects.task.milestone.update ×2
+```
+
+**Cuts and flags.**
+
+- **No drag-and-drop on the timeline, and no reorder control.** Placing a task
+  is a select, and `position` is assigned on create and never edited — it exists
+  only to keep two milestones on one day in the order they were planned. A
+  timeline you can drag dates on is a different screen (Gantt is `[B+]` in
+  `docs/features.md`) and would need its own item.
+- **The timeline axis is `aria-hidden`**, because every fact on it — the name,
+  the date, reached, late, the counts — is written in words in the list beneath
+  it. The axis is not drawn at all when the plan has no span (one date, or
+  several on one day): a timeline needs two ends, and a single marker centred on
+  an empty rail reads as a bug.
+- **The plan tab lists every visible board**, including personal ones and
+  internal projects, because the store allows a plan on any of them. The
+  engagement list's client-work framing does not apply here and the picker does
+  not pretend it does.
+- **fr/nl not written** for the ~20 new strings — B3.11's sweep, as B3.05–B3.08
+  left theirs.
+- **`docs/design/projects.md` is still untouched** (standing since B3.05). Three
+  things now owed to B3.11's as-built pass: the route spelling above, `due_on`
+  being required, and reaching being its own route rather than an edit field.
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates
+  B2 on "B1 live with ≥1 real tenant"; B1, B2, BI-1 and most of B3 are
+  code-complete and undeployed, and deploying is a human action.
+- **`/projects` still needs the production Caddyfile prefix** at the next
+  deploy (standing since B3.04). No new top-level prefix was added here.
+- **`cargo fmt` remains a trap on this machine**: the three new files were
+  formatted with `rustfmt --edition 2024 <file>` directly, and no crate root was
+  touched.
+
+Next item: B3.09b (project templates — mark a project reusable, and
+create-from-template copying the board, its tasks, its milestones and the
+task→milestone links, with the date shift the design note specifies).

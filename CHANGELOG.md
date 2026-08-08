@@ -6,6 +6,20 @@ contracts.
 
 ## Unreleased
 
+- **A plan on the board you already have.** Projects has a **Plan** tab:
+  milestones — a name and a date, "Design signed off, 30 September" — drawn
+  along a timeline, with the project's own tasks grouped under them. The tasks
+  are the same cards Tasks shows, not copies, so one closed on the board is
+  closed here in the same instant; putting one into the plan is a single choice
+  because a task sits under one milestone and no more. A milestone is
+  **reached when you say so** and never because its last task closed — the
+  count beside it tells you how the work is going, and the button stays yours,
+  because "every task done" is not the sentence "the client accepted it". One
+  that has slipped past its date says *late*, judged by the server, so a laptop
+  with a wrong clock cannot quietly clear it. Deleting a milestone deletes a
+  date and nothing else: every task under it stays exactly where it was on the
+  board.
+
 - **What an engagement is worth, against what it was budgeted for.** Projects
   has a **Reports** tab: pick two dates and it shows every client project you
   can see — the hours worked in that period, how many were chargeable, what
