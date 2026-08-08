@@ -498,8 +498,7 @@ this note did not say in advance, each a decision rather than a shortcut:
 - **The receivable's base amount is the sum of the crossed parts**, never the
   crossed gross — `billing_fx::convert_totals`' doctrine with the parts being
   the revenue and tax postings. So the invoice rule can never leave a
-  rounding residual (the `rounding` account earns its keep in B4.04b, whose
-  postings are each independently crossed), and the receivable the books carry
+  rounding residual, and the receivable the books carry
   is to the cent the figure `billing_fx::restated_into` reports for the same
   document — which is what P6 will need. Both suites pin this with a rate
   where the two ways of doing it **disagree** (1 EUR = 1.0880 USD on the
@@ -527,6 +526,55 @@ issuing depend on a chart the tenant has never visited and on a books-opening
 date that does not exist until B4.10. So the wiring lands with the periods and
 the backfill, and until then the caller is explicit. This is a cut with a
 date, not a permanent seam.
+
+### As built (B4.04b), the settlement rule
+
+`fin_rules::payment_settle_entry` is the table's third row, and
+`AccountStore::post_payment_settle` is its booking layer
+(`fin_payment_entry` answers "is this payment in the books?").
+
+- **The two money legs are crossed at two different rates, and that is the
+  whole point.** The bank leg is what the accounting currency actually
+  received, so it crosses at the rate published for the day the money arrived;
+  the receivable leg has to remove what the *invoice* put there, so it crosses
+  at the rate frozen on the document (art. 91 again: the tax point's rate is
+  the document's rate forever). The difference is the gain or loss made by
+  being paid later, and it is posted to `fx_diff` on its own line with
+  `amount_cents = 0` — the one posting shape the journal's "moves no money"
+  rule deliberately allows.
+- **The receivable relieved is cumulative, not per payment.** The rule is
+  handed the total paid *before* this payment; the relief is what the whole
+  prefix relieves minus what the shorter one did. That makes a settled
+  document's receivable go to **exactly** zero in both columns, because the
+  last payment carries the cent by which the crossed gross differs from the
+  sum of crossed parts the issue entry booked. Relieving each payment at the
+  plain crossed amount instead leaves a one-cent phantom receivable that no
+  aged-debtors report can explain and no payment can ever clear; both suites
+  pin this with a mutation-tested golden ($1 307.00 at 1.0880 settled at
+  1.1000 and 1.0500). *So `rounding` is still unused:* every cent a settlement
+  leaves over is an exchange difference, which has a better-named home.
+- **The `fx_diff` role is required only when it can be reached** — that is,
+  when the document is not in the accounting currency
+  (`settlement_needs_exchange_account`). A chart missing it must not refuse an
+  ordinary euro payment over a posting that rule provably never writes.
+- **A payment refuses to book before its invoice does** (`Conflict`), because
+  relieving a receivable nobody booked leaves the customer's ledger negative.
+  Ordering within a document is `billing_payments`' own order read back to
+  front: the reliefs telescope under *any* stable order, so booking payments
+  out of sequence is safe.
+- **The method map is a closed default, matched on whole words.**
+  `payment_settlement_role` reads the words that mean physical cash (en/fr/nl
+  plus German) as `cash` and everything else as `bank` — never a substring,
+  because "cashless" is the bank. The per-tenant table this note promises
+  replaces the constant behind the same signature when the Accounts screen
+  grows a place to edit it.
+
+**Not yet wired into `record_billing_payment`**, for the same reason and with
+the same date as the invoice rule. One consequence to carry into that work:
+`delete_billing_payment` is B1's correction path, so once payments book
+automatically, deleting a booked one must post a **reversal** (which
+`fin_journal` already supports) rather than silently leaving its entry
+behind.
 
 ### When the books open
 

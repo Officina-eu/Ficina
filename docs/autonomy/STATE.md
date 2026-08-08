@@ -10378,3 +10378,110 @@ lands; no `/finance` route exists yet.
 Next item: B4.04b (auto-posting for payments — `bank`/`cash` against `ar` by
 the method map, partials included, and the exchange difference to `fx_diff`
 that this rule deliberately never needed).
+
+## 2026-08-08 — B4.04b the settlement rule: money arrives, and the receivable goes
+
+The second row of the note's posting table, in the same two-file split B4.04a
+set up:
+
+- `platform/alo-store/src/fin_rules.rs` — pure:
+  `payment_settle_entry(payment, document, paid_before_cents, base_currency,
+  settled_at, accounts) -> NewEntry`, plus `payment_settlement_role(method)`
+  (the method map) and `settlement_needs_exchange_account(document, base)`.
+- `platform/alo-store/src/fin_booking.rs` —
+  `post_payment_settle(invoice_id, payment_id)` reads the document and its
+  payments under the tenant's handle, works out where this payment sits in the
+  sequence, takes the rate the accounting currency actually received the money
+  at, resolves the roles and posts it; `fin_payment_entry` answers "is this
+  payment booked?".
+
+**Three decisions worth the ink, all of them arithmetic:**
+
+**The two money legs cross at two different rates.** The bank leg is what the
+books actually received, so it crosses at the rate published for the day the
+money arrived (`billing_fx_rates::snapshot_at`, the same lookup issuing uses).
+The receivable leg has to remove what the *invoice* put there, so it crosses
+at the rate frozen on the document. The difference is the gain or loss made by
+being paid later, and it goes to `fx_diff` on its own line with
+`amount_cents = 0` — the one posting shape `fin_journal::normalize`
+deliberately allows, written in B4.03a for exactly this rule.
+
+**The receivable relieved is cumulative, not per payment.** This is the part
+that took the thinking. AR was booked as the sum of the *crossed parts*
+(€1 201.28 on the golden document); a payment relieving the *crossed amount*
+adds up to the crossed gross (€1 201.29). Book it naively and every settled
+foreign-currency invoice leaves a one-cent phantom receivable that no aged
+report can explain and no payment can ever clear. So the rule is handed the
+total paid before this payment and relieves `cumulative(after) −
+cumulative(before)`, where `cumulative` adds the whole booked-vs-crossed
+difference once the document is settled. It telescopes: whatever order the
+payments are booked in, the reliefs sum to exactly what the issue entry
+booked. In the euro case every term collapses to the payment amount, so the
+ordinary path is provably unchanged.
+
+*Consequence for the note:* `rounding` is still unused. B4.04a's text said
+that account would earn its keep here; it does not — every cent a settlement
+leaves over is an exchange difference, which has a better-named home. Both
+places that claimed otherwise are corrected (module header, `finance.md`).
+
+**`fx_diff` is required only when it can be reached** — when the document is
+not in the accounting currency. A chart missing that role must not refuse an
+ordinary euro payment over a posting the rule provably never writes; the
+booking layer resolves it conditionally and the rule still refuses, typed, if
+it ever needs one it was not given.
+
+Also decided: **a payment refuses to book before its invoice does**
+(`Conflict`), because relieving a receivable nobody booked leaves the
+customer's ledger negative and every future report wrong. The **method map**
+(`docs/design/finance.md` promised one) is a closed default matched on whole
+normalised words — the words for cash in en/fr/nl/de → `cash`, everything else
+→ `bank`, never a substring, because "cashless" is the bank. The per-tenant
+table replaces the constant behind the same signature when the Accounts screen
+grows a place to edit it.
+
+**Verified.** 6 new unit tests in `src/fin_rules.rs` (13 in that module now)
+and 5 new integration tests in `tests/fin_payment_posting.rs`, against the
+local Postgres:
+
+- the euro golden — bank debited, AR credited, no third posting — and the
+  trial balance showing AR at zero and the bank at the gross afterwards, with
+  billing agreeing the document is `paid`;
+- P5 on the wire: after a €300 payment on a €1 307 invoice the ledger's
+  receivable is 100 700, which is `Settlement::of(...).outstanding_cents` to
+  the cent; a `cash` payment lands in `cash` and the bank sees none of it;
+- the FX golden, hand-computed and mutation-checked: $1 307.00 frozen at
+  1.0880, settled $500 @ 1.1000 and $807 @ 1.0500 → bank €454.55/€768.57, AR
+  €459.56/€741.72, `fx_diff` €5.01 debit then €26.85 credit, a net €21.84
+  gain, and AR at **exactly zero in both columns**. Deleting the cumulative
+  adjustment (the whole point of the design) fails exactly two assertions, one
+  pure and one on the wire, and nothing else — re-verified green after
+  reverting;
+- idempotency (second booking is `Conflict("already posted")`, not one extra
+  posting), the unbooked-invoice refusal, an unknown payment id as `NotFound`;
+- the mandatory wrong-tenant test: tenant B booking A's payment is
+  `NotFound`, B cannot even see it is booked, B's journal and trial balance are
+  empty, and A's postings are byte-identical after the attempt.
+
+Gates: `rustfmt --edition 2024` on the touched files (the whole-crate
+`cargo fmt` trap on this machine is unchanged); `SQLX_OFFLINE=true cargo
+clippy --workspace --all-targets` clean, zero warnings; `cargo test -p
+alo-store` green end to end (589 lib tests, every integration binary).
+
+Cut, named: **still not wired into `record_billing_payment`** — same reason
+and same date as B4.04a (a chart and a books-opening date that do not exist
+until B4.10). One thing that wiring inherits, now written down in both the
+module header and `finance.md`: `delete_billing_payment` is B1's correction
+path, so once payments book automatically, deleting a booked one must post a
+**reversal** (`fin_journal` already supports one) rather than leave its entry
+behind.
+
+No CHANGELOG line: still nothing a person can see — no route, no screen. The
+wave's first user-voice line lands with the first visible slice (B4.05b or
+B4.13a).
+
+**HUMAN ACTION (unchanged):** `/finance` still needs the production Caddyfile
+prefix and the `API_PATHS` line in `web/vite.config.ts` when the first route
+lands; no `/finance` route exists yet.
+
+Next item: B4.04c (credit notes — the exact mirror of the invoice rule, with
+the ledger of original + credit summing to zero).
