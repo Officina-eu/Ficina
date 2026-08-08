@@ -30,8 +30,8 @@ required knowing-in-advance is filed as a defect, like S1.30b/c were.
    match the reflexes of ITS OWN world: Mail/Agenda → Outlook & Gmail; Sheets
    → Excel; Docs → Word & Google Docs; **Sites → Wix/Squarespace-class
    builders; CRM pipelines → Trello-style boards; Billing/ERP → the flows an
-   accountant knows (minus SAP's cruelty); Insights → the chart grammar every
-   dashboard taught; Chat → Slack/WhatsApp**. Before designing a screen, name
+   accountant knows (minus SAP's cruelty); Insights → **Power BI / Tableau-class visualization quality — their output,
+   never their learning curve**; Chat → Slack/WhatsApp**. Before designing a screen, name
    its domain references and match their reflexes — then beat them on clarity.
    Innovate in what the product does, not in how controls behave.
    *Verify:* each new screen's design/journal names its domain references; no

@@ -479,6 +479,7 @@ EU models, suggest-only where the EU AI Act calls a use high-risk.
 - [BI-1] Gallery of ready-made tiles per module (Billing: revenue by month, overdue aging, VAT; CRM: pipeline by stage, win rate) — one click each.
 - [BI-1] ★ **Ask-to-chart**: "revenue per customer this quarter as bars" → chart → Approve pins it. The AI emits a typed ChartSpec (measure/dimension/period/filters — never SQL), compiled against a whitelisted semantic layer; propose-then-approve (ADR 0034).
 - [BI-1] Chart rendering via an embedded Apache-2.0 chart library under alo chrome (ADR 0033 precedent) — never a from-scratch chart engine.
+- [BI-2] ★ **Visualization excellence — the Tableau bar**: every chart presentation-grade by construction — disciplined axes and gridlines, tabular numerals, emphasized latest values, legible direct labels over legends where possible, coherent per-measure color, dark/light correct; hover reveals exact figures; drill from a bar into its records; any tile exports as a clean image/CSV for a slide or a board meeting. The pitch: a data-viz professional's output from one typed sentence — Tableau's quality with none of its training course.
 - [BI-2] Finance depth after B4: profit, cash flow, aged receivables/payables tiles; projects utilization + stock tiles.
 - [BI-2] ★ Module-embedded overview strips (the same tiles atop Billing/CRM/Inventory) and the **Monday digest mail** — your numbers in your own inbox.
 - [BI-2] Tile → CSV/PNG export; dashboard on a Meet/TV view (auto-refresh, no chrome).
