@@ -6,6 +6,18 @@ contracts.
 
 ## Unreleased
 
+- **Ask alo about a project, or tell it what you worked on.** Two new things the
+  assistant can do. *"How is the Hansen relaunch going?"* answers with the
+  project's own figures — hours logged and how much of them are billable, the
+  budget and how much of it is used, the milestones with what is next and what is
+  late, and how many tasks are open or past their date. It reads and changes
+  nothing. *"Log two hours on Hansen for yesterday, drafting the brief"* puts a
+  **suggested** entry in your timesheet: it is in no total, no submitted week and
+  on no invoice until you accept it there, and accepting is what prices it at the
+  engagement's rate. Both name the project the way you do — a name that matches
+  two of your projects is a question back to you, never a guess — and a duration
+  is always whole minutes, so nothing is rounded on the way in.
+
 - **Your website's contact form now reaches your inbox.** When a visitor
   writes through a form on your published site, the message arrives in your
   own alo mailbox moments later — the visitor's words as the body, their

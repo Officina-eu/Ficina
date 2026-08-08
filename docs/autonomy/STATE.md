@@ -9104,3 +9104,222 @@ GET /audit?entity=projects.template:{tpl}
 Next item: B3.10a (★ Projects agent, answers + time — `log_time` as a drafted
 entry and `project_status_summary` as an answer with sources, in the ADR 0034
 allowlist with executors, verified structurally).
+
+## 2026-08-08 — B3.10a the assistant can read a project, and suggest an hour
+
+**Item.** B3.10a ★ Projects agent, answers + time: `log_time` (a drafted entry)
+and `project_status_summary` (an answer from the project's own records) in the
+ADR 0034 allowlist, with executors, verified structurally.
+
+**What shipped.** alo Projects is now the third product on the agent seam
+(`docs/design/projects.md` § The Projects agent), and the *proposed entry* the
+store has carried since B3.03 finally has a door.
+
+- `platform/alo-ai/src/agent_projects.rs` — the tool set: `PROJECTS_TOOLS`,
+  the two descriptions, the product paragraph. Text and names only, on the seam
+  `agent_billing` opened and `agent_crm` confirmed; spliced into
+  `system_prompt()` after CRM's and added to `is_agent_tool`, so a tool the
+  model is told about is exactly a tool the execute route runs. Three rules are
+  in the wording because a model gets each of them wrong otherwise: a project is
+  **named, never numbered** and the name is passed through verbatim; a duration
+  is **whole minutes** (90, never 1.5); and a logged hour is **a suggestion
+  until a human accepts it**, said in the model's own words because a model that
+  believes it is filing a timesheet writes different notes than one that knows it
+  is proposing a line. `draft_timesheet_from_calendar` is deliberately absent —
+  it is B3.10b's, and the list is where it joins.
+- `products/mail/alo-jmap/src/agent_projects.rs` — the executors.
+  `log_time` resolves the project among the caller's own boards (the shared
+  `agent_args::pick` rule: exact, then a unique containment, then a refusal that
+  lists the matches), reads the day as a plain `YYYY-MM-DD`, the duration as
+  whole minutes, and optionally a task on **that** project, then writes one
+  `proposed` entry through the same `log_time` store function `POST
+  /projects/time` uses. `project_status_summary` reads and writes nothing: hours
+  from the project-grain aggregate, the budget from the engagement's own facts
+  (with the customer's name), the plan from its milestones (done, late, and what
+  is next), the work from its active tasks (open, past due) — every figure from
+  the store function a `/projects` screen already uses.
+- **The summary answers figures, not prose.** A sentence composed in the server
+  would be a user-facing string authored in one language, which CLAUDE.md calls
+  a bug in a European product. So the executor returns numbers and the web
+  renders them: `web/src/shell/AgentResultCard.tsx` (new) draws the receipt of
+  an executed action — the suggested entry as the timesheet will show it, or the
+  project's figures — reusing `projects/format`'s `durationLabel`, `dayLabel`
+  and `percentLabel` so an hour reads the same here as in the week grid. Every
+  block with nothing to report says so in words: an absent budget is "no hours
+  budget set", never a zero, which would read as a budget of nothing.
+- `SearchOverlay` now keeps what the execute route answered instead of throwing
+  it away for "Done." — every other tool still shows exactly that sentence.
+  `AgentActionCard` previews both proposals before approval, with the note that
+  says what approving does ("suggests an entry in your timesheet — it counts
+  once you accept it there").
+- **The proposal lifecycle got its routes** (the design note's third row of the
+  routes table): `GET /projects/time/proposals`, `POST /projects/time/{id}/accept`,
+  `POST /projects/time/{id}/reject`. Without them a drafted hour is a record
+  nobody can act on, so they are part of this item rather than the next one: the
+  store's `accept_time_entry` / `reject_time_entry` / `time_entry_proposals` have
+  been waiting since B3.03. Accepting is the write that **prices** the hour
+  (the rate is resolved at acceptance, from the engagement as it stands today)
+  and is audited `projects.time.accept`; rejecting deletes a suggestion that was
+  in no total and is audited `projects.time.reject`. Both derive from the route
+  template, so `tests/audit_routes.rs` grew two vocabulary lines and nothing
+  else. The batch `POST /projects/time/propose` stays with B3.10b, which is the
+  item that drafts many entries at once.
+
+**A migration collision was blocking the local database, and is fixed.**
+`identityctl` and `alo-jmap` both answered "could not run migrations" against a
+healthy postgres. The cause: **two migrations numbered 0127** — the sites
+track's `0127_site_form_notification.sql` (commit 676156c) and this track's own
+`0127_project_templates.sql` (commit 4e368c8, B3.09b), which took a version the
+other loop had already pushed. sqlx refuses the set rather than guess an order,
+so *every* DB-touching command on either track was dead. Ours came second, so
+ours yields: renamed to `0128_project_templates.sql` (content untouched), and
+the dev database's applied row was renumbered 127 → 128 to match. Nothing is
+deployed with either migration, so no real database is affected. **The lesson
+for both loops: a migration number is a shared resource like `i18n/en.ts` —
+take the next free one after a `git pull`, and check the other track's files,
+not just your own.**
+
+**How verified.**
+
+- `cargo test -p alo-ai` green (41); `cargo test -p alo-jmap` green (418 unit +
+  every integration suite, DB-backed, after the migration repair);
+  `cargo clippy -p alo-ai -p alo-jmap --all-targets` clean.
+- Web: `npx tsc --noEmit`, `npx eslint` on the changed files, `npm run build` —
+  all clean.
+- New unit tests: the projects tool set is described exactly (nothing described
+  that cannot execute, nothing executable undescribed, no fractional hour asked
+  for, nothing that invoices/approves/deletes offered); the day is stated
+  plainly or refused (three spellings, four malformed forms); a duration arrives
+  whole or not at all **and the refusal speaks of minutes**; the plan counts
+  done/late/next; the work counts open and overdue by completion, not by column;
+  an internal project reports no budget rather than zeroes.
+- Wire-verified against the local backend (docker `alo-pg`, debug `alo-jmap` on
+  `127.0.0.1:8080`, two fresh tenants `wireb310a` / `wireb310b`, real password
+  tokens). **No model was called** — every proposal was posted straight to
+  `/ai/agent/execute`, which is what "structural verify" means here:
+
+```
+GET  /projects/time/proposals           (no token)  → 401
+POST /ai/agent/execute                  (no token)  → 401
+POST /ai/agent/execute  tool delete_time            → 400 "unknown tool"
+
+POST /ai/agent/execute  log_time, no project        → 422 "which project this is
+                                                            about is required"
+POST … log_time  project "Hovercraft"               → 422 "no project of yours is
+                                                            called Hovercraft"
+POST … log_time  no date                            → 422 "the day the work was
+                                                            done is required"
+POST … log_time  date "05/08/2026"                  → 422 "…written YYYY-MM-DD"
+POST … log_time  minutes 90.5                       → 422 "minutes must be a whole
+                                                            number of minutes, not
+                                                            90.5 — write 90 for an
+                                                            hour and a half"
+POST … log_time  no minutes                         → 422 "…in whole minutes, is
+                                                            required"
+POST … log_time  minutes 2000                       → 422 (store) "between 1 and 1440"
+POST … log_time  "Hansen relaunch", 2026-08-05, 90,
+                 note "Kickoff workshop"            → 200 proposed:true, rateCents
+                                                            absent, taskId null
+POST … log_time  "hansen" (fragment), 45, billable false
+                                                    → 200 proposed:true
+POST … log_time  task "Write the brief"             → 200 taskId set
+POST … log_time  task "Hovercraft"                  → 422 "no task of yours is
+                                                            called Hovercraft"
+POST … log_time  project "Hansen" with two matches  → 422 "more than one project
+                                                            matches Hansen: Hansen
+                                                            relaunch, Hansen support
+                                                            — say which"
+POST /projects/weeks/2026-08-03/submit              → 200
+POST … log_time  into that week                     → 409 "the week of 2026-08-03 is
+                                                            submitted and its hours
+                                                            are locked…"
+
+GET  /projects/time/proposals            as A       → 200 2 entries, newest first,
+                                                            rateCents null
+GET  /projects/time/proposals            as B       → 200 {"entries":[]}
+GET  /projects/time?from=…&to=…          as A       → 200 minutes 0, billableMinutes 0,
+                                                            proposedMinutes 135
+POST /projects/time/{e1}/accept          as B       → 404 (never a 403)
+POST /projects/time/{e1}/reject          as B       → 404
+POST /projects/time/{e1}/accept          as A       → 200 proposed:false,
+                                                            rateCents 12000, EUR
+POST /projects/time/{e1}/accept          again      → 404 (no repricing)
+POST /projects/time/{e2}/reject          as A       → 200 {"rejected":true}
+POST /projects/time/{e2}/reject          again      → 404
+GET  /projects/time/{e2}                            → 404
+GET  /projects/time?from=…&to=…                     → 200 minutes 90, billable 90,
+                                                            proposedMinutes 0
+GET  /audit?entity=projects.time:{e1}               → projects.time.accept
+GET  /audit?entity=projects.time:{e2}               → projects.time.reject
+
+POST … project_status_summary  "Hansen relaunch"    → 200 hours 90/90/0, last worked
+                                                            2026-08-05; customer
+                                                            "Hansen GmbH", EUR,
+                                                            rate 12000, budget 1200
+                                                            min, consumptionBp 750;
+                                                            milestones 2, done 0,
+                                                            late 1, next "Draft
+                                                            delivered" 2026-08-01
+                                                            late; tasks 2 open, 1
+                                                            overdue
+POST … project_status_summary            as B       → 422 "no project of yours is
+                                                            called Hansen relaunch"
+POST … project_status_summary  no project           → 422 "which project this is
+                                                            about is required"
+POST … project_status_summary  "My tasks" as B      → 200 isClientWork:false, zeroes,
+                                                            next null
+```
+
+The budget figure is hand-checkable: 90 minutes of a 1 200-minute budget is
+750 basis points, which the card shows as 8% used (rounded for reading only).
+
+**Cuts and flags.**
+
+- **`agent_args::integer` is a money reader, and stayed one.** Its refusal says
+  "a whole number of cents", which is right for a price and wrong for a
+  duration — found on the wire, not in a test. Rather than weaken the money
+  message (B1.25 chose those words deliberately), `agent_projects` reads its own
+  `minutes`, with the unit in the refusal and a test that asserts the word
+  "cents" never appears in it.
+- **No UI for the proposals inbox.** The three routes exist and are wire-proven,
+  and the week grid already shows a proposal flagged and counted apart (B3.07),
+  but there is no accept/reject *button* yet: the receipt card tells the user the
+  entry is waiting in their timesheet. A one-click accept in the week grid is a
+  small web slice and belongs to B3.10b, which is the item that will draft
+  several entries at once and therefore needs it.
+- **The summary's "late" is judged in UTC.** `is_late` compares the milestone's
+  day against the server's UTC date, exactly as the Plan tab's own reads do
+  (B3.09a) — consistent, and wrong by at most a day for a tenant far from
+  Greenwich. Making it the caller's day means sending the zone, which is a
+  cross-cutting decision for every "today" in the suite and not this item's.
+- **The agent's own writes are not audited.** `log_time` writes through
+  `/ai/agent/execute`, which is outside the audited modules, so the *proposal*
+  leaves no audit row while the accept and the reject do. This is exactly the
+  property B1.25 and B2.10 shipped with (an agent-created deal is unaudited
+  too); making the execute route audit per tool is a cross-cutting item for a
+  human to weigh, and it is recorded here rather than decided.
+- **fr/nl not written** for the ~20 new strings (`agentAct…`, `agentStatus…`) —
+  B3.11's sweep, as B3.05–B3.09b left theirs.
+- **`docs/design/projects.md` is still untouched** (standing since B3.05). Owed
+  to B3.11's as-built pass, now five things: the `/projects/milestones/{id}`
+  route spelling, `due_on` being required, reaching being its own route, the
+  template routes being `/projects/templates/{project_id}`, and this item's
+  proposal routes being `GET /projects/time/proposals` + `POST
+  /projects/time/{id}/accept|reject` rather than the note's `POST
+  /projects/time/propose` (the batch verb, which B3.10b will add).
+- **The wave gate is still unmet** (unchanged since B2.02): `ROADMAP.md` gates
+  B2 on "B1 live with ≥1 real tenant"; B1, B2, BI-1 and most of B3 are
+  code-complete and undeployed, and deploying is a human action.
+- **`/projects` still needs the production Caddyfile prefix** at the next deploy
+  (standing since B3.04). No new top-level prefix was added here.
+- **`cargo fmt` remains a trap**: `cargo fmt -- <file>` still reformatted seven
+  unrelated files in the two crates (`base.rs`, `drive.rs`, `spaces.rs`,
+  `tasks.rs`, `wopi.rs`, `workspace_search.rs`, `alo-identity/tests/oauth.rs`);
+  they were reverted and `server.rs`'s shared import block was put back in its
+  checked-in wrapping so both tracks' diffs stay additive. Format the new files
+  with `rustfmt --edition 2024 <file>` and nothing else.
+
+Next item: B3.10b (★ Projects agent, calendar — `draft_timesheet_from_calendar`
+drafts one entry per Agenda event in a range for approval, all-day events
+skipped and overlaps flagged, the project stated by the caller and never
+inferred; structural verify).
