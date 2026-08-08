@@ -21,10 +21,16 @@ required knowing-in-advance is filed as a defect, like S1.30b/c were.
    menu, keyboard shortcut, or memory. Menus may duplicate, never gatekeep.
    *Verify:* core tasks completable with visible controls alone.
 2. **Meet expectations users already own** *(Jakob's law)* — people arrive
-   trained by Outlook, Excel, and the web. Match their reflexes (this file's
-   ancestors: "Outlook muscle memory — non-negotiable"). Innovate in what the
-   product does, not in how buttons behave.
-   *Verify:* no control behaves unlike its lookalike in mainstream software.
+   trained by the best-known tools of EACH domain, and every alo module must
+   match the reflexes of ITS OWN world: Mail/Agenda → Outlook & Gmail; Sheets
+   → Excel; Docs → Word & Google Docs; **Sites → Wix/Squarespace-class
+   builders; CRM pipelines → Trello-style boards; Billing/ERP → the flows an
+   accountant knows (minus SAP's cruelty); Insights → the chart grammar every
+   dashboard taught; Chat → Slack/WhatsApp**. Before designing a screen, name
+   its domain references and match their reflexes — then beat them on clarity.
+   Innovate in what the product does, not in how controls behave.
+   *Verify:* each new screen's design/journal names its domain references; no
+   control behaves unlike its lookalike in that domain's mainstream tools.
 3. **Few choices per moment** *(Hick's law + progressive disclosure)* — a
    screen presents one obvious next step; advanced options unfold only when
    summoned. Default over decision: settings the user never met must already
